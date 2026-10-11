@@ -15,7 +15,10 @@
  *       discovery rule its entry registers below, which mirrors whatever
  *       actually selects that suite's tests here. Selection is the line, not
  *       execution — a selected test that some CI run then skips is still a
- *       member.
+ *       member. An entry opted into the row shape (`rowShape`) is also held
+ *       to how its tables are written: compact lines, a capped Covers cell,
+ *       and per-file detail headings each linked from its own row and from
+ *       nothing else, one per file in its file's section (see auditRowShape).
  *   (b) coverage lists — every entry of the registered hand-maintained
  *       `TRACKED_FILES` lists (the extension e2e and desktop integration
  *       coverage plumbing) identifies one tracked source file: the path the
@@ -326,6 +329,12 @@ export const registered = (entry) =>
   entry.discovery ? { ...entry, selects: selectsFor(entry.discovery) } : { ...entry };
 
 /**
+ * The row shape the JavaScript unit inventories opt into — one statement for
+ * the three trees `docs/test/unit.md` enumerates (see {@link auditRowShape}).
+ */
+const UNIT_ROW_SHAPE = { coversMax: 300 };
+
+/**
  * The suite documents and the suites they enumerate. `section` is the `##`
  * heading whose tables make the enumeration claim and `header` their whole
  * header — together they identify the inventory tables, so a table added
@@ -339,6 +348,8 @@ export const registered = (entry) =>
  * {@link selectsFor}), so what the check demands a row for is what gets
  * selected, and the registration closure reads the same descriptor against the
  * invocation itself. A member is named in the table by its path from `dir`.
+ * An entry carrying `rowShape` also holds how its tables are written (see
+ * {@link auditRowShape}): `coversMax` is the longest a Covers cell may be.
  */
 export const DOC_INVENTORIES = [
   registered({
@@ -374,6 +385,7 @@ export const DOC_INVENTORIES = [
     header: ['Test file', 'Covers'],
     dir: 'packages/shared/tests/unit',
     discovery: { runner: RUNNERS.node, pattern: '*.test.js' },
+    rowShape: UNIT_ROW_SHAPE,
   }),
   registered({
     doc: 'docs/test/unit.md',
@@ -381,6 +393,7 @@ export const DOC_INVENTORIES = [
     header: ['Test file', 'Covers'],
     dir: 'packages/desktop/tests/unit',
     discovery: { runner: RUNNERS.node, pattern: '*.test.js' },
+    rowShape: UNIT_ROW_SHAPE,
   }),
   registered({
     doc: 'docs/test/unit.md',
@@ -388,6 +401,7 @@ export const DOC_INVENTORIES = [
     header: ['Test file', 'Covers'],
     dir: 'packages/extension/tests/unit',
     discovery: { runner: RUNNERS.node, pattern: '*.test.js' },
+    rowShape: UNIT_ROW_SHAPE,
   }),
 ];
 
@@ -448,9 +462,12 @@ const isDelimiterRow = (line) => {
  * exactly it states the header. A table is a header row followed by a
  * delimiter row and the body rows after it; code-block content is blanked first
  * (via {@link stripFences} — the one fence model), so a table-shaped example
- * inside a code block, fenced or indented, is never read as one.
+ * inside a code block, fenced or indented, is never read as one. `lines` are
+ * the table's own lines as that view states them — the header, the delimiter,
+ * then one per body row, in order — for a reading that holds how the table is
+ * written rather than what its cells say.
  * @param {string} markdown
- * @returns {{ section: string | null, subsection: string | null, header: string[], rows: string[][] }[]}
+ * @returns {{ section: string | null, subsection: string | null, header: string[], rows: string[][], lines: string[] }[]}
  */
 export function parseTables(markdown) {
   const lines = stripFences(markdown).split('\n');
@@ -476,7 +493,7 @@ export function parseTables(markdown) {
     const rows = [];
     let j = i + 2;
     while (j < lines.length && isRow(lines[j])) rows.push(splitRow(lines[j++]));
-    tables.push({ section, subsection, header, rows });
+    tables.push({ section, subsection, header, rows, lines: lines.slice(i, j) });
     i = j - 1;
   }
   return tables;
@@ -495,7 +512,7 @@ export function parseTables(markdown) {
  * @param {string[]} where.header the exact header cells
  * @param {string} [where.section] the `##` section the table sits in
  * @param {string} [where.subsection] the deeper heading inside that section
- * @returns {{ tables: { section: string | null, subsection: string | null, header: string[], rows: string[][] }[], matches: number }}
+ * @returns {{ tables: { section: string | null, subsection: string | null, header: string[], rows: string[][], lines: string[] }[], matches: number }}
  */
 export function selectTablesByHeader(docText, { header, section, subsection }) {
   const tables = parseTables(docText).filter(
@@ -1943,6 +1960,141 @@ export function identifiesSameFile(match, path) {
   return match === path || path.endsWith(`/${match}`);
 }
 
+/* ── The row shape ───────────────────────────────────────────────────────── */
+
+/**
+ * A heading's anchor by the ASCII subset of the anchor rule `lint:links`
+ * applies (which also keeps non-ASCII letters): lower-cased, every character
+ * outside ASCII `a`–`z`, `0`–`9`, space, `_` and `-` dropped, spaces made
+ * hyphens, and a repeat in document order taking `-1`, `-2` and on. This
+ * slugs the raw heading markdown where the validator slugs the rendered text;
+ * the two readings agree while each heading is plain text or a code span —
+ * no non-ASCII letters, no link or `_` emphasis markup, no entities — which
+ * is true of every heading today, and `lint:links` holds the two equal on
+ * every link the documents carry.
+ * @param {Map<string, number>} seen the slugs taken so far in the document
+ * @param {string} text the heading's text
+ * @returns {string}
+ */
+function headingSlug(seen, text) {
+  const base = text
+    .toLowerCase()
+    .replace(/[^a-z0-9 _-]/g, '')
+    .replace(/ /g, '-');
+  let slug = base;
+  while (seen.has(slug)) {
+    const n = seen.get(base) + 1;
+    seen.set(base, n);
+    slug = `${base}-${n}`;
+  }
+  seen.set(slug, 0);
+  return slug;
+}
+
+/**
+ * The detail headings of a document: every `### ` heading whose text is one
+ * backticked file name, with the `##` section it sits in and its anchor. The
+ * walk is {@link parseTables}' own — the fence-stripped view read with the one
+ * heading pattern — and every heading of the document takes its anchor in
+ * order, so a repeat is numbered as the link validator numbers it.
+ * @param {string} markdown
+ * @returns {{ section: string | null, name: string, slug: string }[]}
+ */
+function detailHeadings(markdown) {
+  const seen = new Map();
+  const found = [];
+  let section = null;
+  for (const line of stripFences(markdown).split('\n')) {
+    const match = HEADING_RE.exec(line);
+    if (!match) continue;
+    const level = match[1].length;
+    const slug = headingSlug(seen, match[2]);
+    if (level === 2) section = match[2];
+    else if (level < 2) section = null;
+    const name = level === 3 ? backtickedName(match[2]) : null;
+    if (name !== null) found.push({ section, name, slug });
+  }
+  return found;
+}
+
+/**
+ * How an opted-in inventory's tables are written, so a row edit stays a
+ * one-line diff and every Covers cell stays a line a reviewer reads whole.
+ * The verdicts, one per breach, name these causes: a Covers cell longer than
+ * `coversMax` (the JavaScript length of the trimmed cell, link markup
+ * included); a table line not in the compact form — its cells rebuilt
+ * `| a | b |`, the delimiter's cells exactly `---`; a row whose Covers cell
+ * links within the document to anything but its own detail heading — the
+ * `### ` heading naming its file in the same `##` section; and a detail
+ * heading no row links, or one with no row in its section, or a second one for
+ * one file in a section.
+ * @param {string} content the inventory document
+ * @param {{ doc: string, section: string, rowShape: { coversMax: number } }} inventory
+ * @param {{ header: string[], rows: string[][], lines: string[] }[]} tables the inventory's tables
+ * @returns {string[]} the verdicts
+ */
+function auditRowShape(content, { doc, section, rowShape }, tables) {
+  const verdicts = [];
+  const where = `${doc}: "## ${section}"`;
+  const own = new Map();
+  for (const heading of detailHeadings(content)) {
+    if (heading.section !== section) continue;
+    if (own.has(heading.name)) {
+      verdicts.push(
+        `${where} holds a second "### \`${heading.name}\`" heading (#${heading.slug}) — keep one detail section per file, under the first`,
+      );
+    } else own.set(heading.name, heading.slug);
+  }
+  const rowNames = new Set();
+  const linked = new Set();
+  const compact = (cells) => `| ${cells.join(' | ')} |`;
+  for (const { header, rows, lines } of tables) {
+    const expected = [compact(header), compact(header.map(() => '---')), ...rows.map(compact)];
+    lines.forEach((line, k) => {
+      if (line === expected[k]) return;
+      const what =
+        k === 0 ? 'header line' : k === 1 ? 'delimiter line' : `row for ${rows[k - 2][0]}`;
+      verdicts.push(`${where} ${what} is not in the compact form — write it as "${expected[k]}"`);
+    });
+    for (const [first, covers = ''] of rows) {
+      const name = backtickedName(first);
+      if (name === null) continue;
+      rowNames.add(name);
+      if (covers.length > rowShape.coversMax) {
+        verdicts.push(
+          `${where} \`${name}\`'s Covers cell is ${covers.length} characters, over the ${rowShape.coversMax} cap — keep its summary in the cell and move the rest to bullets under a "### \`${name}\`" heading after the table, linked from the cell`,
+        );
+      }
+      // An in-document link written `](#anchor)` is what this reads; a
+      // path-qualified, titled or reference-style link is outside its scope.
+      for (const [, target] of covers.matchAll(/\]\(#([^)\s]*)\)/g)) {
+        if (own.get(name) === target) linked.add(name);
+        else if (own.has(name)) {
+          verdicts.push(
+            `${where} \`${name}\`'s Covers cell links "#${target}", which is not its own "### \`${name}\`" heading in the section (#${own.get(name)}) — point the link at that heading, or drop it`,
+          );
+        } else {
+          verdicts.push(
+            `${where} \`${name}\`'s Covers cell links "#${target}", but \`${name}\` has no detail heading in the section — add "### \`${name}\`" after the table, or drop the link`,
+          );
+        }
+      }
+    }
+  }
+  for (const [name, slug] of own) {
+    if (!rowNames.has(name)) {
+      verdicts.push(
+        `${where} "### \`${name}\`" heading (#${slug}) has no row in its section — move it under the section whose table lists the file, or remove it`,
+      );
+    } else if (!linked.has(name)) {
+      verdicts.push(
+        `${where} "### \`${name}\`" heading (#${slug}) has no link to it from its row — end \`${name}\`'s Covers cell with "[Detail](#${slug})", or, if the whole text fits within the cap, fold the section back into the cell`,
+      );
+    }
+  }
+  return verdicts;
+}
+
 /* ── The audit ───────────────────────────────────────────────────────────── */
 
 /**
@@ -1954,7 +2106,7 @@ export function identifiesSameFile(match, path) {
  * @param {typeof TRACKED_LISTS} [opts.lists]
  * @returns {{ unreadable: string[], unparsed: string[], undocumented: string[],
  *             absent: string[], duplicated: string[], duplicatedEntry: string[],
- *             missingSource: string[], splitEntry: string[] }}
+ *             missingSource: string[], splitEntry: string[], rowShape: string[] }}
  */
 export function auditInventories({
   files,
@@ -1971,6 +2123,7 @@ export function auditInventories({
     duplicatedEntry: [],
     missingSource: [],
     splitEntry: [],
+    rowShape: [],
   };
   const tracked = new Set(files);
 
@@ -2009,6 +2162,7 @@ export function auditInventories({
         documented.add(name);
       }
     }
+    if (inventory.rowShape) result.rowShape.push(...auditRowShape(content, inventory, tables));
     // The suite is the tracked files under `dir` its registered rule selects,
     // so the fixtures and configs beside them are helpers, not suite members.
     const prefix = `${dir}/`;
@@ -4366,6 +4520,15 @@ const PROBLEM_BLOCKS = {
     fix:
       `give both halves of the entry the same file — the URL the suite matches and the\n` +
       `  source it converts against are one file, and a split entry silently collects nothing.`,
+  },
+  rowShape: {
+    heading: (n) => `${n} inventory line(s) or detail heading(s) break the row shape`,
+    fix:
+      `keep each opted-in inventory table compact under its prettier-ignore marker — "| a | b |"\n` +
+      `  rows and a "| --- | --- |" delimiter, so a row edit is a one-line diff — and each Covers\n` +
+      `  cell within its cap (the entry's \`rowShape\` in ${SELF_PATH}): the summary\n` +
+      `  stays in the cell, the rest moves to bullets under one "### \`<file>\`" heading after\n` +
+      `  the table in the same section, and the cell links that heading and no other.`,
   },
   undescribed: {
     heading: (n) => `${n} registered suite entr(ies) state no discovery descriptor`,
