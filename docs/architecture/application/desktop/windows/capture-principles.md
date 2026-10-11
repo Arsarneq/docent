@@ -164,15 +164,16 @@ is itself the user action that makes that window foreground.
 
 ## OS/Shell Proxies
 
-**DCP-6.** These user actions happen outside the hooks' visibility and are
-captured by proxy as follows:
+**DCP-6.** These rows record a click into a different window,
+captured directly with its window's activation recorded beside it (core CP-17),
+and actions outside the hooks' visibility, captured by proxy (core CP-7):
 
-| User action               | Captured as      |
-| ------------------------- | ---------------- |
-| Click a different window  | `context_switch` |
-| Alt+Tab                   | `context_switch` |
-| Click title bar close (X) | `context_close`  |
-| File dialog selection     | `file_dialog`    |
+| User action               | Captured as                         |
+| ------------------------- | ----------------------------------- |
+| Click a different window  | `context_switch` beside the `click` |
+| Alt+Tab                   | `context_switch`                    |
+| Click title bar close (X) | `context_close`                     |
+| File dialog selection     | `file_dialog`                       |
 
 ---
 

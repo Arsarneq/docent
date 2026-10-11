@@ -75,6 +75,14 @@
             {
               "capture_mode": "dom",
               "context_id": 1095744703,
+              "opener_context_id": 1095744702,
+              "source": null,
+              "timestamp": 1783348337017,
+              "type": "context_open"
+            },
+            {
+              "capture_mode": "dom",
+              "context_id": 1095744703,
               "nav_type": "link",
               "timestamp": 1783348337051,
               "type": "navigate",

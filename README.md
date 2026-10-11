@@ -32,7 +32,7 @@ Docent captures interactions and pairs them with step-by-step context. The resul
 - **Chrome extension** — captures user actions in the browser: clicks, typing, keyboard, drag, scroll, file uploads. Browser chrome actions (address bar, back/forward, tabs) are captured via their immediate effects.
 - **Desktop application** — captures user actions in native Windows applications via low-level input hooks and the UI Automation accessibility API, with per-action coordinate-based fallback for elements that lack accessibility data.
 
-Both platforms follow the same principle: every captured action is a real user action — nothing programmatic, synthetic, or inferred. Programmatic side-effects (value changes from code, focus moves from scripts, window lifecycle from `window.open()`) are filtered out. A small amount of observed context is recorded alongside the actions to describe them faithfully, always kept distinct from the actions themselves.
+Both platforms follow the same principle: every captured action is a real user action — nothing programmatic, synthetic, or inferred. Programmatic side-effects (value changes from code, focus moves from scripts) are filtered out. A context the captured application opens in the course of a user action belongs in the recording as its lifecycle entry, which marks that the context exists rather than standing for a user action. A small amount of observed context is recorded alongside the actions to describe them faithfully, always kept distinct from the actions themselves.
 
 Sensitive values are redacted at capture time on both platforms — passwords, credit-card / SSN / secret field values, and auth tokens in captured URLs are masked before anything is stored.
 

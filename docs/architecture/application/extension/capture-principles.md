@@ -171,11 +171,17 @@ navigations get a proxy is decided by the service worker's committed-navigation
 handler — its browser-chrome transition set, its redirect skip and its new-tab
 exception among its rules; the context rows are the tab events the
 capture-surface check holds the worker to under ECP-6, and the file-upload row
-the DOM surface that clause lists. Its new-tab row, and the click-opened tab the scripted-truth
-corpus pins, both record the new context's first navigation beside the user's
-action; whether that navigation is the action's first link under core CP-8 or a
-later one, and whether the pair is one proxy under CP-9, this table does not
-settle, and the rows stand as the shipped behaviour.
+the DOM surface that clause lists.
+
+The Right-click → Open in new tab row is
+the menu pick's proxy as core CP-17 states it: the `context_open` and the
+navigation that loads the link's destination together record the establishment.
+A click on a link the browser opens in a new tab, and a click whose page opens a
+window, are captured directly, and core CP-17 places the new context's entries
+beside them; the worker's suppression of a tab created in correlation with an
+in-page action (its recent-action test, ECP-8) withholds their `context_open`, a
+capture gap against core CP-17, whose link half
+[docent#252](https://github.com/Arsarneq/docent/issues/252) tracks.
 
 ---
 
@@ -189,9 +195,10 @@ observable signals:
 - `programmaticTabs` set tracks tabs from `window.open()`
 - Timing windows centralized in `lib/capture-timing.js` (see code for values)
 
-The listed signals illustrate how this clause reads the stream; core CP-6's
-definition of what is not a user action decides what the filter excludes, and
-ECP-12 lists what else the worker drops. Same-document (SPA) navigations are not
+The listed signals illustrate how this clause reads the stream;
+core CP-2 decides what the filter excludes: CP-6's effects, save a proxy (CP-7)
+and a context's establishment entries (CP-17); ECP-12 lists the surface's
+exceptions, and ECP-7 the establishment entries the worker withholds. Same-document (SPA) navigations are not
 captured: navigate proxies come from committed navigations only, and no
 history-state or fragment listener exists.
 
