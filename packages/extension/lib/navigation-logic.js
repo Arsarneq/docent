@@ -1,10 +1,12 @@
 /**
  * navigation-logic.js — Pure navigation capture decision logic.
  *
- * A reshaped replica of the service worker's navigation decisions, kept for unit
- * testability; the worker does not import it.
- * Determines whether a webNavigation.onCommitted event should be captured
- * and what nav_type to assign, and whether a tabs.onCreated event should
+ * The service worker's navigation decision logic: the worker imports it and
+ * its webNavigation.onCommitted and tabs.onCreated listeners decide through
+ * these functions, so the unit suite exercises the code the worker runs.
+ * Determines whether a webNavigation.onCommitted event should be captured,
+ * what nav_type to assign and which append path it takes, whether it repeats
+ * the last recorded navigation, and whether a tabs.onCreated event should
  * produce a context_open action.
  *
  * This file is part of Docent.
@@ -37,22 +39,29 @@ const BROWSER_CHROME_TYPES = new Set([
 ]);
 
 /**
- * Determine whether a navigation event should be captured and what type it is.
+ * Classify a committed navigation: skip it, or capture it on one of two append
+ * paths. Every rule except the duplicate check is decided here; the duplicate
+ * check reads the last recorded URL, which the caller holds (see
+ * isDuplicateNavigation).
+ *
+ * The `path` names how the caller appends a capture: `'new-tab-link'` is the
+ * initial link navigation of a tab opened inside the new-tab suppression window
+ * (the proxy for "Open in new tab"), appended with no duplicate check and no
+ * last-URL marker; `'browser-chrome'` is a browser chrome navigation, appended
+ * after the duplicate check, with the marker advanced once it is recorded.
  *
  * @param {object} details — webNavigation.onCommitted details
  * @param {string} details.url
  * @param {number} details.frameId
  * @param {string} details.transitionType
  * @param {string[]} [details.transitionQualifiers]
- * @param {number} details.tabId
  * @param {object} context — timing context
- * @param {number} context.lastTabCreatedTimestamp
  * @param {number} context.now — current timestamp
- * @param {string|null} context.lastTabNavUrl — last recorded URL (for dedup)
+ * @param {number} context.lastTabCreatedTimestamp
  * @param {number} context.tabCreatedSuppressionMs — suppression window
- * @returns {{ action: 'capture'|'skip', navType?: string, reason?: string }}
+ * @returns {{ action: 'skip', reason: string } | { action: 'capture', navType: string, path: 'new-tab-link'|'browser-chrome' }}
  */
-export function shouldCaptureNavigation(details, context) {
+export function classifyNavigation(details, context) {
   // Non-main frame — skip
   if (details.frameId !== 0) {
     return { action: 'skip', reason: 'non-main-frame' };
@@ -73,7 +82,7 @@ export function shouldCaptureNavigation(details, context) {
   if (timeSinceTabCreated < context.tabCreatedSuppressionMs) {
     if (details.transitionType === 'link') {
       // Exception: "Open in new tab" context menu
-      return { action: 'capture', navType: 'link' };
+      return { action: 'capture', navType: 'link', path: 'new-tab-link' };
     }
     return { action: 'skip', reason: 'recent-tab-created' };
   }
@@ -93,15 +102,64 @@ export function shouldCaptureNavigation(details, context) {
     return { action: 'skip', reason: 'redirect' };
   }
 
+  return { action: 'capture', navType, path: 'browser-chrome' };
+}
+
+/**
+ * Normalise a navigation URL for the duplicate check and the last-URL marker:
+ * one trailing slash is stripped.
+ *
+ * @param {string} url
+ * @returns {string}
+ */
+export function normaliseNavigationUrl(url) {
+  return url.replace(/\/$/, '');
+}
+
+/**
+ * Whether a browser chrome navigation repeats the last recorded one. A reload
+ * never counts as a duplicate.
+ *
+ * @param {string} normalisedUrl — the navigation's URL, through normaliseNavigationUrl
+ * @param {string} navType — the classified nav_type (classifyNavigation)
+ * @param {string|null|undefined} lastTabNavUrl — the last recorded normalised URL
+ * @returns {boolean}
+ */
+export function isDuplicateNavigation(normalisedUrl, navType, lastTabNavUrl) {
+  if (navType === 'reload') return false;
+  return normalisedUrl === lastTabNavUrl;
+}
+
+/**
+ * Determine whether a navigation event should be captured and what type it is:
+ * classifyNavigation followed by the duplicate check against
+ * context.lastTabNavUrl.
+ *
+ * @param {object} details — webNavigation.onCommitted details
+ * @param {string} details.url
+ * @param {number} details.frameId
+ * @param {string} details.transitionType
+ * @param {string[]} [details.transitionQualifiers]
+ * @param {number} details.tabId
+ * @param {object} context — timing context
+ * @param {number} context.lastTabCreatedTimestamp
+ * @param {number} context.now — current timestamp
+ * @param {string|null} context.lastTabNavUrl — last recorded URL (for dedup)
+ * @param {number} context.tabCreatedSuppressionMs — suppression window
+ * @returns {{ action: 'capture'|'skip', navType?: string, reason?: string }}
+ */
+export function shouldCaptureNavigation(details, context) {
+  const result = classifyNavigation(details, context);
+  if (result.action === 'skip') return result;
+  if (result.path === 'new-tab-link') return { action: 'capture', navType: result.navType };
+
   // Deduplication (except reloads)
-  if (navType !== 'reload') {
-    const normalised = details.url.replace(/\/$/, '');
-    if (normalised === context.lastTabNavUrl) {
-      return { action: 'skip', reason: 'duplicate-url' };
-    }
+  const normalised = normaliseNavigationUrl(details.url);
+  if (isDuplicateNavigation(normalised, result.navType, context.lastTabNavUrl)) {
+    return { action: 'skip', reason: 'duplicate-url' };
   }
 
-  return { action: 'capture', navType };
+  return { action: 'capture', navType: result.navType };
 }
 
 /**
