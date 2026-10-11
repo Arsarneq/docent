@@ -73,8 +73,9 @@ globalThis.chrome = {
         }
         Object.assign(storageData, items);
       },
-      // Usage reads as empty, so the pressure re-evaluation after STORAGE_RESUME
-      // lands in the ok band; a large figure would keep capture paused.
+      // Usage reads as empty, so the worker's start-up pressure check leaves
+      // capture unpaused; the stub must exist, or the re-evaluation after
+      // STORAGE_RESUME cannot measure usage and the pause stays.
       getBytesInUse: async () => 0,
       remove: async (keys) => {
         for (const k of [].concat(keys)) delete storageData[k];

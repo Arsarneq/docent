@@ -587,7 +587,7 @@ describe('Confirmation gate — no dispatch without confirmation, no dispatch on
   });
 });
 
-// ─── Active steps resolve in step order ───────────────────────────────────────
+// ─── Active step resolution: step order, stepless recordings, latest version ──
 
 describe('Recording selection resolves active steps: step order, stepless recordings and the latest version', () => {
   test('each recording carries its active steps sorted by step_number', () => {
