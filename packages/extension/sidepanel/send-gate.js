@@ -19,7 +19,9 @@ import { resolveActiveSteps } from '../shared/lib/session.js';
 
 /**
  * A recording's active steps through the shared resolver; a recording with no
- * steps array resolves to an empty active view rather than throwing.
+ * steps array resolves to an empty active view rather than throwing. Part of
+ * the module's interface: the other exports resolve through it, and a caller
+ * needing one recording's active view calls it directly.
  *
  * @param {{ steps?: Array<object> }} recording
  * @returns {Array<object>} the active steps, in step_number order

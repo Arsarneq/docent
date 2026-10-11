@@ -23,11 +23,30 @@ import {
   shouldDispatchButtonBeEnabled,
 } from '../../sidepanel/send-gate.js';
 
+// ─── Oracle ───────────────────────────────────────────────────────────────────
+
+/**
+ * The expected active steps of a recording, computed independently of the
+ * module under test: per logical_id the version with the greatest uuid (the
+ * first one seen on a tie), kept unless that version is deleted (session-format
+ * SF-8). Only membership is compared, so order is not computed.
+ */
+function expectedActiveSteps(recording) {
+  const latest = new Map();
+  for (const step of recording.steps ?? []) {
+    const current = latest.get(step.logical_id);
+    if (current === undefined || step.uuid > current.uuid) latest.set(step.logical_id, step);
+  }
+  return [...latest.values()].filter((step) => !step.deleted);
+}
+
 // ─── Arbitraries ──────────────────────────────────────────────────────────────
 
 /** A single step object with a logical_id, uuid, and optional deleted flag. */
+// logical_id is drawn from a small pool so a recording's steps form version
+// groups, and the resolver's choice of the latest version is exercised.
 const stepArb = fc.record({
-  logical_id: fc.uuid(),
+  logical_id: fc.constantFrom('a', 'b', 'c'),
   uuid: fc.uuid(),
   step_number: fc.integer({ min: 1, max: 20 }),
   narration: fc.string(),
@@ -317,7 +336,7 @@ describe('Dispatch button state reflects project content', () => {
 
         const hasEndpoint = Boolean(settings.endpointUrl);
         const hasActiveSteps = (project.recordings ?? []).some(
-          (r) => resolveRecordingActiveSteps(r).length > 0,
+          (r) => expectedActiveSteps(r).length > 0,
         );
         const expected = hasEndpoint && hasActiveSteps;
 
@@ -343,7 +362,7 @@ describe('Recording selector lists exactly recordings with active steps', () => 
 
         // Independently compute M: recordings that have ≥1 active step
         const expectedM = (project.recordings ?? []).filter(
-          (r) => resolveRecordingActiveSteps(r).length > 0,
+          (r) => expectedActiveSteps(r).length > 0,
         ).length;
 
         assert.strictEqual(
@@ -366,8 +385,7 @@ describe('Recording selector lists exactly recordings with active steps', () => 
   test('selector list length = M individual entries + 1 "Send all" when M > 1', async () => {
     // Generate projects that have at least 2 recordings with active steps
     const projectWith2PlusActiveArb = projectArb.filter(
-      (p) =>
-        (p.recordings ?? []).filter((r) => resolveRecordingActiveSteps(r).length > 0).length >= 2,
+      (p) => (p.recordings ?? []).filter((r) => expectedActiveSteps(r).length > 0).length >= 2,
     );
 
     await fc.assert(
@@ -507,7 +525,7 @@ describe('Confirmation gate — no dispatch without confirmation, no dispatch on
       fc.asyncProperty(
         settingsWithEndpointArb.filter((s) => Boolean(s.endpointUrl)),
         projectArb.filter((p) =>
-          (p.recordings ?? []).some((r) => resolveRecordingActiveSteps(r).length > 0),
+          (p.recordings ?? []).some((r) => expectedActiveSteps(r).length > 0),
         ),
         (settings, project) => {
           let sendPayloadCallCount = 0;
@@ -597,5 +615,23 @@ describe('Recording selection resolves active steps in step_number order', () =>
       getRecordingsWithActiveSteps({ recordings: [{ recording_id: 'r1' }] }),
       [],
     );
+  });
+
+  test('a later deleted version supersedes an active one', () => {
+    const settings = { endpointUrl: 'http://localhost:3000', apiKey: null };
+    const project = {
+      recordings: [
+        {
+          recording_id: 'r1',
+          name: 'Rec',
+          steps: [
+            { logical_id: 'a', uuid: '1', step_number: 1, deleted: false },
+            { logical_id: 'a', uuid: '2', step_number: 1, deleted: true },
+          ],
+        },
+      ],
+    };
+    assert.strictEqual(shouldDispatchButtonBeEnabled(settings, project), false);
+    assert.deepStrictEqual(getRecordingsWithActiveSteps(project), []);
   });
 });
