@@ -45,6 +45,14 @@ The tables below enumerate each tree, and
 [`check-test-inventory.js`](../../scripts/check-test-inventory.js) holds them to
 the directories they describe on every pull request: a test file with no row, or
 a row naming something the tree's discovery does not select, fails the build.
+Each row is one line. Its Covers cell states what the file covers in at most 300
+characters; a file whose coverage takes more keeps its summary there and ends the
+cell with a link to a section headed by the file's name after its tree's table,
+where the rest stands as bullets. The tables are written unpadded under a
+`<!-- prettier-ignore -->` marker, so editing a row changes that line alone. The
+same check holds this shape: the cap, the compact form, each Covers link reaching
+its own file's section, and each such section linked from its file's row, one per
+file, under that file's tree.
 
 ## Shared modules
 
@@ -422,9 +430,11 @@ machinery under `scripts/`.
 
 ### `check-test-inventory.test.js`
 
-- the inventory, coverage-list, and kill-set red paths, the mutate-scope agreement and dead modules,
-  the registration closure, the undiscovered-binary admission by either route, the kill-set
-  membership legs
+- the inventory, coverage-list, and kill-set red paths, the row-shape class over an opted-in
+  inventory (the Covers cap, the compact form, the detail links and headings, a mixed-case file
+  name's anchor, one file's detail sections in two trees, a heading-shaped line in a code block),
+  the mutate-scope agreement and dead modules, the registration closure, the undiscovered-binary
+  admission by either route, the kill-set membership legs
 - the specifier classification and its refusal, the dynamic-import edge and its computed non-edge,
   the property precedence and the mixed residue, both directions of both engines' test-surface leg,
   the in-module entry's presence, the import-aware integration classifier, the module leg and its
