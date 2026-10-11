@@ -9,8 +9,8 @@
  * (core capture-principles CP-9 — at most one proxy per user action), the
  * marker written from the normalised URL, its self-clear (extension runtime
  * ERT-3, the `lastTabNavUrl` row), the reload exemption keyed on the classified
- * nav type, and the new-tab link path that appends with no duplicate check and
- * no marker. No end-to-end spec repeats a non-reload URL, so these cases are
+ * nav type, the new-tab link path that appends with no duplicate check and
+ * no marker, and a dropped append advancing no marker (#127 review). No end-to-end spec repeats a non-reload URL, so these cases are
  * where the duplicate check is exercised.
  *
  * Approach: fake `chrome.*` globals with an in-memory `storage.local` are
@@ -36,6 +36,9 @@ mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_000_000 });
 const storageData = {};
 let onCommitted = null;
 let onCreated = null;
+let onMessage = null;
+// Set to make the next pendingActions write fail with a quota error.
+let failPendingWrite = false;
 
 function getFrom(store, keys) {
   const keyArr = keys == null ? Object.keys(store) : Array.isArray(keys) ? keys : [keys];
@@ -50,7 +53,11 @@ globalThis.chrome = {
   runtime: {
     id: 'test-extension',
     onInstalled: noListener,
-    onMessage: noListener,
+    onMessage: {
+      addListener: (fn) => {
+        onMessage = fn;
+      },
+    },
     getURL: (p) => p,
     sendMessage: async () => ({}),
   },
@@ -59,8 +66,13 @@ globalThis.chrome = {
     local: {
       get: async (keys) => getFrom(storageData, keys),
       set: async (items) => {
+        if (failPendingWrite && 'pendingActions' in items) {
+          failPendingWrite = false;
+          throw Object.assign(new Error('quota'), { name: 'QuotaExceededError' });
+        }
         Object.assign(storageData, items);
       },
+      getBytesInUse: async () => 0,
       remove: async (keys) => {
         for (const k of [].concat(keys)) delete storageData[k];
       },
@@ -106,6 +118,9 @@ const navigates = () => (storageData.pendingActions ?? []).filter((a) => a.type 
 /** Commit a main-frame navigation through the worker's listener. */
 const commit = (url, transitionType, extra = {}) =>
   onCommitted({ frameId: 0, tabId: TAB, url, transitionType, transitionQualifiers: [], ...extra });
+
+/** Send a runtime message to the worker's listener and await its response. */
+const sendMessage = (message) => new Promise((resolve) => onMessage(message, {}, resolve));
 
 /** Drain pending promise chains after a timer callback runs. */
 async function flush() {
@@ -172,5 +187,17 @@ describe('service worker — navigation proxy through its registered listeners',
     await flush();
     await commit('https://a.example/six', 'typed');
     assert.equal(navigates().length, 2);
+  });
+
+  it('advances no marker when the append is dropped, so a re-navigation records', async () => {
+    // A quota failure drops the capture and pauses capture; the marker must stay
+    // unset, or the re-navigation would be skipped as a phantom duplicate.
+    failPendingWrite = true;
+    await commit('https://a.example/ten', 'typed');
+    assert.equal(navigates().length, 0);
+    assert.equal('lastTabNavUrl' in storageData, false);
+    assert.deepEqual(await sendMessage({ type: 'STORAGE_RESUME' }), { ok: true });
+    await commit('https://a.example/ten', 'typed');
+    assert.equal(navigates().length, 1);
   });
 });
