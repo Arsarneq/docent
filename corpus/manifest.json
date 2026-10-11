@@ -46,7 +46,7 @@
       "platform": "extension",
       "page": "a.html",
       "script": "script.js",
-      "knownDiffIssues": [252],
+      "knownDiffIssues": ["#252"],
       "notes": "user click on a target=_blank link: the click is the action; the new context's establishment entries (core CP-17), its context_open and the navigate to the link's destination, stand beside it. The context_open is a known diff (#252); context_switch/close have no trusted-input driver — loudly excluded in docs/verification/scripted-truth-corpus.md"
     },
     {
