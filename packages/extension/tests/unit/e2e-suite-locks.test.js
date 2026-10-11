@@ -13,14 +13,22 @@
  * that install. The values come through the inventory checker's tokenizer, so a
  * key named in a comment or a string is never read as a setting, and each key
  * must be set exactly once, so a nested key of the same name reds here instead
- * of being misread.
+ * of being misread. Each value must be a single literal — an expression such as
+ * `30_000 * 2` reds rather than being read as its first token — and each
+ * section is read with its code blocks blanked, so a sentence shown inside a
+ * fence is never taken for the guide's own.
  */
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { configValues } from '../../../../scripts/check-test-inventory.js';
+import {
+  configValues,
+  extractHeadingSection,
+  stripFences,
+  tokenizeJs,
+} from '../../../../scripts/check-test-inventory.js';
 
 const ROOT = path.resolve(import.meta.dirname, '../../../..');
 const CONFIG = 'packages/extension/tests/e2e/playwright.config.js';
@@ -29,13 +37,25 @@ const DOC = 'docs/test/e2e.md';
 const read = (file) => fs.readFileSync(path.join(ROOT, file), 'utf8');
 
 /**
- * The value a key is set to in the config, held to being set exactly once.
+ * The value a key is set to in the config, held to being set exactly once and
+ * to being a single literal: the token after the value closes the property.
  * @param {string} key the property name
  * @returns {string} the token's text, digit separators removed
  */
 function setting(key) {
-  const found = configValues(read(CONFIG), key);
+  const source = read(CONFIG);
+  const found = configValues(source, key);
   assert.equal(found.length, 1, `${CONFIG} sets ${key} ${found.length} times`);
+  const tokens = tokenizeJs(source);
+  const at = tokens.findIndex(
+    (t, i) => t.type === 'word' && t.value === key && tokens[i + 1]?.value === ':',
+  );
+  const after = tokens[at + 3];
+  assert.ok(
+    after?.type === 'punct' && (after.value === ',' || after.value === '}'),
+    `${CONFIG} sets ${key} to an expression, not a single literal — the guide's sentence ` +
+      'is built from a literal value',
+  );
   return found[0].value.replaceAll('_', '');
 }
 
@@ -67,24 +87,18 @@ function numberWord(n) {
 }
 
 /**
- * A section of the guide — the lines from its heading to the next heading,
- * with lines inside fenced code skipped so a shell comment is never read as a
- * heading — joined with its whitespace collapsed.
+ * A section of the guide — the lines from its heading to the next heading of
+ * any level, found and bounded on a view with code blocks blanked, then read
+ * with its own code blocks blanked too, so a sentence shown inside a fence is
+ * never taken for the guide's own — joined with its whitespace collapsed.
  * @param {string} heading the heading line, exactly as written
  * @returns {string} the section's text
  */
 function section(heading) {
-  const lines = read(DOC).split('\n');
-  const start = lines.indexOf(heading);
-  assert.ok(start >= 0, `${DOC} has no "${heading}" heading`);
-  const body = [];
-  let fenced = false;
-  for (const line of lines.slice(start + 1)) {
-    if (/^\s*(```|~~~)/.test(line)) fenced = !fenced;
-    else if (!fenced && /^#{1,6}\s/.test(line)) break;
-    body.push(line);
-  }
-  return body.join(' ').replace(/\s+/g, ' ');
+  const escaped = heading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const body = extractHeadingSection(read(DOC), new RegExp(`^${escaped}$`), /^#{1,6}\s/);
+  assert.ok(body !== null, `${DOC} has no "${heading}" heading`);
+  return stripFences(body).replace(/\s+/g, ' ');
 }
 
 describe("the end-to-end guide states the Playwright config's values", () => {
@@ -96,10 +110,19 @@ describe("the end-to-end guide states the Playwright config's values", () => {
     const expected =
       `\`retries: ${retries}\` (${numberWord(attempts)} ${attempts === 1 ? 'attempt' : 'attempts'}) ` +
       `with \`trace: '${trace}'\`, and a ${timeout / 1000}-second per-test timeout`;
+    const text = section('### Retries and timeouts');
     assert.ok(
-      section('### Retries and timeouts').includes(expected),
+      text.includes(expected),
       `${DOC}'s Retries and timeouts section does not state "${expected}" — the values ` +
         `${CONFIG} sets; restate the sentence from the config`,
+    );
+    // The built sentence is the section's only statement of the retries, so a
+    // second, contradicting one beside it reds too.
+    const statements = text.match(/`retries: /g) ?? [];
+    assert.equal(
+      statements.length,
+      1,
+      `${DOC}'s Retries and timeouts section states the retries ${statements.length} times`,
     );
   });
 
