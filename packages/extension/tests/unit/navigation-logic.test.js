@@ -5,8 +5,9 @@
  * classifyNavigation()'s append path and isDuplicateNavigation()'s reload
  * exemption, and shouldCaptureTabCreated() for context_open decisions (Ctrl+T,
  * Ctrl+Shift+T). A static-source guard reads the service worker and holds that
- * its listeners decide through this module and state no transition rule of
- * their own, so a rule lives in one place, where these cases test it.
+ * its listeners decide through this module and state no transition type or
+ * qualifier name as a literal of their own, so a rule lives in one place, where
+ * these cases test it.
  *
  * Covers issue #32.
  */
@@ -164,6 +165,18 @@ describe('shouldCaptureNavigation — tab creation suppression', () => {
     const context = { ...DEFAULT_CONTEXT, lastTabCreatedTimestamp: 5000, now: 10000 };
     const result = shouldCaptureNavigation(makeDetails({ transitionType: 'typed' }), context);
     assert.equal(result.action, 'capture');
+  });
+
+  it('ends the window at exactly the suppression interval (the edge is outside it)', () => {
+    // DEFAULT_CONTEXT: now 10000, window 1000 — elapsed 1000 is outside, 999 inside.
+    const atEdge = { ...DEFAULT_CONTEXT, lastTabCreatedTimestamp: 9000 };
+    const inside = { ...DEFAULT_CONTEXT, lastTabCreatedTimestamp: 9001 };
+    const typed = makeDetails({ transitionType: 'typed' });
+    assert.equal(shouldCaptureNavigation(typed, atEdge).action, 'capture');
+    assert.deepEqual(shouldCaptureNavigation(typed, inside), {
+      action: 'skip',
+      reason: 'recent-tab-created',
+    });
   });
 });
 
@@ -346,6 +359,7 @@ describe('isDuplicateNavigation / normaliseNavigationUrl', () => {
   it('strips one trailing slash', () => {
     assert.equal(normaliseNavigationUrl('https://example.com/a/'), 'https://example.com/a');
     assert.equal(normaliseNavigationUrl('https://example.com/a'), 'https://example.com/a');
+    assert.equal(normaliseNavigationUrl('https://example.com/a//'), 'https://example.com/a/');
   });
 
   it('counts a repeat of the last recorded URL as a duplicate', () => {
