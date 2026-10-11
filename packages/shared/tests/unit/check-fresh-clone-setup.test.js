@@ -23,6 +23,7 @@ import {
   extractCommands,
   run,
 } from '../../../../scripts/check-fresh-clone-setup.js';
+import { childEnv } from '../support/child-env.js';
 
 const ROOT = path.resolve(import.meta.dirname, '../../../..');
 const SCRIPT = path.join(ROOT, 'scripts/check-fresh-clone-setup.js');
@@ -215,10 +216,10 @@ describe('run', () => {
     expectRun(runCase('baredoc', ['--doc']), 2, '`--doc` needs a path');
   });
   it('the entry point runs (--dry-run on the committed guide)', () => {
-    const env = Object.fromEntries(
-      Object.entries(process.env).filter(([k]) => !k.startsWith('GIT_')),
-    );
-    const r = spawnSync(process.execPath, [SCRIPT, '--dry-run'], { encoding: 'utf8', env });
+    const r = spawnSync(process.execPath, [SCRIPT, '--dry-run'], {
+      encoding: 'utf8',
+      env: childEnv({}),
+    });
     assert.equal(r.status, 0);
     assert.equal(
       r.stdout,
