@@ -314,7 +314,8 @@ session window's re-activation at teardown is never read as user input.
 active desktop session pins exactly one capture behaviour end-to-end from
 real OS input, and the active desktop sessions are exactly these (held to the
 manifest, STC-14): an action-emission class (`d-click`; `d-double-click`'s
-two-clicks truth), the activation/foreground proxy (`d-context-switch`), a
+two-clicks truth), the activation recorded beside a click into another window
+(`d-context-switch`), a
 correlation gate (`d-selection-gate`), input coalescing (`d-type-edit`), the
 redaction chokepoint (`d-redaction`), the scroll significance floor from both
 sides (`d-scroll-above-floor`, `d-scroll-floor`), and the capture-mode

@@ -171,14 +171,16 @@ navigations get a proxy is decided by the service worker's committed-navigation
 handler — its browser-chrome transition set, its redirect skip and its new-tab
 exception among its rules; the context rows are the tab events the
 capture-surface check holds the worker to under ECP-6, and the file-upload row
-the DOM surface that clause lists. Its new-tab row is
+the DOM surface that clause lists.
+
+The Right-click → Open in new tab row is
 the menu pick's proxy as core CP-17 states it: the `context_open` and the
 navigation that loads the link's destination together record the establishment.
 A click on a link the browser opens in a new tab, and a click whose page opens a
-window, are captured directly, and core CP-17 records the new context's entries
+window, are captured directly, and core CP-17 places the new context's entries
 beside them; the worker's suppression of a tab created in correlation with an
 in-page action (its recent-action test, ECP-8) withholds their `context_open`, a
-capture gap against that clause, whose link half
+capture gap against core CP-17, whose link half
 [docent#252](https://github.com/Arsarneq/docent/issues/252) tracks.
 
 ---

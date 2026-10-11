@@ -164,9 +164,9 @@ is itself the user action that makes that window foreground.
 
 ## OS/Shell Proxies
 
-**DCP-6.** These rows record actions outside the hooks' visibility, captured by
-proxy (core CP-7), and a click into a different window,
-captured directly with its window's activation recorded beside it (core CP-17):
+**DCP-6.** These rows record a click into a different window,
+captured directly with its window's activation recorded beside it (core CP-17),
+and actions outside the hooks' visibility, captured by proxy (core CP-7):
 
 | User action               | Captured as                         |
 | ------------------------- | ----------------------------------- |
