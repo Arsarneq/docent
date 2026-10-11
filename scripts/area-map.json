@@ -17,7 +17,7 @@
         "packages/extension/manifest.json",
         "packages/extension/icons/**",
         "packages/extension/package.json",
-        "packages/extension/tests/unit/{recorder-logic,service-worker,frame-trust,service-worker-static-import}.test.js",
+        "packages/extension/tests/unit/{recorder-logic,service-worker,service-worker-navigation,frame-trust,service-worker-static-import}.test.js",
         "packages/extension/tests/e2e/specs/{service-worker-lifecycle,service-worker-coverage,injection-latency,storage-quota,locators}.spec.js"
       ],
       "docs": [

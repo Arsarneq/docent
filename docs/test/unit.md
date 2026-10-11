@@ -224,6 +224,7 @@ half of the extension is documented in
 | `schema-validation.test.js`            | Extension export data validates against the extension schema composed from its source layers, negative cases included.                                           |
 | `secret-crypto.test.js`                | At-rest key encryption: the envelope shape, the round trip, the path taken after a restart, and tampered ciphertext.                                             |
 | `service-worker-mirror-parity.test.js` | The append chokepoint's and the active-unit helpers' second copies stay textually identical to the shipped functions, the chokepoint under indentation only.     |
+| `service-worker-navigation.test.js`    | The worker's navigation proxy through its registered listeners: the duplicate check, the last-URL marker and its self-clear, and the new-tab link path.          |
 | `service-worker-static-import.test.js` | A static-source guard that the background path uses the statically imported validator, never a dynamic import.                                                   |
 | `service-worker.test.js`               | The worker's message handlers: the panel protocol, import and export, the trusted-sender gate, redaction, and storage-failure recovery.                          |
 | `storage-quota.test.js`                | The storage-pressure classifier: the warn band's threshold and the resume hysteresis.                                                                            |
