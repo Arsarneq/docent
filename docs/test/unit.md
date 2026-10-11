@@ -45,13 +45,6 @@ The tables below enumerate each tree, and
 [`check-test-inventory.js`](../../scripts/check-test-inventory.js) holds them to
 the directories they describe on every pull request: a test file with no row, or
 a row naming something the tree's discovery does not select, fails the build.
-Each row is one line. Its Covers cell states what the file covers in at most 300
-characters; a file whose coverage takes more keeps its summary there and ends the
-cell with a link to a section headed by the file's name after its tree's table,
-where the rest stands as bullets. The tables are written unpadded under a
-`<!-- prettier-ignore -->` marker, so editing a row changes that line alone. The
-same check holds this shape: the cap, the compact form, each Covers link reaching
-its own file's section, and each such section linked from its file's row.
 
 ## Shared modules
 
@@ -238,20 +231,19 @@ machinery under `scripts/`.
   declarators, the runnable-check predicate, the lock surfaces, the map's and fixtures' citations,
   read failures under the tree's own subject, the refusal the read of the registry itself raises and
   the one its surface red states for a map it cannot use, each naming what it found
-- a file it could not read, text that is not JSON, or text that is JSON but not the map object
-- and the built fix block.
+- a file it could not read, text that is not JSON, or text that is JSON but not the map object — and
+  the built fix block.
 
 ### `check-cli-smoke.test.js`
 
 - every invocation here is deterministic-green against it and pins every variable its target reads
   itself and, from the shared suites' one child-environment home
   (`packages/shared/tests/support/child-env.js`), runs clear of the `GIT_*` environment a spawned
-  git answers to
-- which is the property a case is admitted on;
+  git answers to — which is the property a case is admitted on;
 - the harness locks beside them prove that home holds for every suite importing it: the child scrub,
   the environment-pinning helper putting back what it pinned
-- a name that carried a value, one that did not, and the path where its body throws
-- and the in-process route running its work with no `GIT_*` name set and putting each one back;
+- a name that carried a value, one that did not, and the path where its body throws — and the
+  in-process route running its work with no `GIT_*` name set and putting each one back;
 - the red paths stay with each script's own unit tests.
 
 ### `check-clippy-invocation.test.js`
@@ -261,17 +253,16 @@ machinery under `scripts/`.
   register held from both sides, the refusals
 - a workflow stating no clippy step, a clippy step carrying a quote, a guide whose gates table
   states no Clippy row, a read or a parse that throws, and a guide listing narrowed below the guides
-  the scan must read
-- and a real-tree lock.
+  the scan must read — and a real-tree lock.
 
 ### `check-command-surface.test.js`
 
-- every red-path family, the derived channel's emit, listen, and clause-prose sides
-- that prose read for the channel's absence and for a foreign channel-shaped token standing beside
-  it, the event row refused where it states a channel that read cannot see, with the token shape's
-  near misses, its grant exemptions, the same-shape tokens that name no channel at all, and the
-  residue the two shapes leave between them pinned against both readers, and a partial rename over
-  the real document, the grant enumeration read as the clause section's list
+- every red-path family, the derived channel's emit, listen, and clause-prose sides — that prose
+  read for the channel's absence and for a foreign channel-shaped token standing beside it, the
+  event row refused where it states a channel that read cannot see, with the token shape's near
+  misses, its grant exemptions, the same-shape tokens that name no channel at all, and the residue
+  the two shapes leave between them pinned against both readers, and a partial rename over the real
+  document, the grant enumeration read as the clause section's list
 - held both ways against the capability files, an item whose first backticked token is not a grant
   refused by name in one line, a grant listed in two items refused as a duplicate, a list whose
   every item is refused still running every other leg, and every other grant mention held to
@@ -296,40 +287,39 @@ machinery under `scripts/`.
   scaffolds to the same forms the check's own red output renders from, the clause example's anchor
   to a clause the registry carries as judgment-only, the mutation cadence to the workflow schedule
   that is the fact
-- its trigger set and each cron field read on its own, the cron's comment included
-- and to each prose surface restating it at that surface's own site, each scheduled workflow's guide
-  cell, section and cron comment welded to that workflow's own cron, the cron-derived cadence word
-  bound to the shipped one, every section cut by the shared heading slice, so a fenced heading
-  neither opens a section nor ends one, a line written directly under the heading is a line of it,
-  and a bare `##` marker whose title sits on the next line states no section, each reader of a
-  section's interior taking that same code-block-blanked view, so an illustration written inside a
-  code block, fenced or indented, credits no document, states no governance line and marks no change
-  record
+- its trigger set and each cron field read on its own, the cron's comment included — and to each
+  prose surface restating it at that surface's own site, each scheduled workflow's guide cell,
+  section and cron comment welded to that workflow's own cron, the cron-derived cadence word bound
+  to the shipped one, every section cut by the shared heading slice, so a fenced heading neither
+  opens a section nor ends one, a line written directly under the heading is a line of it, and a
+  bare `##` marker whose title sits on the next line states no section, each reader of a section's
+  interior taking that same code-block-blanked view, so an illustration written inside a code block,
+  fenced or indented, credits no document, states no governance line and marks no change record
 - a line indented four spaces under the heading crediting no document in the per-doc lines, where
-  the same line at the margin does
-- while a line under a fence run inside a `<details>` block written with no blank line after its
-  opener is a line the body shows and is counted as one, each of those readings answering the same
-  for a body delivered with CRLF endings as for one written with LF, and the lines the red output
-  prints for pasting taken off it and pasted back as live lines, and the scope a changed file
-  resolves to when its name carries a non-ASCII byte held beside the ASCII sibling it must answer
-  alike, and the shipped template audited as-is so its guidance comments stay inert;
-- and the refusal it prints for each governance-data file it reads
-- for the map, one that no longer fits the shape read through it and one whose text is not JSON;
+  the same line at the margin does — while a line under a fence run inside a `<details>` block
+  written with no blank line after its opener is a line the body shows and is counted as one, each
+  of those readings answering the same for a body delivered with CRLF endings as for one written
+  with LF, and the lines the red output prints for pasting taken off it and pasted back as live
+  lines, and the scope a changed file resolves to when its name carries a non-ASCII byte held beside
+  the ASCII sibling it must answer alike, and the shipped template audited as-is so its guidance
+  comments stay inert;
+- and the refusal it prints for each governance-data file it reads — for the map, one that no longer
+  fits the shape read through it and one whose text is not JSON;
 - for the registry, one whose text is not JSON and one it cannot read at all.
 
 ### `check-extension-surface.test.js`
 
 - the manifest's permissions, the dispatcher read over the derived background population
-- one switch, standing in the service worker
-- and the literal shapes its type reads accept, the asymmetric capture-path pair beside the
-  population's own machinery guards (the table held forward to the service worker's guards, held
-  back from every guard the population makes), the panel's literal sends against their documented
-  enumerations, the clause's own sender statement held present in the clause's scope
+- one switch, standing in the service worker — and the literal shapes its type reads accept, the
+  asymmetric capture-path pair beside the population's own machinery guards (the table held forward
+  to the service worker's guards, held back from every guard the population makes), the panel's
+  literal sends against their documented enumerations, the clause's own sender statement held
+  present in the clause's scope
 - the absent, duplicated (in a paragraph of its own and inside the one the claim already sits in),
   moved-out, and fenced readings, with the fail-closed form pinned
-- the capture-path payload weld over the derived content population
-- that population's own machinery guard, which answers a file list naming nothing on its own line,
-  the callee grammar the send scan reads
+- the capture-path payload weld over the derived content population — that population's own
+  machinery guard, which answers a file list naming nothing on its own line, the callee grammar the
+  send scan reads
 - the receiver written bare and written under each global-object qualifier, the step forms plain,
   optional, computed and optional computed, and the optional call, each read as one site;
 - the alias of the receiver, the unqualified and the destructured callee, the platform object
@@ -340,17 +330,17 @@ machinery under `scripts/`.
   are each named
 - the Payload cell grammar and each near miss it refuses, the shapes a key position can stand in
   that hide a name
-- a method, an accessor under a bare or quoted name, a generator
-- and the keys no cell could state, the column-name locks holding each spelled column to a name its
-  own header carries, and that clause's payload statement and the recorder paragraph's own existence
-  claim each held present the same way, and the introspection handle's member surface: the anchored
-  freeze the members are read from and each refusal around it, the member diff in both directions,
-  the reach test against the worker's own module-scope bindings with the identifiers a healthy tree
-  leaves outside it pinned green, the per-member weld holding each row and its member's body to one
-  another in both directions, the cell grammar the Reaches column is read by and each near miss it
-  refuses, the grammar sentence and the clause's own closure sentence each held present in the
-  clause's scope exactly once, and the mention count over the production population that keeps the
-  handle out of every module but the one that assigns it;
+- a method, an accessor under a bare or quoted name, a generator — and the keys no cell could state,
+  the column-name locks holding each spelled column to a name its own header carries, and that
+  clause's payload statement and the recorder paragraph's own existence claim each held present the
+  same way, and the introspection handle's member surface: the anchored freeze the members are read
+  from and each refusal around it, the member diff in both directions, the reach test against the
+  worker's own module-scope bindings with the identifiers a healthy tree leaves outside it pinned
+  green, the per-member weld holding each row and its member's body to one another in both
+  directions, the cell grammar the Reaches column is read by and each near miss it refuses, the
+  grammar sentence and the clause's own closure sentence each held present in the clause's scope
+  exactly once, and the mention count over the production population that keeps the handle out of
+  every module but the one that assigns it;
 - the panel population's own machinery guard, which answers a file list naming nothing in place of
   the quiet-send line;
 - the agreement lock holding each of the wrapper's population arguments to the derivation it is
@@ -364,8 +354,7 @@ machinery under `scripts/`.
 - one bash block, comment and blank lines dropped, a `#` line inside the fence neither ending the
   section nor kept;
 - two blocks, a block fenced `sh`, a missing clone line, a missing section and each refused line
-  shape refused, the admitted shapes kept
-- and the committed guide's commands;
+  shape refused, the admitted shapes kept — and the committed guide's commands;
 - the script built from them
 - the trap's quoting, one group and status per line, the clone pointed at the checkout, the schema
   copy's test and the green sentinel last;
@@ -433,10 +422,8 @@ machinery under `scripts/`.
 
 ### `check-test-inventory.test.js`
 
-- the inventory, coverage-list, and kill-set red paths, the row-shape class over an opted-in
-  inventory (the Covers cap, the compact form, the detail links and headings, one file's detail
-  sections in two trees, a heading-shaped line in a code block), the mutate-scope agreement and dead
-  modules, the registration closure, the undiscovered-binary admission by either route, the kill-set
+- the inventory, coverage-list, and kill-set red paths, the mutate-scope agreement and dead modules,
+  the registration closure, the undiscovered-binary admission by either route, the kill-set
   membership legs
 - the specifier classification and its refusal, the dynamic-import edge and its computed non-edge,
   the property precedence and the mixed residue, both directions of both engines' test-surface leg,
@@ -477,15 +464,14 @@ machinery under `scripts/`.
   distinct across its directory, which is the whole of that lock: where a full path is stated by
   more than one file elsewhere in the tree, the repetition is what the tree means
 - the platform adapters' suites under the same titles, a dispatch suite's payload cases stated
-  beside another's, check suites' same-named real-tree locks
-- and a bare title repeats wider again.
+  beside another's, check suites' same-named real-tree locks — and a bare title repeats wider again.
 
 ### `check-tracked-ignored.test.js`
 
 - the two questions put to git
 - the ignore question and the index-mode one, each with the flags it deliberately carries and omits
-- and the reading of their answers, including the mode question's own refusals, an answer naming no
-  entry and a record the read does not model, against the ignore question's empty answer as its
+  — and the reading of their answers, including the mode question's own refusals, an answer naming
+  no entry and a record the read does not model, against the ignore question's empty answer as its
   green, and the link verdict that names a path and its mode and never the link's target.
 
 ### `check-verification-inventory.test.js`
@@ -497,8 +483,8 @@ machinery under `scripts/`.
   descriptor rather than spelled, the carrying command held on either side of the `npm run` to one
   plain command, standing alone on the only command line it states as an invocation this reading
   models with the flags of that invocation it admits
-- named in the check
-- and a plain `--test`, the refusal naming the shape, the word or the flag it found
+- named in the check — and a plain `--test`, the refusal naming the shape, the word or the flag it
+  found
 - a flag outside the sets the check names being refused rather than read, a command after a `cd`
   left unread and the step it stands in named beside the finding where what follows the `cd` could
   have carried a suite, a `working-directory` that moves the command, stated for the step, the job
