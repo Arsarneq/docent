@@ -43,7 +43,6 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'
 // tracked lockfiles and to Dependabot's npm entries.
 export const INSTALL_ROOTS = [
   '.',
-  'packages/extension',
   'packages/extension/tests/e2e',
   'packages/desktop/tests/integration',
 ];

@@ -79,9 +79,6 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Install extension test dependencies
-        run: cd packages/extension && npm ci
-
       - name: Sync shared code
         run: npm run sync-shared
 
