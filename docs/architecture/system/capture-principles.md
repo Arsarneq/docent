@@ -64,7 +64,8 @@ it. A novel input class is judged against the definition, not the list.
 ## What is NOT a User Action
 
 **CP-6.** Things that happen as a consequence of a user action or from
-application code are not user actions and MUST NOT be captured as actions:
+application code are not user actions and MUST NOT be captured as actions,
+save what CP-2 admits in a defined role (CP-7, CP-17):
 
 - Focus/value/selection changes triggered by code
 - Windows/tabs opening or closing from code
@@ -85,7 +86,8 @@ consequence is judged against the category definition above.
 (browser chrome, the OS shell or a window title bar, for example). These are
 captured by proxy:
 the **immediate effect** stands in for the user action and enters the action
-stream in its place (CP-2).
+stream in its place (CP-2). A proxy that changes context records that context's
+establishment as CP-17 states it.
 
 Every proxy is bound by three rules:
 
@@ -99,8 +101,9 @@ whenever it arrives.
 **CP-10.** A proxy MUST **identify** what the user did. Identity is at the
 level of the action's effect, not its gesture: the proxy records the action's
 kind and the parameters that define its effect, such as the context it acts on
-or a navigation's destination. Clicking another window and pressing Alt+Tab,
-which each switch the window in focus, share one proxy shape; a typed address
+or a navigation's destination. The activation recorded beside a click into
+another window and Alt+Tab's proxy, which each switch the window in focus,
+share one entry shape (CP-17); a typed address
 and a bookmark to the same page share the navigation's shape, told apart by one
 of its fields: a classification derived from the browser's transition type.
 
@@ -110,26 +113,25 @@ of its fields: a classification derived from the browser's transition type.
 
 **CP-17.** A context's establishment is a context opened, or an existing
 context switched into, as the first change of context in a user action's causal
-chain, a close counting as one (CP-8); a later change in that chain
+chain, a close counting as a change of context (CP-8), or as a later change in
+that chain into a context first appearing there (session-format SF-10); any
+other later change in that chain,
 into a context the recording already introduced, such as the tab the browser
-activates after a close, is a cascade; a context first appearing later in that
-chain is established (session-format SF-10). Its entries record the
-establishment — beside the action when it is captured directly, and as its one
-proxy (CP-9) otherwise; the entries of a context first appearing later in the
-chain enter in the same role beside them, never as a further proxy (CP-8). For
-a context opened at a destination the opening action names, such as a link's
-target, the opening entry and the navigation that loads that destination record
-it together, its immediate effect under CP-8. The entries are the
-establishment's `context_open` or `context_switch` and, where a destination is
-named, that navigation. Whether the platform or the application's code opened
-the context does not change the entries: they record the context's existence
-for the actions that follow, never a second record of the action, and they are
-entries of the action stream in their own role under CP-2, not the recorded
-context CP-3 and CP-4 govern. A context that materializes with no user action
-behind it (a notification window, or one a page's own interval opens, for
-example) is an effect under CP-6 until a user action is taken in it, and that
-action establishes it (SF-10); a timer a user action armed does not cut the
-chain (CP-8).
+activates after a close, is a cascade. Its entries are the establishment's
+`context_open` or `context_switch` and, for a context opened at a destination
+the opening action names (a link's target, for example), the navigation that
+loads it; together they are the action's immediate effect (CP-8). They enter
+beside the action when it is captured directly, and as its one proxy (CP-9)
+otherwise; the entries of a context first appearing later in the chain enter in
+the same role beside them, never as a further proxy (CP-8). Whether the
+platform or the application's code opened the context does not change the
+entries: they record the context's existence for the actions that follow, never
+a second record of the action, and they are entries of the action stream in
+their own role under CP-2, not the recorded context CP-3 and CP-4 govern. A
+context that materializes with no user action behind it (a notification
+window, or one a page's own interval opens, for example) is an effect under
+CP-6 until a user action is taken in it, and that action establishes it
+(SF-10); a timer a user action armed does not cut the chain (CP-8).
 
 ---
 
@@ -177,8 +179,8 @@ judgment.
 ## Capture Surface
 
 **CP-14.** Each platform's capture surface is enumerated **positively** and
-treated as **closed**: it lists a fixed set of trusted inputs and the proxies
-that platform captures (the enumerations live in the
+treated as **closed**: it lists a fixed set of trusted inputs, the proxies, and
+the establishment entries (CP-17) that platform captures (the enumerations live in the
 [extension](../../architecture/application/extension/capture-principles.md) and
 [desktop](../../architecture/application/desktop/windows/capture-principles.md)
 docs). An interaction that reaches none of the enumerated surface is **not
