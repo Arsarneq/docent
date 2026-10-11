@@ -727,8 +727,9 @@ shows:
   real gate.
 - As repository-settings behaviour (visible only in the settings UI, noted
   here for completeness): the repository's ruleset for `main` requires the
-  status checks `ci-gate`, `CodeQL`, `codecov/patch`, `cla_assistant` and
-  `conventional-title`, and the branch to be up to date with `main`.
+  status checks `ci-gate`, `CodeQL`, `codecov/patch`, `cla_assistant`,
+  `conventional-title` and `disposition-format`, and the branch to be up to
+  date with `main`.
 
 Informational today — these do not block: the schema-version impact step
 in `unit-tests` (`continue-on-error`), the `codecov/project` status (which
