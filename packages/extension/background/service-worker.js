@@ -593,10 +593,12 @@ chrome.tabs.onActivated.addListener(async ({ tabId, windowId: _windowId }) => {
   });
 });
 
-// New context opened — capture as proxy for browser chrome actions (Ctrl+T, Ctrl+N).
-// Suppress when it's a side-effect of an in-page action (window.open, link target=_blank).
-// Distinguishing signal: window.open/link tabs have openerTabId; Ctrl+T/N tabs don't.
-// Track the timestamp so onActivated can suppress the subsequent activation.
+// New context opened — capture as proxy for browser chrome actions (Ctrl+T, Ctrl+N,
+// Ctrl+Shift+T). A tab opened as a side-effect of an in-page action (window.open,
+// link target=_blank) follows a recent in-page user action and is suppressed. The
+// decision lives in lib/navigation-logic.js; this listener supplies the recording
+// state and the recent-action read, and owns the append. Track the timestamp so
+// onActivated can suppress the subsequent activation.
 chrome.tabs.onCreated.addListener(async (tab) => {
   lastTabCreatedTimestamp = Date.now();
   lastTabCreatedId = tab.id;
@@ -605,8 +607,9 @@ chrome.tabs.onCreated.addListener(async (tab) => {
   // target=_blank, etc.); read only while recording.
   const decision = shouldCaptureTabCreated(tab, {
     isRecording: recording,
-    hadRecentUserAction: recording ? !!(await wasRecentUserAction()) : false,
-    userActionWindowMs: TAB_CREATED_USER_ACTION_WINDOW,
+    hadRecentUserAction: recording
+      ? !!(await wasRecentUserAction(TAB_CREATED_USER_ACTION_WINDOW))
+      : false,
   });
   if (decision.action === 'skip') return;
   if (decision.action === 'suppress_programmatic') {

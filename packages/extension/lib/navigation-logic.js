@@ -1,9 +1,11 @@
 /**
  * navigation-logic.js — Pure navigation capture decision logic.
  *
- * The service worker's navigation decision logic: the worker imports it and
- * its webNavigation.onCommitted and tabs.onCreated listeners decide through
- * these functions, so the unit suite exercises the code the worker runs.
+ * The service worker's navigation decision logic: the worker imports it, its
+ * webNavigation.onCommitted listener decides through classifyNavigation,
+ * normaliseNavigationUrl and isDuplicateNavigation, and its tabs.onCreated
+ * listener through shouldCaptureTabCreated, so the unit suite exercises the
+ * code the worker runs.
  * Determines whether a webNavigation.onCommitted event should be captured,
  * what nav_type to assign and which append path it takes, whether it repeats
  * the last recorded navigation, and whether a tabs.onCreated event should
@@ -135,12 +137,15 @@ export function isDuplicateNavigation(normalisedUrl, navType, lastTabNavUrl) {
  * classifyNavigation followed by the duplicate check against
  * context.lastTabNavUrl.
  *
+ * It composes classifyNavigation and isDuplicateNavigation for the unit suite;
+ * the worker does not call it, since it reads the last-URL marker inside its
+ * write queue and so calls the two separately.
+ *
  * @param {object} details — webNavigation.onCommitted details
  * @param {string} details.url
  * @param {number} details.frameId
  * @param {string} details.transitionType
  * @param {string[]} [details.transitionQualifiers]
- * @param {number} details.tabId
  * @param {object} context — timing context
  * @param {number} context.lastTabCreatedTimestamp
  * @param {number} context.now — current timestamp
@@ -180,7 +185,6 @@ export function shouldCaptureNavigation(details, context) {
  * @param {object} context — timing context
  * @param {boolean} context.isRecording — whether capture is active
  * @param {boolean} context.hadRecentUserAction — whether an in-page action occurred recently
- * @param {number} context.userActionWindowMs — suppression window in ms
  * @returns {{ action: 'capture'|'skip'|'suppress_programmatic', reason?: string }}
  */
 export function shouldCaptureTabCreated(tab, context) {

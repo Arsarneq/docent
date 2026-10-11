@@ -226,7 +226,7 @@ describe('shouldCaptureTabCreated — basic decisions', () => {
   it('skips when not recording', () => {
     const result = shouldCaptureTabCreated(
       { id: 1, openerTabId: null, url: 'chrome://newtab/' },
-      { isRecording: false, hadRecentUserAction: false, userActionWindowMs: 500 },
+      { isRecording: false, hadRecentUserAction: false },
     );
     assert.equal(result.action, 'skip');
     assert.equal(result.reason, 'not-recording');
@@ -235,7 +235,7 @@ describe('shouldCaptureTabCreated — basic decisions', () => {
   it('suppresses programmatic tab (recent user action = window.open)', () => {
     const result = shouldCaptureTabCreated(
       { id: 2, openerTabId: 1, url: 'https://popup.example.com' },
-      { isRecording: true, hadRecentUserAction: true, userActionWindowMs: 500 },
+      { isRecording: true, hadRecentUserAction: true },
     );
     assert.equal(result.action, 'suppress_programmatic');
     assert.equal(result.reason, 'recent-user-action');
@@ -244,7 +244,7 @@ describe('shouldCaptureTabCreated — basic decisions', () => {
   it('captures Ctrl+T (no recent user action, no opener)', () => {
     const result = shouldCaptureTabCreated(
       { id: 3, openerTabId: null, url: 'chrome://newtab/' },
-      { isRecording: true, hadRecentUserAction: false, userActionWindowMs: 500 },
+      { isRecording: true, hadRecentUserAction: false },
     );
     assert.equal(result.action, 'capture');
   });
@@ -252,7 +252,7 @@ describe('shouldCaptureTabCreated — basic decisions', () => {
   it('captures Ctrl+N (new window, no recent user action)', () => {
     const result = shouldCaptureTabCreated(
       { id: 4, openerTabId: null, url: null },
-      { isRecording: true, hadRecentUserAction: false, userActionWindowMs: 500 },
+      { isRecording: true, hadRecentUserAction: false },
     );
     assert.equal(result.action, 'capture');
   });
@@ -264,7 +264,7 @@ describe('shouldCaptureTabCreated — session restore (Ctrl+Shift+T, manual test
     // Chrome sets openerTabId to undefined for restored tabs.
     const result = shouldCaptureTabCreated(
       { id: 5, openerTabId: undefined, url: 'https://previously-closed.example.com' },
-      { isRecording: true, hadRecentUserAction: false, userActionWindowMs: 500 },
+      { isRecording: true, hadRecentUserAction: false },
     );
     assert.equal(result.action, 'capture');
   });
@@ -273,7 +273,7 @@ describe('shouldCaptureTabCreated — session restore (Ctrl+Shift+T, manual test
     // Restored tabs immediately have their previous URL
     const result = shouldCaptureTabCreated(
       { id: 6, openerTabId: undefined, url: 'https://docs.example.com/page' },
-      { isRecording: true, hadRecentUserAction: false, userActionWindowMs: 500 },
+      { isRecording: true, hadRecentUserAction: false },
     );
     assert.equal(result.action, 'capture');
   });
@@ -283,7 +283,7 @@ describe('shouldCaptureTabCreated — session restore (Ctrl+Shift+T, manual test
     // the timing window might still be active — this is the known trade-off
     const result = shouldCaptureTabCreated(
       { id: 7, openerTabId: undefined, url: 'https://restored.example.com' },
-      { isRecording: true, hadRecentUserAction: true, userActionWindowMs: 500 },
+      { isRecording: true, hadRecentUserAction: true },
     );
     assert.equal(result.action, 'suppress_programmatic');
     assert.equal(result.reason, 'recent-user-action');
@@ -294,7 +294,7 @@ describe('shouldCaptureTabCreated — link target=_blank suppression', () => {
   it('suppresses target=_blank link (recent user action + openerTabId)', () => {
     const result = shouldCaptureTabCreated(
       { id: 8, openerTabId: 1, url: 'https://external.example.com' },
-      { isRecording: true, hadRecentUserAction: true, userActionWindowMs: 500 },
+      { isRecording: true, hadRecentUserAction: true },
     );
     assert.equal(result.action, 'suppress_programmatic');
   });
@@ -303,7 +303,7 @@ describe('shouldCaptureTabCreated — link target=_blank suppression', () => {
     // Right-click → "Open in new tab" doesn't trigger content script action
     const result = shouldCaptureTabCreated(
       { id: 9, openerTabId: 1, url: 'https://example.com/page' },
-      { isRecording: true, hadRecentUserAction: false, userActionWindowMs: 500 },
+      { isRecording: true, hadRecentUserAction: false },
     );
     assert.equal(result.action, 'capture');
   });
