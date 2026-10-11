@@ -17,7 +17,8 @@
  *       execution — a selected test that some CI run then skips is still a
  *       member. An entry opted into the row shape (`rowShape`) is also held
  *       to how its tables are written: compact lines, a capped Covers cell,
- *       and per-file detail headings each linked from its own row.
+ *       and per-file detail headings each linked from its own row and from
+ *       nothing else, one per file in its file's section (see auditRowShape).
  *   (b) coverage lists — every entry of the registered hand-maintained
  *       `TRACKED_FILES` lists (the extension e2e and desktop integration
  *       coverage plumbing) identifies one tracked source file: the path the
@@ -1962,14 +1963,15 @@ export function identifiesSameFile(match, path) {
 /* ── The row shape ───────────────────────────────────────────────────────── */
 
 /**
- * A heading's anchor as GitHub's heading anchors assign it, the rule
- * `lint:links` computes them by: lower-cased, every character outside ASCII
- * `a`–`z`, `0`–`9`, space, `_` and `-` dropped, spaces made hyphens, and a
- * repeat in document order taking `-1`, `-2` and on. The detail headings
- * this serves name test files, which keep to that set. This slugs the raw
- * heading markdown where the validator slugs the rendered text — the two agree
- * while no heading carries link markup, as none does today — and `lint:links`
- * holds the two readings equal on every link the documents carry.
+ * A heading's anchor by the ASCII subset of the anchor rule `lint:links`
+ * applies (which also keeps non-ASCII letters): lower-cased, every character
+ * outside ASCII `a`–`z`, `0`–`9`, space, `_` and `-` dropped, spaces made
+ * hyphens, and a repeat in document order taking `-1`, `-2` and on. This
+ * slugs the raw heading markdown where the validator slugs the rendered text;
+ * the two readings agree while each heading is plain text or a code span —
+ * no non-ASCII letters, no link or `_` emphasis markup, no entities — which
+ * is true of every heading today, and `lint:links` holds the two equal on
+ * every link the documents carry.
  * @param {Map<string, number>} seen the slugs taken so far in the document
  * @param {string} text the heading's text
  * @returns {string}
@@ -2073,7 +2075,7 @@ function auditRowShape(content, { doc, section, rowShape }, tables) {
           );
         } else {
           verdicts.push(
-            `${where} \`${name}\`'s Covers cell links "#${target}", and the section has no such heading — add one after the table, or drop the link`,
+            `${where} \`${name}\`'s Covers cell links "#${target}", but \`${name}\` has no detail heading in the section — add "### \`${name}\`" after the table, or drop the link`,
           );
         }
       }

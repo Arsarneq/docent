@@ -662,7 +662,7 @@ describe('auditInventories — the row shape of an opted-in inventory', () => {
     const result = auditShape(shapedSection('Unit', [linked]), ['tests/unit/a.test.js']);
     assertOneRowShape(
       result,
-      /`a\.test\.js`'s Covers cell links "#atestjs".*the section has no such heading — add one after the table, or drop the link/,
+      /`a\.test\.js`'s Covers cell links "#atestjs", but `a\.test\.js` has no detail heading in the section — add "### `a\.test\.js`" after the table, or drop the link/,
     );
   });
 
