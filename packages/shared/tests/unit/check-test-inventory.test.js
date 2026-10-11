@@ -485,7 +485,7 @@ const shaped = (section = 'Unit', rowShape = { coversMax: 300 }) => ({
 /**
  * One inventory section in the row shape: the marker, the compact table, then
  * each detail section after it. `rows` are written as given, so a case states
- * every line it breaks; `details` are `[file, slug-less heading text]` bodies.
+ * every line it breaks; `details` are the file names, one detail section each.
  */
 function shapedSection(section, rows, details = [], { header, delimiter } = {}) {
   return [
@@ -656,6 +656,34 @@ describe('auditInventories — the row shape of an opted-in inventory', () => {
     ];
     const result = auditShape(lines, ['tests/unit/a.test.js']);
     assert.deepEqual(formatProblems(result), []);
+  });
+
+  it('flags a link to a detail heading its file does not have, and says to add one', () => {
+    const result = auditShape(shapedSection('Unit', [linked]), ['tests/unit/a.test.js']);
+    assertOneRowShape(
+      result,
+      /`a\.test\.js`'s Covers cell links "#atestjs".*the section has no such heading — add one after the table, or drop the link/,
+    );
+  });
+
+  it('flags a row written with leading indentation', () => {
+    const result = auditShape(shapedSection('Unit', [`  ${ok}`]), ['tests/unit/b.test.js']);
+    assertOneRowShape(result, /row for `b\.test\.js` is not in the compact form/);
+  });
+
+  it("passes a mixed-case file name whose row links its heading's lower-cased anchor", () => {
+    const rows = ['| `aB.test.js` | The aB module. [Detail](#abtestjs) |'];
+    const result = auditShape(shapedSection('Unit', rows, ['aB.test.js']), [
+      'tests/unit/aB.test.js',
+    ]);
+    assert.deepEqual(formatProblems(result), []);
+  });
+
+  it('leaves a row with no backticked file name to the unparsed class alone', () => {
+    const rows = [`| the smoke test | ${'x'.repeat(301)} [Detail](#atestjs) |`];
+    const result = auditShape(shapedSection('Unit', rows), []);
+    assert.equal(result.unparsed.length, 1);
+    assert.deepEqual(result.rowShape, []);
   });
 });
 

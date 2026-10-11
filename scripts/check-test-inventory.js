@@ -15,7 +15,9 @@
  *       discovery rule its entry registers below, which mirrors whatever
  *       actually selects that suite's tests here. Selection is the line, not
  *       execution — a selected test that some CI run then skips is still a
- *       member.
+ *       member. An entry opted into the row shape (`rowShape`) is also held
+ *       to how its tables are written: compact lines, a capped Covers cell,
+ *       and per-file detail headings each linked from its own row.
  *   (b) coverage lists — every entry of the registered hand-maintained
  *       `TRACKED_FILES` lists (the extension e2e and desktop integration
  *       coverage plumbing) identifies one tracked source file: the path the
@@ -326,6 +328,12 @@ export const registered = (entry) =>
   entry.discovery ? { ...entry, selects: selectsFor(entry.discovery) } : { ...entry };
 
 /**
+ * The row shape the JavaScript unit inventories opt into — one statement for
+ * the three trees `docs/test/unit.md` enumerates (see {@link auditRowShape}).
+ */
+const UNIT_ROW_SHAPE = { coversMax: 300 };
+
+/**
  * The suite documents and the suites they enumerate. `section` is the `##`
  * heading whose tables make the enumeration claim and `header` their whole
  * header — together they identify the inventory tables, so a table added
@@ -376,7 +384,7 @@ export const DOC_INVENTORIES = [
     header: ['Test file', 'Covers'],
     dir: 'packages/shared/tests/unit',
     discovery: { runner: RUNNERS.node, pattern: '*.test.js' },
-    rowShape: { coversMax: 300 },
+    rowShape: UNIT_ROW_SHAPE,
   }),
   registered({
     doc: 'docs/test/unit.md',
@@ -384,7 +392,7 @@ export const DOC_INVENTORIES = [
     header: ['Test file', 'Covers'],
     dir: 'packages/desktop/tests/unit',
     discovery: { runner: RUNNERS.node, pattern: '*.test.js' },
-    rowShape: { coversMax: 300 },
+    rowShape: UNIT_ROW_SHAPE,
   }),
   registered({
     doc: 'docs/test/unit.md',
@@ -392,7 +400,7 @@ export const DOC_INVENTORIES = [
     header: ['Test file', 'Covers'],
     dir: 'packages/extension/tests/unit',
     discovery: { runner: RUNNERS.node, pattern: '*.test.js' },
-    rowShape: { coversMax: 300 },
+    rowShape: UNIT_ROW_SHAPE,
   }),
 ];
 
@@ -1954,11 +1962,14 @@ export function identifiesSameFile(match, path) {
 /* ── The row shape ───────────────────────────────────────────────────────── */
 
 /**
- * A heading's anchor as the link validator reads it: lower-cased, every
- * character outside letters, digits, space, `_` and `-` dropped, spaces
- * made hyphens, and a repeat in document order taking `-1`, `-2` and on.
- * The detail headings this serves name test files, which keep to that set;
- * `lint:links` holds the two readings equal on every link the documents carry.
+ * A heading's anchor as GitHub's heading anchors assign it, the rule
+ * `lint:links` computes them by: lower-cased, every character outside ASCII
+ * `a`–`z`, `0`–`9`, space, `_` and `-` dropped, spaces made hyphens, and a
+ * repeat in document order taking `-1`, `-2` and on. The detail headings
+ * this serves name test files, which keep to that set. This slugs the raw
+ * heading markdown where the validator slugs the rendered text — the two agree
+ * while no heading carries link markup, as none does today — and `lint:links`
+ * holds the two readings equal on every link the documents carry.
  * @param {Map<string, number>} seen the slugs taken so far in the document
  * @param {string} text the heading's text
  * @returns {string}
@@ -2007,7 +2018,7 @@ function detailHeadings(markdown) {
 /**
  * How an opted-in inventory's tables are written, so a row edit stays a
  * one-line diff and every Covers cell stays a line a reviewer reads whole.
- * The verdicts, one per breach, name four causes: a Covers cell longer than
+ * The verdicts, one per breach, name these causes: a Covers cell longer than
  * `coversMax` (the JavaScript length of the trimmed cell, link markup
  * included); a table line not in the compact form — its cells rebuilt
  * `| a | b |`, the delimiter's cells exactly `---`; a row whose Covers cell
@@ -2034,8 +2045,8 @@ function auditRowShape(content, { doc, section, rowShape }, tables) {
   }
   const rowNames = new Set();
   const linked = new Set();
+  const compact = (cells) => `| ${cells.join(' | ')} |`;
   for (const { header, rows, lines } of tables) {
-    const compact = (cells) => `| ${cells.join(' | ')} |`;
     const expected = [compact(header), compact(header.map(() => '---')), ...rows.map(compact)];
     lines.forEach((line, k) => {
       if (line === expected[k]) return;
@@ -2052,11 +2063,17 @@ function auditRowShape(content, { doc, section, rowShape }, tables) {
           `${where} \`${name}\`'s Covers cell is ${covers.length} characters, over the ${rowShape.coversMax} cap — keep its summary in the cell and move the rest to bullets under a "### \`${name}\`" heading after the table, linked from the cell`,
         );
       }
+      // An in-document link written `](#anchor)` is what this reads; a
+      // path-qualified, titled or reference-style link is outside its scope.
       for (const [, target] of covers.matchAll(/\]\(#([^)\s]*)\)/g)) {
         if (own.get(name) === target) linked.add(name);
-        else {
+        else if (own.has(name)) {
           verdicts.push(
-            `${where} \`${name}\`'s Covers cell links "#${target}", which is not its own "### \`${name}\`" heading in the section (${own.has(name) ? `#${own.get(name)}` : 'none'}) — point the link at that heading, or drop it`,
+            `${where} \`${name}\`'s Covers cell links "#${target}", which is not its own "### \`${name}\`" heading in the section (#${own.get(name)}) — point the link at that heading, or drop it`,
+          );
+        } else {
+          verdicts.push(
+            `${where} \`${name}\`'s Covers cell links "#${target}", and the section has no such heading — add one after the table, or drop the link`,
           );
         }
       }
@@ -2069,7 +2086,7 @@ function auditRowShape(content, { doc, section, rowShape }, tables) {
       );
     } else if (!linked.has(name)) {
       verdicts.push(
-        `${where} "### \`${name}\`" heading (#${slug}) has no link to it from its row — end \`${name}\`'s Covers cell with "[Detail](#${slug})", or fold the section back into the cell`,
+        `${where} "### \`${name}\`" heading (#${slug}) has no link to it from its row — end \`${name}\`'s Covers cell with "[Detail](#${slug})", or, if the whole text fits within the cap, fold the section back into the cell`,
       );
     }
   }
@@ -4507,7 +4524,7 @@ const PROBLEM_BLOCKS = {
     fix:
       `keep each opted-in inventory table compact under its prettier-ignore marker — "| a | b |"\n` +
       `  rows and a "| --- | --- |" delimiter, so a row edit is a one-line diff — and each Covers\n` +
-      `  cell within its cap (\`coversMax\` in DOC_INVENTORIES in ${SELF_PATH}): the summary\n` +
+      `  cell within its cap (the entry's \`rowShape\` in ${SELF_PATH}): the summary\n` +
       `  stays in the cell, the rest moves to bullets under one "### \`<file>\`" heading after\n` +
       `  the table in the same section, and the cell links that heading and no other.`,
   },
