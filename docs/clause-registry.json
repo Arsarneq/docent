@@ -47,7 +47,7 @@
       "doc": "docs/architecture/system/capture-principles.md",
       "clause": "CP-2",
       "tag": "checkable",
-      "check-ref": "Existing coverage: scripts/check-capture-surface.js (npm run lint:capture-surface, a step in CI's lint job) holds the extension recorder's and service worker's registrations, and the Windows backend's installed hooks and registered WinEvent ranges, to the closed enumerations their clauses state, so a source outside an enumerated surface cannot be added without stating it — registration-level, which bounds what can enter the stream without deciding what the filter admits from inside the surface. On the extension side that same check holds every other chrome listener registration the tracked production JavaScript makes to its own admission list, keyed by the file that makes it, so a listener registered outside the two capture files is admitted with a stated role or reds. Interim probe: the scripted-truth corpus diff (scripts/corpus-compare.js via npm run corpus:check and corpus:check:desktop) reddens when an effect the session's truth does not record enters its stream. Stream-level on the extension: the end-to-end suite (npm run test:e2e) produces each of the filtered classes at a registered surface and asserts it absent from the action stream — packages/extension/tests/e2e/specs/side-effect-capture.spec.js for scripted focus, value, and selection changes (with pushState, hash changes, programmatic scroll, the window.open lifecycle, and timer-driven updates), packages/extension/tests/e2e/specs/interactions.spec.js and packages/extension/tests/e2e/specs/keyboard.spec.js for code-driven events (programmatic contextmenu, .click(), and keydown), and packages/extension/tests/e2e/specs/navigation.spec.js for programmatic navigations (form.submit(), location.href, an in-iframe meta refresh, and redirect chains). Intended: the same stream-level pin on the desktop side, where the corpus diff is the only stream-level guard today and is only as strong as the sessions scripted for it (not yet built). The registration check does not decide either: it reads registration sites, never the stream."
+      "check-ref": "Existing coverage: scripts/check-capture-surface.js (npm run lint:capture-surface, a step in CI's lint job) holds the extension recorder's and service worker's registrations, and the Windows backend's installed hooks and registered WinEvent ranges, to the closed enumerations their clauses state, so a source outside an enumerated surface cannot be added without stating it — registration-level, which bounds what can enter the stream without deciding what the filter admits from inside the surface. On the extension side that same check holds every other chrome listener registration the tracked production JavaScript makes to its own admission list, keyed by the file that makes it, so a listener registered outside the two capture files is admitted with a stated role or reds. Interim probe: the scripted-truth corpus diff (scripts/corpus-compare.js via npm run corpus:check and corpus:check:desktop) reddens when an effect the session's truth does not record enters its stream. Stream-level on the extension: the end-to-end suite (npm run test:e2e) produces each of the filtered classes at a registered surface and asserts it absent from the action stream — packages/extension/tests/e2e/specs/side-effect-capture.spec.js for scripted focus, value, and selection changes (with pushState, hash changes, programmatic scroll, the code-driven close of a window.open popup, and timer-driven updates; that spec's assertion that the popup's opening records no context_open pins the capture gap ECP-7 records), packages/extension/tests/e2e/specs/interactions.spec.js and packages/extension/tests/e2e/specs/keyboard.spec.js for code-driven events (programmatic contextmenu, .click(), and keydown), and packages/extension/tests/e2e/specs/navigation.spec.js for programmatic navigations (form.submit(), location.href, an in-iframe meta refresh, and redirect chains). Intended: the same stream-level pin on the desktop side, where the corpus diff is the only stream-level guard today and is only as strong as the sessions scripted for it (not yet built). The registration check does not decide either: it reads registration sites, never the stream."
     },
     {
       "doc": "docs/architecture/system/capture-principles.md",
@@ -146,7 +146,7 @@
       "doc": "docs/architecture/system/capture-principles.md",
       "clause": "CP-17",
       "tag": "judgment-only",
-      "justification": "Judgment at review: whether a context change is the first in a user action's causal chain, a cascade, or one with no user action behind it reads a causal chain no check can. The sufficiency lint (npm run sufficiency:check) holds one consequence mechanically: a context that first appears on an entry other than a `context_open` or `context_switch` fails its context-introduced predicate."
+      "justification": "Judgment at review: whether a context change is the first in a user action's causal chain, a cascade, or one with no user action behind it reads a causal chain no check can. The sufficiency lint (npm run sufficiency:check) holds one consequence mechanically: a context other than the recording's initial one that first appears on an entry other than a `context_open` or `context_switch` fails its context-introduced predicate."
     },
     {
       "doc": "docs/technical/locator-resolution.md",
@@ -562,7 +562,7 @@
       "doc": "docs/architecture/application/desktop/windows/capture-principles.md",
       "clause": "DCP-6",
       "tag": "judgment-only",
-      "justification": "Whether a proxy row still records the immediate effect of the shell interaction it names is a per-proxy judgment (CP-7..CP-10 apply)."
+      "justification": "Whether a proxy row still records the immediate effect of the shell interaction it names is a per-proxy judgment (CP-7..CP-10 apply), and whether the click row's activation is the establishment under core CP-17 is the same judgment."
     },
     {
       "doc": "docs/architecture/application/desktop/windows/capture-principles.md",
@@ -615,7 +615,7 @@
       "doc": "docs/architecture/application/desktop/windows/capture-principles.md",
       "clause": "DCP-13",
       "tag": "judgment-only",
-      "justification": "Judgment at review under core CP-15's admission test, which turns on how this surface description reads, which no check decides."
+      "justification": "Judgment at review under core CP-15's admission test; whether this surface description misleads is a reading no check decides."
     },
     {
       "doc": "docs/architecture/application/desktop/windows/capture-principles.md",
