@@ -119,13 +119,13 @@
       "doc": "docs/architecture/system/capture-principles.md",
       "clause": "CP-14",
       "tag": "judgment-only",
-      "justification": "Whether a platform's capture surface is enumerated positively and treated as closed — nothing the platform grows captured implicitly — is a definitional design judgment; the per-platform enumerations are the mechanically held clauses, each row (ECP-6, DCP-4) naming the registration admission test scripts/check-capture-surface.js as its check, with the scripted-truth corpus diff retained on DCP-4's row as an interim probe beside it."
+      "justification": "Judgment at review: whether an enumeration is positive and closed is a property of the platform's design and doc text, which no check decides; the enumerations are held under ECP-6 and DCP-4 (scripts/check-capture-surface.js), DCP-4 keeping the corpus diff as interim probe."
     },
     {
       "doc": "docs/architecture/system/capture-principles.md",
       "clause": "CP-15",
       "tag": "judgment-only",
-      "justification": "Whether an interaction belongs on a platform's exception list — the surface description alone would mislead without it — is judgment at review; the same admission test the per-platform ECP-12/DCP-13 apply."
+      "justification": "Judgment at review: the admission test turns on whether the surface description would mislead a reader, which no check computes; ECP-12 and DCP-13 take the same review."
     },
     {
       "doc": "docs/architecture/system/capture-principles.md",
@@ -454,7 +454,7 @@
       "doc": "docs/architecture/application/extension/capture-principles.md",
       "clause": "ECP-7",
       "tag": "judgment-only",
-      "justification": "Whether a proxy row still records the immediate effect of the chrome interaction it names is a per-proxy judgment (CP-7..CP-10 apply); the corpus ext-tab-open session probes the click-plus-chrome-navigate boundary. That judgment is this row's substance and what its tag records; the table's Event source column is held separately and mechanically, in both directions against the registrations it names, as ECP-6's check-ref records."
+      "justification": "Judgment at review: whether a row records the immediate effect of the chrome interaction it names reads a causal chain, which no check can (core CP-8). The corpus session ext-tab-open probes the establishment beside a click that opens a tab. The Event source column is held mechanically under ECP-6."
     },
     {
       "doc": "docs/architecture/application/extension/capture-principles.md",
@@ -520,7 +520,7 @@
       "doc": "docs/architecture/application/extension/runtime.md",
       "clause": "ERT-6",
       "tag": "judgment-only",
-      "justification": "Two facts, neither of them decidable by a scan. That the handle ships in release builds follows from how the extension is released: the published archive is the extension package's own directory zipped as it stands, with its dependency, package-metadata, and tests entries excluded, and packages/extension/manifest.json names the worker at packages/extension/background/service-worker.js (as the path relative to the package root) as the module the packaged extension runs in the background, so what a release carries is that file as written, the handle assignment included. Whether a future release step keeps that true is a judgment at that step's own review rather than a property of this document's tree. The second fact is the one this clause turns on: what the handle's presence grants is what access to the worker's own global scope already grants — the structures it reaches are the worker's own, the reads answer what the worker holds at that moment, and the plants and wipes reach what a caller standing in that scope reaches directly — so the handle widens no boundary the runtime draws. That is a claim about what a scope already implies, which no check can decide. The mechanical half beside it is held under ERT-5, whose check diffs the member surface both ways, holds every worker module-scope name a member body reaches to the worker bindings that clause states (a structure the clause places the handle over, a function it runs to reach one, or a query of its own that touches no placed structure) — a reach that passes through no such name, a member calling a platform API directly among them, sitting outside that test — and refuses a mention of the handle anywhere in the extension's production JavaScript outside the assignment itself, so the members this clause reasons about are the members a release carries, and no production module routes into them."
+      "justification": "Judgment at review, on two facts no scan decides: that the handle ships follows from releasing the package directory as it stands (packages/extension/manifest.json naming the worker), a later release step judged at its own review; that it widens no boundary is a claim about the worker's own scope. The member surface and its reach are held under ERT-5."
     },
     {
       "doc": "docs/architecture/application/extension/permissions.md",
@@ -615,7 +615,7 @@
       "doc": "docs/architecture/application/desktop/windows/capture-principles.md",
       "clause": "DCP-13",
       "tag": "judgment-only",
-      "justification": "Whether a proposed entry meets the exceptions admission test hoisted to core CP-15 — the surface description alone would mislead without it — is judgment at review."
+      "justification": "Judgment at review under core CP-15's admission test, which turns on how this surface description reads, which no check decides."
     },
     {
       "doc": "docs/architecture/application/desktop/windows/capture-principles.md",
@@ -1010,7 +1010,7 @@
       "doc": "docs/api/dispatch.md",
       "clause": "DI-8",
       "tag": "judgment-only",
-      "justification": "The delivery posture is the design consequence of DI-7's retry mechanics — no repository check can observe an endpoint's duplicate receipt. The mechanically checkable byte-identity half is split out as DI-16."
+      "justification": "Judgment at review: duplicate receipt happens at the endpoint, which no repository check observes; the identical retry body is held under DI-16."
     },
     {
       "doc": "docs/api/dispatch.md",
