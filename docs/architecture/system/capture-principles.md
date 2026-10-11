@@ -29,14 +29,17 @@ Platform-specific details:
 
 **CP-1.** Capture what the user did — not what the code did.
 
-**CP-2.** The core rule is an inclusion filter on the action stream: effects,
-code-driven events, and guessed intent MUST NOT enter it; CP-5's definition
-decides what does, and the named kinds illustrate what it keeps out.
+**CP-2.** The core rule is an inclusion filter on the action stream: CP-5's
+definition decides what enters it, and two kinds of observed effect enter in a
+defined role — a proxy standing in for a user action (CP-7) and
+the entries of a context's establishment (CP-17). Any other effect, any other
+code-driven event, and guessed intent MUST NOT enter it; CP-6's named kinds
+illustrate what it keeps out,
+save the establishment entries of a context code opens (CP-17).
 
 **CP-3.** A small amount of observed context MAY be recorded _alongside_ the
-actions to describe them faithfully — proxies for actions that happen outside
-the capture layer's view (see [Proxy Capture](#proxy-capture)) and ambient
-facts such as the window rectangle.
+actions to describe them faithfully — ambient facts such as the window
+rectangle.
 
 **CP-4.** Recorded context MUST be kept distinct from the actions themselves;
 it MUST NOT be invented and MUST NOT be treated as something the user did.
@@ -81,7 +84,8 @@ consequence is judged against the category definition above.
 **CP-7.** Some user actions happen outside the capture layer's visibility
 (browser chrome, the OS shell or a window title bar, for example). These are
 captured by proxy:
-the **immediate effect** stands in for the user action.
+the **immediate effect** stands in for the user action and enters the action
+stream in its place (CP-2).
 
 Every proxy is bound by three rules:
 
@@ -99,6 +103,33 @@ or a navigation's destination. Clicking another window and pressing Alt+Tab,
 which each switch the window in focus, share one proxy shape; a typed address
 and a bookmark to the same page share the navigation's shape, told apart by one
 of its fields: a classification derived from the browser's transition type.
+
+---
+
+## Context Establishment
+
+**CP-17.** A context's establishment is a context opened, or an existing
+context switched into, as the first change of context in a user action's causal
+chain, a close counting as one (CP-8); a later change in that chain
+into a context the recording already introduced, such as the tab the browser
+activates after a close, is a cascade; a context first appearing later in that
+chain is established (session-format SF-10). Its entries record the
+establishment — beside the action when it is captured directly, and as its one
+proxy (CP-9) otherwise; the entries of a context first appearing later in the
+chain enter in the same role beside them, never as a further proxy (CP-8). For
+a context opened at a destination the opening action names, such as a link's
+target, the opening entry and the navigation that loads that destination record
+it together, its immediate effect under CP-8. The entries are the
+establishment's `context_open` or `context_switch` and, where a destination is
+named, that navigation. Whether the platform or the application's code opened
+the context does not change the entries: they record the context's existence
+for the actions that follow, never a second record of the action, and they are
+entries of the action stream in their own role under CP-2, not the recorded
+context CP-3 and CP-4 govern. A context that materializes with no user action
+behind it (a notification window, or one a page's own interval opens, for
+example) is an effect under CP-6 until a user action is taken in it, and that
+action establishes it (SF-10); a timer a user action armed does not cut the
+chain (CP-8).
 
 ---
 
