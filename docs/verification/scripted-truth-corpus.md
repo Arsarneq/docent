@@ -541,8 +541,10 @@ STC-17's and STC-18's among them:
   tab/window chrome interactions have no trusted-input driver (a scripted
   `bringToFront`/`page.close()` is programmatic by definition, and capture
   rightly filters it). `ext-tab-open` pins the in-page half of the boundary:
-  a user click that opens a tab records the click plus the new context's
-  chrome-initiated navigate.
+  a user click that opens a tab records the click plus
+  the entries of the new context's establishment (core CP-17) — its
+  `context_open`, a known diff (docent#252), and the navigation that loads the
+  link's destination.
 - **Recorder-presence loss (docent#222/#226)** — the corpus deliberately runs
   under the frame-readiness discipline that controls this failure class away;
   adversarial injection timing belongs to those issues, not to deterministic
