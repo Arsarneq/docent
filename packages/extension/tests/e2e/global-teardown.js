@@ -34,6 +34,7 @@ const TRACKED_FILES = [
   { match: 'sidepanel/panel.js', src: 'sidepanel/panel.js' },
   { match: 'sidepanel/adapter-chrome.js', src: 'sidepanel/adapter-chrome.js' },
   { match: 'sidepanel/dispatch.js', src: 'sidepanel/dispatch.js' },
+  { match: 'sidepanel/send-gate.js', src: 'sidepanel/send-gate.js' },
   { match: 'background/service-worker.js', src: 'background/service-worker.js' },
   { match: 'content/recorder.js', src: 'content/recorder.js' },
   { match: 'content/recorder-logic.js', src: 'content/recorder-logic.js' },

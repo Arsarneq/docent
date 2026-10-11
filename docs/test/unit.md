@@ -8,21 +8,23 @@ and composed schemas — and, for the machinery and size-budget suites, against
 the committed tree and the built artifacts themselves — with no browser, no
 Tauri backend, and no network involved.
 
-Where a suite does not run the shipped code it describes — a content script, a
-service worker or a panel that awaits at the top level cannot be imported under
-the runner, nor can a module-private function — the suite drives an extracted
-module, a copy of the shipped text, or a replica reshaped from it. The copies
+Where a suite does not run the shipped code it describes — a content script and
+a panel that awaits at the top level cannot be imported under the runner, nor
+can a module-private function — the suite drives an extracted module, a copy of
+the shipped text, or a replica reshaped from it. The service worker imports
+under the runner behind a fake `chrome` global, which is how the background
+sync-host and navigation-proxy suites drive it. The copies
 named in
 [CONTRIBUTING § Single-source logic](../../.github/CONTRIBUTING.md#single-source-logic)
 carry parity guards that hold them to the text that ships. Reshaped from the
 shipped code, and pinning only themselves where they stand in for it or seed it,
 are: in the extension tree, the
 worker's replicated handlers beyond its append chokepoint, its
-frame-registration fixture, the panel suite's other helpers, the capture-timing
-suite's recent-action decision and the navigation-logic module reshaped from the
-worker's navigation decisions; in the shared tree, the settings state-machine
-suite's panel settings logic and, as fixture seeds, the sync suites' allowlisted
-projections (their baseline and payload builders); and in the desktop tree, the
+frame-registration fixture, the panel suite's simulated send, cancel and
+export handlers and the capture-timing suite's recent-action decision; in the
+shared tree, the settings state-machine suite's panel settings logic and, as
+fixture seeds, the sync suites' allowlisted projections (their baseline and
+payload builders); and in the desktop tree, the
 settings suite's save and load. Where a suite holds the module's output to one
 of those projections, the projection serves as an oracle there, and a drift
 fails the comparison.
@@ -197,33 +199,33 @@ application has its own suite, documented in
 
 `packages/extension/tests/unit` — the extension's adapter, panel, and background
 paths: the capture logic extracted from the content script, the service worker's
-message handlers, this tree's parity guards, named in
+message handlers and navigation listeners, this tree's parity guards, named in
 [CONTRIBUTING § Single-source logic](../../.github/CONTRIBUTING.md#single-source-logic),
 and the static-source guards over what the content script and the service
 worker may contain. The browser-driven
 half of the extension is documented in
 [End-to-end tests](e2e.md).
 
-| Test file                              | Covers                                                                                                                                                           |
-| -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `adapter-chrome.test.js`               | The Chrome adapter: settings, theme, recording mode, schema loading, the pending-count and action-event subscriptions, and send.                                 |
-| `auto-sync-host.test.js`               | The background sync host wired in the service worker: one shared cycle, run headless, with its state persisted for the panel.                                    |
-| `build-size.test.js`                   | Size tripwires over the extension bundle, per type and in total.                                                                                                 |
-| `capture-timing.test.js`               | The capture-timing constants' validity and relative ordering, and the recent-user-action decision they drive.                                                    |
-| `dispatch.test.js`                     | Settings round-trip, endpoint validation, payload fidelity, the authorization header, and the action-event subscription.                                         |
-| `e2e-suite-locks.test.js`              | The end-to-end guide's retry, attempt, trace, timeout and worker sentences held to the Playwright config, each key read as text and set exactly once.            |
-| `frame-trust.test.js`                  | The per-frame trust predicate deciding whether an appended action may enter a recording.                                                                         |
-| `naming.property.test.js`              | Extension actions carry the platform-neutral naming and capture mode the extension schema contract states, each type one the composed extension schema declares. |
-| `navigation-logic.test.js`             | The navigation and tab-creation capture decisions across transition types and timing states.                                                                     |
-| `panel-mirror-parity.test.js`          | The panel suite's copy of the active-steps resolver stays textually identical to the shipped function.                                                           |
-| `panel.test.js`                        | The send gate in the panel: button state, recording selection, the confirmation summary, and the cancel path.                                                    |
-| `recorder-logic.test.js`               | The extracted content-script logic (selector derivation, locator measurement, element description, the scroll decision) and the recorder's scroll literals.      |
-| `recorder-mirror-parity.test.js`       | The recorder's two copies of the capture logic stay textually identical under the mechanical transformation.                                                     |
-| `recording-mode.test.js`               | Recording-mode persistence through the Chrome adapter.                                                                                                           |
-| `regression-294-window-rect.test.js`   | A static-source guard that the extension emits no desktop-only window rectangle field.                                                                           |
-| `schema-validation.test.js`            | Extension export data validates against the extension schema composed from its source layers, negative cases included.                                           |
-| `secret-crypto.test.js`                | At-rest key encryption: the envelope shape, the round trip, the path taken after a restart, and tampered ciphertext.                                             |
-| `service-worker-mirror-parity.test.js` | The append chokepoint's and the active-unit helpers' second copies stay textually identical to the shipped functions, the chokepoint under indentation only.     |
-| `service-worker-static-import.test.js` | A static-source guard that the background path uses the statically imported validator, never a dynamic import.                                                   |
-| `service-worker.test.js`               | The worker's message handlers: the panel protocol, import and export, the trusted-sender gate, redaction, and storage-failure recovery.                          |
-| `storage-quota.test.js`                | The storage-pressure classifier: the warn band's threshold and the resume hysteresis.                                                                            |
+| Test file                              | Covers                                                                                                                                                                        |
+| -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `adapter-chrome.test.js`               | The Chrome adapter: settings, theme, recording mode, schema loading, the pending-count and action-event subscriptions, and send.                                              |
+| `auto-sync-host.test.js`               | The background sync host wired in the service worker: one shared cycle, run headless, with its state persisted for the panel.                                                 |
+| `build-size.test.js`                   | Size tripwires over the extension bundle, per type and in total.                                                                                                              |
+| `capture-timing.test.js`               | The capture-timing constants' validity and relative ordering, and the recent-user-action decision they drive.                                                                 |
+| `dispatch.test.js`                     | Settings round-trip, endpoint validation, payload fidelity, the authorization header, and the action-event subscription.                                                      |
+| `e2e-suite-locks.test.js`              | The end-to-end guide's retry, attempt, trace, timeout and worker sentences held to the Playwright config, each key read as text and set exactly once.                         |
+| `frame-trust.test.js`                  | The per-frame trust predicate deciding whether an appended action may enter a recording.                                                                                      |
+| `naming.property.test.js`              | Extension actions carry the platform-neutral naming and capture mode the extension schema contract states, each type one the composed extension schema declares.              |
+| `navigation-logic.test.js`             | The navigation and tab-creation capture decisions across transition types and timing states, and a static-source guard that the worker's listeners decide through the module. |
+| `panel.test.js`                        | The send gate in the panel, run against the shipped send-gate module: button state, recording selection and the confirmation summary; the cancel path is simulated.           |
+| `recorder-logic.test.js`               | The extracted content-script logic (selector derivation, locator measurement, element description, the scroll decision) and the recorder's scroll literals.                   |
+| `recorder-mirror-parity.test.js`       | The recorder's two copies of the capture logic stay textually identical under the mechanical transformation.                                                                  |
+| `recording-mode.test.js`               | Recording-mode persistence through the Chrome adapter.                                                                                                                        |
+| `regression-294-window-rect.test.js`   | A static-source guard that the extension emits no desktop-only window rectangle field.                                                                                        |
+| `schema-validation.test.js`            | Extension export data validates against the extension schema composed from its source layers, negative cases included.                                                        |
+| `secret-crypto.test.js`                | At-rest key encryption: the envelope shape, the round trip, the path taken after a restart, and tampered ciphertext.                                                          |
+| `service-worker-mirror-parity.test.js` | The append chokepoint's and the active-unit helpers' second copies stay textually identical to the shipped functions, the chokepoint under indentation only.                  |
+| `service-worker-navigation.test.js`    | The worker's navigation proxy through its registered listeners: the duplicate check, the last-URL marker and its self-clear, and the new-tab link path.                       |
+| `service-worker-static-import.test.js` | A static-source guard that the background path uses the statically imported validator, never a dynamic import.                                                                |
+| `service-worker.test.js`               | The worker's message handlers: the panel protocol, import and export, the trusted-sender gate, redaction, and storage-failure recovery.                                       |
+| `storage-quota.test.js`                | The storage-pressure classifier: the warn band's threshold and the resume hysteresis.                                                                                         |

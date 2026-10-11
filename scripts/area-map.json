@@ -17,7 +17,7 @@
         "packages/extension/manifest.json",
         "packages/extension/icons/**",
         "packages/extension/package.json",
-        "packages/extension/tests/unit/{recorder-logic,service-worker,frame-trust,service-worker-static-import}.test.js",
+        "packages/extension/tests/unit/{recorder-logic,service-worker,service-worker-navigation,frame-trust,service-worker-static-import}.test.js",
         "packages/extension/tests/e2e/specs/{service-worker-lifecycle,service-worker-coverage,injection-latency,storage-quota,locators}.spec.js"
       ],
       "docs": [
@@ -37,7 +37,7 @@
       "code": [
         "packages/extension/sidepanel/**",
         "packages/extension/tests/unit/{auto-sync-host,dispatch,adapter-chrome,panel,secret-crypto}.test.js",
-        "packages/extension/tests/e2e/specs/sync-samples.spec.js"
+        "packages/extension/tests/e2e/specs/{sync-samples,panel-core-flows}.spec.js"
       ],
       "docs": [
         "docs/architecture/application/extension/capture-principles.md",
@@ -447,6 +447,15 @@
       "path": "packages/extension/sidepanel/panel.js",
       "reason": "The extension panel — its committed format pointer would drag the schema-contract set onto a module that emits no locators; this declaration states its true governors: the sidepanel area's docs plus the format doc its commit logic implements.",
       "governed-by": ["area:extension/sidepanel", "docs/technical/session-format.md"]
+    },
+    {
+      "path": "packages/extension/sidepanel/send-gate.js",
+      "reason": "The panel's send gate as a pure module — whether Send is enabled, which recordings the dispatch flow offers, and the confirmation values — imported by the panel and its unit suite. The dispatch protocol defines send eligibility (DI-13); the session format defines the active-steps resolution it runs through the shared resolver (SF-8); the shared-core document decides where behaviour-defining logic lives (SC-1), so a change landing such logic here primes that question.",
+      "governed-by": [
+        "docs/api/dispatch.md",
+        "docs/technical/session-format.md",
+        "docs/architecture/system/shared-core.md"
+      ]
     },
     {
       "path": ".github/workflows/test.yml",

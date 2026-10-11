@@ -15,6 +15,7 @@ export default {
       'packages/extension/tests/unit/recording-mode.test.js',
       'packages/extension/tests/unit/schema-validation.test.js',
       'packages/extension/tests/unit/service-worker.test.js',
+      'packages/extension/tests/unit/service-worker-navigation.test.js',
       'packages/extension/tests/unit/storage-quota.test.js',
     ].join(' '),
   },

@@ -54,6 +54,12 @@ import {
 } from '../lib/capture-timing.js';
 import { STORAGE_QUOTA_KEY, classifyStoragePressure } from '../lib/storage-quota.js';
 import { isTrustedActionSender } from '../lib/frame-trust.js';
+import {
+  classifyNavigation,
+  normaliseNavigationUrl,
+  isDuplicateNavigation,
+  shouldCaptureTabCreated,
+} from '../lib/navigation-logic.js';
 // Auto-Sync background host. The triggered cycle calls
 // the SAME shared `sync()` the manual panel path does, through the SAME
 // chrome-backed adapter, so a background cycle and a manual cycle are identical
@@ -480,78 +486,48 @@ async function wasRecentUserAction(withinMs = TAB_CREATED_USER_ACTION_WINDOW) {
   return lastUserActionTimestamp && Date.now() - lastUserActionTimestamp < withinMs;
 }
 
-// Cross-document navigations: back, forward, reload, link, typed, form_submit, etc.
-// Only record navigations that are browser chrome actions (typed, reload, back_forward,
-// auto_bookmark). Navigations caused by in-page user actions (link clicks, form submits,
-// window.location assignments) are effects of already-captured actions and are skipped.
+// Cross-document navigations: only browser chrome actions (the address bar,
+// back/forward, reload, bookmarks) become navigate proxies, plus the initial
+// navigation of a tab opened through "Open in new tab"; navigations caused by
+// in-page user actions are effects of already-captured actions and are skipped
+// (extension capture-principles ECP-7). The decision rules live in
+// lib/navigation-logic.js; this listener supplies the recording state, the clock
+// and the new-tab timestamp, and owns the append and the last-URL marker.
 chrome.webNavigation.onCommitted.addListener(async (details) => {
-  if (details.frameId !== 0) return;
   if (!(await isRecording())) return;
-  if (
-    !details.url ||
-    details.url.startsWith('chrome://') ||
-    details.url.startsWith('chrome-extension://') ||
-    details.url.startsWith('about:')
-  )
-    return;
+  const decision = classifyNavigation(details, {
+    now: Date.now(),
+    lastTabCreatedTimestamp,
+    tabCreatedSuppressionMs: TAB_CREATED_NAVIGATION_SUPPRESSION,
+  });
+  if (decision.action === 'skip') return;
+  const { navType } = decision;
 
-  // Skip subframe transition types — only top-level document navigations
-  // become navigate proxies.
-  const skipTypes = new Set(['auto_subframe', 'manual_subframe']);
-  if (skipTypes.has(details.transitionType)) return;
-
-  // If a tab was just created/reopened, this navigate is usually a cascading effect.
-  // Exception: "link" navigations on newly created tabs are the proxy for
-  // "Open in new tab" context menu selections — record those directly.
-  if (Date.now() - lastTabCreatedTimestamp < TAB_CREATED_NAVIGATION_SUPPRESSION) {
-    if (details.transitionType === 'link') {
-      // This is the initial navigation of a tab opened via context menu "Open in new tab".
-      // Record it as the proxy for the context menu selection.
-      await (swWriteQueue = swWriteQueue.then(() =>
-        appendToPending([
-          redactSensitive({
-            type: 'navigate',
-            nav_type: 'link',
-            timestamp: Date.now(),
-            url: details.url,
-            context_id: details.tabId,
-            capture_mode: 'dom',
-          }),
-        ]),
-      ));
-    }
-    // All other navigations on newly created tabs are cascading effects — skip.
+  if (decision.path === 'new-tab-link') {
+    // The initial navigation of a tab opened via context menu "Open in new tab":
+    // the proxy for the context menu selection, recorded directly — no duplicate
+    // check and no marker.
+    await (swWriteQueue = swWriteQueue.then(() =>
+      appendToPending([
+        redactSensitive({
+          type: 'navigate',
+          nav_type: navType,
+          timestamp: Date.now(),
+          url: details.url,
+          context_id: details.tabId,
+          capture_mode: 'dom',
+        }),
+      ]),
+    ));
     return;
   }
 
-  // Determine if this is a browser chrome action or an effect of an in-page action.
-  const qualifiers = details.transitionQualifiers ?? [];
-  let navType = details.transitionType;
-  if (qualifiers.includes('forward_back')) navType = 'back_forward';
-
-  // Browser chrome actions — record as proxy for what the user did.
-  const browserChromeTypes = new Set([
-    'typed',
-    'generated',
-    'reload',
-    'back_forward',
-    'auto_bookmark',
-    'start_page',
-    'keyword',
-  ]);
-  if (!browserChromeTypes.has(navType)) return;
-
-  // Redirect hops within a browser chrome navigation — suppress duplicates.
-  if (qualifiers.includes('server_redirect') || qualifiers.includes('client_redirect')) return;
-
-  // Deduplicate: don't record the same URL twice in a row (except reloads).
+  // Browser chrome navigation — deduplicate against the last recorded URL
+  // (reloads never duplicate), read inside the write queue.
   await (swWriteQueue = swWriteQueue.then(async () => {
-    const normalised = details.url.replace(/\/$/, '');
-
-    if (navType !== 'reload') {
-      const { lastTabNavUrl: stored } = await chrome.storage.local.get('lastTabNavUrl');
-      if (normalised === stored) return;
-    }
+    const normalised = normaliseNavigationUrl(details.url);
+    const { lastTabNavUrl: stored } = await chrome.storage.local.get('lastTabNavUrl');
+    if (isDuplicateNavigation(normalised, navType, stored)) return;
     const appended = await appendToPending([
       redactSensitive({
         type: 'navigate',
@@ -617,17 +593,26 @@ chrome.tabs.onActivated.addListener(async ({ tabId, windowId: _windowId }) => {
   });
 });
 
-// New context opened — capture as proxy for browser chrome actions (Ctrl+T, Ctrl+N).
-// Suppress when it's a side-effect of an in-page action (window.open, link target=_blank).
-// Distinguishing signal: window.open/link tabs have openerTabId; Ctrl+T/N tabs don't.
-// Track the timestamp so onActivated can suppress the subsequent activation.
+// New context opened — capture as proxy for browser chrome actions (Ctrl+T, Ctrl+N,
+// Ctrl+Shift+T). A tab opened as a side-effect of an in-page action (window.open,
+// link target=_blank) follows a recent in-page user action and is suppressed. The
+// decision lives in lib/navigation-logic.js; this listener supplies the recording
+// state and the recent-action read, and owns the append. Track the timestamp so
+// onActivated can suppress the subsequent activation.
 chrome.tabs.onCreated.addListener(async (tab) => {
   lastTabCreatedTimestamp = Date.now();
   lastTabCreatedId = tab.id;
-  if (!(await isRecording())) return;
-  // If there was a recent in-page user action, this tab is a side-effect
-  // (window.open, link target=_blank, etc.) — suppress.
-  if (await wasRecentUserAction()) {
+  const recording = await isRecording();
+  // A recent in-page user action makes this tab a side-effect (window.open, link
+  // target=_blank, etc.); read only while recording.
+  const decision = shouldCaptureTabCreated(tab, {
+    isRecording: recording,
+    hadRecentUserAction: recording
+      ? !!(await wasRecentUserAction(TAB_CREATED_USER_ACTION_WINDOW))
+      : false,
+  });
+  if (decision.action === 'skip') return;
+  if (decision.action === 'suppress_programmatic') {
     programmaticTabs.add(tab.id);
     return;
   }

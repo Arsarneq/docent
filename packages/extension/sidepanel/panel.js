@@ -17,6 +17,12 @@
 // Governance declared in scripts/area-map.json (see its declared-governance entry): this panel assembles, exports, and dispatches .docent.json sessions; the per-platform schemas are authoritative for field semantics.
 
 import { validateEndpointUrl, buildPayload, sendPayload, DispatchError } from './dispatch.js';
+import {
+  shouldDispatchButtonBeEnabled,
+  getRecordingsWithActiveSteps,
+  countActiveSteps,
+  buildConfirmationValues,
+} from './send-gate.js';
 import { createDispatchCooldown } from '../shared/dispatch-cooldown.js';
 import { validatePayload } from '../shared/lib/validate-import.js';
 import { sync } from '../shared/sync-client.js';
@@ -574,27 +580,15 @@ btnExportProject.addEventListener('click', async () => {
 // Dispatch project
 btnDispatchProject.addEventListener('click', () => openDispatchFlow());
 
-function resolveActiveStepsForRecording(r) {
-  const groups = new Map();
-  for (const s of r.steps ?? []) {
-    const existing = groups.get(s.logical_id);
-    if (!existing || s.uuid > existing.uuid) groups.set(s.logical_id, s);
-  }
-  return Array.from(groups.values()).filter((s) => !s.deleted);
-}
-
 function openDispatchFlow() {
-  const recordings = activeProject?.recordings ?? [];
-  // Resolve active steps for each recording
-  const recordingsWithSteps = recordings
-    .map((r) => ({ ...r, activeSteps: resolveActiveStepsForRecording(r) }))
-    .filter((r) => r.activeSteps.length > 0);
+  // The recordings with active steps, each annotated with them (send-gate.js).
+  const recordingsWithSteps = getRecordingsWithActiveSteps(activeProject);
 
   if (recordingsWithSteps.length === 0) return;
 
   if (recordingsWithSteps.length === 1) {
     // Skip selector, go directly to confirmation
-    showConfirmation(recordingsWithSteps, recordingsWithSteps[0].activeSteps.length);
+    showConfirmation(recordingsWithSteps);
     return;
   }
 
@@ -604,7 +598,7 @@ function openDispatchFlow() {
   // "Send all" option at the top
   const allLi = document.createElement('li');
   allLi.className = 'card-item';
-  const totalSteps = recordingsWithSteps.reduce((n, r) => n + r.activeSteps.length, 0);
+  const totalSteps = countActiveSteps(recordingsWithSteps);
   allLi.innerHTML = `
     <div class="card-item-main">
       <span class="card-item-name">Send all recordings</span>
@@ -615,7 +609,7 @@ function openDispatchFlow() {
     </div>
   `;
   allLi.querySelector('button').addEventListener('click', () => {
-    showConfirmation(recordingsWithSteps, totalSteps);
+    showConfirmation(recordingsWithSteps);
   });
   recordingSelectorList.appendChild(allLi);
 
@@ -633,7 +627,7 @@ function openDispatchFlow() {
       </div>
     `;
     li.querySelector('button').addEventListener('click', () => {
-      showConfirmation([r], r.activeSteps.length);
+      showConfirmation([r]);
     });
     recordingSelectorList.appendChild(li);
   });
@@ -641,11 +635,12 @@ function openDispatchFlow() {
   showView('recordingSelector');
 }
 
-function showConfirmation(recordings, totalSteps) {
-  dispatchSelection = { recordings, totalSteps };
-  confirmEndpoint.textContent = dispatchSettings.endpointUrl ?? '';
-  confirmRecordings.textContent = recordings.map((r) => r.name).join(', ');
-  confirmSteps.textContent = String(totalSteps);
+function showConfirmation(recordings) {
+  const values = buildConfirmationValues(dispatchSettings, recordings);
+  dispatchSelection = { recordings, totalSteps: values.totalSteps };
+  confirmEndpoint.textContent = values.endpoint;
+  confirmRecordings.textContent = values.recordings;
+  confirmSteps.textContent = values.steps;
   showView('dispatchConfirm');
 }
 
@@ -1162,17 +1157,6 @@ function updateDispatchButton() {
     btnDispatchProject.title = 'Configure an endpoint in Settings to enable dispatch';
     return;
   }
-  // Check if any recording has active steps
-  const recordings = activeProject?.recordings ?? [];
-  const hasActiveSteps = recordings.some((r) => {
-    const groups = new Map();
-    for (const s of r.steps ?? []) {
-      const existing = groups.get(s.logical_id);
-      if (!existing || s.uuid > existing.uuid) groups.set(s.logical_id, s);
-    }
-    return Array.from(groups.values()).some((s) => !s.deleted);
-  });
-
   // Post-send cooldown: hold the button disabled briefly after a send to
   // guard against rapid re-dispatch, counting down a remaining-seconds hint.
   const cooldownRemaining = dispatchCooldown.remainingMs();
@@ -1183,8 +1167,10 @@ function updateDispatchButton() {
     return;
   }
 
-  btnDispatchProject.disabled = !hasActiveSteps;
-  btnDispatchProject.title = hasActiveSteps ? '' : 'No recordings with active steps';
+  // The endpoint is set here, so this is whether any recording has active steps.
+  const enabled = shouldDispatchButtonBeEnabled(dispatchSettings, activeProject);
+  btnDispatchProject.disabled = !enabled;
+  btnDispatchProject.title = enabled ? '' : 'No recordings with active steps';
 }
 
 /**
