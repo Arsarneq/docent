@@ -205,7 +205,7 @@ describe('check-script CLI smoke (deterministic green paths)', () => {
   });
 });
 
-describe('the harness locks — the child environment every smoke above runs under', () => {
+describe('the harness locks — the shared environment helpers every smoke above runs under', () => {
   it('a poisoned git environment does not reach the child', () => {
     // GIT_INDEX_FILE pointed at a file that does not exist reads as an empty
     // index, so every `git ls-files` listing comes back empty and the checks
@@ -217,15 +217,18 @@ describe('the harness locks — the child environment every smoke above runs und
     });
   });
 
-  it('childEnv drops a GIT_ variable the ambient environment carries', () => {
-    withEnv({ GIT_INDEX_FILE: '/nowhere/index' }, () => {
-      assert.equal('GIT_INDEX_FILE' in childEnv({}), false);
+  it('childEnv drops every GIT_ variable the ambient environment carries', () => {
+    // Two names, so a scrub narrowed to one of them reds here.
+    withEnv({ GIT_INDEX_FILE: '/nowhere/index', GIT_DIR: '/nowhere/gitdir' }, () => {
+      const env = childEnv();
+      assert.equal('GIT_INDEX_FILE' in env, false);
+      assert.equal('GIT_DIR' in env, false);
     });
   });
 
   it('withEnv puts back what it pinned, whether or not the name carried a value', () => {
     // The `a poisoned git environment does not reach the child` and
-    // `childEnv drops a GIT_ variable the ambient environment carries` cases
+    // `childEnv drops every GIT_ variable the ambient environment carries` cases
     // poison the environment this process hands its children; a pin left behind
     // would follow every case that runs after them, so the restore is held on a
     // name that had a value, on one that did not, and on the path where the
@@ -248,13 +251,15 @@ describe('the harness locks — the child environment every smoke above runs und
   it('withoutGitEnv runs in-process work clear of GIT_ variables and puts each one back', () => {
     // The in-process counterpart of the scrub: a tree read in this process
     // runs with no GIT_ name set, and every one returns with its value —
-    // after the body returns, and on the path where the body throws.
-    withEnv({ GIT_INDEX_FILE: '/nowhere/index' }, () => {
+    // after the body returns, and on the path where the body throws. Two
+    // names, so a removal or a restore narrowed to one of them reds here.
+    const pins = { GIT_INDEX_FILE: '/nowhere/index', GIT_DIR: '/nowhere/gitdir' };
+    withEnv(pins, () => {
       const seen = withoutGitEnv(() => Object.keys(process.env).filter((n) => n.startsWith('GIT_'))); // prettier-ignore
       assert.deepEqual(seen, []);
-      assert.equal(process.env.GIT_INDEX_FILE, '/nowhere/index');
+      for (const [name, value] of Object.entries(pins)) assert.equal(process.env[name], value);
       assert.throws(() => withoutGitEnv(() => { throw new Error('boom'); }), /boom/); // prettier-ignore
-      assert.equal(process.env.GIT_INDEX_FILE, '/nowhere/index');
+      for (const [name, value] of Object.entries(pins)) assert.equal(process.env[name], value);
     });
   });
 

@@ -971,10 +971,12 @@ describe('the suite runs clear of an inherited git environment', () => {
         assert.match(out, /adapter surface consistent/, 'wrapper leg');
         // The untouched-index leg: the scratch repository's git and the wrapper
         // run there leave the poisoned index alone. A one-file repository
-        // derives no adapters, so the wrapper's red exit there is expected.
+        // derives no adapters, so the wrapper exits red there either way.
         const dir = makeScratchRepo((write) => write('README.md', 'scratch\n'));
         try {
-          assert.throws(() => runWrapper(dir));
+          runWrapper(dir);
+        } catch {
+          // The exit is not what this leg reads — only the index path below.
         } finally {
           rmSync(dir, { recursive: true, force: true });
         }

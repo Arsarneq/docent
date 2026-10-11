@@ -16,16 +16,19 @@
  * `withEnv(pins, fn)` is the reverse tool: a case that has to POISON the
  * environment (a regression case, a harness lock) pins names for the body's
  * duration and has them restored, absence included.
+ *
+ * The harness locks in ../unit/check-cli-smoke.test.js hold these helpers'
+ * behaviour for every suite that imports them.
  */
 
 /**
  * The environment for a child process: the ambient environment with every
  * `GIT_*` variable dropped, then the case's own pins on top — so a case that
  * deliberately sets a `GIT_*` name still wins.
- * @param {Record<string, string>} pins the case's own environment
+ * @param {Record<string, string>} [pins] the case's own environment
  * @returns {Record<string, string>} the child's environment
  */
-export function childEnv(pins) {
+export function childEnv(pins = {}) {
   const ambient = Object.fromEntries(
     Object.entries(process.env).filter(([name]) => !name.startsWith('GIT_')),
   );
@@ -37,14 +40,17 @@ export function childEnv(pins) {
  * pinned name to the value it had — including its absence — however `fn` ends.
  * The one home for a lock that has to poison the ambient environment the child
  * inherits from, so no case leaves a variable behind for the cases after it.
+ * Synchronous work only — the environment is restored when `fn` returns.
+ * @template T
  * @param {Record<string, string>} pins the names to pin, and their values
- * @param {() => void} fn the body to run under them
+ * @param {() => T} fn the body to run under them
+ * @returns {T} what `fn` returns
  */
 export function withEnv(pins, fn) {
   const restore = Object.keys(pins).map((name) => [name, process.env[name]]);
   Object.assign(process.env, pins);
   try {
-    fn();
+    return fn();
   } finally {
     for (const [name, value] of restore) {
       if (value === undefined) delete process.env[name];
@@ -57,6 +63,7 @@ export function withEnv(pins, fn) {
  * Run `fn` in this process with every `GIT_*` variable removed from its
  * environment — the in-process counterpart of `childEnv` — and put each one
  * back with its value however `fn` ends.
+ * Synchronous work only — the environment is restored when `fn` returns.
  * @template T
  * @param {() => T} fn the in-process work to run clear of git's environment
  * @returns {T} what `fn` returns
