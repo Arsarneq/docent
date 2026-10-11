@@ -27,9 +27,11 @@ import {
 
 /**
  * The expected active steps of a recording, computed independently of the
- * module under test: per logical_id the version with the greatest uuid (the
- * first one seen on a tie), kept unless that version is deleted (session-format
- * SF-8). Only membership is compared, so order is not computed.
+ * module under test: per logical_id the version with the greatest uuid, kept
+ * unless that version is deleted (session-format SF-8). On equal uuids the
+ * first one seen wins, as the shared resolver's strict `>` in
+ * packages/shared/lib/session.js decides; with unique uuids a tie cannot occur.
+ * Only whether the view is empty is compared, so order is not computed.
  */
 function expectedActiveSteps(recording) {
   const latest = new Map();
@@ -587,7 +589,7 @@ describe('Confirmation gate — no dispatch without confirmation, no dispatch on
 
 // ─── Active steps resolve in step order ───────────────────────────────────────
 
-describe('Recording selection resolves active steps in step_number order', () => {
+describe('Recording selection resolves active steps: step order, stepless recordings and the latest version', () => {
   test('each recording carries its active steps sorted by step_number', () => {
     const project = {
       recordings: [

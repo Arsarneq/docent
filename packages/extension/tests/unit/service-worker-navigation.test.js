@@ -10,8 +10,9 @@
  * marker written from the normalised URL, its self-clear (extension runtime
  * ERT-3, the `lastTabNavUrl` row), the reload exemption keyed on the classified
  * nav type, the new-tab link path that appends with no duplicate check and
- * no marker, and a dropped append advancing no marker (#127 review). No end-to-end spec repeats a non-reload URL, so these cases are
- * where the duplicate check is exercised.
+ * no marker, and a dropped append advancing no marker (#127 review). No
+ * end-to-end spec repeats a non-reload URL, so these cases are where the
+ * duplicate check is exercised.
  *
  * Approach: fake `chrome.*` globals with an in-memory `storage.local` are
  * installed BEFORE the worker is imported, and the onCommitted and onCreated
@@ -72,6 +73,8 @@ globalThis.chrome = {
         }
         Object.assign(storageData, items);
       },
+      // Usage reads as empty, so the pressure re-evaluation after STORAGE_RESUME
+      // lands in the ok band; a large figure would keep capture paused.
       getBytesInUse: async () => 0,
       remove: async (keys) => {
         for (const k of [].concat(keys)) delete storageData[k];
@@ -190,8 +193,9 @@ describe('service worker — navigation proxy through its registered listeners',
   });
 
   it('advances no marker when the append is dropped, so a re-navigation records', async () => {
-    // A quota failure drops the capture and pauses capture; the marker must stay
-    // unset, or the re-navigation would be skipped as a phantom duplicate.
+    // A quota failure drops the navigation and pauses capture; the marker must
+    // stay unset, or the re-navigation would be skipped as a phantom duplicate.
+    // STORAGE_RESUME lifts the pause, so the re-navigation is appended.
     failPendingWrite = true;
     await commit('https://a.example/ten', 'typed');
     assert.equal(navigates().length, 0);
