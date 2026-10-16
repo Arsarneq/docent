@@ -211,8 +211,8 @@ After a sync, rows that need a decision carry a badge:
   you choose whether to apply it.
 - **Conflict** — the same recording or project changed on both sides; you
   choose which version to keep. A project whose name and metadata this client
-  and the server have not yet agreed on counts as changed on each side that
-  still holds it.
+  and the server have not yet agreed on counts as changed on the side that
+  still holds it when the other side deletes it.
 
 A recording row in the project view shows its own badge. A project row shows
 its own badge plus, when any of its recordings needs attention, one rolled-up
