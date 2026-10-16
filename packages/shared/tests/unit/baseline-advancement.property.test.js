@@ -1168,6 +1168,11 @@ describe('Baseline advances only on confirmed agreement or adoption, never on pu
       [R2],
       'only the auto-added recording is agreed',
     );
+    assert.deepEqual(
+      Object.keys(seeded).sort(),
+      ['project_id', 'recordings'],
+      "no agreement is recorded on the project's own fields",
+    );
 
     // Cycle 2, nothing changed on either side: the project's own unit still has
     // no agreement, so it stays a conflict rather than becoming a review.
@@ -1183,6 +1188,5 @@ describe('Baseline advances only on confirmed agreement or adoption, never on pu
     assert.deepEqual(second.result.conflicts, [ID]);
     assert.deepEqual(second.result.review, []);
     assert.equal(getItem(store.getState(), ID)?.kind, 'conflict');
-    assert.equal(seeded.name, undefined, "no agreement is recorded on the project's own name");
   });
 });

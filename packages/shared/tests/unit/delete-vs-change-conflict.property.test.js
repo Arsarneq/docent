@@ -55,7 +55,7 @@ import fc from 'fast-check';
 
 import { sync } from '../../sync-client.js';
 import { stampFromSchema } from '../../lib/format-stamp.js';
-import { createEmptySyncState } from '../../sync-store.js';
+import { createEmptySyncState, setSettings } from '../../sync-store.js';
 import { advanceBaseline } from '../../sync-baseline.js';
 import { STUB_SCHEMA } from '../fixtures/stub-schema.js';
 
@@ -850,7 +850,7 @@ describe('Delete-vs-change is a conflict deferred to the user', () => {
     assert.deepEqual([...baselineRecIds].sort(), [SIB, TGT].sort(), 'baseline unchanged');
   });
 
-  // Regression: noissue — a project held in the baseline whose own fields were seeded from the local side when only a recording was agreed read as unchanged, so its one-sided deletion was propagated or held for review instead of recorded as a conflict.
+  // Regression: noissue — a project held in the baseline whose own fields were seeded from the local side when only a recording was agreed read as unchanged, so its one-sided deletion was propagated or held for review instead of recorded as a conflict; with Auto-accept deletions on, its server-side deletion is still a conflict, never auto-applied.
   it('regression_noissue_unagreed_project_one_sided_deletion_conflicts', async () => {
     const ID = '018f0000-0000-7000-8000-000000000030';
     const added = {
@@ -924,6 +924,32 @@ describe('Delete-vs-change is a conflict deferred to the user', () => {
       const conflict = store.getState().conflicts[ID];
       assert.equal(conflict.kind, 'conflict');
       assert.equal(conflict.local, null, 'the deletion (local) side carries no version');
+    }
+
+    // Server-side deletion with Auto-accept deletions on: still a conflict,
+    // never auto-applied.
+    {
+      const { store, projects } = await firstCycle();
+      setSettings(store.getState(), { autoAcceptDeletions: true });
+      installMockFetch([], new Map());
+      const { result, projects: after } = await sync(
+        'https://srv.test',
+        null,
+        projects,
+        STUB_SCHEMA,
+        passValidator,
+        store,
+        makeLiveState(),
+      );
+      assert.deepEqual(result.review, []);
+      assert.deepEqual(result.conflicts, [ID]);
+      assert.deepEqual(result.autoAppliedDeletions, []);
+      assert.deepEqual(
+        after.map((p) => p.project_id),
+        [ID],
+        'the deletion is not auto-applied',
+      );
+      assert.equal(store.getState().conflicts[ID].kind, 'conflict');
     }
   });
 });
