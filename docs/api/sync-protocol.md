@@ -643,7 +643,7 @@ so these illustrate the rest:
 - **Both sides made the identical change.** Already-converged — the baseline is
   advanced, nothing to do.
 - **Brand-new unit** on either side — auto-added.
-- **Agreed deletion** — a unit deleted on one side and unchanged since its baseline on the other is propagated (a server-side deletion of an unchanged unit is a **review**, not a conflict, unless "Auto-accept deletions" is on). A project held in the baseline whose own name and metadata hold no agreement (SP-10) counts as changed, so its deletion on one side is a delete-vs-change conflict (situation 2: the project is in the baseline through its recording's entry) until a pull finds the whole project equal on both sides or the user adopts a side of the project's own unit.
+- **Agreed deletion** — a unit deleted on one side and unchanged since its baseline on the other is propagated (a server-side deletion of an unchanged unit is a **review**, not a conflict, unless "Auto-accept deletions" is on). A project held in the baseline whose own name and metadata hold no agreement (SP-10) counts as changed, so its deletion on one side is a delete-vs-change conflict (the project is in the baseline through its recording's entry) until a pull finds the whole project equal on both sides or the user adopts a side of the project's own unit.
 - **Same-metadata / same-rename on both sides** — identical content is convergence,
   not divergence.
 

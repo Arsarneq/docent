@@ -69,7 +69,7 @@ machinery under `scripts/`.
 | `attention-indicator-derivation.property.test.js` | Derivation of the attention indicators from a sync state: which Units need attention, Review versus Conflict, and the row each sits on. |
 | `auth-failure-halt.property.test.js` | An authentication rejection halts the cycle and leaves every deferred Conflict and Review recoverable. |
 | `backward-compat.test.js` | Every frozen fixture export still validates against the current platform schema composed from its source layers. |
-| `baseline-advancement.property.test.js` | The baseline advances only on confirmed agreement or adoption, never on push, at the adopted unit's grain (a recording's entry, siblings untouched, or the whole project); an accepted deletion review clears that grain; in a project with none, a recording's agreement leaves its own fields without one. |
+| `baseline-advancement.property.test.js` | The baseline advances only on confirmed agreement or adoption, never on push, at the adopted unit's grain (a recording's entry, siblings untouched, or the whole project); an accepted deletion review clears that grain; a recording agreed in a baseline-less project leaves the project fields unagreed. |
 | `brand-new-auto-add.property.test.js` | Brand-new Units are auto-added and recorded in the baseline, while a Unit absent locally but present in the baseline is never resurrected. |
 | `build-size.test.js` | Size tripwires over the schema files, which stay lean because both platforms ship them. |
 | `capture-active-halt.property.test.js` | While capture is active a cycle starts no work at all, and the same state is allowed to sync once capture ends. |
