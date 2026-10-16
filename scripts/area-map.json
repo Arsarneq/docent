@@ -757,6 +757,11 @@
       "governed-by": ["docs/test/unit.md"]
     },
     {
+      "path": "packages/shared/tests/support/git-env-preload.js",
+      "reason": "The runner-level preload a `node --test` line takes through `--import` — it drops git's environment before a test file loads, calling the child-environment home beside it. Which runner lines carry it, and its contract, are what the unit-suite document states about the runner and the locks that hold it.",
+      "governed-by": ["docs/test/unit.md"]
+    },
+    {
       "path": "packages/desktop/src-tauri/tests/{action_mapping_test,capture_mode_test,coordinate_dpi_test,coordinate_test,element_mapping_test,pid_filter_test,windows_capture_test}.rs",
       "reason": "Deterministic binaries over the Windows capture layer's pure decisions — native event to action mapping, accessibility-versus-coordinate mode selection, the coordinate helpers with their multi-monitor and DPI math, native element mapping, the platform-agnostic PID base filter, and the scroll accumulator and recording-state transitions. Their contract is the Windows capture doctrine, which states those rules and whose scope-filter row names the PID and Windows-unit binaries as its guards (DCP-5), and the suite orientation whose table lists each binary by name.",
       "governed-by": [

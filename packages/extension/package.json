@@ -5,7 +5,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --test tests/unit/*.test.js",
-    "test:coverage": "c8 --reporter=text --reporter=lcov node --test tests/unit/*.test.js"
+    "test": "node --test --import ../shared/tests/support/git-env-preload.js tests/unit/*.test.js",
+    "test:coverage": "c8 --reporter=text --reporter=lcov node --test --import ../shared/tests/support/git-env-preload.js tests/unit/*.test.js"
   }
 }

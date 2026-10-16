@@ -24,10 +24,13 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { childEnv, withEnv, withoutGitEnv } from '../support/child-env.js';
+import { escapeForRegExp } from '../../../../scripts/check-test-inventory.js';
 
 const ROOT = path.resolve(import.meta.dirname, '../../../..');
 
@@ -280,5 +283,111 @@ describe('the harness locks — the shared environment helpers, held for every s
     // still wins, and a case's ordinary pin is untouched by the scrub.
     assert.equal(childEnv({ GIT_INDEX_FILE: '/pinned/index' }).GIT_INDEX_FILE, '/pinned/index');
     assert.equal(childEnv({ DOCENT_RELEASE: '1' }).DOCENT_RELEASE, '1');
+  });
+
+  // The runner-level route beside the per-case ones: the preload every runner
+  // script carries through `--import`, held on both halves — that the wiring
+  // states it on every surface it is meant to, and that it does its work in a
+  // test process the runner spawns.
+  const PRELOAD = 'packages/shared/tests/support/git-env-preload.js';
+  // A runner invocation: `node`, its own flags if any, `--test` — the shape the
+  // inventory reader admits, so a runtime flag before `--test` hides no run.
+  const RUNNER = /\bnode(?:\s+-\S*)*\s+--test(?=\s|$)/;
+  const runnerScripts = (manifest) => {
+    const { scripts } = JSON.parse(readFileSync(path.join(ROOT, manifest), 'utf8'));
+    return Object.entries(scripts).filter(([, cmd]) => RUNNER.test(cmd));
+  };
+  // Every runner invocation in the text is followed by `--import` of the
+  // preload: counted, not just found, so a chained second run without it reds
+  // too.
+  const count = (text, re) => (text.match(new RegExp(re.source, 'g')) ?? []).length;
+  const wired = (text, specifier) => {
+    const wiredRun = new RegExp(
+      `${RUNNER.source}\\s+--import\\s+${escapeForRegExp(specifier)}(?=\\s|$)`,
+    );
+    return count(text, wiredRun) === count(text, RUNNER);
+  };
+
+  it('every runner script in the root manifest carries the git-environment preload', () => {
+    // The preload reaches a suite only through the flag on its runner line, so
+    // the wiring is pinned where it is written: every runner invocation a
+    // script's command runs carries `--import` of the preload right after
+    // `--test`. A script added without it, a run chained on without it, or a
+    // flag edited away, reds here.
+    const runners = runnerScripts('package.json');
+    assert.ok(
+      runners.length > 0,
+      'no root script states a runner invocation — the scan cannot hit',
+    );
+    for (const [name, cmd] of runners) {
+      assert.ok(wired(cmd, `./${PRELOAD}`), `${name}: ${cmd}`);
+    }
+  });
+
+  it('every runner script in the extension manifest carries it', () => {
+    // The extension package runs its tree from its own directory, so its
+    // scripts spell the preload from there.
+    const runners = runnerScripts('packages/extension/package.json');
+    assert.ok(
+      runners.length > 0,
+      'no extension script states a runner invocation — the scan cannot hit',
+    );
+    for (const [name, cmd] of runners) {
+      assert.ok(wired(cmd, '../shared/tests/support/git-env-preload.js'), `${name}: ${cmd}`);
+    }
+  });
+
+  it('every direct runner step in the test workflow carries it', () => {
+    // A runner invocation spelled outside a manifest: a workflow step's `run:`
+    // line. Read as text, line by line, the way the step states it.
+    const lines = readFileSync(path.join(ROOT, '.github/workflows/test.yml'), 'utf8')
+      .split('\n')
+      .filter((line) => RUNNER.test(line));
+    assert.ok(
+      lines.length > 0,
+      'no workflow step states a runner invocation — the scan cannot hit',
+    );
+    for (const line of lines) {
+      assert.ok(wired(line, `./${PRELOAD}`), line.trim());
+    }
+  });
+
+  it('the preload strips a poisoned git environment from a test process the runner spawns', () => {
+    // The runner forwards `--import` into each test file's own process, so the
+    // preload's drop precedes the file's load: a fixture that asserts no GIT_
+    // name is in its environment passes under the preload with the poison on
+    // the runner, and reds without it (the control, which is what shows the
+    // fixture can hit). The child's environment is built here rather than
+    // inherited: the runner marks its children `NODE_TEST_CONTEXT`, and a nested
+    // runner that inherits the mark skips its files and exits 0 either way.
+    const dir = mkdtempSync(path.join(tmpdir(), 'docent-git-env-preload-'));
+    const fixture = path.join(dir, 'env-probe.test.mjs');
+    writeFileSync(
+      fixture,
+      [
+        "import { test } from 'node:test';",
+        "import assert from 'node:assert/strict';",
+        "test('no GIT_ name reaches a test process under the preload', () => {",
+        "  assert.deepEqual(Object.keys(process.env).filter((n) => n.startsWith('GIT_')), []);",
+        '});',
+        '',
+      ].join('\n'),
+    );
+    const env = { ...process.env, ...POISON };
+    for (const name of Object.keys(env)) if (name.startsWith('NODE_TEST_')) delete env[name];
+    const run = (args) =>
+      spawnSync(process.execPath, ['--test', ...args, fixture], {
+        cwd: ROOT,
+        encoding: 'utf8',
+        env,
+      });
+    try {
+      const withPreload = run(['--import', pathToFileURL(path.join(ROOT, PRELOAD)).href]);
+      assert.equal(withPreload.status, 0, withPreload.stdout + withPreload.stderr);
+      const control = run([]);
+      assert.notEqual(control.status, 0, 'the fixture passed without the preload — the poison never reached it'); // prettier-ignore
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

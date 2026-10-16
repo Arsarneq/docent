@@ -1138,7 +1138,7 @@ jobs:
         run: npm run vectors:assemble:desktop
 
       - name: Vector hygiene locks + meta-schema (desktop)
-        run: node --test packages/shared/tests/unit/conformance-vectors.test.js
+        run: node --test --import ./packages/shared/tests/support/git-env-preload.js packages/shared/tests/unit/conformance-vectors.test.js
 
       - name: Upload vector output
         if: failure()

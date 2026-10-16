@@ -1,9 +1,14 @@
 /**
  * service-worker.test.js — Unit tests for service worker message handlers.
  *
- * Since the service worker uses chrome.* APIs at the top level, we cannot
- * import it directly. Instead, we replicate the core message handler logic
- * and test it with mocked state — same approach as panel.test.js.
+ * The worker imports under the runner behind a fake `chrome` global
+ * (`auto-sync-host.test.js` and `service-worker-navigation.test.js` drive it
+ * that way), but it exports
+ * nothing: its message handlers close over module-private state. So this suite
+ * replicates the core message handler logic and tests it with mocked state —
+ * the append chokepoint's and the active-unit helpers' copies held to the
+ * shipped text by `service-worker-mirror-parity.test.js`, the rest of the
+ * replica pinning only itself (docs/test/unit.md).
  *
  * Uses Node.js built-in test runner.
  */

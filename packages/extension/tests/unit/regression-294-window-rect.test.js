@@ -12,10 +12,11 @@
  * action objects accept unknown fields, so the extension schema is NOT a guard
  * for it and the exported files still validated.
  *
- * The emit code is chrome.*-coupled and not importable under `node --test`
- * (`service-worker.test.js` replicates rather than imports; `recorder.js` runs
- * in the content-script world), so — like the MV3 static-import guard beside
- * this file — this test reads the capture sources as text and asserts the
+ * The emit code is reachable through no import — the worker's emit path is
+ * module-private, the worker exporting nothing (`service-worker.test.js`
+ * replicates rather than imports), and `recorder.js` runs in the content-script
+ * world — so, like the MV3 static-import guard beside this file, this test
+ * reads the capture sources as text and asserts the
  * invariant on the CODE. The behavioural proof lives in the scripted-truth
  * corpus (its `ext-*` truth files no longer carry `window_rect`); this guard
  * keeps the drift from silently returning at the source.
