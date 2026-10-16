@@ -97,7 +97,7 @@
  *
  * @typedef {Object} BaselineRecord
  * @property {string} digest - canonical content digest of the agreed project
- * @property {ProjectCopy} agreedState - recoverable copy of the agreed project
+ * @property {ProjectCopy | {project_id: string, recordings: RecordingCopy[]}} agreedState - recoverable copy of the agreed project; while no agreement is recorded on the project's own fields (sync-protocol SP-10) it carries only `project_id` and the agreed recordings
  * @property {string} agreedAt - ISO timestamp the agreement was recorded (informational)
  */
 

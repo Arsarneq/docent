@@ -170,7 +170,8 @@ changes without holding them for review:
 - **Auto-accept updates** — applies an incoming change to a recording you have
   not changed, when it only extends that recording (same name and metadata).
 - **Auto-accept deletions** — applies a server-side deletion of a recording or
-  project you have not changed.
+  project you have not changed. A project whose name and metadata this client
+  and the server have not yet agreed on counts as changed.
 
 Neither ever resolves a conflict. A toggle change takes effect from the next
 sync and also covers items already waiting for your review: turn a toggle on
@@ -209,7 +210,9 @@ After a sync, rows that need a decision carry a badge:
 - **Review** — the server changed (or deleted) something you have not touched;
   you choose whether to apply it.
 - **Conflict** — the same recording or project changed on both sides; you
-  choose which version to keep.
+  choose which version to keep. A project whose name and metadata this client
+  and the server have not yet agreed on counts as changed on the side that
+  still holds it when the other side deletes it.
 
 A recording row in the project view shows its own badge. A project row shows
 its own badge plus, when any of its recordings needs attention, one rolled-up
