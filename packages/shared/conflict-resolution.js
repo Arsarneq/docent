@@ -189,13 +189,13 @@ function applyRecordingToProject(project, recordingCopy) {
 /**
  * Allowlisted projection of a project's own scalar identity fields (no
  * recordings) — the base for assembling a per-project baseline's agreed state.
- * Mirrors `projectMetaSkeleton` in sync-client.js so a baseline written from the
+ * The one copy: sync-client.js imports it, so a baseline written from the
  * resolution path is shaped exactly like one written from the sync cycle.
  *
  * @param {object} project
  * @returns {{project_id: string, name: string, created_at: string, metadata?: object}}
  */
-function projectMetaSkeleton(project) {
+export function projectMetaSkeleton(project) {
   return {
     project_id: project.project_id,
     name: project.name,

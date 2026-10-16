@@ -26,7 +26,11 @@ import {
 } from './sync-store.js';
 import { classifyProject } from './conflict-detector.js';
 import { getBaseline, advanceBaseline } from './sync-baseline.js';
-import { isContentFastForward, incomingDismissalDigest } from './conflict-resolution.js';
+import {
+  isContentFastForward,
+  incomingDismissalDigest,
+  projectMetaSkeleton,
+} from './conflict-resolution.js';
 import { digestRecording, digestProjectMetadata } from './sync-digest.js';
 
 /**
@@ -765,22 +769,6 @@ function recordingProjection(recording) {
     created_at: recording.created_at,
     ...(recording.metadata && { metadata: recording.metadata }),
     steps: recording.steps ?? [],
-  };
-}
-
-/**
- * Allowlisted projection of a project's own scalar identity fields (no
- * recordings). The base for assembling a per-project baseline's agreed state.
- *
- * @param {object} project
- * @returns {{project_id: string, name: string, created_at: string, metadata?: object}}
- */
-function projectMetaSkeleton(project) {
-  return {
-    project_id: project.project_id,
-    name: project.name,
-    created_at: project.created_at,
-    ...(project.metadata && { metadata: project.metadata }),
   };
 }
 
