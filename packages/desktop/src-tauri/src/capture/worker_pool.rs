@@ -328,9 +328,9 @@ pub struct WorkerPool {
     /// (see [`PendingDirectory`]). Updated in-place on every respawn.
     pending_directory: PendingDirectory,
     sequence_counter: Arc<AtomicU64>,
-    /// Sticky routing: maps `window_handle` → `worker_index` for value-change
-    /// events, ensuring consecutive keystrokes for the same window are
-    /// coalesced by a single worker.
+    /// Sticky routing: maps `window_handle` → `worker_index` for value-change,
+    /// focus and selection events, so each window's events of those types reach
+    /// one worker and its per-window supersession and deduplication hold.
     value_change_affinity: HashMap<i64, usize>,
     /// Tracks the worker index that received the most recent `DragStart`,
     /// so the corresponding `Drop` event is routed to the same worker.

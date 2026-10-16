@@ -203,7 +203,7 @@ stamped at left button-down and again when the release classifies as a click;
 its boundary is inclusive, so a focus or selection event arriving exactly
 `CLICK_REDUNDANCY_MS` after that stamp is suppressed.
 
-A foreground change is therefore recorded as a `context_switch` whenever it
+By the foreground row, a foreground change is recorded as a `context_switch` whenever it
 passes the scope filters (DCP-5), follows a low-level input within
 `FOREGROUND_CORRELATION_MS` and names a root window other than the last switch's
 — including two activations core
@@ -211,7 +211,7 @@ passes the scope filters (DCP-5), follows a low-level input within
 calls cascades: the activation of a window whose `context_open` the same user
 action records, and the activation the system gives, after a window closes, to a
 window the recording already introduced (the window behind one closed by its
-title-bar close button, for example). Recording them
+title-bar close button, which DCP-6 records as a `context_close`, for example). Recording them
 is a capture gap against core CP-17.
 
 **DCP-8.** **Window-scoping:** Value changes and selections are only
