@@ -193,7 +193,7 @@ function applyRecordingToProject(project, recordingCopy) {
  * resolution path is shaped exactly like one written from the sync cycle.
  *
  * @param {object} project
- * @returns {{project_id: string, name: string, created_at: string, metadata?: object}}
+ * @returns {{project_id: string, name?: string, created_at?: string, metadata?: object}}
  */
 export function projectMetaSkeleton(project) {
   return {
