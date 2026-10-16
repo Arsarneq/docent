@@ -32,6 +32,13 @@
  *     or a file named `*.test.js`/`*.spec.js`. Whether the thing named
  *     really guards the clause stays review's judgment, as below; what this
  *     admits is a check something in this repository RUNS;
+ *   - a check-exists row that pins its clause on the reference server's suite
+ *     — a path or pattern of the runnable form under
+ *     {@link REFERENCE_SERVER_ROOT}, or its `tests/` directory or one under it
+ *     — names the reference server: the registry's description has such a
+ *     row's check-ref name the reference server as the implementation under
+ *     test, and the phrase is the floor this check holds; whether the row
+ *     names it so stays review's judgment;
  *   - a row that states {@link TEST_CASES_FIELD} names test cases its own
  *     check-ref's files DECLARE: the field is a list of test-case identifiers
  *     on a check-ref-bearing row, and each identifier is resolved against the
@@ -82,7 +89,8 @@
  *     `code span`;
  *   - the gate's own register stays true, whether or not a row leans on it:
  *     every enumerated citable root file and the vector-fixtures path name a
- *     tracked source, and a top-level list the map states in the same
+ *     tracked source, the reference server's suite directory the server-binding
+ *     leg keys on has tracked files under it, and a top-level list the map states in the same
  *     reason-bearing shape as the ones {@link AREA_MAP_ENTRY_LISTS} names is
  *     one of them, or a whole class of entry explains itself in reasons no leg
  *     reads. That is this register's own direction; whether a list the constant
@@ -311,6 +319,25 @@ export const BARE_FILE_SUFFIXES = ['.test.js', '.spec.js', '.rs', '.mjs'];
  */
 const RUNNABLE_PATH_RE =
   /^scripts\/[^/]+\.m?js$|(?:^|\/)tests\/.*\.(?:m?js|rs)$|\.(?:test|spec)\.js$/;
+
+/**
+ * The reference server's tree, and the words a row that pins a clause there
+ * says. The registry's own description states the rule this leg holds: a
+ * clause that binds a server is check-exists when a runnable check pins its
+ * observable behaviour on the reference server, and the check-ref names the
+ * reference server as the implementation under test. The keying is by
+ * citation — a path or pattern of the runnable form under the root, or the
+ * suite's own `tests/` directory or one under it, read as the suite's — and
+ * the phrase is a lexical floor: that the
+ * row names the server as the implementation under test, rather than merely
+ * mentioning it, stays review's judgment, as the runnable predicate above
+ * leaves whether a named check really guards the clause.
+ */
+export const REFERENCE_SERVER_ROOT = 'reference-implementations/sync-server/';
+export const REFERENCE_SERVER_PHRASE = 'reference server';
+
+/** The rule the server-binding refusal states after its `;`, built from the two. */
+const SERVER_BINDING_RULE = `a check-exists row that pins its clause on the reference server's suite — a path or pattern of the runnable form under ${REFERENCE_SERVER_ROOT}, or ${REFERENCE_SERVER_ROOT}tests/ or a directory under it — names the ${REFERENCE_SERVER_PHRASE}: the registry's description has such a row's check-ref name the reference server as the implementation under test`;
 
 /** A JavaScript module, where a test case is declared by its title. */
 const JS_ANCHOR_RE = /\.m?js$/;
@@ -808,6 +835,16 @@ export function auditClauseRegistry({ registry, files, readFile, packageScripts 
       `VECTOR_FIXTURES_PATH names ${VECTOR_FIXTURES_PATH}, which is not a tracked file; the fixture surface this check reads names one tracked source`,
     );
   }
+  // The same register, one directory wider: the reference server's suite
+  // directory the server-binding leg keys on — the narrower of its two keys,
+  // which the root contains. Held here so a moved or renamed suite reds at
+  // this register, rather than leaving that leg matching nothing while the
+  // lint stays green.
+  if (![...tracked].some((f) => f.startsWith(`${REFERENCE_SERVER_ROOT}tests/`))) {
+    r.listErrors.push(
+      `REFERENCE_SERVER_ROOT names ${REFERENCE_SERVER_ROOT}, under whose tests/ directory no tracked file sits; the server-binding leg keys on the reference server's suite`,
+    );
+  }
 
   // Shape.
   if (typeof registry !== 'object' || registry === null) {
@@ -936,6 +973,20 @@ export function auditClauseRegistry({ registry, files, readFile, packageScripts 
         if (runnable.length + npmScripts.length === 0) {
           r.refErrors.push(
             `clause "${id}" is check-exists but its check-ref names nothing runnable; a check that exists is an npm run target, a scripts/*.js or scripts/*.mjs file, or a suite's own code — a .js, .mjs, or .rs file under a tests/ path, or a file named *.test.js or *.spec.js`,
+          );
+        }
+        // The server-binding floor: a row that pins its clause on the reference
+        // server's suite names the reference server (the keying is stated at
+        // REFERENCE_SERVER_ROOT; the rule is the registry's own description).
+        const serverSuite = [
+          ...[...paths, ...patterns].filter(
+            (p) => p.startsWith(REFERENCE_SERVER_ROOT) && RUNNABLE_PATH_RE.test(p),
+          ),
+          ...dirs.filter((d) => d.startsWith(`${REFERENCE_SERVER_ROOT}tests/`)),
+        ];
+        if (serverSuite.length > 0 && !text.toLowerCase().includes(REFERENCE_SERVER_PHRASE)) {
+          r.refErrors.push(
+            `clause "${id}" is check-exists and its check-ref pins the clause on the reference server's suite (${serverSuite[0]}) without naming the reference server; ${SERVER_BINDING_RULE}`,
           );
         }
       }
@@ -1421,7 +1472,10 @@ export function fixBlock() {
     `  repository path that identifies it. An intended-but-unbuilt check is described in\n` +
     `  prose, and a check-exists row names the runnable check that exists: an npm run target,\n` +
     `  a scripts/*.js or scripts/*.mjs file, or a suite's own code — a .js, .mjs, or .rs file\n` +
-    `  under a tests/ path, or a file named *.test.js or *.spec.js.\n` +
+    `  under a tests/ path, or a file named *.test.js or *.spec.js. A check-exists row that pins\n` +
+    `  its clause on the reference server's suite — a path or pattern of the runnable form under\n` +
+    `  ${REFERENCE_SERVER_ROOT}, or ${REFERENCE_SERVER_ROOT}tests/ or a directory\n` +
+    `  under it — names the ${REFERENCE_SERVER_PHRASE}.\n` +
     `  A row states "${TEST_CASES_FIELD}" to have its named test cases held: each identifier\n` +
     `  listed there is a test DECLARED by one of the anchor-bearing files that row's check-ref\n` +
     `  cites by path — a title a BARE it/test call states in a .js or .mjs file (a member\n` +
@@ -1432,7 +1486,8 @@ export function fixBlock() {
     `  Retired: with the reason, and loses its suite title — that is what keeps the numbering\n` +
     `  append-only, so the two surfaces are held to each other on every run, cited or not.\n` +
     `  The blocks after the registry's own name other subjects: this check's register (the\n` +
-    `  citable root files and the fixture path it names must be tracked sources, and a\n` +
+    `  citable root files and the fixture path it names must be tracked sources, the reference\n` +
+    `  server's suite directory ${REFERENCE_SERVER_ROOT}tests/ must have tracked files under it, and a\n` +
     `  reason-bearing top-level list the map states outside the entry lists this check\n` +
     `  reads — ${AREA_MAP_ENTRY_LISTS.join(', ')} — is a class of entry no leg reads),\n` +
     `  the lock surfaces, the clause citations ${MAP_PATH} states in its entry reasons\n` +
