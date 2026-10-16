@@ -2245,6 +2245,10 @@ export function admittedManifests(files) {
 /** The command separators a script's segments are split on. */
 const SEPARATORS = new Set(['&&', '||', ';', '|']);
 
+/** The one flag the reader admits after `--test`, and the module it must name: the shared suites' git-environment preload. */
+const RUNNER_PRELOAD_FLAG = '--import';
+const RUNNER_PRELOAD_NAME = 'git-env-preload.js';
+
 /** The characters that make an argument or a listed entry a glob rather than one file. */
 const GLOB_CHAR_RE = /[*?[\]]/;
 
@@ -2263,9 +2267,14 @@ const FOR_LOOP_RE = /\bfor\s+[A-Za-z_][A-Za-z0-9_]*\s+in\s+([^;\n]+);\s*do\b/g;
  * a non-flag token while a `--test` still stands later in the same segment —
  * a runtime flag's separate-token value, which this reader does not model and
  * would otherwise leave the whole invocation unread; one carrying a flag after
- * `--test`, whose separate-token value this reader would otherwise collect as a
- * path; and one stating no argument at all — what it selects is then the
- * runner's own default rather than a stated suite.
+ * `--test` other than `--import` of the runner preload `git-env-preload.js`,
+ * whose separate-token value this reader would otherwise collect as a path
+ * (the preload's value names no suite, so that flag and its value — attached
+ * by `=`, or the next token — are stepped over; `--import` of any other
+ * module, or with no value, is refused by name, since a module loaded ahead of
+ * a suite could run or skip anything, and the harness locks pin the path the
+ * manifests spell); and one stating no argument at all — what it selects is
+ * then the runner's own default rather than a stated suite.
  * @param {string} command one manifest script's command line
  * @returns {{ args: string[] } | { error: string }}
  */
@@ -2303,6 +2312,34 @@ export function nodeTestArguments(command) {
     }
     const collected = [];
     for (i = at + 1; i < tokens.length && !SEPARATORS.has(tokens[i]); i++) {
+      if (tokens[i] === RUNNER_PRELOAD_FLAG || tokens[i].startsWith(`${RUNNER_PRELOAD_FLAG}=`)) {
+        // The runner preload: the one flag admitted after `--test`, and only
+        // naming the preload — the value attached by `=` (taken as written, a
+        // dash first or not), or the next token, which must be there and be
+        // neither a separator nor a flag. Its value names no suite, so the flag
+        // and the value are stepped over; any other module, or none, is
+        // refused by name.
+        const attached = tokens[i] !== RUNNER_PRELOAD_FLAG;
+        const value = attached ? tokens[i].slice(RUNNER_PRELOAD_FLAG.length + 1) : tokens[i + 1];
+        const missing =
+          value === undefined ||
+          value === '' ||
+          SEPARATORS.has(value) ||
+          (!attached && value.startsWith('-'));
+        if (missing) {
+          return {
+            error: `runs \`node --test\` with the flag \`${RUNNER_PRELOAD_FLAG}\` and no value for it, which this reader does not model — the flag is admitted only together with the preload it names`,
+          };
+        }
+        if (value.split(/[\\/]/).pop() !== RUNNER_PRELOAD_NAME) {
+          const spelled = attached ? tokens[i] : `${RUNNER_PRELOAD_FLAG} ${value}`;
+          return {
+            error: `runs \`node --test\` with \`${spelled}\`, which this reader does not model — the one module admitted ahead of a suite is the shared suites' git-environment preload \`${RUNNER_PRELOAD_NAME}\``,
+          };
+        }
+        if (!attached) i++;
+        continue;
+      }
       if (tokens[i].startsWith('-')) {
         return {
           error: `runs \`node --test\` with the flag \`${tokens[i]}\`, which this reader does not model — a flag taking a separate token would leave that token read as a suite argument`,

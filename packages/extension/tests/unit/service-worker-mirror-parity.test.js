@@ -2,11 +2,12 @@
  * service-worker-mirror-parity.test.js — locks the two-copy convention of the
  * append chokepoint and the active-unit helpers.
  *
- * The service worker uses chrome.* APIs at module scope, so the unit suite
- * cannot import it: `service-worker.test.js` exercises the APPEND_ACTION
- * chokepoint by holding a second copy of `validateAndAppend` and binding the
- * seams (the runtime id, the warning sink, the reseed, the append) in its own
- * scope. The suite also holds verbatim copies of the worker's
+ * The worker imports under the runner behind a fake `chrome` global, but
+ * `validateAndAppend`, `getActiveProject` and `getActiveRecording` are
+ * module-private — the worker exports nothing — so `service-worker.test.js`
+ * exercises the APPEND_ACTION chokepoint by holding a second copy of
+ * `validateAndAppend` and binding the seams (the runtime id, the warning sink,
+ * the reseed, the append) in its own scope, and holds verbatim copies of
  * `getActiveProject` and `getActiveRecording`, at module scope as shipped.
  * This test asserts each copy is TEXTUALLY IDENTICAL to the shipped function —
  * the chokepoint after its indentation is stripped, the helpers as written — so

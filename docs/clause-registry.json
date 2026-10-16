@@ -699,7 +699,7 @@
       "doc": "docs/api/sync-protocol.md",
       "clause": "SP-10",
       "tag": "check-exists",
-      "check-ref": "Baseline advancement (agreement/adoption only, never push) and the grain SP-10 states for every accepted review and for every conflict resolved against a present incoming version are pinned by packages/shared/tests/unit/baseline-advancement.property.test.js (npm run test:shared)."
+      "check-ref": "Baseline advancement (agreement/adoption only, never push) and the grain SP-10 states for every accepted review and for every conflict resolved against a present incoming version are pinned by packages/shared/tests/unit/baseline-advancement.property.test.js (npm run test:shared); the project's own unit left without a baseline when a recording's agreement is recorded in a project that has none is pinned there for the sync cycle, and for adoption by packages/shared/tests/unit/accept-review.property.test.js, packages/shared/tests/unit/resolve-explicit-logical-id.property.test.js and packages/shared/tests/unit/resolve-conflict-fixtures.test.js (npm run test:shared)."
     },
     {
       "doc": "docs/api/sync-protocol.md",

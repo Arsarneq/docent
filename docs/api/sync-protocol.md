@@ -592,6 +592,7 @@ Key rules (the headline guarantees; the clauses below state further ones):
   siblings' entries untouched, or, for the project's own name and metadata, the
   whole project baseline — so the adopted state is re-validated against the server
   (and re-detected as a conflict if another client moved it) on the next cycle.
+  A recording's agreement recorded in a project that has no baseline — an adopted recording, or a brand-new one auto-added (SP-9) — records no agreement on the project's own name and metadata: that unit keeps no baseline, so SP-11's no-baseline case classifies it when the two sides differ, equal sides converge without recording agreement on that unit (only whole-project convergence does), and a deletion of the project on one side is a conflict (SP-11), until a pull finds the whole project equal on both sides or the user adopts a side of the project's own unit.
 
 A locked recording is skipped in this phase entirely: its incoming changes are
 neither applied nor offered until it is closed.
@@ -642,9 +643,7 @@ so these illustrate the rest:
 - **Both sides made the identical change.** Already-converged — the baseline is
   advanced, nothing to do.
 - **Brand-new unit** on either side — auto-added.
-- **Agreed deletion** — a unit deleted on one side and unchanged on the other is
-  propagated (a server-side deletion of an unchanged unit is a **review**, not a
-  conflict, unless "Auto-accept deletions" is on).
+- **Agreed deletion** — a unit deleted on one side and unchanged since its baseline on the other is propagated (a server-side deletion of an unchanged unit is a **review**, not a conflict, unless "Auto-accept deletions" is on). A project held in the baseline whose own name and metadata hold no agreement (SP-10) counts as changed, so its deletion on one side is a delete-vs-change conflict (the project is in the baseline through its recording's entry) until a pull finds the whole project equal on both sides or the user adopts a side of the project's own unit.
 - **Same-metadata / same-rename on both sides** — identical content is convergence,
   not divergence.
 
@@ -731,7 +730,8 @@ conflict):
   to review. A version the user previously
   [declined](#declining-a-review) is never auto-applied.
 - **Auto-accept deletions** — a server deletion of a unit you have not changed is
-  applied automatically instead of being held for review.
+  applied automatically instead of being held for review; a project whose own
+  name and metadata hold no agreement (SP-10) counts as changed (SP-11).
 
 Neither setting ever auto-resolves a **divergence**: if your local copy also
 moved from the baseline, it is a conflict regardless of these toggles.

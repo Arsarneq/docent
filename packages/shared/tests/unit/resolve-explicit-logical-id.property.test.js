@@ -157,9 +157,10 @@ function materialize(scenario) {
     // Per-unit resolved-against baseline: the recording's baseline
     // entry advances to the INCOMING version the user resolved against — NOT the
     // adopted (union) state — so a merge choice reads as changed-local-outgoing
-    // next cycle and is pushed. With no prior baseline, the agreed project carries
-    // only the resolved recording at its incoming version.
-    const expectedBaselineAgreed = buildProject(project_id, [incomingCopy]);
+    // next cycle and is pushed. With no prior baseline, the agreed state holds only
+    // the project_id and the resolved recording at its incoming version
+    // (sync-protocol SP-10).
+    const expectedBaselineAgreed = { project_id, recordings: [incomingCopy] };
 
     return jsonNormalize({
       level: 'recording',
@@ -418,7 +419,7 @@ describe('Differing per-logical_id records require explicit input; histories are
     // Per-unit resolved-against baseline: the baseline advances to the
     // INCOMING recording the user resolved against, not the adopted (combined)
     // state, so the merged recording reads as changed-local-outgoing next cycle.
-    assert.equal(baseline.digest, digestProject(buildProject('proj-1', [incoming])));
+    assert.equal(baseline.digest, digestProject({ project_id: 'proj-1', recordings: [incoming] }));
   });
 
   // Reference DELETE_RESOLUTION so the explicit-choice sentinel stays imported as
