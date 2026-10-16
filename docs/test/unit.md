@@ -33,8 +33,20 @@ Every tree is discovered the same way: a `node --test` glob over the test files
 at the top of its `tests/unit` directory. A file joins its suite by matching
 `*.test.js` there: a helper beside the tests is outside the suite because its
 name does not match, and a file one directory deeper is outside it because the
-glob reads only the top level. ESLint reads every JavaScript file under each
-package's `tests` directory, through `npm run lint:js` and the pre-push hook
+glob reads only the top level. Every runner invocation the root and extension
+manifests' scripts state — `node`, its own flags, `--test` — and every direct
+one in the test workflow carries `--import` of
+`packages/shared/tests/support/git-env-preload.js`, which each test file's
+process loads ahead of the file (the runner forwards the flag to every process
+it spawns): it drops every `GIT_*` name from that process's environment before
+the file loads, so a caller's exported git variable (a hook's, a parent git
+process's, a CI step's) reaches no suite those invocations run; the per-case
+helpers — a child's scrubbed environment, the in-process scrub, a deliberate
+poison — stay in `child-env.js` for the suites that read, spawn or poison on
+purpose, and the harness locks in `check-cli-smoke.test.js` hold the preload
+and its wiring on each of those surfaces. ESLint reads every JavaScript file
+under each package's
+`tests` directory, through `npm run lint:js` and the pre-push hook
 alike, with each runtime's globals declared in `eslint.config.js`. The commands
 that run each suite live in the [contributing
 guide](../../.github/CONTRIBUTING.md#running-tests); how this layer sits beneath
@@ -252,6 +264,10 @@ machinery under `scripts/`.
   the environment-pinning helper putting back what it pinned
 - a name that carried a value, one that did not, and the path where its body throws — and the
   in-process route running its work with no `GIT_*` name set and putting each one back;
+- the runner-level preload beside that home: that every runner invocation of the root and extension
+  manifests' scripts and of the test workflow's direct steps — `node`, its own flags, `--test` — is
+  followed by `--import` of it, and that it strips a poisoned environment from a test process the
+  runner spawns, the control without it red;
 - the red paths stay with each script's own unit tests.
 
 ### `check-clippy-invocation.test.js`
@@ -493,8 +509,9 @@ machinery under `scripts/`.
   descriptor rather than spelled, the carrying command held on either side of the `npm run` to one
   plain command, standing alone on the only command line it states as an invocation this reading
   models with the flags of that invocation it admits
-- named in the check — and a plain `--test`, the refusal naming the shape, the word or the flag it
-  found
+- named in the check — and a `--test` plain but for `--import` of the git-environment preload, the
+  one flag the argument reader admits after it (held in `check-test-inventory.test.js`), the refusal
+  naming the shape, the word or the flag it found
 - a flag outside the sets the check names being refused rather than read, a command after a `cd`
   left unread and the step it stands in named beside the finding where what follows the `cd` could
   have carried a suite, a `working-directory` that moves the command, stated for the step, the job
