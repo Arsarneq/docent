@@ -328,9 +328,9 @@ pub struct WorkerPool {
     /// (see [`PendingDirectory`]). Updated in-place on every respawn.
     pending_directory: PendingDirectory,
     sequence_counter: Arc<AtomicU64>,
-    /// Sticky routing: maps `window_handle` → `worker_index` for value-change
-    /// events, ensuring consecutive keystrokes for the same window are
-    /// coalesced by a single worker.
+    /// Sticky routing: maps `window_handle` → `worker_index` for value-change,
+    /// focus and selection events, so each window's events of those types reach
+    /// one worker and its per-window supersession and deduplication hold.
     value_change_affinity: HashMap<i64, usize>,
     /// Tracks the worker index that received the most recent `DragStart`,
     /// so the corresponding `Drop` event is routed to the same worker.
@@ -425,7 +425,8 @@ impl WorkerPool {
     /// Dispatch a `RawEvent` to the appropriate worker.
     ///
     /// Routing rules:
-    /// - `ValueChange` → sticky routing (same `window_handle` → same worker).
+    /// - `ValueChange`, `Focus`, `Selection` → sticky routing (same
+    ///   `window_handle` → same worker).
     /// - `DragStart`   → shortest-queue worker (index stored for the paired `Drop`).
     /// - `Drop`        → same worker as the most recent `DragStart`.
     /// - All others    → shortest-queue worker.
@@ -960,8 +961,10 @@ fn lock_buffers(pending: &SharedPendingBuffers) -> std::sync::MutexGuard<'_, Pen
 
 /// Map a virtual key code to a human-readable key name.
 ///
-/// Returns an empty string for modifier-only keys (Shift, Control, Alt, Meta
-/// and their left/right variants), signalling the caller to skip the event.
+/// Returns an empty string for the left/right Shift, Control and Alt codes
+/// (`0xA0`–`0xA5`), signalling the caller to skip the event; the generic
+/// Shift, Control and Alt codes (`0x10`–`0x12`) map to their names, and both
+/// Win keys (`0x5B`, `0x5C`) to `Meta`.
 fn vk_to_key_name(vk: u32) -> String {
     match vk {
         0x08 => "Backspace".to_string(),
@@ -1016,10 +1019,8 @@ fn vk_to_key_name(vk: u32) -> String {
     }
 }
 
-/// Determine whether a key event should be emitted immediately.
-///
-/// Returns `true` for control keys and modifier combos (emit immediately).
-/// Returns `false` for modifier-only keys (skip entirely — no useful info).
+/// Whether a key name is the empty name `vk_to_key_name` returns for the
+/// left/right Shift, Control and Alt codes: `true` means skip the event.
 /// Printable characters are handled separately via the pending_keys buffer.
 fn is_modifier_only_key(key: &str) -> bool {
     key.is_empty()
@@ -1725,7 +1726,8 @@ fn handle_keyboard<B: AccessibilityBackend>(
 ) {
     let key = vk_to_key_name(raw.key_code);
 
-    // Skip modifier-only keys (Shift, Ctrl, Alt alone — no useful info).
+    // Skip the empty name: every left/right Shift, Control or Alt keydown;
+    // a key pressed while they are held reads them into its own modifiers.
     if is_modifier_only_key(&key) {
         return;
     }

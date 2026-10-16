@@ -6,8 +6,11 @@
  * to its own: a `GIT_*` variable a git hook exports (`GIT_INDEX_FILE`, say)
  * points every `git ls-files` at another index, so the tree reads come back
  * empty or wrong and the cases standing on them red or vanish. The work runs
- * clear of that environment by one of two routes, both kept here:
+ * clear of that environment by one of these routes:
  *
+ * - every runner line the unit-suite document names preloads
+ *   ./git-env-preload.js through `--import`, which calls `dropGitEnv()` here
+ *   before any test file loads;
  * - a child process takes `childEnv(pins)` — the ambient environment with every
  *   `GIT_*` name dropped, then the case's own pins on top;
  * - in-process work takes `withoutGitEnv(fn)` — `fn` runs with this process's
@@ -60,6 +63,19 @@ export function withEnv(pins, fn) {
 }
 
 /**
+ * Delete every `GIT_*` variable from THIS process's environment and return the
+ * entries dropped, so a caller can put them back. The one place the prefix is
+ * deleted from this process's environment: the in-process scrub and the
+ * runner-level preload (./git-env-preload.js) both take it from here.
+ * @returns {Array<[string, string | undefined]>} the dropped `[name, value]` entries
+ */
+export function dropGitEnv() {
+  const dropped = Object.entries(process.env).filter(([name]) => name.startsWith('GIT_'));
+  for (const [name] of dropped) delete process.env[name];
+  return dropped;
+}
+
+/**
  * Run `fn` in this process with every `GIT_*` variable removed from its
  * environment — the in-process counterpart of `childEnv` — and put each one
  * back with its value however `fn` ends.
@@ -69,8 +85,7 @@ export function withEnv(pins, fn) {
  * @returns {T} what `fn` returns
  */
 export function withoutGitEnv(fn) {
-  const saved = Object.entries(process.env).filter(([name]) => name.startsWith('GIT_'));
-  for (const [name] of saved) delete process.env[name];
+  const saved = dropGitEnv();
   try {
     return fn();
   } finally {

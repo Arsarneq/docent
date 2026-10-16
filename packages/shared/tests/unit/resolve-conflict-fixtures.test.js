@@ -171,7 +171,10 @@ describe('resolveConflict — interleaved re-records resolve to the correct Acti
     // Per-unit resolved-against baseline: advance to the INCOMING
     // version the user resolved against (not the adopted/merged state), so a merge
     // reads as changed-local-outgoing next cycle and is pushed.
-    assert.equal(baseline.digest, digestProject(buildProject(PROJECT, [m.incomingRec])));
+    assert.equal(
+      baseline.digest,
+      digestProject({ project_id: PROJECT, recordings: [m.incomingRec] }),
+    );
   });
 });
 

@@ -5,11 +5,13 @@
  * how each is verified; these tests prove every way the pairing can rot fails
  * loud: unregistered markers, one-sided clauses, missing justifications or
  * check-refs, citations naming dead scripts, paths, directories or root files,
- * file names cited without their path, hygiene-lock ordinals no surface states
- * or the list retires, requirement keywords in rationale text, a register the
- * check itself states going stale — an enumerated citable root file or the
- * fixture path the tree no longer carries, and a reason-bearing map list the
- * entry-list constant does not name — and reuse of retired ids. The
+ * file names cited without their path, a server-suite citation naming no
+ * reference server, hygiene-lock ordinals no surface states or the list
+ * retires, requirement keywords in rationale text, a register the check itself
+ * states going stale — an enumerated citable root file or the fixture path the
+ * tree no longer carries, the reference server's suite directory with nothing
+ * tracked under it, and a reason-bearing map list the entry-list constant does not
+ * name — and reuse of retired ids. The
  * structured test-case cites get the same treatment: a row's named case is
  * resolved against the DECLARATORS of the anchor-bearing files that row's
  * check-ref cites — the title a bare `it`/`test` call states in a JavaScript
@@ -86,6 +88,8 @@ import {
   CITABLE_ROOT_FILES,
   LOCK_ORDINAL_CLAUSE,
   LOCK_SUITE_PATH,
+  REFERENCE_SERVER_PHRASE,
+  REFERENCE_SERVER_ROOT,
   ROW_KEYS,
   TEST_CASES_FIELD,
   VALID_TAGS,
@@ -117,6 +121,7 @@ const PATH_RULE =
 const BARE_FILE_RULE = `a file citation carries the repository path that identifies it, and the suffixes held that way are ${BARE_FILE_SUFFIXES.join(', ')}`;
 const RUNNABLE_RULE =
   "a check that exists is an npm run target, a scripts/*.js or scripts/*.mjs file, or a suite's own code — a .js, .mjs, or .rs file under a tests/ path, or a file named *.test.js or *.spec.js";
+const SERVER_BINDING_RULE = `a check-exists row that pins its clause on the reference server's suite — a path or pattern of the runnable form under ${REFERENCE_SERVER_ROOT}, or ${REFERENCE_SERVER_ROOT}tests/ or a directory under it — names the ${REFERENCE_SERVER_PHRASE}: the registry's description has such a row's check-ref name the reference server as the implementation under test`;
 /** The one unregistered-prefix rule, over the prefix set a fixture registers. */
 const prefixRule = (...prefixes) =>
   `a registered prefix is one of the prefixes ${REGISTRY_PATH} states: ${prefixes.join(', ')}`;
@@ -175,15 +180,23 @@ function makeRegistry(overrides = {}) {
 
 const BASE_DOC = '# Testable\n\n**TP-1.** First rule.\n\n**TP-2.** Second rule.\n';
 
+/** One tracked file under the reference server's suite directory, which the register holds to the tree. */
+const SERVER_SUITE_PATH = `${REFERENCE_SERVER_ROOT}tests/integration/protocol.test.js`;
+
 /**
- * The tracked universe every fixture starts from: the check's own register —
- * the enumerated citable root files and the vector-fixtures path, held against
- * the tracked set on every audit, cited or not — plus the fixture doc, the
- * check it names, and the two lock surfaces.
+ * The check's own register — the enumerated citable root files, the
+ * vector-fixtures path and the reference server's suite directory — held
+ * against the tracked set on every audit, cited or not; every fixture universe
+ * starts from it.
+ */
+const REGISTER_FILES = [...CITABLE_ROOT_FILES, VECTOR_FIXTURES_PATH, SERVER_SUITE_PATH];
+
+/**
+ * The tracked universe every fixture starts from: the register, plus the
+ * fixture doc, the check it names, and the two lock surfaces.
  */
 const BASE_FILES = [
-  ...CITABLE_ROOT_FILES,
-  VECTOR_FIXTURES_PATH,
+  ...REGISTER_FILES,
   'docs/testable.md',
   'scripts/real-check.js',
   LOCK_DOC,
@@ -687,6 +700,71 @@ describe('auditClauseRegistry — citation resolvability', () => {
     assert.deepEqual(r.refErrors, []);
   });
 
+  // The server-binding floor: the registry's description has the check-ref
+  // name the reference server as the implementation under test, so a row that
+  // pins its clause on the reference server's suite says "reference server".
+  // The floor is lexical; whether the row names it so stays review's.
+  const serverBindingRed = (cited) =>
+    `clause "TP-2" is check-exists and its check-ref pins the clause on the reference server's suite (${cited}) without naming the reference server; ${SERVER_BINDING_RULE}`;
+
+  it("flags a check-exists row that pins its clause on the reference server's suite without naming the reference server", () => {
+    const registry = makeRegistry();
+    registry.clauses[1]['check-ref'] = `Pinned end-to-end by ${SERVER_SUITE_PATH}.`;
+    assert.deepEqual(audit({ registry }).refErrors, [serverBindingRed(SERVER_SUITE_PATH)]);
+  });
+
+  it('flags the directory form of the suite citation the same way', () => {
+    // The npm target keeps the runnable leg green; the directory is the
+    // citation that pins the clause on the server's suite.
+    const registry = makeRegistry();
+    const dir = `${REFERENCE_SERVER_ROOT}tests/`;
+    registry.clauses[1]['check-ref'] = `Pinned by ${dir} via npm run real:check.`;
+    assert.deepEqual(audit({ registry }).refErrors, [serverBindingRed(dir)]);
+  });
+
+  it('flags the pattern form of the suite citation the same way', () => {
+    // A pattern is no runnable check to the leg above, so the npm target keeps
+    // that leg green; the pattern still pins the clause on the suite.
+    const registry = makeRegistry();
+    const pattern = `${REFERENCE_SERVER_ROOT}tests/integration/*.test.js`;
+    registry.clauses[1]['check-ref'] = `Pinned by ${pattern} via npm run real:check.`;
+    assert.deepEqual(audit({ registry }).refErrors, [serverBindingRed(pattern)]);
+  });
+
+  it('passes a check-exists row that names the reference server beside its suite', () => {
+    for (const text of [
+      `Pinned on the ${REFERENCE_SERVER_PHRASE} by ${SERVER_SUITE_PATH}.`,
+      `Reference server integration suite: ${SERVER_SUITE_PATH}.`,
+    ]) {
+      const registry = makeRegistry();
+      registry.clauses[1]['check-ref'] = text;
+      assert.deepEqual(audit({ registry }).refErrors, [], text);
+    }
+  });
+
+  it('leaves alone a checkable row, a non-runnable surface under the server root, and a server directory outside the suite', () => {
+    // A checkable row pins nothing yet; a Markdown surface under the server's
+    // root is not a runnable check on the reference server; a directory under
+    // the root outside its tests/ is not the suite.
+    const checkable = makeRegistry();
+    checkable.clauses[1].tag = 'checkable';
+    checkable.clauses[1]['check-ref'] = `Intended: a case in ${SERVER_SUITE_PATH}.`;
+    assert.deepEqual(audit({ registry: checkable }).refErrors, []);
+    const readme = `${REFERENCE_SERVER_ROOT}README.md`;
+    const surface = makeRegistry();
+    surface.clauses[1]['check-ref'] =
+      `scripts/real-check.js holds the statement on ${readme} (npm run real:check).`;
+    assert.deepEqual(audit({ registry: surface, files: [...BASE_FILES, readme] }).refErrors, []);
+    const handlers = `${REFERENCE_SERVER_ROOT}handlers/`;
+    const outside = makeRegistry();
+    outside.clauses[1]['check-ref'] =
+      `scripts/real-check.js holds the statement on ${handlers} (npm run real:check).`;
+    assert.deepEqual(
+      audit({ registry: outside, files: [...BASE_FILES, `${handlers}routes.js`] }).refErrors,
+      [],
+    );
+  });
+
   it('flags a check-ref naming a missing npm script', () => {
     const registry = makeRegistry();
     registry.clauses[1]['check-ref'] = 'Run npm run does:not:exist to verify.';
@@ -1014,14 +1092,7 @@ describe('auditClauseRegistry: cited paths across the tree', () => {
         retired: { T: [] },
         clauses: [clause, lockRow()],
       },
-      files: [
-        ...CITABLE_ROOT_FILES,
-        VECTOR_FIXTURES_PATH,
-        'docs/t.md',
-        LOCK_DOC,
-        LOCK_SUITE_PATH,
-        ...extraFiles,
-      ],
+      files: [...REGISTER_FILES, 'docs/t.md', LOCK_DOC, LOCK_SUITE_PATH, ...extraFiles],
       readFile: (f) => contents[f] ?? null,
       packageScripts: [],
     });
@@ -1114,15 +1185,7 @@ describe('auditClauseRegistry — structured test-case cites, and the closed row
         retired: { T: [] },
         clauses: [clause, lockRow()],
       },
-      files: [
-        ...CITABLE_ROOT_FILES,
-        VECTOR_FIXTURES_PATH,
-        'docs/t.md',
-        LOCK_DOC,
-        LOCK_SUITE_PATH,
-        SUITE,
-        SOURCE,
-      ],
+      files: [...REGISTER_FILES, 'docs/t.md', LOCK_DOC, LOCK_SUITE_PATH, SUITE, SOURCE],
       readFile: (f) => contents[f] ?? null,
       packageScripts: ['test:shared'],
     });
@@ -1457,6 +1520,22 @@ describe("auditClauseRegistry — the check's own register", () => {
     ]);
   });
 
+  it("flags the reference server's suite directory when nothing tracked sits under it", () => {
+    // A moved or renamed suite reds at the register, rather than leaving the
+    // server-binding leg matching nothing while the lint stays green; a file
+    // elsewhere under the root does not stand in for it.
+    const suiteDir = `${REFERENCE_SERVER_ROOT}tests/`;
+    const r = audit({
+      files: [
+        ...BASE_FILES.filter((f) => !f.startsWith(suiteDir)),
+        `${REFERENCE_SERVER_ROOT}index.js`,
+      ],
+    });
+    assert.deepEqual(r.listErrors, [
+      `REFERENCE_SERVER_ROOT names ${REFERENCE_SERVER_ROOT}, under whose tests/ directory no tracked file sits; the server-binding leg keys on the reference server's suite`,
+    ]);
+  });
+
   it('flags a reason-bearing map list the entry-list constant does not name', () => {
     // The other direction of the same register: a new class of entry that
     // explains itself in a `reason` no leg reads.
@@ -1640,6 +1719,8 @@ describe('fixBlock — the printed advice, built from the rules that produced th
       BARE_FILE_SUFFIXES,
       ROW_KEYS,
       AREA_MAP_ENTRY_LISTS,
+      REFERENCE_SERVER_ROOT: [REFERENCE_SERVER_ROOT],
+      REFERENCE_SERVER_PHRASE: [REFERENCE_SERVER_PHRASE],
     };
     for (const [name, members] of Object.entries(lists)) {
       const rendered = members.join(', ');
@@ -1707,7 +1788,7 @@ describe('auditClauseRegistry — hygiene-lock surfaces', () => {
     else contents[LOCK_SUITE_PATH] = suiteText ?? lockSuite(titles);
     return auditClauseRegistry({
       registry,
-      files: [...CITABLE_ROOT_FILES, VECTOR_FIXTURES_PATH, LOCK_DOC, LOCK_SUITE_PATH],
+      files: [...REGISTER_FILES, LOCK_DOC, LOCK_SUITE_PATH],
       readFile: (f) => contents[f] ?? null,
       packageScripts: ['test:shared'],
     });
@@ -2040,7 +2121,7 @@ describe("auditClauseRegistry — the clause document's own prose cites", () => 
           },
         ],
       },
-      files: [...CITABLE_ROOT_FILES, VECTOR_FIXTURES_PATH, LOCK_DOC, LOCK_SUITE_PATH],
+      files: [...REGISTER_FILES, LOCK_DOC, LOCK_SUITE_PATH],
       readFile: (f) => contents[f] ?? null,
       packageScripts: [],
     });
