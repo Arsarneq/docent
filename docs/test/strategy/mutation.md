@@ -54,13 +54,13 @@ holds to each other in both directions
 `npm run lint:test-inventory`). Each module as the config names it, relative to
 the crate:
 
-| Module                           | What it carries                                                              |
-| -------------------------------- | ---------------------------------------------------------------------------- |
-| `src/capture/action_mapping.rs`  | Native input events mapped onto recorded actions.                            |
-| `src/capture/element_mapping.rs` | Native element data mapped onto element descriptions and locator candidates. |
-| `src/capture/coordinate.rs`      | Coordinate math, the multi-monitor and DPI cases included.                   |
-| `src/capture/scroll.rs`          | Scroll accumulation, settling, and the displacement floor.                   |
-| `src/capture/timing.rs`          | The capture layer's timing constants and the windows derived from them.      |
+| Module                           | What it carries                                                                                                                                      |
+| -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/capture/action_mapping.rs`  | Native input events mapped onto recorded actions.                                                                                                    |
+| `src/capture/element_mapping.rs` | Native element data mapped onto element descriptions and locator candidates.                                                                         |
+| `src/capture/coordinate.rs`      | Coordinate math, the multi-monitor and DPI cases included.                                                                                           |
+| `src/capture/scroll.rs`          | Scroll accumulation, settling, and the displacement floor; the scope filters' PID base rule and the self-capture exclusion's executable-name ground. |
+| `src/capture/timing.rs`          | The capture layer's timing constants and the windows derived from them.                                                                              |
 
 Outside that set sits the rest of the capture backend. The live-input capture
 path among it is unmutated for a reason of its own: the tests that exercise it
