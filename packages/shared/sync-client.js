@@ -26,7 +26,11 @@ import {
 } from './sync-store.js';
 import { classifyProject } from './conflict-detector.js';
 import { getBaseline, advanceBaseline } from './sync-baseline.js';
-import { isContentFastForward, incomingDismissalDigest } from './conflict-resolution.js';
+import {
+  isContentFastForward,
+  incomingDismissalDigest,
+  projectMetaSkeleton,
+} from './conflict-resolution.js';
 import { digestRecording, digestProjectMetadata } from './sync-digest.js';
 
 /**
@@ -769,22 +773,6 @@ function recordingProjection(recording) {
 }
 
 /**
- * Allowlisted projection of a project's own scalar identity fields (no
- * recordings). The base for assembling a per-project baseline's agreed state.
- *
- * @param {object} project
- * @returns {{project_id: string, name: string, created_at: string, metadata?: object}}
- */
-function projectMetaSkeleton(project) {
-  return {
-    project_id: project.project_id,
-    name: project.name,
-    created_at: project.created_at,
-    ...(project.metadata && { metadata: project.metadata }),
-  };
-}
-
-/**
  * Full allowlisted projection of a project (scalar identity + ordered recording
  * copies), matching the pull reconstruction allowlist. Used when auto-adding a
  * brand-new project to the merged list and recording it as the agreed baseline.
@@ -817,23 +805,22 @@ function findRecordingById(project, recording_id) {
  * state. The baseline is per-project, so a recording is recorded by
  * splicing it into the agreed project's recordings — preserving the other agreed
  * recordings — and re-advancing the baseline (which re-digests and deep-clones).
- * When the project has no baseline yet, a fresh agreed-project skeleton is built
- * from the project's own metadata so the new recording has somewhere to live.
+ * When the project has no baseline yet, the agreed project carries only its
+ * `project_id`, so the project's own name and metadata stay without agreement
+ * (sync-protocol SP-10).
  *
  * @param {import('./sync-types.js').SyncState} state - mutated in place
  * @param {string} project_id
- * @param {object} metaSource - a project to source the agreed metadata from when
- *   no baseline exists (the local, or failing that the incoming, project)
  * @param {import('./sync-types.js').RecordingCopy} recordingCopy - the agreed recording
  * @returns {void}
  */
-function recordRecordingInBaseline(state, project_id, metaSource, recordingCopy) {
+function recordRecordingInBaseline(state, project_id, recordingCopy) {
   const existing = getBaseline(state, project_id);
   const recordings = existing?.agreedState?.recordings ? [...existing.agreedState.recordings] : [];
   const idx = recordings.findIndex((r) => r && r.recording_id === recordingCopy.recording_id);
   if (idx >= 0) recordings[idx] = recordingCopy;
   else recordings.push(recordingCopy);
-  const meta = projectMetaSkeleton(existing?.agreedState ?? metaSource);
+  const meta = existing ? projectMetaSkeleton(existing.agreedState) : { project_id };
   advanceBaseline(state, project_id, { ...meta, recordings });
 }
 
@@ -1124,7 +1111,7 @@ function applyAutomaticOutcomes(state, localProjects, pulledProjects, lockedReco
             if (incomingRecording) {
               try {
                 const recordingCopy = recordingProjection(incomingRecording);
-                recordRecordingInBaseline(state, project_id, local ?? incoming, recordingCopy);
+                recordRecordingInBaseline(state, project_id, recordingCopy);
                 const merged = getMutableProject(project_id);
                 if (!merged.recordings.some((r) => r && r.recording_id === recording_id)) {
                   merged.recordings.push(recordingCopy);
@@ -1222,7 +1209,7 @@ function applyAutomaticOutcomes(state, localProjects, pulledProjects, lockedReco
             // Adopt the incoming recording into the merged list and advance the
             // per-Unit baseline to it — siblings untouched.
             applyRecordingToMerged(project_id, incomingCopy);
-            recordRecordingInBaseline(state, project_id, local ?? incoming, incomingCopy);
+            recordRecordingInBaseline(state, project_id, incomingCopy);
             // Adopting the incoming completes resolution of this Unit, so return
             // it to NONE — clearing any Review or Conflict deferred in a prior
             // cycle. Without this a pre-existing Review lingers and its attention

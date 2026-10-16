@@ -2222,6 +2222,34 @@ describe('the registration closure — reading the invocations', () => {
     assert.match(nodeTestArguments('node --test a/*.test.js --watch').error, /`--watch`/);
   });
 
+  it('admits `--import` of the git-environment preload after `--test`, in both spellings, and refuses any other value or none', () => {
+    // `--import` is the one flag admitted after `--test`, and only naming the
+    // shared suites' git-environment preload: its value names no suite, so the
+    // flag and the value are stepped over in either spelling. Any other module,
+    // or no value at all, is refused by name rather than read on into the
+    // arguments — a module loaded ahead of a suite could run or skip anything.
+    const args = { args: ['a/*.test.js'] };
+    const preload = './p/git-env-preload.js';
+    assert.deepEqual(nodeTestArguments(`node --test --import ${preload} a/*.test.js`), args);
+    assert.deepEqual(nodeTestArguments(`node --test --import=../${preload} a/*.test.js`), args);
+    assert.deepEqual(nodeTestArguments(`c8 --reporter=lcov node --test --import ${preload} a/*.test.js`), args); // prettier-ignore
+    const other = nodeTestArguments('node --test --import ./other.js a/*.test.js');
+    assert.ok(other.error, `admitted another module: ${JSON.stringify(other)}`);
+    assert.ok(other.error.includes('`--import ./other.js`'), other.error);
+    assert.match(other.error, /does not model/);
+    const attached = nodeTestArguments('node --test --import=./other.js a/*.test.js');
+    assert.ok(attached.error?.includes('`--import=./other.js`'), `the refusal spells the flag as written: ${JSON.stringify(attached)}`); // prettier-ignore
+    const dashed = nodeTestArguments('node --test --import=-x a/*.test.js');
+    assert.ok(dashed.error?.includes('`--import=-x`'), `a dashed value is a value: ${JSON.stringify(dashed)}`); // prettier-ignore
+    const empty = nodeTestArguments('node --test --import= a/*.test.js');
+    assert.ok(empty.error, `admitted an empty value: ${JSON.stringify(empty)}`);
+    assert.match(empty.error, /no value/);
+    const bare = nodeTestArguments('node --test a/*.test.js --import');
+    assert.match(bare.error, /`--import`/);
+    assert.match(bare.error, /does not model/);
+    assert.match(nodeTestArguments('node --test --import && echo x').error, /`--import`/);
+  });
+
   it('finds nothing in a command that never reaches the runner', () => {
     assert.deepEqual(nodeTestArguments('cd pkg && npx playwright test --config other.js'), {
       args: [],

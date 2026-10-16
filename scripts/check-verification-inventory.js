@@ -59,7 +59,9 @@
  *     the step's own `run` text, and the manifest command whose classified globs
  *     carry the suite, each state ONE PLAIN COMMAND on the only command line it
  *     states: an invocation it models with the flags of that invocation this
- *     reading admits — named in the check — and a plain `--test`.
+ *     reading admits — named in the check — and a `--test` plain but for
+ *     `--import` of the git-environment preload, the one flag the argument
+ *     reader admits after it.
  *     REFUSED, each by name — a step stating a `working-directory` of its own
  *     that moves the command; a `defaults.run.working-directory` that moves it,
  *     stated for the job or at the workflow's
@@ -97,8 +99,8 @@
  *     whose value stands apart from it, standing before the invocation is refused
  *     by name rather than read, as is a flagged runner invocation and a flag
  *     outside the sets this check names — which is what admitting only the
- *     invocations it models, the flags of each that it admits and a plain
- *     `--test` costs; the segment grammar's own
+ *     invocations it models, the flags of each that it admits and a `--test`
+ *     plain but for the admitted preload flag costs; the segment grammar's own
  *     limits are inherited — text inside a heredoc body or a command
  *     substitution is read as the line's own, and a segment's quoted text is
  *     passed over, which is why a carrying command stating a quote is refused

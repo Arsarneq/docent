@@ -33,8 +33,20 @@ Every tree is discovered the same way: a `node --test` glob over the test files
 at the top of its `tests/unit` directory. A file joins its suite by matching
 `*.test.js` there: a helper beside the tests is outside the suite because its
 name does not match, and a file one directory deeper is outside it because the
-glob reads only the top level. ESLint reads every JavaScript file under each
-package's `tests` directory, through `npm run lint:js` and the pre-push hook
+glob reads only the top level. Every runner invocation the root and extension
+manifests' scripts state — `node`, its own flags, `--test` — and every direct
+one in the test workflow carries `--import` of
+`packages/shared/tests/support/git-env-preload.js`, which each test file's
+process loads ahead of the file (the runner forwards the flag to every process
+it spawns): it drops every `GIT_*` name from that process's environment before
+the file loads, so a caller's exported git variable (a hook's, a parent git
+process's, a CI step's) reaches no suite those invocations run; the per-case
+helpers — a child's scrubbed environment, the in-process scrub, a deliberate
+poison — stay in `child-env.js` for the suites that read, spawn or poison on
+purpose, and the harness locks in `check-cli-smoke.test.js` hold the preload
+and its wiring on each of those surfaces. ESLint reads every JavaScript file
+under each package's
+`tests` directory, through `npm run lint:js` and the pre-push hook
 alike, with each runtime's globals declared in `eslint.config.js`. The commands
 that run each suite live in the [contributing
 guide](../../.github/CONTRIBUTING.md#running-tests); how this layer sits beneath
@@ -69,7 +81,7 @@ machinery under `scripts/`.
 | `attention-indicator-derivation.property.test.js` | Derivation of the attention indicators from a sync state: which Units need attention, Review versus Conflict, and the row each sits on. |
 | `auth-failure-halt.property.test.js` | An authentication rejection halts the cycle and leaves every deferred Conflict and Review recoverable. |
 | `backward-compat.test.js` | Every frozen fixture export still validates against the current platform schema composed from its source layers. |
-| `baseline-advancement.property.test.js` | The baseline advances only on confirmed agreement or adoption, never on a push; an adoption advances it at the adopted unit's grain — a recording's own entry with its siblings untouched, or the whole project baseline — and an accepted deletion review clears that grain. |
+| `baseline-advancement.property.test.js` | The baseline advances only on confirmed agreement or adoption, never on push, at the adopted unit's grain (a recording's entry, siblings untouched, or the whole project); an accepted deletion review clears that grain; a recording agreed in a baseline-less project leaves the project fields unagreed. |
 | `brand-new-auto-add.property.test.js` | Brand-new Units are auto-added and recorded in the baseline, while a Unit absent locally but present in the baseline is never resurrected. |
 | `build-size.test.js` | Size tripwires over the schema files, which stay lean because both platforms ship them. |
 | `capture-active-halt.property.test.js` | While capture is active a cycle starts no work at all, and the same state is allowed to sync once capture ends. |
@@ -112,7 +124,7 @@ machinery under `scripts/`.
 | `contract.test.js` | Built payloads and export data validate against the platform schemas, which are the source of truth for the shapes. |
 | `corpus-compare.test.js` | The corpus comparator: normalization classes, action alignment, relaxations, baseline mechanics, the session walk over an already-parsed catalogue, and its exit-code contract. |
 | `decline-review.property.test.js` | Declining a Review keeps local, dismisses exactly that incoming version, pushes nothing, and advances no baseline. |
-| `delete-vs-change-conflict.property.test.js` | A Unit deleted on one side and changed on the other is deferred as a Conflict retaining the changed side, at both granularities. |
+| `delete-vs-change-conflict.property.test.js` | A Unit deleted on one side and changed on the other is deferred as a Conflict retaining the changed side, at both granularities; a project held in the baseline whose own fields hold no agreement counts as changed, so its deletion on one side is a Conflict too. |
 | `deletion-propagation.property.test.js` | A cycle never silently resurrects a deletion and never silently applies one. |
 | `digest-unrecognized-fields.property.test.js` | The digest projection admits no unlisted field and invents no listed one. [Detail](#digest-unrecognized-fieldspropertytestjs) |
 | `dispatch-cooldown.test.js` | The post-send cooldown that guards a rapid resend, driven by an injectable clock. |
@@ -236,9 +248,12 @@ machinery under `scripts/`.
 
 - marker and row agreement, citation resolvability including patterns and the shared split-and-edge
   shape, the closed row grammar, cases resolved against a cited JavaScript or Rust file's
-  declarators, the runnable-check predicate, the lock surfaces, the map's and fixtures' citations,
-  read failures under the tree's own subject, the refusal the read of the registry itself raises and
-  the one its surface red states for a map it cannot use, each naming what it found
+  declarators, the runnable-check predicate, the server-binding floor — a `check-exists` row that
+  pins its clause on the reference server's suite names the reference server, and the reference
+  server's suite directory it keys on is held to the tree — the lock surfaces, the map's and
+  fixtures' citations, read failures under the tree's own subject, the refusal the read of the
+  registry itself raises and the one its surface red states for a map it cannot use, each naming
+  what it found
 - a file it could not read, text that is not JSON, or text that is JSON but not the map object — and
   the built fix block.
 
@@ -252,6 +267,10 @@ machinery under `scripts/`.
   the environment-pinning helper putting back what it pinned
 - a name that carried a value, one that did not, and the path where its body throws — and the
   in-process route running its work with no `GIT_*` name set and putting each one back;
+- the runner-level preload beside that home: that every runner invocation of the root and extension
+  manifests' scripts and of the test workflow's direct steps — `node`, its own flags, `--test` — is
+  followed by `--import` of it, and that it strips a poisoned environment from a test process the
+  runner spawns, the control without it red;
 - the red paths stay with each script's own unit tests.
 
 ### `check-clippy-invocation.test.js`
@@ -493,8 +512,9 @@ machinery under `scripts/`.
   descriptor rather than spelled, the carrying command held on either side of the `npm run` to one
   plain command, standing alone on the only command line it states as an invocation this reading
   models with the flags of that invocation it admits
-- named in the check — and a plain `--test`, the refusal naming the shape, the word or the flag it
-  found
+- named in the check — and a `--test` plain but for `--import` of the git-environment preload, the
+  one flag the argument reader admits after it (held in `check-test-inventory.test.js`), the refusal
+  naming the shape, the word or the flag it found
 - a flag outside the sets the check names being refused rather than read, a command after a `cd`
   left unread and the step it stands in named beside the finding where what follows the `cd` could
   have carried a suite, a `working-directory` that moves the command, stated for the step, the job
