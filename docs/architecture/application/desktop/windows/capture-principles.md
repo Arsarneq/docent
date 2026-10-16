@@ -183,19 +183,36 @@ and actions outside the hooks' visibility, captured by proxy (core CP-7):
 programmatic ones using **input correlation**: WinEvent callbacks MUST be
 dispatched only when correlated with a preceding low-level input event.
 
-| WinEvent                   | Correlation source  | Additional filter                                                                             |
-| -------------------------- | ------------------- | --------------------------------------------------------------------------------------------- |
-| `EVENT_SYSTEM_FOREGROUND`  | Any low-level input | —                                                                                             |
-| `EVENT_OBJECT_FOCUS`       | Any low-level input | Suppressed within `CLICK_REDUNDANCY_MS` of a click (redundant)                                |
-| `EVENT_OBJECT_CREATE`      | Any low-level input | —                                                                                             |
-| `EVENT_OBJECT_DESTROY`     | Any low-level input | Only if previously opened                                                                     |
-| `EVENT_OBJECT_VALUECHANGE` | Keyboard input only | Same root window as keyboard                                                                  |
-| `EVENT_OBJECT_SELECTION`   | Any low-level input | Same root window as the input; suppressed within `CLICK_REDUNDANCY_MS` of a click (redundant) |
+| WinEvent                   | Correlation source  | Additional filter                                                                                                                               |
+| -------------------------- | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `EVENT_SYSTEM_FOREGROUND`  | Any low-level input | Skipped when its root window is the one the last dispatched switch named (a click into a different window dispatches its switch at button-down) |
+| `EVENT_OBJECT_FOCUS`       | Any low-level input | Suppressed while the left button is held or within `CLICK_REDUNDANCY_MS` of a click (redundant)                                                 |
+| `EVENT_OBJECT_CREATE`      | Any low-level input | —                                                                                                                                               |
+| `EVENT_OBJECT_DESTROY`     | Any low-level input | Only if previously opened                                                                                                                       |
+| `EVENT_OBJECT_VALUECHANGE` | Keyboard input only | Same root window as keyboard                                                                                                                    |
+| `EVENT_OBJECT_SELECTION`   | Any low-level input | Same root window as the input; suppressed while the left button is held or within `CLICK_REDUNDANCY_MS` of a click (redundant)                  |
 
-The click-redundancy window is measured from the most recent left click,
+Both click gates treat a focus or selection event as an effect of the left
+press, which the press's own action records (a `click`, or the
+`drag_start`/`drop` pair DCP-10 states) when the scope filters keep its release.
+The held-button gate runs from a left button-down that the scope filters keep to
+that button's release, whatever the time between them, so a press held past
+`CLICK_REDUNDANCY_MS` (a drag, for example) still suppresses focus and selection
+events. The click-redundancy window is measured from the most recent left click,
 stamped at left button-down and again when the release classifies as a click;
 its boundary is inclusive, so a focus or selection event arriving exactly
 `CLICK_REDUNDANCY_MS` after that stamp is suppressed.
+
+A foreground change is therefore recorded as a `context_switch` whenever it
+passes the scope filters (DCP-5), follows a low-level input within
+`FOREGROUND_CORRELATION_MS` and names a root window other than the last switch's
+— including two activations core
+[CP-17](../../../../architecture/system/capture-principles.md#context-establishment)
+calls cascades: the activation of a window whose `context_open` the same user
+action records, and the activation the system gives, after a window closes, to a
+window the recording already introduced (the window behind one closed by its
+title-bar close button, for example). Recording them
+is a capture gap against core CP-17.
 
 **DCP-8.** **Window-scoping:** Value changes and selections are only
 correlated with input from the same root window — value changes against the keyboard input's
@@ -252,11 +269,16 @@ That describe moment is itself exported as an observed fact: every
 accessibility-described element carries `described_after_ms`, the measured gap
 between the input and the moment its description was captured — `0` for
 hook-described clicks, the real gap for worker describes (which can grow under
-queue backlog; the number says so instead of hiding it). Coordinate-mode
-elements make no element-identity claims at all: locators, provider facts, and
-the describe latency are among the fields absent there (the coordinate path's
-description decides what is present) — coordinate mode records
-where the user acted, not which element the accessibility layer resolved.
+queue backlog; the number says so instead of hiding it). A coordinate-mode
+element describes the container the point fell in, not a specific control: it is
+the window-level description DCP-3 states — the window or generic pane the point
+resolved to, its `name` that container's name — or, when nothing resolved, a
+description whose `name` is the text of the action's attributed window (DCP-14).
+Of the fields an accessibility-described desktop element can carry,
+the ones it never carries are exactly the locators, the provider facts
+(`position_in_set`, `size_of_set`, `level`, `framework_id`) and the describe
+latency: coordinate mode records where the user acted and in which window, not
+which element the accessibility layer resolved.
 
 ---
 
