@@ -850,7 +850,7 @@ describe('Delete-vs-change is a conflict deferred to the user', () => {
     assert.deepEqual([...baselineRecIds].sort(), [SIB, TGT].sort(), 'baseline unchanged');
   });
 
-  // Regression: noissue — a project held in the baseline whose own fields were seeded from the local side when only a recording was agreed read as unchanged, so its one-sided deletion was propagated or held for review instead of recorded as a conflict; with Auto-accept deletions on, its server-side deletion is still a conflict, never auto-applied.
+  // Regression: noissue — a project held in the baseline whose own fields were seeded from the local side when only a recording was agreed read as unchanged, so its one-sided deletion was propagated, held for review, or with Auto-accept deletions on auto-applied, instead of recorded as a conflict.
   it('regression_noissue_unagreed_project_one_sided_deletion_conflicts', async () => {
     const ID = '018f0000-0000-7000-8000-000000000030';
     const added = {
