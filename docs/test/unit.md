@@ -69,7 +69,7 @@ machinery under `scripts/`.
 | `attention-indicator-derivation.property.test.js` | Derivation of the attention indicators from a sync state: which Units need attention, Review versus Conflict, and the row each sits on. |
 | `auth-failure-halt.property.test.js` | An authentication rejection halts the cycle and leaves every deferred Conflict and Review recoverable. |
 | `backward-compat.test.js` | Every frozen fixture export still validates against the current platform schema composed from its source layers. |
-| `baseline-advancement.property.test.js` | The baseline advances only on confirmed agreement or adoption, never on a push; an adoption advances it at the adopted unit's grain — a recording's own entry with its siblings untouched, or the whole project baseline — and an accepted deletion review clears that grain. |
+| `baseline-advancement.property.test.js` | The baseline advances only on confirmed agreement or adoption, never on push, at the adopted unit's grain (a recording's entry, siblings untouched, or the whole project); an accepted deletion review clears that grain; in a project with none, a recording's agreement leaves its own fields without one. |
 | `brand-new-auto-add.property.test.js` | Brand-new Units are auto-added and recorded in the baseline, while a Unit absent locally but present in the baseline is never resurrected. |
 | `build-size.test.js` | Size tripwires over the schema files, which stay lean because both platforms ship them. |
 | `capture-active-halt.property.test.js` | While capture is active a cycle starts no work at all, and the same state is allowed to sync once capture ends. |
@@ -112,7 +112,7 @@ machinery under `scripts/`.
 | `contract.test.js` | Built payloads and export data validate against the platform schemas, which are the source of truth for the shapes. |
 | `corpus-compare.test.js` | The corpus comparator: normalization classes, action alignment, relaxations, baseline mechanics, the session walk over an already-parsed catalogue, and its exit-code contract. |
 | `decline-review.property.test.js` | Declining a Review keeps local, dismisses exactly that incoming version, pushes nothing, and advances no baseline. |
-| `delete-vs-change-conflict.property.test.js` | A Unit deleted on one side and changed on the other is deferred as a Conflict retaining the changed side, at both granularities. |
+| `delete-vs-change-conflict.property.test.js` | A Unit deleted on one side and changed on the other is deferred as a Conflict retaining the changed side, at both granularities; a project held in the baseline whose own fields hold no agreement counts as changed, so its deletion on one side is a Conflict too. |
 | `deletion-propagation.property.test.js` | A cycle never silently resurrects a deletion and never silently applies one. |
 | `digest-unrecognized-fields.property.test.js` | The digest projection admits no unlisted field and invents no listed one. [Detail](#digest-unrecognized-fieldspropertytestjs) |
 | `dispatch-cooldown.test.js` | The post-send cooldown that guards a rapid resend, driven by an injectable clock. |
