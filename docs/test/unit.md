@@ -248,9 +248,12 @@ machinery under `scripts/`.
 
 - marker and row agreement, citation resolvability including patterns and the shared split-and-edge
   shape, the closed row grammar, cases resolved against a cited JavaScript or Rust file's
-  declarators, the runnable-check predicate, the lock surfaces, the map's and fixtures' citations,
-  read failures under the tree's own subject, the refusal the read of the registry itself raises and
-  the one its surface red states for a map it cannot use, each naming what it found
+  declarators, the runnable-check predicate, the server-binding floor — a `check-exists` row that
+  pins its clause on the reference server's suite names the reference server, and the reference
+  server's suite directory it keys on is held to the tree — the lock surfaces, the map's and
+  fixtures' citations, read failures under the tree's own subject, the refusal the read of the
+  registry itself raises and the one its surface red states for a map it cannot use, each naming
+  what it found
 - a file it could not read, text that is not JSON, or text that is JSON but not the map object — and
   the built fix block.
 
