@@ -849,4 +849,81 @@ describe('Delete-vs-change is a conflict deferred to the user', () => {
     const baselineRecIds = state.baselines[ID].agreedState.recordings.map((r) => r.recording_id);
     assert.deepEqual([...baselineRecIds].sort(), [SIB, TGT].sort(), 'baseline unchanged');
   });
+
+  // Regression: noissue — a project held in the baseline whose own fields were seeded from the local side when only a recording was agreed read as unchanged, so its one-sided deletion was propagated or held for review instead of recorded as a conflict.
+  it('regression_noissue_unagreed_project_one_sided_deletion_conflicts', async () => {
+    const ID = '018f0000-0000-7000-8000-000000000030';
+    const added = {
+      recording_id: '018f0000-0000-7000-8000-0000000000e1',
+      name: 'server-added',
+      created_at: '2026-01-01T00:00:00.000Z',
+      steps: [],
+    };
+    // Equal own fields on both sides; only the server holds a recording.
+    const local = cleanProject(ID, 'Same', '2026-01-01T00:00:00.000Z', []);
+    const server = cleanProject(ID, 'Same', '2026-01-01T00:00:00.000Z', [added]);
+
+    // Cycle 1, no baseline: the server's brand-new recording is auto-added, so
+    // the project enters the baseline through that recording's entry alone.
+    const firstCycle = async () => {
+      installMockFetch(
+        [{ project_id: ID, name: server.name }],
+        new Map([[ID, buildPayload(server)]]),
+      );
+      const store = makeStore(createEmptySyncState());
+      const { result, projects } = await sync(
+        'https://srv.test',
+        null,
+        [local],
+        STUB_SCHEMA,
+        passValidator,
+        store,
+        makeLiveState(),
+      );
+      assert.deepEqual(result.conflicts, []);
+      assert.deepEqual(result.review, []);
+      assert.ok(store.getState().baselines[ID], 'the project is held in the baseline');
+      return { store, projects };
+    };
+
+    // Server-side deletion: a conflict, not a review.
+    {
+      const { store, projects } = await firstCycle();
+      installMockFetch([], new Map());
+      const { result } = await sync(
+        'https://srv.test',
+        null,
+        projects,
+        STUB_SCHEMA,
+        passValidator,
+        store,
+        makeLiveState(),
+      );
+      assert.deepEqual(result.review, []);
+      assert.deepEqual(result.conflicts, [ID]);
+      const conflict = store.getState().conflicts[ID];
+      assert.equal(conflict.kind, 'conflict');
+      assert.equal(conflict.incoming, null, 'the deletion (server) side carries no version');
+    }
+
+    // Local deletion: a conflict, not a propagated deletion.
+    {
+      const { store } = await firstCycle();
+      const { result, projects } = await sync(
+        'https://srv.test',
+        null,
+        [], // deleted locally
+        STUB_SCHEMA,
+        passValidator,
+        store,
+        makeLiveState(),
+      );
+      assert.deepEqual(result.review, []);
+      assert.deepEqual(result.conflicts, [ID]);
+      assert.deepEqual(projects, [], 'the locally-deleted project is not re-added');
+      const conflict = store.getState().conflicts[ID];
+      assert.equal(conflict.kind, 'conflict');
+      assert.equal(conflict.local, null, 'the deletion (local) side carries no version');
+    }
+  });
 });

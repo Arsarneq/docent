@@ -230,13 +230,11 @@ function materializeRaw(scenario) {
       };
     } else {
       // No prior baseline: the per-unit advance records agreement on ONLY the
-      // target recording (the resolved-against incoming version), sourcing the
-      // agreed project's metadata from the adopted project. Siblings that were
-      // never agreed are NOT introduced into the baseline.
-      expectedBaselineAgreed = {
-        ...projectMetaSkeleton(expectedAccepted),
-        recordings: [incoming],
-      };
+      // target recording (the resolved-against incoming version) and none on the
+      // project's own fields, which carry only the project_id (sync-protocol
+      // SP-10). Siblings that were never agreed are NOT introduced into the
+      // baseline.
+      expectedBaselineAgreed = { project_id, recordings: [incoming] };
     }
 
     return {

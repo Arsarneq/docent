@@ -1128,4 +1128,61 @@ describe('Baseline advances only on confirmed agreement or adoption, never on pu
     // Local is kept unchanged.
     assert.deepStrictEqual(findProject(result.projects, ID), local);
   });
+
+  // Regression: noissue — a recording's agreement recorded in a project with no baseline seeded the project's own name and metadata from the local project, so a pending no-baseline project conflict became a review on the next cycle.
+  it('regression_noissue_recording_agreement_seeds_no_project_meta', async () => {
+    const ID = '018f0000-0000-7000-8000-000000000008';
+    const R1 = '018f0000-0000-7000-8000-000000000a08';
+    const R2 = '018f0000-0000-7000-8000-000000000b08';
+    // No baseline; the project's own name differs between the sides, and the
+    // server also carries a recording the local side has never seen.
+    const local = projOf(ID, [recOf(R1, 'one', [])], '-local');
+    const server = projOf(ID, [recOf(R1, 'one', []), recOf(R2, 'two', [])], '-server');
+    installMockFetch(
+      [{ project_id: ID, name: server.name }],
+      new Map([[ID, buildPayload(server)]]),
+      [],
+    );
+    const store = makeStore(createEmptySyncState());
+
+    // Cycle 1: the project's own unit has no baseline and differs → a conflict;
+    // the brand-new recording is auto-added and recorded in the baseline.
+    const first = await sync(
+      SERVER,
+      null,
+      [local],
+      STUB_SCHEMA,
+      () => true,
+      store,
+      makeLiveState(),
+    );
+    assert.deepEqual(first.result.conflicts, [ID]);
+    assert.ok(
+      findRecording(findProject(first.projects, ID), R2),
+      'the brand-new recording was auto-added',
+    );
+    const seeded = getBaseline(store.getState(), ID).agreedState;
+    assert.equal(seeded.project_id, ID);
+    assert.deepEqual(
+      seeded.recordings.map((r) => r.recording_id),
+      [R2],
+      'only the auto-added recording is agreed',
+    );
+
+    // Cycle 2, nothing changed on either side: the project's own unit still has
+    // no agreement, so it stays a conflict rather than becoming a review.
+    const second = await sync(
+      SERVER,
+      null,
+      first.projects,
+      STUB_SCHEMA,
+      () => true,
+      store,
+      makeLiveState(),
+    );
+    assert.deepEqual(second.result.conflicts, [ID]);
+    assert.deepEqual(second.result.review, []);
+    assert.equal(getItem(store.getState(), ID)?.kind, 'conflict');
+    assert.equal(seeded.name, undefined, "no agreement is recorded on the project's own name");
+  });
 });

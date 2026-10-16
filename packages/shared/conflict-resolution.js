@@ -220,17 +220,16 @@ function projectMetaSkeleton(project) {
  *     outgoing, or local-new when no project baseline remains) and is pushed on
  *     the next cycle. A removal when no baseline exists at all is a no-op.
  *
- * The agreed project's metadata is taken from the current agreed project when a
- * baseline exists (so it is literally "the current agreed project with one
- * recording replaced"), otherwise from `metaSource` (the adopted project),
- * so a recording resolved before its project ever had a baseline still records
- * agreement on just that recording.
+ * The agreed project's own fields are taken from the current agreed project when
+ * a baseline exists, so it is literally the current agreed project with one
+ * recording replaced; with no baseline the agreed project carries only its
+ * `project_id`, so recording agreement on one recording records none on the
+ * project's own name and metadata (sync-protocol SP-10).
  *
  * @param {import('./sync-types.js').SyncState} state - mutated in place
  * @param {string} project_id
  * @param {string} recording_id
  * @param {import('./sync-types.js').RecordingCopy | null} incomingRecordingCopy
- * @param {object|null} metaSource - project to source agreed metadata from when no baseline exists
  * @param {() => number} now - clock source for the baseline stamp
  * @returns {void}
  */
@@ -239,7 +238,6 @@ function advanceRecordingBaselineEntry(
   project_id,
   recording_id,
   incomingRecordingCopy,
-  metaSource,
   now,
 ) {
   const existing = state.baselines ? state.baselines[project_id] : undefined;
@@ -261,13 +259,10 @@ function advanceRecordingBaselineEntry(
     baseRecordings.push(incomingRecordingCopy);
   }
 
-  // Source the agreed project's metadata from the current agreed project when a
-  // baseline exists (so it is literally "the agreed project with one recording
-  // replaced"), else from the adopted project; fall back to a minimal
-  // skeleton keyed by `project_id` so a recording resolved before its project
-  // ever had a baseline (and with no adopted project to source from) still
-  // records agreement without throwing.
-  const meta = projectMetaSkeleton(existing?.agreedState ?? metaSource ?? { project_id });
+  // The agreed project's own fields come from the current agreed project when a
+  // baseline exists; with none, only the project_id is carried, so this records
+  // no agreement on the project's own name and metadata (sync-protocol SP-10).
+  const meta = existing ? projectMetaSkeleton(existing.agreedState) : { project_id };
   advanceBaseline(state, project_id, { ...meta, recordings: baseRecordings }, now);
 }
 
@@ -429,7 +424,7 @@ export function acceptReview(state, projects, unitRef, options = {}) {
   //    capture the resolved-against incoming version (a deep copy, or null for a
   //    deletion) used to advance the baseline per-unit in step 3.
   let incomingCopy = null;
-  let adoptedProject; // recording-level metadata source for the per-unit baseline
+  let adoptedProject;
   let nextProjects;
   try {
     if (!isDeletion) incomingCopy = deepCopy(item.incoming);
@@ -486,14 +481,7 @@ export function acceptReview(state, projects, unitRef, options = {}) {
   //    a deletion; a project-level accept advances/clears the whole
   //    project baseline. Accepting never pushes.
   if (isRecordingLevel) {
-    advanceRecordingBaselineEntry(
-      state,
-      item.project_id,
-      item.recording_id,
-      incomingCopy,
-      adoptedProject,
-      now,
-    );
+    advanceRecordingBaselineEntry(state, item.project_id, item.recording_id, incomingCopy, now);
   } else {
     advanceProjectBaselineEntry(state, item.project_id, incomingCopy, now);
   }
@@ -843,12 +831,6 @@ export function resolveConflict(state, projects, unitRef, resolvedState, options
 
   // ── Accept-the-deletion path ────────────────────────────────────────
   if (resolvedState.deleted === true) {
-    // The local project (when present) is the metadata source for a per-unit
-    // baseline advance; a delete-vs-change Conflict keeps the project present on
-    // both sides, so it is normally found.
-    const localProject =
-      currentProjects.find((project) => project && project.project_id === item.project_id) ?? null;
-
     if (isRecordingLevel) {
       // Remove the recording from its project (idempotent if already absent).
       const index = currentProjects.findIndex(
@@ -869,14 +851,7 @@ export function resolveConflict(state, projects, unitRef, resolvedState, options
       // baseline entry to `item.incoming`, or REMOVE it when the resolved-against
       // incoming side is itself a deletion so the settled deletion (or
       // the kept survivor) reads correctly on the next cycle. Siblings untouched.
-      advanceRecordingBaselineEntry(
-        state,
-        item.project_id,
-        item.recording_id,
-        item.incoming,
-        localProject,
-        now,
-      );
+      advanceRecordingBaselineEntry(state, item.project_id, item.recording_id, item.incoming, now);
       clearItem(state, unitRef);
       return {
         ok: true,
@@ -998,14 +973,7 @@ export function resolveConflict(state, projects, unitRef, resolvedState, options
     // keep-survivor path of a delete-vs-change Conflict), the recording's baseline
     // entry is REMOVED so the kept survivor reads as local-new and is re-pushed.
     // Sibling baseline entries are untouched.
-    advanceRecordingBaselineEntry(
-      state,
-      item.project_id,
-      item.recording_id,
-      item.incoming,
-      adoptedProject,
-      now,
-    );
+    advanceRecordingBaselineEntry(state, item.project_id, item.recording_id, item.incoming, now);
   } else {
     adoptedProject = resolvedCopy;
     const index = currentProjects.findIndex(
