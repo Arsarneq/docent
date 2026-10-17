@@ -77,22 +77,15 @@ fn focuses(events: &[ActionEvent]) -> Vec<&ActionEvent> {
 
 mod file_dialog_navigation {
     use super::*;
-    use windows::core::w;
-    use windows::core::BSTR;
-    use windows::Win32::Foundation::HWND;
-    use windows::Win32::System::Com::{
-        CoCreateInstance, CoInitializeEx, CLSCTX_ALL, COINIT_APARTMENTTHREADED,
+    use docent_desktop_lib::capture::uia_core_api::UIA_NamePropertyId;
+    use docent_desktop_lib::capture::variant::Variant;
+    use docent_desktop_lib::capture::win32_bindings::{
+        AttachThreadInput, BringWindowToTop, CUIAutomation, CoCreateInstance, CoInitializeEx,
+        FindWindowW, GetCurrentThreadId, GetForegroundWindow, GetWindowThreadProcessId,
+        IUIAutomation, IUIAutomationElement, PropertyConditionFlags_None, SetForegroundWindow,
+        TreeScope_Descendants, CLSCTX_ALL, COINIT_APARTMENTTHREADED, HWND, UIA_HWND,
     };
-    use windows::Win32::System::Threading::{AttachThreadInput, GetCurrentThreadId};
-    use windows::Win32::System::Variant::VARIANT;
-    use windows::Win32::UI::Accessibility::{
-        CUIAutomation, IUIAutomation, IUIAutomationElement, PropertyConditionFlags_None,
-        TreeScope_Descendants, UIA_NamePropertyId,
-    };
-    use windows::Win32::UI::WindowsAndMessaging::{
-        BringWindowToTop, FindWindowW, GetForegroundWindow, GetWindowThreadProcessId,
-        SetForegroundWindow,
-    };
+    use windows_core::{w, BSTR};
 
     /// Bring `hwnd` to the foreground reliably, and report whether it actually
     /// took. A bare `SetForegroundWindow` from a process that is not already
@@ -153,13 +146,13 @@ mod file_dialog_navigation {
         let notepad_hwnd;
         loop {
             // Try both old and new Notepad class names
-            let hwnd = unsafe { FindWindowW(w!("Notepad"), None) }
-                .or_else(|_| unsafe { FindWindowW(None, w!("Untitled - Notepad")) });
-            if let Ok(h) = hwnd {
-                if h != HWND::default() {
-                    notepad_hwnd = h;
-                    break;
-                }
+            let mut hwnd = unsafe { FindWindowW(w!("Notepad"), None) };
+            if hwnd.0.is_null() {
+                hwnd = unsafe { FindWindowW(None, w!("Untitled - Notepad")) };
+            }
+            if !hwnd.0.is_null() {
+                notepad_hwnd = hwnd;
+                break;
             }
             if start.elapsed() > Duration::from_millis(5000) {
                 panic!("Notepad window did not appear within 5s");
@@ -206,10 +199,8 @@ mod file_dialog_navigation {
         loop {
             // Common file dialog class name
             let hwnd = unsafe { FindWindowW(w!("#32770"), None) };
-            if let Ok(h) = hwnd {
-                if h != HWND::default() {
-                    return Some(h);
-                }
+            if !hwnd.0.is_null() {
+                return Some(hwnd);
             }
             if start.elapsed() > Duration::from_millis(timeout_ms) {
                 return None;
@@ -243,11 +234,11 @@ mod file_dialog_navigation {
                 // the apartment while the IUIAutomation interfaces below are
                 // still live (Rust runs an explicit Drop impl before dropping
                 // the struct's fields), which segfaults.
-                let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
-                let uia: IUIAutomation = CoCreateInstance(&CUIAutomation, None, CLSCTX_ALL)
+                let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED as u32);
+                let uia: IUIAutomation = CoCreateInstance(&CUIAutomation, None, CLSCTX_ALL as u32)
                     .expect("create IUIAutomation");
                 let root = uia
-                    .ElementFromHandle(dialog_hwnd)
+                    .ElementFromHandle(UIA_HWND(dialog_hwnd.0))
                     .expect("dialog UIA element");
                 Self { uia, root }
             }
@@ -277,7 +268,7 @@ mod file_dialog_navigation {
                     .uia
                     .CreatePropertyConditionEx(
                         UIA_NamePropertyId,
-                        &VARIANT::from(BSTR::from(name)),
+                        Variant::from(BSTR::from(name)).as_raw(),
                         PropertyConditionFlags_None,
                     )
                     .ok()?;

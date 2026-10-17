@@ -53,9 +53,9 @@ use windows_core::{
 };
 
 // Win32 and UIA names come from the crate's own generated bindings and its two
-// hand-written modules; the capture backend itself still compiles against the
-// `windows` 0.62 crate, so the two paths read through two type universes
-// today. The conformance-vector Control-view snapshot walker (see the
+// hand-written modules — the same homes the capture backend reads them from, so
+// the fixture and the backend share one type universe. The
+// conformance-vector Control-view snapshot walker (see the
 // `v_vector_fixture` test at the end of this file) AND the labeled_by fixture's
 // UIA OverrideProvider (see the provider section below) use them; the walker
 // runs on the test thread against the live fixture window and reuses no

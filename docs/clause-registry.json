@@ -603,7 +603,7 @@
       "doc": "docs/architecture/application/desktop/windows/capture-principles.md",
       "clause": "DCP-11",
       "tag": "check-exists",
-      "check-ref": "The corpus redaction session verifies mask + text-null + redacted end-to-end on desktop (npm run corpus:check:desktop); the password path is pinned by the password Rust tests (npm run test:desktop:rust); scripts/sufficiency-lint.js enforces the locators-pass-untouched half."
+      "check-ref": "The corpus redaction session verifies mask + text-null + redacted end-to-end on desktop (npm run corpus:check:desktop); the password path, the IsPassword read's type rule included, is pinned by the password Rust tests (npm run test:desktop:rust); scripts/sufficiency-lint.js enforces the locators-pass-untouched half."
     },
     {
       "doc": "docs/architecture/application/desktop/windows/capture-principles.md",

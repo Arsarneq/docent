@@ -48,9 +48,9 @@
  *
  * Expanding a WinEvent range needs the numeric value of each registered
  * endpoint. Those values are the frozen Win32 ABI constants the desktop crate
- * imports from the `windows` crate; they are restated in WIN_EVENT_VALUES
- * below so a range can be expanded id by id. A constant the table does not
- * carry fails the check rather than passing it.
+ * imports from its generated Win32 bindings (`src/capture/win32_bindings.rs`);
+ * they are restated in WIN_EVENT_VALUES below so a range can be expanded id by
+ * id. A constant the table does not carry fails the check rather than passing it.
  *
  * Each surface this check knows is there must be non-empty — the two capture
  * files' own registrations among them — every enumeration entry must be
@@ -287,9 +287,10 @@ const WIN_EVENT_INSTALL = 'SetWinEventHook';
 const LOW_LEVEL_INSTALL = 'SetWindowsHookExW';
 
 /**
- * The Win32 WinEvent constants, restated from the `windows` crate the desktop
- * capture backend imports them from (crate `windows` 0.62, `Win32::UI::
- * WindowsAndMessaging`). They are frozen ABI values; they exist here only so a
+ * The Win32 WinEvent constants, restated from the desktop crate's generated
+ * Win32 bindings the capture backend imports them from
+ * (`packages/desktop/src-tauri/src/capture/win32_bindings.rs`, the output of
+ * windows-bindgen). They are frozen ABI values; they exist here only so a
  * registered `(min, max)` range can be expanded id by id, which endpoint
  * comparison cannot do. An endpoint this table does not carry is a refusal, not
  * a pass.
