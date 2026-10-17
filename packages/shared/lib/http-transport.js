@@ -30,11 +30,12 @@
  * architecture, which injects fetch behaviour by assigning `globalThis.fetch`
  * before driving `sync()`/`sendPayload()`/`testConnection()`.
  *
- * The contract is intentionally a strict subset of `fetch`:
+ * The contract is intentionally a strict subset of `fetch` — dispatch DI-12
+ * states it, and the `cache` option rides it for sync SP-15's no-store reads:
  *
  *   transport(url: string, options?: {
  *     method?: string, headers?: Record<string,string>,
- *     body?: string|null, signal?: AbortSignal
+ *     body?: string|null, signal?: AbortSignal, cache?: string
  *   }) => Promise<{
  *     ok: boolean, status: number,
  *     headers: { get(name: string): string | null },

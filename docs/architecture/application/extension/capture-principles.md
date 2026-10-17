@@ -281,3 +281,15 @@ with a caveat):
   the content script
 - Actions performed during a [storage-pressure pause](#storage-pressure) are
   not captured
+- A middle-button click — the recorder listens for no `auxclick`, so nothing
+  is recorded
+- A pointer drag that is not HTML5 drag-and-drop (a slider, a splitter, a text
+  selection) — recorded as the click its release produces, not as a
+  `drag_start`/`drop` pair
+- Moving between two browser windows — the worker listens for no
+  `windows.onFocusChanged`, so the switch records no `context_switch`
+- Closing a whole browser window — the tab-removal listener skips tabs removed
+  by a window close, so no `context_close` is recorded
+- A file chooser opened from the keyboard (Enter on the control) — the
+  suppressed detail-0 click leaves the resulting file change uncorrelated, so
+  no `file_upload` is recorded

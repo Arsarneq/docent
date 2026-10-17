@@ -864,7 +864,7 @@ a minute.
 **SP-21.** A cycle is requested by exactly two kinds of trigger:
 
 - **Local data events** — a closed set of six: a step commit, a recording
-  close (capture stop), a project creation, a project deletion, a recording
+  close (leaving the recording view), a project creation, a project deletion, a recording
   creation, and a recording deletion. No other local event requests a cycle.
 - **A periodic backstop** (~60 s) — so a locally idle client still pulls other
   clients' changes, and a follow-up deferred by the cooldown (SP-22) is

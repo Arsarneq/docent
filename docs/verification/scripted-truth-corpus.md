@@ -587,8 +587,9 @@ limit of this kind is.
 
 ## Adding or retiring a session
 
-**STC-14.** Add: create `corpus/sessions/<id>/` (pages, script and truth among
-them, per the doctrine above), register it in `corpus/manifest.json`, produce,
+**STC-14.** Add: create `corpus/sessions/<id>/` (the truth, and for an
+extension session its pages and script — a desktop session is driven from its
+Rust test and carries neither — per the doctrine above), register it in `corpus/manifest.json`, produce,
 review the truth line-by-line, regenerate and review both baselines, and — for a
 desktop session — name it in STC-22's enumeration, which is held to the
 manifest's active sessions both ways by the verification-inventory lint. Retire:

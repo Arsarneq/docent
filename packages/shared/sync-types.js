@@ -5,8 +5,11 @@
  * conflict-resolution feature shares across `packages/shared` and the two thin
  * platform adapters (Chrome extension + desktop). Centralizing the contracts
  * here is what makes cross-platform parity *structural* rather than duplicated:
- * both adapters persist the same `SyncState` shape and feed the shared
- * orchestrator the same `LiveState` / `SyncStore` interfaces.
+ * both platforms persist the same `SyncState` shape and feed the shared
+ * orchestrator the same `LiveState` / `SyncStore` interfaces — each platform's
+ * panel driver and background host build them (the extension's store through
+ * its adapter, the desktop's through the panel's session save), the split
+ * Shared Core's adapter-seam section states.
  *
  * The two platform-specific seams are:
  *   - `SyncStore`  — durable read/write of all conflict-handling state.
@@ -303,8 +306,10 @@
  *
  * @typedef {Object} SyncStore
  * @property {() => Promise<SyncState>} load
- *   Load the persisted SyncState. Returns a fresh empty state (with the `schema`
- *   version set) when nothing has been persisted yet.
+ *   Load the persisted SyncState as stored — null, undefined or an empty object
+ *   when nothing has been persisted yet; the shared `loadSyncState` wrapper
+ *   normalizes what the store answers into a fresh state with the `schema`
+ *   version set.
  * @property {(state: SyncState) => Promise<void>} save
  *   Persist the given SyncState durably so it survives application restarts.
  */

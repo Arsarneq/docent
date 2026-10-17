@@ -364,3 +364,11 @@ with a caveat):
 - A file dialog confirmed from the keyboard (Enter on the filename field)
   produces no `file_dialog` action — the proxy triggers only on a click of
   the dialog's Save/Open button
+- A title-bar close of a window the recording did not see open — the target
+  window itself, introduced by a `context_switch` — records no
+  `context_close`: `EVENT_OBJECT_DESTROY` is dispatched only for a window
+  previously opened within the recording (DCP-7)
+- A selection the application changes within `SELECTION_CORRELATION_MS` of an
+  input is recorded as a `select` — UI Automation carries no per-event trust
+  flag, so a correlated application-fired selection cannot be told from the
+  user's (the inverse of the assistive-technology limitation above)
