@@ -340,8 +340,8 @@ proptest! {
 #[ignore]
 #[cfg(target_os = "windows")]
 fn multi_monitor_manual_verification() {
-    use windows::Win32::UI::WindowsAndMessaging::GetSystemMetrics;
-    use windows::Win32::UI::WindowsAndMessaging::{
+    use docent_desktop_lib::capture::win32_bindings::GetSystemMetrics;
+    use docent_desktop_lib::capture::win32_bindings::{
         SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN,
     };
 
