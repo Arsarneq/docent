@@ -44,8 +44,9 @@ what follows describes the one implementation both platforms run.
   a review item stores only that side — summarised as the unit's name plus
   its active-view step list (for a recording) or recording count (for a
   project).
-- Controls: **Accept** and **Decline**. An item already applied shows an
-  "Applied" status with both controls disabled.
+- Controls: **Accept** and **Decline**. The renderer can show an "Applied"
+  status with both controls disabled, but the shipped panels never reach it:
+  accepting clears the stored item and both panels leave the view.
 - What the controls do to the data is protocol territory: accepting adopts
   the incoming version; declining dismisses exactly that incoming version
   (§SP-18).
@@ -69,7 +70,8 @@ what follows describes the one implementation both platforms run.
   for the wrong one is redirected to the correct view, with a notice
   announced via `role="status"`.
 - A unit with no active deferral renders an empty state ("Nothing to
-  resolve for this item.").
+  resolve for this item."); the desktop shows it, while the extension panel
+  returns to its sync views instead.
 - **Back** leaves the item unresolved and keeps its badge. Which events
   clear a stored review or conflict item — resolution, acceptance, decline,
   or a reclassification on a later sync — is protocol territory (classification and supersession §SP-9/§SP-11;

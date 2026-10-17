@@ -47,9 +47,11 @@ the consumer's preparation, not the recording's burden:
   environment's client profile must be equivalent to capture-time. Practice
   note: recording from a fresh profile makes the dismissals part of the
   recording, and the recording self-contained in this respect.
-- **Recorded geometry is reproduced by the consumer.** Viewport size and
-  window rectangles are recorded facts whose reproduction is the consumer's
-  obligation before geometry-dependent actions are replayed: window-relative
+- **Recorded geometry is reproduced by the consumer.** Window rectangles,
+  where the format records them (the desktop's `window_rect`), are recorded
+  facts whose reproduction is the consumer's obligation before
+  geometry-dependent actions are replayed; a viewport size is not recorded
+  today (docent#135): window-relative
   coordinates do not survive a differently-sized window's reflow, and
   responsive layouts change structurally with the viewport.
 
@@ -146,9 +148,9 @@ sufficient when all three hold:
    acted-on elements under the documented
    [reference resolution procedure](../technical/locator-resolution.md), verified against
    ground-truth [conformance vectors](../verification/scripted-truth-corpus.md#conformance-vectors)
-   emitted at capture time (the recorder
-   knows the acted-on element, so it can export the expected answer alongside
-   the candidates). The procedure consults informative measurement facts only
+   emitted by the capture harnesses (the harness drives
+   the action, so it knows the acted-on element and exports the expected answer
+   alongside the candidates). The procedure consults informative measurement facts only
    as conservative gates — the guarantee never stands on them.
 3. **Capture completeness** — the capture pipeline reproduces known truth on
    [scripted sessions](../verification/scripted-truth-corpus.md): controlled applications where the input sequence is
@@ -176,8 +178,8 @@ classifies, by group:
 - **Element identity:** `locators[]`, the element description fields, and
   `selector`.
 - **Interaction parameters:** `value`, `key` and `modifiers`, coordinates
-  together with their recorded geometry context (`window_rect`, viewport
-  facts).
+  together with their recorded geometry context (`window_rect`; a viewport
+  size is not recorded today, docent#135).
 - **Ordering and targeting:** the action array order, `context_id`, and the
   context lifecycle actions (`context_open`, `context_switch`,
   `context_close`).

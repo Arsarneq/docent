@@ -66,7 +66,8 @@ repository's code to its governing docs), not by its presence here.
   the Tauri shell around the Windows capture layer: the command surface and
   the `capture:action` event channel, the session-persistence commands and
   their credential-store chokepoint, the tray keep-alive behind background
-  Auto-Sync, and the native HTTP transport chokepoint.
+  Auto-Sync, the native HTTP transport chokepoint, and the installer's declared
+  file association.
 - [Desktop capture seam](architecture/application/desktop/capture-seam.md) —
   the cross-platform capture boundary inside the desktop crate: the trait a
   per-OS backend implements and the compile-everywhere stub posture.

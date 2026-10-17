@@ -1,7 +1,9 @@
 # Manual Capture Tests
 
-All extension manual tests have been retired. The logic that previously
-required manual verification is now covered by unit tests.
+All extension manual tests have been retired. The behaviour that previously
+required manual verification is now covered by automated tests — unit tests
+for the navigation logic and end-to-end specs for the browser-chrome
+scenarios; the table names each.
 
 _Test paths below are relative to `packages/extension/tests/`._
 

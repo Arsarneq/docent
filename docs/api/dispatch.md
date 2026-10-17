@@ -223,11 +223,11 @@ identifiers.
 ## Size bounds
 
 **DI-9.** Two size bounds apply per send, both client-side. Outbound: a
-payload whose serialized JSON body exceeds 50 MB is rejected before any
+payload whose serialized JSON body exceeds 50 MiB is rejected before any
 attempt, and the user is advised to send recordings individually — the bound
 is measured over the serialized string's UTF-16 code units, so the UTF-8 wire
 body can be somewhat larger. Inbound: a response declaring a `Content-Length`
-above 10 MB is rejected — a `2xx` response over the bound is reported as a
+above 10 MiB is rejected — a `2xx` response over the bound is reported as a
 failed send despite the endpoint's acceptance (the acknowledgment-size
 recommendation lives with the endpoint contract, in DI-6's scope).
 
@@ -278,8 +278,10 @@ transport seam
 ([`packages/shared/lib/http-transport.js`](../../packages/shared/lib/http-transport.js));
 a platform MAY bind a native transport once at startup, and left unbound, the
 seam defaults to the environment's `fetch`. The contract is a strict subset of
-`fetch`: `(url, { method, headers, body, signal })` returning
-`{ ok, status, headers.get(name), json(), text() }`.
+`fetch`: `(url, { method, headers, body, signal, cache })` returning
+`{ ok, status, headers.get(name), json(), text() }` — `cache` carries the
+sync client's `no-store` (SP-15), which a native transport without a browser
+cache ignores, as the desktop's ignores `signal`.
 
 - **Extension** — leaves the seam unbound: requests go through the webview's
   `fetch`, and the extension's `<all_urls>` host permissions bypass the

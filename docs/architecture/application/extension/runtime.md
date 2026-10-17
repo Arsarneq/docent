@@ -51,7 +51,7 @@ background sync all survive it.
 
 **ERT-1.** Every fact the user's work depends on across a worker suspension
 MUST be held in `chrome.storage`, never only in worker memory. The worker's
-in-memory state is limited to three classes, each safe to lose with the
+in-memory state is limited to four classes, each safe to lose with the
 worker:
 
 - **Mirrors of persisted keys** — the model working copy (`projects`,
@@ -68,8 +68,8 @@ worker:
 - **State rebuildable from the browser's own tables** — the active-frame
   registry [ECP-3](capture-principles.md#frame-trust-and-readiness) states,
   rebuildable from the browser's frame table.
-- **Correlation markers** — the tab-lifecycle suppression timestamps, whose
-  meaning expires within the timing windows centralized in
+- **Correlation markers** — the tab-lifecycle suppression timestamps and ids,
+  whose meaning expires within the timing windows centralized in
   [`lib/capture-timing.js`](../../../../packages/extension/lib/capture-timing.js),
   and the programmatic-tab set, whose membership lasts as long as its tab
   (the entry is deleted as its tab closes) — losing it to a suspension
@@ -78,6 +78,9 @@ worker:
   correlation signals that must outlive a single worker instance or cross
   contexts (`lastUserActionTimestamp`, `lastTabNavUrl`) are persisted
   instead.
+- **Transient coordination state** — the serialized write queue through which
+  the worker orders its pending-buffer writes; it holds no data of its own,
+  only the order of writes to persisted keys.
 
 A change that introduces worker in-memory state MUST place it in one of
 these classes or extend this enumeration in the same change.

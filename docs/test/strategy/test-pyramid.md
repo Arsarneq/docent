@@ -7,8 +7,8 @@ The commands to run the suites live in the
 ## Pyramid layers
 
 Tests are organised by [test-pyramid](https://martinfowler.com/articles/practical-test-pyramid.html)
-layer. Each package keeps its tests under `tests/unit`, `tests/integration`, or
-`tests/e2e`; CI reports coverage per layer and per language — see
+layer. Each JavaScript package keeps its tests under `tests/unit`,
+`tests/integration`, or `tests/e2e` (the Rust crate's layout is below); CI reports coverage per layer and per language — see
 [Coverage reporting](coverage.md) for the flag-and-component model.
 
 ## Rust test self-classification
@@ -19,10 +19,13 @@ step reads. A CI lint refuses an undiscovered test binary — one Cargo runs und
 local `cargo test` while CI's discovery never sees it — by either route: the
 directory form `tests/<name>/main.rs`, or a crate manifest that states the test
 targets itself. A binary's pyramid layer is auto-discovered by CI from the test
-source — there are no test-name lists in the workflow. A test that imports the
-`enigo` crate (synthesises real OS input) counts as **integration**; everything
+source — there are no test-name lists in the workflow. A test whose source
+declares a top-level `use enigo` (the crate that synthesises real OS input)
+counts as **integration**; everything
 else counts as **unit**. To opt a test out of CI entirely (e.g. it depends on
-something unavailable on runners), add a `ci-skip` marker comment to its source.
+something unavailable on runners), add a `ci-skip` marker comment to the source
+of its test target under `tests/` — the marker opts that whole target out, and an
+in-module `#[cfg(test)]` test has no such marker.
 `file_dialog_test` uses this because it launches Notepad. Each test therefore
 fully describes its own classification and CI-eligibility — adding a test never
 requires editing the workflow.

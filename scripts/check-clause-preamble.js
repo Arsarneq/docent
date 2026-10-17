@@ -254,14 +254,14 @@ export const KEYWORD_ALLOWLIST = [
     clause: 'STC-6',
     fragment: 'at least one such element must exist in the catalogue',
     reason:
-      'A bullet of the clause\'s definitional list — it opens "Pages are authored for determinism:" and its bullets bind as stated, keyword-free. This parenthetical states the catalogue-level property the identifier-less-element rule turns on; marking it alone would imply the bullets beside it bind less.',
+      'A bullet of the clause\'s definitional list — it opens "Pages are authored for determinism, by exactly these rules beside STC-4\'s hermetic serving:" and its bullets bind as stated, keyword-free. This parenthetical states the catalogue-level property the identifier-less-element rule turns on; marking it alone would imply the bullets beside it bind less.',
   },
   {
     doc: 'docs/verification/scripted-truth-corpus.md',
     clause: 'STC-6',
     fragment: 'No two live tabs may share a URL',
     reason:
-      'The prohibiting half of a bullet of the same definitional list: the list opens "Pages are authored for determinism:" and its bullets bind as stated, so this one prohibits as stated. Uppercasing it would rank one bullet of the list above its neighbours rather than add force to it, and would part it from the rule it shares a sentence with.',
+      'The prohibiting half of a bullet of the same definitional list: the list opens "Pages are authored for determinism, by exactly these rules beside STC-4\'s hermetic serving:" and its bullets bind as stated, so this one prohibits as stated. Uppercasing it would rank one bullet of the list above its neighbours rather than add force to it, and would part it from the rule it shares a sentence with.',
   },
   {
     doc: 'docs/verification/scripted-truth-corpus.md',

@@ -22,9 +22,11 @@ user's work depends on across a suspension is persisted —
 governs what may live in worker memory instead.
 
 - **`chrome.storage.local`** holds the project/recording model and the
-  active ids, the pending capture buffer, the dispatch and sync settings,
-  the published storage-pressure state, and the durable sync reconcile
-  state. The complete key inventory — each key's contents, its writers, and
+  active ids, the pending capture buffer, the capture-state keys the worker
+  persists (the recording flag, the last user-action timestamp and the last
+  tab navigation), the dispatch and sync settings, the theme and recording-mode
+  preferences, the published storage-pressure state, and the durable sync
+  reconcile state. The complete key inventory — each key's contents, its writers, and
   the keys that double as change signals — is
   [runtime §ERT-3](../application/extension/runtime.md#storage-keys-and-write-ownership).
   Because the pending buffer is persisted, capture in progress survives a
@@ -70,6 +72,7 @@ recordings or projects).
   and reads it through `load_state` at startup; a missing or unparseable file
   starts the app with an empty state
   ([`panel.js`](../../../packages/desktop/src/panel.js),
+  [`persistence.js`](../../../packages/desktop/src/persistence.js),
   [`commands.rs`](../../../packages/desktop/src-tauri/src/commands.rs)).
 - **Windows Credential Manager** holds the two API keys — the dispatch
   `apiKey` and the sync `syncApiKey`. The `save_state`/`load_state` commands
@@ -90,7 +93,7 @@ recordings or projects).
 State each platform holds only in memory, by design, with the consequence of
 losing it:
 
-- **Extension — the worker's in-memory state.** Limited to the three classes
+- **Extension — the worker's in-memory state.** Limited to the classes
   [runtime §ERT-1](../application/extension/runtime.md#lifecycle-and-the-persisted-state-model)
   enumerates and governs, each safe to lose with a suspension.
 - **Extension — the settings-encryption key** (`chrome.storage.session`,

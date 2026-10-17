@@ -622,7 +622,7 @@ application has its own suite, documented in
 | --- | --- |
 | `adapter-tauri.test.js` | The Tauri adapter: settings, theme, recording mode, schema loading, send, the completeness-barrier wrappers, redaction, and the panel's mirror-back beside a seam save over one shared session store — the interleave between the adapter's round-trip and the panel's whole-blob save. |
 | `auto-sync-host.test.js` | The desktop background sync host: one shared cycle, coalesced triggers, triggers dropped while capture runs, and the failure policy. |
-| `build-size.test.js` | Size tripwires over the built desktop bundle, per type and in total. |
+| `build-size.test.js` | Size tripwires over the built desktop bundle: the JavaScript budget and the total. |
 | `dispatch.test.js` | The desktop dispatch service: settings loaded and saved through the backend, the reading guidance, and schema loading. |
 | `export.test.js` | A built export validates against the desktop schema contract and carries every recording, full step history, and project metadata. |
 | `import.test.js` | A duplicate import produces a distinct copy, and a non-conforming file is rejected with the local list unchanged. |
@@ -645,7 +645,7 @@ application has its own suite, documented in
 - the fixture's shared-helpers section and the suite guide's shared-helpers section, the fixture's
   read from its rule-line heading to the next, the guide's from its bold lead-in to the next bold
   lead-in or heading, name every helper the fixture declares with `export function` or
-  `export const`;
+  `export const`, the mock-server installer excepted;
 - the guide's configuration sentence states the values `playwright.config.js` sets;
 - and the tree keeps plain UTF-8 without a byte-order mark or double-encoded text.
 

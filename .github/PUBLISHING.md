@@ -144,7 +144,7 @@ The workflow is defined in [`.github/workflows/publish-desktop.yml`](workflows/p
 
 ### Signing & the updater (desktop)
 
-The Tauri **auto-updater is intentionally disabled** — there is no `tauri-plugin-updater` dependency and no `plugins.updater` configuration, so the build produces no updater bundles or `latest.json`. The workflow sets `includeUpdaterJson: false` explicitly and passes **no** `TAURI_SIGNING_PRIVATE_KEY` secrets (those would sign updater bundles, which we do not produce).
+The Tauri **auto-updater is intentionally disabled** — there is no `tauri-plugin-updater` dependency and no `plugins.updater` configuration, so the build produces no updater bundles or `latest.json`. The workflow sets `uploadUpdaterJson: false` explicitly and passes **no** `TAURI_SIGNING_PRIVATE_KEY` secrets (those would sign updater bundles, which we do not produce).
 
 The Windows **installer** is a separate matter: it currently ships **unsigned**, so Windows SmartScreen shows an "Unknown publisher" warning on first run. Free EV code-signing via SignPath Foundation is tracked in [#72](https://github.com/Arsarneq/docent/issues/72); installer signing will be wired into `publish-desktop.yml` once that lands. **There are no desktop-specific secrets today** — the workflow consumes only the [shared workflow secrets](#shared-workflow-secrets) (`PERSONAL_ACCESS_TOKEN` to open the version-table PR, `CODECOV_TOKEN` passed to the gating test suite) plus the automatic `GITHUB_TOKEN`, which `tauri-action` uses to attach the installer to the release.
 
