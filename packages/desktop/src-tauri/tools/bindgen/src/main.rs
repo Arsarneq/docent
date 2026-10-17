@@ -118,9 +118,13 @@ fn main() -> ExitCode {
     }
     eprintln!("formatted with: {rustfmt}");
     eprintln!(
-        "fix: regenerate under CI's toolchain — `rustup update stable`, then \
+        "fix: a pin-line red first puts windows-core (packages/desktop/src-tauri/Cargo.toml) and \
+         windows-bindgen (the generator's Cargo.toml) on one 0.<minor> version line, refreshing the \
+         generator's lockfile when its pin moved \
+         (`cargo update --manifest-path packages/desktop/src-tauri/tools/bindgen/Cargo.toml -p windows-bindgen`); \
+         then regenerate under CI's toolchain — `rustup update stable`, then \
          `cargo +stable run --locked --manifest-path packages/desktop/src-tauri/tools/bindgen/Cargo.toml` \
-         — and commit the result; keep windows-core and windows-bindgen on one 0.<minor> version line (a moved windows-bindgen pin also refreshes this crate's Cargo.lock: `cargo update -p windows-bindgen` here)"
+         — and commit the result"
     );
     ExitCode::FAILURE
 }
