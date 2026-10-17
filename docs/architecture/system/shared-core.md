@@ -167,6 +167,10 @@ therefore render the same view markup, styled by the shared
 `views/panel.css` and populated by the rendering functions in
 `views/render.js` — pure HTML-string functions with no DOM manipulation and
 no platform calls, so how a step or action is rendered is defined once. The
+two shells differ in presentation only — the document title ("Docent" and
+"Docent Desktop"), a header logo the desktop shell carries, and the column a
+recording row's attention badge is placed in — deliberate, and no difference
+of interaction. The
 assembled `index.html` files are committed build output (see
 [freshness](#the-outputs-and-their-freshness) below).
 

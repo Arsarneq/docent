@@ -12,9 +12,14 @@ and those functions' output.
 
 ## Conformance posture
 
-Docent states no accessibility conformance target for its own UI, and no
-automated accessibility check runs in CI. What the shipped UI provides is
-exactly the enumeration below.
+Docent states no accessibility conformance target for its own UI. Each
+platform's end-to-end suite runs an automated accessibility scan (axe, the
+WCAG 2.1 A and AA rules) over the panel's views in CI — the extension's in
+[`accessibility.spec.js`](../../../packages/extension/tests/e2e/specs/accessibility.spec.js),
+the desktop's in
+[`accessibility-desktop.spec.js`](../../../packages/desktop/tests/integration/accessibility-desktop.spec.js);
+a passing scan is a floor, not a conformance claim. What the shipped UI
+provides is exactly the enumeration below.
 
 ## What the shipped panel provides
 
@@ -48,6 +53,11 @@ From [`views.html`](../../../packages/shared/views/views.html) and
   follow-system on the desktop — the one assembly transform
   [Shared Core](../../architecture/system/shared-core.md#shared-views--one-fragment-two-shells)
   owns).
+
+Outside the fragment, the extension's shell adds one element of its own: the
+storage-pressure banner, a `role="status"` region with `aria-live="polite"`, so
+its appearance is announced
+([`index.shell.html`](../../../packages/extension/sidepanel/index.shell.html)).
 
 ## Distinct: accessibility APIs as a capture data source
 

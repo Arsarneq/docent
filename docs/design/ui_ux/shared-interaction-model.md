@@ -76,3 +76,21 @@ Each difference is deliberate, and each is owned by a document:
   the desktop holds it in memory, and quitting discards uncommitted
   actions. Owned by
   [Persistence](../../architecture/system/persistence.md#deliberately-ephemeral-state).
+- **Storage pressure** — the extension pauses capture and shows a banner
+  when `chrome.storage.local` nears its quota, with a resume control; the
+  desktop's session file has no quota and no such pause
+  ([Persistence — storage pressure](../../architecture/system/persistence.md#storage-pressure)).
+- **Self-capture exclusion** — the desktop offers a setting that keeps its own
+  window out of a recording, because its hooks see every window; the
+  extension's recorder is never injected into its own panel
+  ([desktop guide](../../user/desktop-windows.md#record-a-workflow)).
+- **Where the data lives** — the extension keeps its model in
+  `chrome.storage`; the desktop keeps it in a session file, with the API keys
+  in the operating system's credential store
+  ([Persistence](../../architecture/system/persistence.md)).
+- **The API key across a restart** — the extension's stored API keys read as
+  "not configured" after a browser restart and are re-entered; with Auto-sync
+  on, the first background cycle after the restart fails authentication and
+  turns Auto-sync off until a fresh connection test passes. The desktop's keys
+  persist in the credential store
+  ([Persistence — deliberately ephemeral state](../../architecture/system/persistence.md#deliberately-ephemeral-state)).

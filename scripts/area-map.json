@@ -455,7 +455,12 @@
     {
       "path": "packages/extension/sidepanel/panel.js",
       "reason": "The extension panel — its committed format pointer would drag the schema-contract set onto a module that emits no locators; this declaration states its true governors: the sidepanel area's docs plus the format doc its commit logic implements.",
-      "governed-by": ["area:extension/sidepanel", "docs/technical/session-format.md"]
+      "governed-by": [
+        "area:extension/sidepanel",
+        "docs/technical/session-format.md",
+        "docs/design/ui_ux/shared-interaction-model.md",
+        "docs/design/ui_ux/sync-resolution-ui.md"
+      ]
     },
     {
       "path": "packages/extension/sidepanel/send-gate.js",
@@ -661,7 +666,9 @@
       "governed-by": [
         "area:desktop-windows/capture",
         "area:desktop-windows/shell",
-        "docs/technical/session-format.md"
+        "docs/technical/session-format.md",
+        "docs/design/ui_ux/shared-interaction-model.md",
+        "docs/design/ui_ux/sync-resolution-ui.md"
       ]
     },
     {

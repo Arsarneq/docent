@@ -3,8 +3,9 @@
 The storage architecture on both platforms: what is persisted, where it
 lives, and which state is deliberately ephemeral. Companion to
 [Shared Core](shared-core.md) — the logic operating on this data is shared,
-while the storage substrate is per-platform, reached through each platform's
-adapter. The per-key and user-facing detail stays with the platform
+while the storage substrate is per-platform: the extension reaches it through
+its adapter, the desktop through the panel driver's session commands, the
+split [Shared Core's adapter seam](shared-core.md#the-adapter-seam) states. The per-key and user-facing detail stays with the platform
 documents: the extension's complete key inventory and write-ownership
 contract is
 [runtime §ERT-3](../application/extension/runtime.md#storage-keys-and-write-ownership),
@@ -36,7 +37,10 @@ governs what may live in worker memory instead.
   encrypted API-key values stored in `chrome.storage.local`. The browser
   keeps it in memory and clears it on browser restart, after which a stored
   key no longer decrypts and reads back as "not configured", so the user
-  re-enters it. The at-rest encryption design is in the
+  re-enters it. With Auto-sync on, the first background cycle after the
+  restart fails authentication, turns Auto-sync off and records the failed
+  test, so the user also re-tests the connection once the key is re-entered.
+  The at-rest encryption design is in the
   [security policy](../../../.github/SECURITY.md#protecting-stored-credentials).
 
 ### Storage pressure
@@ -98,7 +102,8 @@ losing it:
   enumerates and governs, each safe to lose with a suspension.
 - **Extension — the settings-encryption key** (`chrome.storage.session`,
   above): browser-restart-scoped by design, and losing it costs a key
-  re-entry, never data.
+  re-entry — and, with Auto-sync on, a fresh connection test after the first
+  background cycle's authentication failure — never data.
 - **Desktop — the pending capture buffer.** Uncommitted captured actions
   live in the frontend adapter's memory, fed by the backend's
   `capture:action` events
@@ -108,4 +113,14 @@ losing it:
   pending buffer must survive worker suspension, so it is persisted; the
   desktop frontend is a continuously running window, so its buffer lives in
   memory and quitting the application discards uncommitted actions
-  (committed steps are already in the session file).
+  (committed steps are already in the session file). Across a restart the
+  two platforms reach the same outcome for the user — entering a recording
+  again discards its pending buffer on both — so the persisted buffer serves
+  the extension's worker suspension, which a continuously running window has
+  no counterpart of.
+- **Desktop — the capture flag, the target application and the barrier
+  state.** Whether capture is running, which process is hooked and the flush
+  barrier's progress live in the window and the capture backend; capture ends
+  with the process, so a restart has nothing to keep. The desktop also has no
+  storage-pressure gate: its session file is bounded by the disk, not by a
+  quota ([storage pressure](#storage-pressure) is the extension's).

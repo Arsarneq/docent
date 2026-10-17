@@ -66,9 +66,11 @@ what follows describes the one implementation both platforms run.
 ## Routing and the wrong-interface guard
 
 - Opening a unit routes to the interface its stored item requires — a
-  review can never open in the conflict interface or vice versa. A request
-  for the wrong one is redirected to the correct view, with a notice
-  announced via `role="status"`.
+  review can never open in the conflict interface or vice versa. The renderer
+  redirects a request for the wrong one to the correct view, with a notice
+  announced via `role="status"`; the shipped panels never make such a request —
+  each opens the stored item's own interface — so the redirect is a capability
+  of the renderer, not a behaviour a user meets.
 - A unit with no active deferral renders an empty state ("Nothing to
   resolve for this item."); the desktop shows it, while the extension panel
   returns to its sync views instead.
