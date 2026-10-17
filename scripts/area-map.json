@@ -318,12 +318,12 @@
     },
     {
       "path": "packages/desktop/src-tauri/tools/bindgen/**",
-      "reason": "The Win32 bindings generator — a crate of its own that writes src/capture/win32_bindings.rs from its filter list; the CI guide states its drift gate, its audit and its formatting check, so an edit here primes those claims rather than the shell doctrine its directory would supply.",
+      "reason": "The Win32 bindings generator — a crate of its own that writes src/capture/win32_bindings.rs from its filter list; the CI guide states its freshness gate, its audit and its formatting check, so an edit here primes those claims rather than the shell doctrine its directory would supply.",
       "governed-by": ["docs/guides/ci.md"]
     },
     {
       "path": "packages/desktop/src-tauri/src/capture/win32_bindings.rs",
-      "reason": "Generated Win32 bindings — the output of the generator under tools/bindgen, never hand-edited; its one invariant (equal to a fresh run of the pinned generator) is the CI guide's drift-gate row, not the capture doctrine its directory would supply.",
+      "reason": "Generated Win32 bindings — the output of the generator under tools/bindgen, never hand-edited; its one invariant (equal to a fresh run of the pinned generator) is the CI guide's Win32 bindings freshness row, not the capture doctrine its directory would supply.",
       "governed-by": ["docs/guides/ci.md"]
     },
     {

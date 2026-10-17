@@ -53,8 +53,9 @@ use windows_core::{
 };
 
 // Win32 and UIA names come from the crate's own generated bindings and its two
-// hand-written modules — the same declarations the capture backend compiles
-// against. The conformance-vector Control-view snapshot walker (see the
+// hand-written modules — the declarations the capture backend moves onto in the
+// second of the two changes (today it still compiles against the `windows` 0.62
+// crate). The conformance-vector Control-view snapshot walker (see the
 // `v_vector_fixture` test at the end of this file) AND the labeled_by fixture's
 // UIA OverrideProvider (see the provider section below) use them; the walker
 // runs on the test thread against the live fixture window and reuses no
@@ -293,7 +294,7 @@ unsafe extern "system" fn fixture_wndproc(h: HWND, m: u32, w: WPARAM, l: LPARAM)
         let (parent, edit) = FIXTURE_HWNDS.with(|c| c.get());
         if parent != 0 && edit != 0 && h.0 as isize == parent {
             let provider: IRawElementProviderSimple = FixtureRoot { parent, edit }.into();
-            return UiaReturnRawElementProvider(h, w, l, &provider);
+            return UiaReturnRawElementProvider(h, w, l, Some(&provider));
         }
     }
     DefWindowProcW(h, m, w, l)

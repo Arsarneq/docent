@@ -62,9 +62,13 @@ Two entries live outside the table's closure:
 - **Dependabot** ([`dependabot.yml`](../../.github/dependabot.yml)) is
   configuration, not a workflow: weekly dependency-update PRs for every npm
   root the [dependency audit](#dependency-and-license-audit) reads, the
-  desktop cargo crate and the Win32 bindings generator's crate (a bump of
-  `windows-bindgen` is a regeneration: the bindings-freshness gate reds the
-  bot's PR until the bindings are regenerated onto it), and the
+  desktop cargo crate and the Win32 bindings generator's crate (the Win32
+  bindings freshness gate holds the two crates' `windows-core` and
+  `windows-bindgen` pins on one `0.<minor>` version line and the committed
+  bindings equal to a fresh run, so a bot PR from either entry stays red on its
+  own: a minor-line bump lands as one change moving both pins and regenerating
+  the bindings, while a patch bump of `windows-bindgen` alone needs only the
+  regeneration pushed onto the bot's branch), and the
   `github-actions` ecosystem (its pinning role is
   [below](#every-action-is-pinned-to-a-commit-sha)). The shared unit suite
   holds its npm entries to the audited roots.

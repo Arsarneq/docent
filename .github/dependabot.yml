@@ -36,9 +36,13 @@ updates:
       - 'dependencies'
       - 'desktop-windows'
 
-  # The Win32 bindings generator: a crate of its own with its own lockfile. A
-  # windows-bindgen bump is a regeneration — the lint job's drift gate reds the
-  # bot's PR until the bindings are regenerated onto it.
+  # The Win32 bindings generator: a crate of its own with its own lockfile. The
+  # lint job's Win32 bindings freshness gate holds this pin and the desktop
+  # crate's windows-core pin (the entry above) on one 0.<minor> version line and
+  # the committed bindings equal to a fresh run, so a bot PR from either entry
+  # stays red on its own: a minor-line bump lands as one change that moves both
+  # pins and regenerates the bindings; a patch bump of windows-bindgen alone
+  # needs only the regeneration pushed onto the bot's branch.
   - package-ecosystem: 'cargo'
     directory: '/packages/desktop/src-tauri/tools/bindgen'
     schedule:

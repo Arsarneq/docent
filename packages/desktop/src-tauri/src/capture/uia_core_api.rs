@@ -55,20 +55,23 @@ pub unsafe fn UiaGetReservedNotSupportedValue() -> Result<IUnknown> {
 /// `UIAutomationCoreApi.h` line 890 — `LRESULT UiaReturnRawElementProvider(HWND,
 /// WPARAM, LPARAM, IRawElementProviderSimple *)`: the `WM_GETOBJECT` reply that
 /// hands UI Automation a provider. The provider is borrowed for the call; the
-/// system takes its own reference.
+/// system takes its own reference. `None` passes the header's null provider —
+/// the call a server-side provider makes when its window is destroyed, so UI
+/// Automation releases the references it holds.
 ///
 /// # Safety
 ///
-/// `hwnd`, `wparam` and `lparam` are the `WM_GETOBJECT` message's own values;
-/// the call enters `uiautomationcore.dll`.
+/// `hwnd`, `wparam` and `lparam` are the `WM_GETOBJECT` message's own values
+/// (zero for the release call); the call enters `uiautomationcore.dll`.
 pub unsafe fn UiaReturnRawElementProvider(
     hwnd: HWND,
     wparam: WPARAM,
     lparam: LPARAM,
-    el: &IRawElementProviderSimple,
+    el: Option<&IRawElementProviderSimple>,
 ) -> LRESULT {
     windows_core::link!("uiautomationcore.dll" "system" fn UiaReturnRawElementProvider(hwnd: HWND, wparam: WPARAM, lparam: LPARAM, el: *mut c_void) -> LRESULT);
-    unsafe { UiaReturnRawElementProvider(hwnd, wparam, lparam, el.as_raw()) }
+    let el = el.map_or(core::ptr::null_mut(), |el| el.as_raw());
+    unsafe { UiaReturnRawElementProvider(hwnd, wparam, lparam, el) }
 }
 
 /// Takes ownership of the one reference a COM out-parameter handed over.

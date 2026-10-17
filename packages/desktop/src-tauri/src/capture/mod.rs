@@ -17,8 +17,9 @@ pub mod worker_pool;
 #[cfg(target_os = "windows")]
 pub mod windows;
 
-/// Generated Win32 bindings — the output of windows-bindgen 0.100 over the
-/// `filter.txt` of `tools/bindgen/` (the flat layout), never hand-edited.
+/// Generated Win32 bindings — the output of the pinned windows-bindgen (the
+/// version `tools/bindgen/Cargo.toml` names) over the `filter.txt` of
+/// `tools/bindgen/` (the flat layout), never hand-edited.
 /// Regenerate with `cargo run --locked --manifest-path
 /// packages/desktop/src-tauri/tools/bindgen/Cargo.toml`; CI's lint job reds a
 /// committed file that differs from a fresh run. The allows cover the Win32
