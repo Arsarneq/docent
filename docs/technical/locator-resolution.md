@@ -247,13 +247,13 @@ elements: one. Outcome: **resolved**.
 **2. Cross-candidate disagreement.** Extension click; `css{value:"#list >
 li:nth-of-type(2)"}` resolves to one element; `text{value:"Rename"}` resolves
 to a different element (a menu item elsewhere); both corroborate on
-`tag: "li"`. Two distinct candidate-resolved elements, no containment
+`tag: "LI"`. Two distinct candidate-resolved elements, no containment
 relation. Outcome: **not-resolved** (diagnostics: the two-element set) — the
 procedure refuses to guess between disagreeing candidates.
 
 **3. Corroboration-disqualified.** Extension click; the only eligible
 candidate `id{value:":r5:"}` matches exactly one live element, but its tag is
-`div` while the recorded `element.tag` is `button`. Verdict:
+`DIV` while the recorded `element.tag` is `BUTTON`. Verdict:
 corroboration-disqualified. Outcome: **not-resolved** (diagnostics: one
 disqualified candidate — wrong-referent evidence; the recorded id was a
 per-load volatile identifier).
@@ -281,7 +281,9 @@ conformance vector, it produces the vector's stated outcome — and, for
 observe the acted-on element directly (the ground truth is known, never
 computed by this procedure): recorded locators and element facts, a tree
 snapshot of the bound scope, and the ground truth, in the shape the vector
-meta-schema (STC-10) defines in full.
+meta-schema (`corpus/vector.schema.json`, named by the corpus document's
+[Conformance vectors](../verification/scripted-truth-corpus.md#conformance-vectors)
+section) defines in full.
 
 **LR-23.** **Vector inclusion criterion** — decidable from recorded facts alone:
 the element carries at least one eligible candidate recorded

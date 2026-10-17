@@ -73,9 +73,10 @@ over Chrome extension APIs, and
 Tauri v2 `invoke`/`listen`. The shared modules themselves are
 platform-call-free: each platform's panel driver consumes the adapter to
 wire the shared views and modules to platform facilities, and where shared
-code itself must reach platform behaviour it does so through the two
-injected seams below — the sync-state store it is handed, and the
-rebindable HTTP transport. What the seam requires of an adapter:
+code itself must reach platform behaviour it does so through the
+injected seams below — the sync-state store it is handed, the live-state
+view and sync trigger each platform binds, and the rebindable HTTP
+transport. What the seam requires of an adapter:
 
 - **Backend messaging** — `send(message)` is the seam's backend-messaging
   member: the extension panel's route to its service worker, and on the desktop
@@ -111,10 +112,17 @@ excluded as that one named path. A new platform's adapter therefore owes these
 obligations by being named that way, with no second list to keep in step, and
 the section above sends a reader to exactly that set.
 
-Two further shared seams bind per platform alongside the adapter: the
+Further shared seams bind per platform alongside the adapter: the
 sync-state store (`sync-store.js`'s `load`/`save` interface — the extension
 folds it into its platform adapter; the desktop panel binds it to the
-`syncState` member of its session blob), and the HTTP transport
+`syncState` member of its session blob); the two further seams
+`sync-types.js` declares beside the store (the live-state view `sync()` is
+handed — by the panel's manual sync and the auto-sync host alike — answering
+whether capture is active, which recordings are locked and which hold pending
+actions, and the sync trigger — the start/stop handle `createSyncTrigger` builds around
+the platform's own `wire` function, through which each platform's auto-sync
+host asks for a cycle); and
+the HTTP transport
 (`lib/http-transport.js` defaults to `fetch`, which the extension keeps
 under its host permissions; the desktop rebinds it at adapter load to the
 native `sync_http_request` command, since a webview `fetch` would be
@@ -183,7 +191,8 @@ steps 1 and 5 once per invocation):
 1. regenerates the per-platform import validators once up front
    (`scripts/build-validators.js` → `packages/shared/generated/`);
 2. deletes and re-copies `packages/shared/` → `packages/<target>/shared/`,
-   excluding `tests/` and `generated/`;
+   excluding any path that contains `tests` or `generated` (today exactly the
+   `tests/` and `generated/` directories);
 3. writes `packages/<target>/shared/session.schema.json`, composed in memory
    from the schema source layers — never copied from `schemas/dist/`, which
    is release output and can lag the source layers within a PR

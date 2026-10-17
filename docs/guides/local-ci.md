@@ -76,11 +76,14 @@ git fetch --no-tags origin main
 PR_HEAD_REF=automated/version-table-update npm run check:no-release-outputs
 ```
 
-That mode recomposes `schemas/dist/` and reads the working tree, so run it on
-a clean tree — an uncommitted composed schema reports as drift. It validates
-the diff, not the branch name: run it from anywhere else and it reports your
-own branch's files as ride-alongs, which is the mode working, not a false
-verdict. The fetch matters too — with no base ref to diff against, the guard
+That mode recomposes `schemas/dist/` into the working tree and reads the
+result, so run it on a clean tree — an uncommitted composed schema reports as
+drift. It validates the diff, not the branch name, and anywhere but a release
+branch two reports are the mode working, not a false verdict: it reports your
+own branch's files as ride-alongs, and — because the committed `schemas/dist/`
+lags the source layers between releases by design — it reports both dist files
+as drift and leaves them rewritten in your working tree (restore them with
+`git checkout -- schemas/dist`). The fetch matters too — with no base ref to diff against, the guard
 skips with a warning instead of validating anything.
 
 ### The area map's per-file explanation
@@ -352,8 +355,8 @@ with a payload like
 `{ "action": "published", "release": { "tag_name": "extension-v9.9.9", "body": "test" } }`.
 
 > Note: `act`'s support for reusable workflows (`uses: ./.github/workflows/test.yml`,
-> as the publish workflows now call) and `secrets: inherit` varies by version. If
-> the gating `test` job won't resolve locally, validate that wiring with
+> as the publish workflows call, passing `CODECOV_TOKEN` explicitly) varies by
+> version. If the gating `test` job won't resolve locally, validate that wiring with
 > [`actionlint`](https://github.com/rhysd/actionlint) and a throwaway tag/release
 > on a fork instead.
 
@@ -389,7 +392,7 @@ still has Windows legs that act-on-Linux skips (the
 so its installer build runs only **natively** (`cargo tauri build` from
 `packages/desktop/src-tauri`) or on a real GitHub dispatch — not under `act`.
 
-The reusable-workflow / `secrets: inherit` caveat above applies here too: if the
+The reusable-workflow caveat above applies here too: if the
 gating `test` job won't resolve under `act`, lint the wiring with `actionlint` and
 confirm the full run with a real `workflow_dispatch` on GitHub. See
 [.github/PUBLISHING.md → Dry-run a publish](../../.github/PUBLISHING.md#dry-run-a-publish-no-side-effects)

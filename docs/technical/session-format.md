@@ -60,8 +60,10 @@ Schemas are versioned independently per platform:
 **SF-2.** **Version bumps** are determined **mechanically at release time** by
 [`scripts/auto-version-schemas.js`](../../scripts/auto-version-schemas.js), which diffs the last
 released schema (`schemas/dist/<platform>.schema.json`) against the schema composed from the current
-source layers and classifies the change into exactly one of three levels — the script is the
-complete statement of which change takes which level, and the kinds below name each level's:
+source layers and classifies the change, through
+[`scripts/classify-schema-change.js`](../../scripts/classify-schema-change.js), into exactly one of
+three levels — that classifier is the complete statement of which change takes which level, and the
+kinds below name each level's:
 
 - **Patch** (x.x.1): documentation-only changes (description clarifications)
 - **Minor** (x.1.0): new optional fields, new action types, new enum values on existing fields, pure type widenings (the old accepted type set is kept and extended — e.g. a string field additionally allowing null), and `additionalProperties` relaxations (a closed object opting to accept unknown keys)
@@ -79,9 +81,12 @@ the real redaction code.
 **SF-4.** The classifier is intentionally conservative: anything it cannot
 confidently place as patch or minor is escalated to **major**, so a release can
 never silently under-version a breaking change. Contributors MUST NOT bump
-versions by hand during development — the release pipeline does it. (To force a level for a
+versions by hand during development — the release pipeline does it. (A level for a
 semantic change the structural diff cannot see — same shape, changed meaning —
-use `scripts/bump-schema.js`.)
+is forced with `scripts/bump-schema.js`, a release-time tool: it refuses to run
+outside a release context, and the release-output guard refuses its output on a
+feature branch, so the forced level is applied at release time, never ahead of
+it.)
 
 The base (`schemas/shared.schema.json`) and the desktop-family layer
 (`schemas/desktop.shared.schema.json`) are not versioned independently — the
@@ -114,9 +119,11 @@ Chrome will not auto-update an unpacked extension. When you are ready to adopt a
 newer schema version, check out the corresponding tag and reload.
 
 Pre-release tags (`extension-vX.Y.Z-rc.N` / `desktop-vX.Y.Z-rc.N`) are **beta
-builds** and never bump the schema version — a candidate carries whatever schema
-version is committed at the time. Pin to a **final** release tag, not a
-pre-release.
+builds** that commit no schema version bump: the candidate's artifact carries
+the schema version the release tooling computes for it (a preview of the next
+release's), while the committed version stays as it was — the publishing guide's
+[pre-release section](../../.github/PUBLISHING.md#pre-release-rc-builds) owns
+the rule. Pin to a **final** release tag, not a pre-release.
 
 Every exported file carries the `docent_format` stamp, so a consumer can always
 detect which schema version produced a file and fail loudly on a mismatch rather
@@ -140,7 +147,8 @@ or `schema` wrapper).
 
 Every `.docent.json` export and every dispatch payload carries a required
 `docent_format` object at its root — for example (the `schema_version` shown is
-illustrative, not the current version):
+an example value; the composed schema's `docent_format` const, not this page,
+states the current one):
 
 ```json
 {
@@ -541,8 +549,8 @@ layer set:
   leaf layers contribute `$defs`, not a new envelope.
 - **Identity metadata comes from the leaf.** `$id`, `title`, `version`, and
   `description` are taken from the last layer that sets them, so a leaf is
-  **identity-only by default** — carrying just those four plus anything genuinely
-  unique to that one surface (the extension leaf, having no family layer, also
+  **identity-only by default** — carrying those four, the `platform` const the
+  stamp is pinned from, and anything genuinely unique to that one surface (the extension leaf, having no family layer, also
   carries its browser-only defs). Versions are set by the release tooling (see
   [Versioning](#versioning)), never edited in a leaf by hand.
 - **The per-action context field is injected once.** Each chain names its
@@ -567,8 +575,11 @@ against the importing platform's schema — including the stamp's `const`
 version gate, so after a schema version bump previously exported files stop
 importing by design (pin the producing version — see
 [Schema version pinning](#schema-version-pinning) — or re-export). Two bounds run before validation:
-payloads whose compact serialization exceeds the 10 MiB bound (measured over
-the re-serialized form) and JSON nested deeper than 64 levels are rejected
+payloads whose compact serialization exceeds the 10 MiB bound — the extension
+platform's local-storage quota, which the importer applies to the re-serialized
+form's length counted in UTF-16 code units, as DI-9 counts its outbound bound —
+and JSON
+nested deeper than 64 levels are rejected
 outright. One declared exception: when that packaged validator itself is
 unavailable, the import proceeds unvalidated and the degradation is logged.
 Pulled sync payloads run those same bounds and that same schema validation,

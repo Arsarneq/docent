@@ -8,8 +8,9 @@ to build and load the extension from source, see
 ## Create a project
 
 1. Click the Docent icon — the side panel opens
-2. Click **+ New** to create a project
-3. Click **+ New recording** — recording begins immediately
+2. Click **+ New**, name the project and click **Create project**
+3. Click **+ New recording**, name it and click **Create & start recording** —
+   recording begins as the recording is created
 
 ## Record steps
 
@@ -95,7 +96,9 @@ Dispatch recordings directly from the extension — no terminal or Node.js requi
 ### Configure the endpoint
 
 1. Click the gear icon to open Settings
-2. Enter the **Dispatch endpoint** URL (must start with `http://` or `https://`)
+2. Enter the **Dispatch endpoint** URL — `http://` or `https://`; once an API
+   key is set, `https://` is required except for a loopback address; the full
+   policy is in [Dispatch — endpoint URL policy](../api/dispatch.md#endpoint-url-policy)
 3. Optionally enter an **API key** — sent as `Authorization: Bearer <key>`
 4. Click **Save**
 
@@ -104,8 +107,9 @@ Local endpoints (e.g. `http://localhost:3000`) are supported.
 ### Send a recording
 
 1. Open a project
-2. Click **Send** — the button is enabled when an endpoint is configured and the
-   project has recordings with steps
+2. Click **Send** — the button is enabled when an endpoint is configured, the
+   project has recordings with steps, and the short cooldown after the previous
+   send has passed
 3. If the project has multiple recordings, choose which to send (or **Send all**)
 4. Review the endpoint URL, recording name(s), and step count in the confirmation
    view
@@ -122,8 +126,8 @@ extension's controls.
 ### Configure the sync server
 
 1. Click the gear icon to open Settings
-2. Enter the **Sync server** URL (must start with `http://` or `https://`;
-   `https://` is required when an API key is set, except for localhost)
+2. Enter the **Sync server** URL (`http://` or `https://`; once an API key is
+   set, `https://` is required except for a loopback address)
 3. Optionally enter an **API key** — sent as `Authorization: Bearer <key>`
 4. Click **Save**
 
@@ -154,7 +158,14 @@ what is missing. While Auto-sync is on, Settings shows "Auto-sync active" and
 the manual Sync button is hidden.
 
 Auto-sync runs in the background — with the side panel closed, and across
-browser restarts. A sync follows the main recording events — committing a
+browser restarts. One caveat, in the extension: a browser restart clears the
+session-held key that decrypts the stored API key (see
+[Persistence](../architecture/system/persistence.md)), so the stored key reads
+as not configured, and with a key-protected server the first background cycle
+after a restart is sent
+without the key, the server rejects it, and Auto-sync turns itself off until
+you re-enter the key and test the connection again. A sync follows the main
+recording events — committing a
 step, stopping capture, and creating or deleting a project or recording —
 with bursts of events folded together; a backstop sync runs about once a
 minute, and it also carries every other kind of edit and brings in other
@@ -196,12 +207,12 @@ so and the affected rows are marked in the list.
 
 A sync can instead halt:
 
-| Message                                                                                               | What to do                                                                                                                                                                      |
-| ----------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Sync paused while you're recording. Stop capture, then sync again.                                    | Pause the recording, then sync.                                                                                                                                                 |
-| Sync paused: a recording has uncommitted actions. Commit or clear them, then sync again.              | Commit the pending actions into a step, or **Clear** them, then sync.                                                                                                           |
-| Sync stopped to protect your data and made no changes. Your work and any pending items are preserved. | Sync again — your local data is unchanged.                                                                                                                                      |
-| Sync halted: authentication failed. Check your API key in Settings.                                   | Fix the API key and test the connection again. A push-phase failure lands after the pull — pulled items were already reconciled: new ones added, the rest held for your review. |
+| Message                                                                                               | What to do                                                                                                                                                                                                                                     |
+| ----------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Sync paused while you're recording. Stop capture, then sync again.                                    | Pause the recording, then sync.                                                                                                                                                                                                                |
+| Sync paused: a recording has uncommitted actions. Commit or clear them, then sync again.              | Commit the pending actions into a step, or **Clear** them, then sync.                                                                                                                                                                          |
+| Sync stopped to protect your data and made no changes. Your work and any pending items are preserved. | Sync again — your local data is unchanged.                                                                                                                                                                                                     |
+| Sync halted: authentication failed. Check your API key in Settings.                                   | Fix the API key and test the connection again. A push-phase failure lands after the pull — pulled items were already reconciled: new ones added, automatic updates and deletions applied as your toggles allow, the rest held for your review. |
 
 ### Attention badges
 
@@ -212,7 +223,8 @@ After a sync, rows that need a decision carry a badge:
 - **Conflict** — the same recording or project changed on both sides; you
   choose which version to keep. A project whose name and metadata this client
   and the server have not yet agreed on counts as changed on the side that
-  still holds it when the other side deletes it.
+  still holds it when the other side deletes it (sync protocol
+  [SP-11](../api/sync-protocol.md#what-causes-a-conflict-that-must-be-resolved)).
 
 A recording row in the project view shows its own badge. A project row shows
 its own badge plus, when any of its recordings needs attention, one rolled-up

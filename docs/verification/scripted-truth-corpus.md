@@ -67,9 +67,16 @@ identifiers reflect minting order and can appear out of numeric sequence.
 corpus/
   manifest.json                  the session catalogue (id, platform, page,
                                  script or driver, knownDiffIssues, notes,
-                                 status)
+                                 status; desktop entries add truth and
+                                 overrides)
   known-diffs.extension.json     per-platform both-direction baselines
   known-diffs.desktop-windows.json
+  vector.schema.json             the vector meta-schema
+  vector-fixtures.json           the desktop vector fixture catalogue
+  vectors-coverage.json          the coverage ledger
+  serve.js                       the hermetic page server
+  lib/                           the vector meta-schema's check module and the
+                                 snapshot walker (STC-10)
   sessions/<id>/pages/           committed HTML an extension session runs
                                  against
   sessions/<id>/script.js        the extension input driver (real Playwright
@@ -78,6 +85,8 @@ corpus/
                                  in the manifest instead
   sessions/<id>/truth.docent.json  the expected envelope (raw, schema-valid)
   sessions/<id>/overrides.json   optional relaxations sidecar
+  sessions/<id>/vectors/         committed conformance vectors
+  sessions/desktop-fixture/      the desktop vector fixture (not a session)
   out/                           gitignored per-run output (produced envelopes,
                                  diff reports)
 ```
@@ -537,8 +546,9 @@ STC-17's and STC-18's among them:
 ## Out of scripted reach (loud exclusions)
 
 - **Autofill fills (docent#233)** — Chrome's autofill dropdown is browser
-  chrome; neither Playwright nor CDP can select an entry. Stays a manual
-  scenario plus its issue.
+  chrome; neither Playwright nor CDP can select an entry. No scripted session
+  and no manual scenario (the extension's manual tests are retired); the issue
+  is its home.
 - **`context_open`/`context_switch`/`context_close` as user actions** —
   tab/window chrome interactions have no trusted-input driver (a scripted
   `bringToFront`/`page.close()` is programmatic by definition, and capture

@@ -9,8 +9,9 @@ client sync cycle.
 This server is part of the repository's
 [reference implementations](../README.md).
 
-It runs on Node.js using only the standard library (`node:http` and friends) —
-no web framework, no build step — and persists to flat JSON files under the OS
+It runs on Node.js with no third-party dependency (`node:http` and friends;
+its ETag derivation imports the repository's shared digest module when the
+checkout provides it, with a local fallback) — no web framework, no build step — and persists to flat JSON files under the OS
 temp folder through a pluggable storage seam. Like any compliant server, it is
 **opaque** — returning each `Full_Project_Payload` verbatim is
 [SP-1](../../docs/api/sync-protocol.md)'s rule, and this server stores what it
@@ -115,8 +116,9 @@ payload — not the `docent_format` stamp, not the recordings or steps.
 
 Returns the stored [`Full_Project_Payload`](../../docs/api/sync-protocol.md#get-projectsid)
 verbatim with HTTP `200` and `Content-Type: application/json`, or `404` when no
-project with that id is stored. The payload is returned exactly as it was
-written, without validation or reshaping.
+project with that id is stored. The payload is returned as the JSON value that was
+written, without validation or reshaping — re-serialized by the server, so the
+bytes (whitespace, key order) need not match the request's.
 
 Successful reads also carry an `ETag` header — see
 [Conditional writes](#optional-conditional-write-docent152).
@@ -153,10 +155,12 @@ triggered by the addition itself, is
 ## Storage model
 
 Request handling reaches stored projects **only** through a `Storage_Provider`
-interface — no handler touches the filesystem directly. This is the pluggable
+interface — no project handler touches the filesystem directly (the debug seed
+route reads the committed samples). This is the pluggable
 seam: an adopter swaps in a different backend (a database, an object store, etc.)
-by replacing the provider at the single construction site in `server.js`, with
-no change to the request-handling logic.
+by passing a provider to `startServer` in `server.js` (`npm start` goes through
+it; `createServer` takes one the same way, and each defaults to the file
+provider), with no change to the request-handling logic.
 
 The default provider is the **File Storage Provider**. It persists each project
 as a flat JSON file under a directory inside the OS temp folder:
@@ -177,8 +181,8 @@ Each file wraps the verbatim payload alongside the server-maintained timestamp:
 Key properties:
 
 - `last_modified` is stored **alongside** the payload, never inside it, so the
-  payload returned by `GET /projects/:id` stays byte-for-byte faithful to what
-  was written.
+  payload returned by `GET /projects/:id` is the JSON value that was written
+  (re-serialized, so whitespace and key order are the server's).
 - The timestamp persists durably, so manifest entries remain correct after a
   restart (as long as the OS has not cleared the temp folder).
 - The provider validates the `project_id` shape and rejects ids containing path

@@ -182,9 +182,11 @@ node scripts/sufficiency-lint.js <file-or-dir>... [--json] [--strict]
      [--baseline <path>] [--write-baseline <path>] [--list]
 ```
 
-Directories are recursed for `.docent.json` files; relative paths resolve
-against the repository root, so the CLI behaves identically from any
-directory. With no paths it runs over the frozen fixtures.
+Directories are recursed for `.docent.json` files; relative input paths
+resolve against the repository root, while the `--baseline` and
+`--write-baseline` paths resolve against the current directory — run those
+two forms from the repository root. With no paths it runs over the frozen
+fixtures.
 
 | Flag                      | Effect                                                                       |
 | ------------------------- | ---------------------------------------------------------------------------- |

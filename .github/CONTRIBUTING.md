@@ -183,7 +183,9 @@ first: [the integration suite's steps](../docs/test/integration/desktop.md#runni
 and [the end-to-end suite's steps](../docs/test/e2e.md#running-the-suite).
 
 To opt a Rust test out of CI entirely (e.g. it depends on something unavailable on
-runners), add a `ci-skip` marker comment to its source. How the suites are layered
+runners), add a `ci-skip` marker comment to the source of its test target under
+`tests/` — the marker opts that whole target out; an in-module `#[cfg(test)]`
+test has no such marker. How the suites are layered
 and how a Rust test's pyramid layer is auto-classified are in
 [the test pyramid](../docs/test/strategy/test-pyramid.md); how coverage reaches
 Codecov is in [coverage reporting](../docs/test/strategy/coverage.md).
@@ -200,7 +202,9 @@ coverage is measured and sliced is in
 
 ### JavaScript
 
-- Plain ES modules — no bundler, no transpilation
+- Plain ES modules — no bundler, no transpilation (two build-time exceptions:
+  the desktop's Tauri bridge and the generated validators are bundled by
+  esbuild)
 - `camelCase` for variables and functions
 - `UPPER_SNAKE_CASE` for message type constants
 - JSDoc comments on all exported functions
@@ -221,8 +225,9 @@ this repository tracks — code in any language, and prose.
   headers and are the pattern to copy; the shared sync modules (e.g.
   `packages/shared/conflict-detector.js`) are platform-call-free by
   architecture — where shared code must reach platform behaviour it does so
-  through its injected seams, the sync-state store and the rebindable HTTP
-  transport ([Shared Core](../docs/architecture/system/shared-core.md#the-adapter-seam))
+  through its injected seams — the sync-state store, the live-state view and
+  sync trigger each platform binds, and the rebindable HTTP transport
+  ([Shared Core](../docs/architecture/system/shared-core.md#the-adapter-seam))
   — which also keeps them unit-testable as pure modules.
 - **Mirrored copies.** A copy of shipped code that a test's verdict stands on
   carries a parity test: the test holds the copy identical to the shipped text,

@@ -17,7 +17,7 @@ identifiers reflect minting order and can appear out of numeric sequence.
 
 ## How coverage reaches Codecov
 
-**COV-1.** Each test job publishes its `lcov` as a build artifact instead of
+**COV-1.** Each coverage-producing test job publishes its `lcov` as a build artifact instead of
 uploading to Codecov directly. A single terminal `coverage-upload` job then
 collects every artifact and uploads them back-to-back. This keeps the Codecov PR
 comment from sitting on a stale intermediate value while jobs finish minutes

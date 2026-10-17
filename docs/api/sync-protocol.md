@@ -260,7 +260,8 @@ for `PUT /projects/:id`.
 > payload as opaque — it stores it as received apart from what SP-5 permits,
 > returns the stored copy verbatim, and never reads the stamp.
 
-The `schema_version` shown is illustrative, not the current version.
+The `schema_version` shown is an example value — the composed schema's
+`docent_format` const, not this page, states the current one.
 
 ```json
 {
@@ -474,13 +475,15 @@ The client interprets the following HTTP status codes:
 | 200  | OK — request succeeded                                             | Pull: payload snapshotted and reconciled. Push: project marked as pushed.                                                                    |
 | 201  | Created — new project stored                                       | Same as 200 (treated as success).                                                                                                            |
 | 400  | Bad Request — invalid JSON body or path/body `project_id` mismatch | Server rejects the write; store unchanged (SP-4). The client never sends such a request; a received 400 is non-fatal (skipped like 404/500). |
-| 401  | Unauthorized — invalid or missing API key                          | Sync halted immediately. Error reported to user.                                                                                             |
-| 403  | Forbidden — valid key but insufficient permissions                 | Sync halted immediately. Error reported to user.                                                                                             |
+| 401  | Unauthorized — API key missing or not accepted                     | Sync halted immediately. Error reported to user.                                                                                             |
+| 403  | Forbidden — API key missing or not accepted                        | Sync halted immediately. Error reported to user.                                                                                             |
 | 404  | Not found — project does not exist                                 | Error recorded for that project. Other projects continue.                                                                                    |
 | 500  | Internal server error                                              | Error recorded for that project. Other projects continue.                                                                                    |
 
 **Important:** A `401` or `403` response on any request (pull or push) causes the
-client to halt the entire sync operation. A halt on the pull returns before any
+client to halt the entire sync operation (SP-2 leaves the split between the two
+to the server; the reference server's own split is in
+[its README](../../reference-implementations/sync-server/README.md#optional-bearer-authentication)). A halt on the pull returns before any
 reconcile or push runs, so all baselines, conflicts, and review items are
 preserved exactly as they were. All other error codes are non-fatal — the client
 skips the failing project and continues with the rest. What each halt leaves
@@ -823,7 +826,11 @@ while a conflict is being recorded — halts the whole cycle with **no
 changes**: no durable state is written, local data is returned untouched (no
 partial merge), and nothing is pushed. Docent's clients surface this halt as
 "Sync stopped to protect your data and made no changes. Your work and any
-pending items are preserved." — client presentation, not wire protocol.
+pending items are preserved." — client presentation, not wire protocol. One
+exception to the halt: a failure while adopting a brand-new unit (one with no
+baseline)
+leaves that unit unsynced — it is classified brand-new again on the next
+cycle — and the cycle continues with the rest.
 
 **SP-20.** An authentication halt (`401`/`403` — see
 [Response Codes](#response-codes)) always preserves the durable state the cycle
