@@ -126,6 +126,7 @@ Windows.Win32.VK_RWIN
 Windows.Win32.VK_SHIFT
 Windows.Win32.VT_BOOL
 Windows.Win32.VT_BSTR
+Windows.Win32.VT_EMPTY
 Windows.Win32.VT_I4
 Windows.Win32.VT_UNKNOWN
 Windows.Win32.VariantClear
@@ -138,6 +139,7 @@ Windows.Win32.WM_KEYDOWN
 Windows.Win32.WM_LBUTTONDOWN
 Windows.Win32.WM_LBUTTONUP
 Windows.Win32.WM_MBUTTONDOWN
+Windows.Win32.WM_MOUSEHWHEEL
 Windows.Win32.WM_MOUSEWHEEL
 Windows.Win32.WM_NULL
 Windows.Win32.WM_QUIT

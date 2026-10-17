@@ -25,26 +25,14 @@ reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"
 # is the only shipping target with a capture backend; other targets fall back
 # to the previous inline behaviour.
 keyring = { version = "3", features = ["windows-native"] }
-windows = { version = "0.62", features = [
-    "Win32_UI_Accessibility",
-    "Win32_Foundation",
-    "Win32_System_Com",
-    "Win32_System_Ole",
-    "Win32_System_Variant",
-    "Win32_UI_WindowsAndMessaging",
-    "Win32_Graphics_Gdi",
-    "Win32_UI_HiDpi",
-    "Win32_UI_Input_KeyboardAndMouse",
-    "Win32_System_Threading",
-    "Win32_System_ProcessStatus",
-    "Win32_System_Diagnostics_ToolHelp",
-] }
-# Runtime support for the generated Win32 bindings (`src/capture/win32_bindings.rs`,
-# the output of windows-bindgen over `tools/bindgen/filter.txt`): COM interface
-# plumbing, BSTR, HRESULT, the `implement` macro. Pinned exactly; the generator's
-# `--check` holds this pin and the generator's windows-bindgen pin on one
-# 0.<minor> version line. Visible to the test binaries too, so the corpus
-# fixture's `#[implement]` providers come from here.
+# The crate's only windows-rs dependency: the runtime (COM interface plumbing,
+# BSTR, HRESULT, the `implement` macro the corpus fixture's providers use) of the
+# generated Win32 bindings (`src/capture/win32_bindings.rs`, the output of
+# windows-bindgen over `tools/bindgen/filter.txt`) and of the hand-written modules
+# beside them (`uia_core_api.rs`, `variant.rs`), which together declare every
+# Win32 and UI Automation name the capture backend and the Windows test binaries
+# use. Pinned exactly; the generator's `--check` holds this pin and the
+# generator's windows-bindgen pin on one 0.<minor> version line.
 windows-core = "=0.100.0"
 
 [build-dependencies]
