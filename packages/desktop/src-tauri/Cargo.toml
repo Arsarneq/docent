@@ -25,13 +25,13 @@ reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"
 # is the only shipping target with a capture backend; other targets fall back
 # to the previous inline behaviour.
 keyring = { version = "3", features = ["windows-native"] }
-# The crate's only windows-rs dependency: the runtime of the generated Win32
-# bindings (`src/capture/win32_bindings.rs`, the output of windows-bindgen over
-# `tools/bindgen/filter.txt`) and of the hand-written modules beside them
-# (`uia_core_api.rs`, `variant.rs`), which together declare every Win32 and UI
-# Automation name the capture backend and the Windows test binaries use — COM
-# interface plumbing, BSTR, HRESULT, the `implement` macro the corpus fixture's
-# providers use. Pinned exactly; the generator's `--check` holds this pin and the
+# The crate's only windows-rs dependency: the runtime (COM interface plumbing,
+# BSTR, HRESULT, the `implement` macro the corpus fixture's providers use) of the
+# generated Win32 bindings (`src/capture/win32_bindings.rs`, the output of
+# windows-bindgen over `tools/bindgen/filter.txt`) and of the hand-written modules
+# beside them (`uia_core_api.rs`, `variant.rs`), which together declare every
+# Win32 and UI Automation name the capture backend and the Windows test binaries
+# use. Pinned exactly; the generator's `--check` holds this pin and the
 # generator's windows-bindgen pin on one 0.<minor> version line.
 windows-core = "=0.100.0"
 

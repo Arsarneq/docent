@@ -603,7 +603,7 @@
       "doc": "docs/architecture/application/desktop/windows/capture-principles.md",
       "clause": "DCP-11",
       "tag": "check-exists",
-      "check-ref": "The corpus redaction session verifies mask + text-null + redacted end-to-end on desktop (npm run corpus:check:desktop); the password path is pinned by the password Rust tests (npm run test:desktop:rust); scripts/sufficiency-lint.js enforces the locators-pass-untouched half. The IsPassword read's type rule stands on the VARIANT wrapper's strict readers, whose refusal of a mismatched type is pinned by that module's in-module a_mismatched_reader_returns_none test (packages/desktop/src-tauri/src/capture/variant.rs; npm run test:desktop:rust); the reading rule itself — a VT_BOOL answer as itself, no answer as false, an answer of another type as a password — is pinned case by case by the is_password_value_* tests in packages/desktop/src-tauri/src/capture/windows.rs (npm run test:desktop:rust); no corpus session or vector provider answers outside VT_BOOL."
+      "check-ref": "The corpus redaction session verifies mask + text-null + redacted end-to-end on desktop (npm run corpus:check:desktop); the password path, the IsPassword read's type rule included, is pinned by the password Rust tests (npm run test:desktop:rust); scripts/sufficiency-lint.js enforces the locators-pass-untouched half."
     },
     {
       "doc": "docs/architecture/application/desktop/windows/capture-principles.md",
