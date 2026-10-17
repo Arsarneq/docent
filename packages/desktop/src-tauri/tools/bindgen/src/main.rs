@@ -120,7 +120,7 @@ fn main() -> ExitCode {
     eprintln!(
         "fix: regenerate under CI's toolchain — `rustup update stable`, then \
          `cargo +stable run --locked --manifest-path packages/desktop/src-tauri/tools/bindgen/Cargo.toml` \
-         — and commit the result; keep windows-core and windows-bindgen on one 0.<minor> version line"
+         — and commit the result; keep windows-core and windows-bindgen on one 0.<minor> version line \n         (a moved windows-bindgen pin also refreshes this crate's Cargo.lock: `cargo update -p windows-bindgen` here)"
     );
     ExitCode::FAILURE
 }
