@@ -29,10 +29,11 @@ flag's last-known coverage.
 ## Flags and components
 
 **COV-2.** Coverage is sliced two ways. **Flags** encode _how_ lines were
-covered — the pyramid layer (`unit`, `integration`, `e2e`) crossed with language
-(`javascript`, `rust`), exactly the flags `codecov.yml` defines. **Components**
-encode _which package_ the code lives in (`extension`, `desktop`, `shared`) —
-exactly the path-based filters `codecov.yml` defines.
+covered — the pyramid layer (`unit`, `integration`, `e2e`) crossed with
+language (`javascript`, `rust`), exactly the flags `.github/codecov.yml`
+defines. **Components** encode _which package_ the code lives in (`extension`,
+`desktop`, `shared`) — exactly the path-based filters `.github/codecov.yml`
+defines.
 
 ## Closed-world tracked-file lists (e2e and desktop integration)
 

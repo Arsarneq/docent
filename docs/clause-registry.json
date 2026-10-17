@@ -1133,13 +1133,13 @@
       "doc": "docs/test/strategy/coverage.md",
       "clause": "COV-1",
       "tag": "checkable",
-      "check-ref": "Intended: a leg over .github/workflows/test.yml holding this topology to the workflow that implements it — each coverage-producing job staging its lcov as an artifact instead of uploading it, one terminal job collecting them, and that job waiting on each staging job — so a job that starts uploading directly, or a terminal job that stops waiting for one of them, reddens here rather than surfacing as a Codecov comment that settled on a stale intermediate value. The carryforward half is codecov.yml's own flag_management setting, which the same leg would read beside the workflow. Neither half is built, and no probe stands in for them: the topology is held by review, and its failure mode is a report that reads wrong rather than a red check."
+      "check-ref": "Intended: a leg over .github/workflows/test.yml holding this topology to the workflow that implements it — each coverage-producing job staging its lcov as an artifact instead of uploading it, one terminal job collecting them, and that job waiting on each staging job — so a job that starts uploading directly, or a terminal job that stops waiting for one of them, reddens here rather than surfacing as a Codecov comment that settled on a stale intermediate value. The carryforward half is .github/codecov.yml's own flag_management setting, which the same leg would read beside the workflow. Neither half is built, and no probe stands in for them: the topology is held by review, and its failure mode is a report that reads wrong rather than a red check."
     },
     {
       "doc": "docs/test/strategy/coverage.md",
       "clause": "COV-2",
       "tag": "checkable",
-      "check-ref": "Intended: a leg holding this slicing to the two surfaces that implement it — the component ids and their path filters in codecov.yml, and the flag pairs .github/workflows/test.yml tags each upload with — so a component renamed in the configuration, or a flag axis the workflow stops tagging, reddens against the document describing them. Not built; both surfaces are held by review today, and a description that has drifted costs a reader an accurate map of the report rather than a broken gate."
+      "check-ref": "Intended: a leg holding this slicing to the two surfaces that implement it — the component ids and their path filters in .github/codecov.yml, and the flag pairs .github/workflows/test.yml tags each upload with — so a component renamed in the configuration, or a flag axis the workflow stops tagging, reddens against the document describing them. Not built; both surfaces are held by review today, and a description that has drifted costs a reader an accurate map of the report rather than a broken gate."
     },
     {
       "doc": "docs/test/strategy/coverage.md",

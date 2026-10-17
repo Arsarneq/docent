@@ -228,7 +228,6 @@
         "package-lock.json",
         "eslint.config.js",
         "stryker.*.mjs",
-        "codecov.yml",
         ".*"
       ],
       "docs": [
@@ -245,7 +244,7 @@
       "reason": "License text — not project documentation and owned by no area."
     },
     {
-      "path": "CLA.md",
+      "path": ".github/CLA.md",
       "reason": "Contributor license agreement — project governance, not area documentation."
     },
     {
@@ -327,7 +326,7 @@
       "governed-by": ["docs/guides/ci.md"]
     },
     {
-      "path": "codecov.yml",
+      "path": ".github/codecov.yml",
       "reason": "Codecov configuration — coverage-report and status settings; the CI guide states which of its statuses gate and which are informational, so an edit here primes those claims too.",
       "governed-by": ["docs/test/strategy/coverage.md", "docs/guides/ci.md"]
     },

@@ -1468,7 +1468,7 @@ jobs:
   # coverage to report and to pass its status checks. Without this, the required
   # codecov/patch check would never be reported on such PRs and GitHub would
   # block them on "Expected — waiting" forever (codecov/project, configured in
-  # codecov.yml, is not a required check).
+  # .github/codecov.yml, is not a required check).
   coverage-upload:
     needs:
       - unit-tests

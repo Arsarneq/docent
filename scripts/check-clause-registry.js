@@ -289,14 +289,7 @@ export const LOCK_SUITE_PATH = 'packages/shared/tests/unit/conformance-vectors.t
  * tracked. Enumerating them is what keeps the gate narrow: every other
  * separator-less `name.ext` in a row's prose stays unvalidated by design.
  */
-export const CITABLE_ROOT_FILES = [
-  'CLA.md',
-  'README.md',
-  'codecov.yml',
-  'eslint.config.js',
-  'lefthook.yml',
-  'package.json',
-];
+export const CITABLE_ROOT_FILES = ['README.md', 'eslint.config.js', 'lefthook.yml', 'package.json'];
 
 /**
  * Suffixes whose path-less form is refused: a suite or source file is cited by
