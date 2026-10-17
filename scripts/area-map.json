@@ -83,7 +83,7 @@
         "packages/desktop/src/**",
         "packages/desktop/src-tauri/src/{main,lib,commands,secret_store,sync_http}.rs",
         "packages/desktop/src-tauri/*",
-        "packages/desktop/src-tauri/{capabilities,icons,.cargo}/**",
+        "packages/desktop/src-tauri/{capabilities,icons,.cargo,tools}/**",
         "packages/desktop/src-tauri/tests/commands_test.rs",
         "packages/desktop/tests/unit/{persistence,persistence-unit,auto-sync-host,dispatch,export}.test.js",
         "packages/desktop/tests/integration/panel-dispatch-sync.spec.js"
@@ -314,6 +314,16 @@
     {
       "path": "packages/desktop/src-tauri/deny.toml",
       "reason": "cargo-deny configuration — the desktop crate's license/advisory policy; the CI guide states its configuring role in the audit gate, so an edit here primes that claim rather than the shell doctrine its directory would supply.",
+      "governed-by": ["docs/guides/ci.md"]
+    },
+    {
+      "path": "packages/desktop/src-tauri/tools/bindgen/**",
+      "reason": "The Win32 bindings generator — a crate of its own that writes src/capture/win32_bindings.rs from its filter list; the CI guide states its freshness gate, its audit and its formatting check, so an edit here primes those claims rather than the shell doctrine its directory would supply.",
+      "governed-by": ["docs/guides/ci.md"]
+    },
+    {
+      "path": "packages/desktop/src-tauri/src/capture/win32_bindings.rs",
+      "reason": "Generated Win32 bindings — the output of the generator under tools/bindgen, never hand-edited; its one invariant (equal to a fresh run of the pinned generator) is the CI guide's Win32 bindings freshness row, not the capture doctrine its directory would supply.",
       "governed-by": ["docs/guides/ci.md"]
     },
     {

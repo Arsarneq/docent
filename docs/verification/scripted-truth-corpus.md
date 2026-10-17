@@ -524,8 +524,9 @@ STC-17's and STC-18's among them:
   relation is genuinely reported to any reader — the direct describe path and the
   Control-view walk alike — and nothing is synthesized in the reader. The EDIT's
   snapshot node then carries a real `labeled_by` edge, making `labeled_by` the
-  measured-unique candidate. (`#[implement]` comes from a test-only dev-dependency
-  that never enters the shipped build.)
+  measured-unique candidate. (`#[implement]` comes from `windows-core`, the
+  desktop crate's Windows dependency that supports its generated Win32 bindings;
+  the test binaries see it as the library does.)
 - **Coverage: all five emitted strategies.** Per the coverage ledger
   (STC-12): `automation_id`, `role_name`, `class_name`, `tree_path`, and
   `labeled_by` are each the measured-unique candidate in the committed

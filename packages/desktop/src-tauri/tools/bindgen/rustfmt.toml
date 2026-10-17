@@ -1,0 +1,7 @@
+# Ends rustfmt's configuration search inside the repository. windows-bindgen
+# pipes its output through the `rustfmt` on PATH, which reads the first
+# rustfmt.toml found walking up from the working directory (the generator sets
+# that directory to this one) and falls back to the user's config directory
+# only when the walk finds nothing. The one setting here is the one the
+# generator passes on the command line anyway.
+newline_style = "Unix"

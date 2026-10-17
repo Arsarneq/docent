@@ -36,6 +36,24 @@ updates:
       - 'dependencies'
       - 'desktop-windows'
 
+  # The Win32 bindings generator: a crate of its own with its own lockfile. The
+  # lint job's Win32 bindings freshness gate holds this pin and the desktop
+  # crate's windows-core pin (the entry above) on one 0.<minor> version line and
+  # the committed bindings equal to a fresh run, so a bot PR that moves either
+  # pin off the shared line, or changes the generator's output, stays red: a
+  # minor-line bump lands as one change that moves both pins and regenerates
+  # the bindings; a windows-bindgen bump whose output differs needs the
+  # regeneration pushed onto the bot's branch; a bump that changes neither
+  # passes as it is.
+  - package-ecosystem: 'cargo'
+    directory: '/packages/desktop/src-tauri/tools/bindgen'
+    schedule:
+      interval: 'weekly'
+    open-pull-requests-limit: 1
+    labels:
+      - 'dependencies'
+      - 'desktop-windows'
+
   - package-ecosystem: 'github-actions'
     directory: '/'
     schedule:

@@ -19,4 +19,4 @@ pre-push:
     lint-format:
       run: npx prettier --check .
     rust-fmt:
-      run: cargo fmt --manifest-path packages/desktop/src-tauri/Cargo.toml --check
+      run: cargo fmt --manifest-path packages/desktop/src-tauri/Cargo.toml --check && cargo fmt --manifest-path packages/desktop/src-tauri/tools/bindgen/Cargo.toml --check
