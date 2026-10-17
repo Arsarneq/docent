@@ -20,10 +20,10 @@ pub mod windows;
 /// Generated Win32 bindings — the output of the pinned windows-bindgen (the
 /// version `tools/bindgen/Cargo.toml` names) over the `filter.txt` of
 /// `tools/bindgen/` (the flat layout), never hand-edited.
-/// Regenerate with `cargo run --locked --manifest-path
-/// packages/desktop/src-tauri/tools/bindgen/Cargo.toml`; CI's lint job reds a
-/// committed file that differs from a fresh run. The allows cover the Win32
-/// spellings and the declarations this crate does not call.
+/// Regenerate under CI's toolchain: `rustup update stable`, then `cargo +stable
+/// run --locked --manifest-path packages/desktop/src-tauri/tools/bindgen/Cargo.toml`;
+/// CI's lint job reds a committed file that differs from a fresh run. The allows
+/// cover the Win32 spellings and the declarations this crate does not call.
 #[cfg(target_os = "windows")]
 #[rustfmt::skip]
 #[allow(non_snake_case, non_camel_case_types, non_upper_case_globals, dead_code, unused_imports, clippy::all)]

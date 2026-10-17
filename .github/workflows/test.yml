@@ -932,8 +932,8 @@ jobs:
           # above); it stays unquoted on purpose so each filter becomes a separate
           # cargo argument (and an empty value expands to nothing).
           # --ignore-filename-regex keeps the crate entry points and the generated
-          # Win32 bindings (declarations the tests never call; the lint job's Win32
-          # bindings freshness gate holds that file) out of the measurement.
+          # Win32 bindings (generator output, held by the lint job's Win32 bindings
+          # freshness gate rather than by coverage) out of the measurement.
           # shellcheck disable=SC2086
           cargo llvm-cov --lib $RUST_UNIT_TEST_ARGS --ignore-filename-regex "(lib|main|win32_bindings)\.rs$" --lcov --output-path coverage-unit.lcov ${{ runner.debug == '1' && '-- --nocapture' || '' }}
 
