@@ -246,9 +246,13 @@ middle-click type); a right-button press records a `right_click`.
 ## Sensitive-value redaction
 
 **DCP-11.** The native capture layer masks password fields directly from the UIA
-`IsPassword` signal. Other sensitive values — the classes core CP-11 names,
-recognised by the shared detection from their accessibility name or automation
-id — are masked at the
+`IsPassword` signal, read by the type of its answer: a `VT_BOOL` answer — the
+property's documented type — reads as itself; an empty (`VT_EMPTY`) answer or a
+failed read reads as no password; and an answer of any other type reads as a
+password, so a provider answering outside the documented type has its field
+masked rather than exposed. Other sensitive values — the classes core CP-11
+names, recognised by the shared detection from their accessibility name or
+automation id — are masked at the
 **adapter chokepoint**, which processes each action's `element` (and its
 `value`) before the action enters the pending list. Both the shared detection
 and the redaction shape are the cross-platform rule ([core

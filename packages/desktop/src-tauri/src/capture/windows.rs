@@ -31,32 +31,34 @@ use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use crate::capture::uia_core_api::{
+use super::uia_core_api::{
     UIA_AutomationIdPropertyId, UIA_ClassNamePropertyId, UIA_ControlTypePropertyId,
     UIA_FrameworkIdPropertyId, UIA_IsControlElementPropertyId, UIA_IsPasswordPropertyId,
     UIA_LabeledByPropertyId, UIA_LevelPropertyId, UIA_LocalizedControlTypePropertyId,
     UIA_NamePropertyId, UIA_NativeWindowHandlePropertyId, UIA_PositionInSetPropertyId,
-    UIA_SelectionPatternId, UIA_SizeOfSetPropertyId, UIA_ValueValuePropertyId,
+    UIA_SelectionPatternId, UIA_SizeOfSetPropertyId, UIA_ToolBarControlTypeId,
+    UIA_ValueValuePropertyId,
 };
-use crate::capture::variant::Variant;
-use crate::capture::win32_bindings::{
-    CUIAutomation, CallNextHookEx, CoCreateInstance, CoInitializeEx, CoUninitialize,
-    DispatchMessageW, EnumWindows, GetAsyncKeyState, GetClassNameW, GetForegroundWindow,
-    GetMessageW, GetParent, GetWindow, GetWindowLongW, GetWindowTextW, GetWindowThreadProcessId,
-    IUIAutomation, IUIAutomationCondition, IUIAutomationElement, IUIAutomationSelectionPattern,
-    IsWindow, IsWindowVisible, PeekMessageW, PostThreadMessageW, SetProcessDpiAwarenessContext,
-    SetWinEventHook, SetWindowsHookExW, TranslateMessage, TreeScope_Subtree, UnhookWinEvent,
-    UnhookWindowsHookEx, WindowFromPoint, CHILDID_SELF, CLSCTX_ALL, COINIT_APARTMENTTHREADED,
-    COINIT_MULTITHREADED, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, EVENT_OBJECT_CREATE,
-    EVENT_OBJECT_DESTROY, EVENT_OBJECT_FOCUS, EVENT_OBJECT_SELECTION, EVENT_OBJECT_VALUECHANGE,
-    EVENT_SYSTEM_FOREGROUND, GWL_STYLE, GW_OWNER, HHOOK, HWINEVENTHOOK, HWND, INVALID_HANDLE_VALUE,
-    KBDLLHOOKSTRUCT, LPARAM, LRESULT, MSG, MSLLHOOKSTRUCT, OBJID_WINDOW, PM_NOREMOVE, POINT,
-    PROPERTYID, UIA_HWND, VK_CONTROL, VK_LWIN, VK_MENU, VK_RWIN, VK_SHIFT, VT_EMPTY,
-    WH_KEYBOARD_LL, WH_MOUSE_LL, WINEVENT_OUTOFCONTEXT, WM_APP, WM_KEYDOWN, WM_LBUTTONDOWN,
-    WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MOUSEHWHEEL, WM_MOUSEWHEEL, WM_NULL, WM_QUIT, WM_RBUTTONDOWN,
-    WM_SYSKEYDOWN, WM_USER, WPARAM, WS_CHILD,
+use super::variant::Variant;
+use super::win32_bindings::{
+    CUIAutomation, CallNextHookEx, CloseHandle, CoCreateInstance, CoInitializeEx, CoUninitialize,
+    DispatchMessageW, EnumWindows, GetAncestor, GetAsyncKeyState, GetClassNameW,
+    GetCurrentThreadId, GetForegroundWindow, GetMessageW, GetParent, GetWindow, GetWindowLongW,
+    GetWindowTextW, GetWindowThreadProcessId, IUIAutomation, IUIAutomationCondition,
+    IUIAutomationElement, IUIAutomationSelectionPattern, IsWindow, IsWindowVisible, PeekMessageW,
+    PostThreadMessageW, SetProcessDpiAwarenessContext, SetWinEventHook, SetWindowsHookExW,
+    TranslateMessage, TreeScope_Subtree, UnhookWinEvent, UnhookWindowsHookEx, WindowFromPoint,
+    CHILDID_SELF, CLSCTX_ALL, COINIT_APARTMENTTHREADED, COINIT_MULTITHREADED,
+    DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, EVENT_OBJECT_CREATE, EVENT_OBJECT_DESTROY,
+    EVENT_OBJECT_FOCUS, EVENT_OBJECT_SELECTION, EVENT_OBJECT_VALUECHANGE, EVENT_SYSTEM_FOREGROUND,
+    GA_ROOT, GA_ROOTOWNER, GWL_STYLE, GW_OWNER, HANDLE, HHOOK, HWINEVENTHOOK, HWND,
+    INVALID_HANDLE_VALUE, KBDLLHOOKSTRUCT, LPARAM, LRESULT, MSG, MSLLHOOKSTRUCT, OBJID_WINDOW,
+    PM_NOREMOVE, POINT, PROPERTYID, UIA_HWND, VK_CONTROL, VK_LWIN, VK_MENU, VK_RWIN, VK_SHIFT,
+    VT_EMPTY, WH_KEYBOARD_LL, WH_MOUSE_LL, WINEVENT_OUTOFCONTEXT, WM_APP, WM_KEYDOWN,
+    WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MOUSEHWHEEL, WM_MOUSEWHEEL, WM_NULL, WM_QUIT,
+    WM_RBUTTONDOWN, WM_SYSKEYDOWN, WM_USER, WPARAM, WS_CHILD,
 };
-use windows_core::{BOOL, BSTR, PWSTR};
+use windows_core::{Error, Interface, BOOL, BSTR, PWSTR};
 
 use super::element_mapping::{
     map_element, LocatorMeasurements, MeasuredIndex, MeasuredPair, NativeElementProperties,
@@ -139,9 +141,6 @@ const INPUT_TID_TIMEOUT: Duration = Duration::from_secs(5);
 /// that are visually part of Docent but run under system process PIDs like
 /// explorer.exe.
 unsafe fn is_owned_by_excluded(hwnd: HWND, excluded_pid: u32) -> bool {
-    use crate::capture::win32_bindings::GetAncestor;
-    use crate::capture::win32_bindings::GA_ROOTOWNER;
-
     // Walk up the owner chain to the root owner window
     let root_owner = GetAncestor(hwnd, GA_ROOTOWNER as u32);
     if root_owner.0.is_null() || root_owner == hwnd {
@@ -227,16 +226,21 @@ fn is_descendant_of(pid: u32, ancestor_pid: u32) -> bool {
     false
 }
 
+/// The failure read of a `HANDLE`-returning call, in one place: `OpenProcess`
+/// reports failure as a null handle and `CreateToolhelp32Snapshot` as
+/// `INVALID_HANDLE_VALUE`; both values are refused for every handle. `None` on
+/// failure.
+fn valid_handle(handle: HANDLE) -> Option<HANDLE> {
+    (!handle.0.is_null() && handle != INVALID_HANDLE_VALUE).then_some(handle)
+}
+
 /// Get the executable name of a process by PID using CreateToolhelp32Snapshot.
 fn get_process_exe_name(pid: u32) -> Option<String> {
-    use crate::capture::win32_bindings::{
+    use super::win32_bindings::{
         CreateToolhelp32Snapshot, Process32First, Process32Next, PROCESSENTRY32, TH32CS_SNAPPROCESS,
     };
     unsafe {
-        let snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS as u32, 0);
-        if snapshot.0.is_null() || snapshot == INVALID_HANDLE_VALUE {
-            return None;
-        }
+        let snapshot = valid_handle(CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS as u32, 0))?;
         let mut entry = PROCESSENTRY32 {
             dwSize: std::mem::size_of::<PROCESSENTRY32>() as u32,
             ..Default::default()
@@ -244,7 +248,7 @@ fn get_process_exe_name(pid: u32) -> Option<String> {
         if Process32First(snapshot, &mut entry).as_bool() {
             loop {
                 if entry.th32ProcessID == pid {
-                    let _ = crate::capture::win32_bindings::CloseHandle(snapshot);
+                    let _ = CloseHandle(snapshot);
                     let name = entry
                         .szExeFile
                         .iter()
@@ -258,21 +262,18 @@ fn get_process_exe_name(pid: u32) -> Option<String> {
                 }
             }
         }
-        let _ = crate::capture::win32_bindings::CloseHandle(snapshot);
+        let _ = CloseHandle(snapshot);
         None
     }
 }
 
 /// Get the parent PID of a process using CreateToolhelp32Snapshot.
 fn get_parent_pid(pid: u32) -> Option<u32> {
-    use crate::capture::win32_bindings::{
+    use super::win32_bindings::{
         CreateToolhelp32Snapshot, Process32First, Process32Next, PROCESSENTRY32, TH32CS_SNAPPROCESS,
     };
     unsafe {
-        let snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS as u32, 0);
-        if snapshot.0.is_null() || snapshot == INVALID_HANDLE_VALUE {
-            return None;
-        }
+        let snapshot = valid_handle(CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS as u32, 0))?;
         let mut entry = PROCESSENTRY32 {
             dwSize: std::mem::size_of::<PROCESSENTRY32>() as u32,
             ..Default::default()
@@ -280,7 +281,7 @@ fn get_parent_pid(pid: u32) -> Option<u32> {
         if Process32First(snapshot, &mut entry).as_bool() {
             loop {
                 if entry.th32ProcessID == pid {
-                    let _ = crate::capture::win32_bindings::CloseHandle(snapshot);
+                    let _ = CloseHandle(snapshot);
                     return Some(entry.th32ParentProcessID);
                 }
                 if !Process32Next(snapshot, &mut entry).as_bool() {
@@ -288,7 +289,7 @@ fn get_parent_pid(pid: u32) -> Option<u32> {
                 }
             }
         }
-        let _ = crate::capture::win32_bindings::CloseHandle(snapshot);
+        let _ = CloseHandle(snapshot);
         None
     }
 }
@@ -878,7 +879,7 @@ impl CaptureLayer for WindowsCapture {
             std::sync::mpsc::channel::<Result<(), CaptureError>>();
 
         let input_handle = thread::spawn(move || -> Result<(), CaptureError> {
-            let thread_id = unsafe { crate::capture::win32_bindings::GetCurrentThreadId() };
+            let thread_id = unsafe { GetCurrentThreadId() };
             // Create this thread's message queue BEFORE reporting the tid. A
             // Win32 thread has no message queue until its first USER32 call,
             // and `PostThreadMessageW` to a queue-less thread fails with
@@ -1182,7 +1183,7 @@ fn input_thread_main(
         let mouse_hook =
             unsafe { SetWindowsHookExW(WH_MOUSE_LL, Some(input_mouse_ll_proc), None, 0) };
         if mouse_hook.0.is_null() {
-            let e = windows_core::Error::from_thread();
+            let e = Error::from_thread();
             return Err(CaptureError::HookFailed(format!("WH_MOUSE_LL: {e}")));
         }
         ll_hooks.push(mouse_hook);
@@ -1191,7 +1192,7 @@ fn input_thread_main(
         let kb_hook =
             unsafe { SetWindowsHookExW(WH_KEYBOARD_LL, Some(input_keyboard_ll_proc), None, 0) };
         if kb_hook.0.is_null() {
-            let e = windows_core::Error::from_thread();
+            let e = Error::from_thread();
             return Err(CaptureError::HookFailed(format!("WH_KEYBOARD_LL: {e}")));
         }
         ll_hooks.push(kb_hook);
@@ -1533,7 +1534,6 @@ unsafe extern "system" fn input_win_event_proc(
             }
 
             // Resolve root window for deduplication comparison.
-            use crate::capture::win32_bindings::{GetAncestor, GA_ROOT};
             let root = GetAncestor(hwnd, GA_ROOT as u32);
             let root_handle = if root.0.is_null() {
                 window_handle
@@ -1631,10 +1631,7 @@ unsafe extern "system" fn input_win_event_proc(
                 // (e.g. file dialog folder view refreshing), not a
                 // standalone window the user closed.
                 let fg = GetForegroundWindow();
-                let root = {
-                    use crate::capture::win32_bindings::{GetAncestor, GA_ROOT};
-                    GetAncestor(hwnd, GA_ROOT as u32)
-                };
+                let root = GetAncestor(hwnd, GA_ROOT as u32);
                 let is_sub_of_foreground = !fg.0.is_null() && !root.0.is_null() && root == fg;
 
                 if !has_parent && !has_owner && !title.is_empty() && !is_sub_of_foreground {
@@ -1725,7 +1722,6 @@ unsafe extern "system" fn input_win_event_proc(
             if last_kb_window != 0 && last_kb_window != window_handle {
                 // Keyboard was in a different window — this value change is
                 // from a newly opened dialog, not from user typing.
-                use crate::capture::win32_bindings::{GetAncestor, GA_ROOT};
                 let vc_root = GetAncestor(hwnd, GA_ROOT as u32);
                 let kb_root = HWND(last_kb_window as *mut _);
                 let kb_root_resolved = GetAncestor(kb_root, GA_ROOT as u32);
@@ -1776,7 +1772,6 @@ unsafe extern "system" fn input_win_event_proc(
             // opened by a click on "Open..." or by Ctrl+O).
             let input_window = INPUT_LAST_INPUT_WINDOW.with(|w| w.get());
             if input_window != 0 && input_window != window_handle {
-                use crate::capture::win32_bindings::{GetAncestor, GA_ROOT};
                 let sel_root = GetAncestor(hwnd, GA_ROOT as u32);
                 let input_hwnd = HWND(input_window as *mut _);
                 let input_root = GetAncestor(input_hwnd, GA_ROOT as u32);
@@ -1886,7 +1881,6 @@ unsafe extern "system" fn input_mouse_ll_proc(
                     // STATIC) don't fire EVENT_SYSTEM_FOREGROUND on activation,
                     // so we detect the switch here to guarantee context_switch.
                     if !point_hwnd.0.is_null() {
-                        use crate::capture::win32_bindings::{GetAncestor, GA_ROOT};
                         let clicked_root = GetAncestor(point_hwnd, GA_ROOT as u32);
                         let fg_root = GetAncestor(fg_hwnd, GA_ROOT as u32);
                         let clicked_root_h = if clicked_root.0.is_null() {
@@ -2223,7 +2217,7 @@ unsafe fn gather_native_properties(
     let name = get_string_property(element, UIA_NamePropertyId);
     let localized_type = get_string_property(element, UIA_LocalizedControlTypePropertyId);
     let value = get_string_property(element, UIA_ValueValuePropertyId);
-    let is_password = get_bool_property(element, UIA_IsPasswordPropertyId);
+    let is_password = get_is_password(element);
     let class_name = get_string_property(element, UIA_ClassNamePropertyId);
     let framework_id = get_string_property(element, UIA_FrameworkIdPropertyId);
     let labeled_by = get_labeled_by_name(element);
@@ -2271,7 +2265,6 @@ unsafe fn property_value(
 /// `IUnknown`; any failure along the way yields `""` (total, like every
 /// property helper here).
 unsafe fn get_labeled_by_name(element: &IUIAutomationElement) -> String {
-    use windows_core::Interface;
     property_value(element, UIA_LabeledByPropertyId)
         .and_then(|v| {
             v.as_unknown()
@@ -2282,7 +2275,7 @@ unsafe fn get_labeled_by_name(element: &IUIAutomationElement) -> String {
 }
 
 /// Build a BSTR-typed VARIANT for property conditions on string properties.
-unsafe fn bstr_variant(value: &str) -> Variant {
+fn bstr_variant(value: &str) -> Variant {
     Variant::from(BSTR::from(value))
 }
 
@@ -2389,10 +2382,9 @@ unsafe fn measure_candidates(
     m
 }
 
-/// Get an i32 property from a UIA element via VARIANT. The properties read this
-/// way (`ControlType`, `Level`, `PositionInSet`, `SizeOfSet`,
-/// `NativeWindowHandle`) are documented as `VT_I4`; a value of any other type
-/// reads as 0, the same as an unsupported property.
+/// Get an i32 property from a UIA element via VARIANT. Every property read this
+/// way is documented as `VT_I4`; a value of any other type reads as 0, as a
+/// failed call does.
 unsafe fn get_i32_property(element: &IUIAutomationElement, property_id: PROPERTYID) -> i32 {
     property_value(element, property_id)
         .and_then(|v| v.as_i32())
@@ -2400,8 +2392,8 @@ unsafe fn get_i32_property(element: &IUIAutomationElement, property_id: PROPERTY
 }
 
 /// Get a string property from a UIA element via VARIANT. Only a `VT_BSTR` value
-/// reads; an empty string, another type, an unsupported property and a failed
-/// call all yield `""`.
+/// reads; an empty string, a value of another type and a failed call all yield
+/// `""`.
 unsafe fn get_string_property(element: &IUIAutomationElement, property_id: PROPERTYID) -> String {
     property_value(element, property_id)
         .and_then(|v| {
@@ -2412,22 +2404,27 @@ unsafe fn get_string_property(element: &IUIAutomationElement, property_id: PROPE
         .unwrap_or_default()
 }
 
-/// Get a bool property from a UIA element via VARIANT. The one caller is the
-/// `IsPassword` read, and the read fails closed: a `VT_BOOL` value reads as
-/// itself, an unsupported property (`VT_EMPTY`) and a failed call read as
-/// `false`, and a value of any other type reads as `true` — a provider that
-/// answers in an unexpected type masks the field rather than exposing it.
-unsafe fn get_bool_property(element: &IUIAutomationElement, property_id: PROPERTYID) -> bool {
-    match property_value(element, property_id) {
+/// The `IsPassword` reading rule, decided in this one place over the property's
+/// answer: a `VT_BOOL` answer (the property's documented type) reads as itself;
+/// no answer — a failed call or a `VT_EMPTY` value — reads as `false`; an answer
+/// of any other type reads as `true`, so a provider that answers outside the
+/// documented type has its field masked rather than exposed. The
+/// `is_password_value_*` unit tests pin each case.
+fn is_password_value(answer: Option<&Variant>) -> bool {
+    match answer {
         None => false,
         Some(v) => v.as_bool().unwrap_or(v.vt() != VT_EMPTY),
     }
 }
 
+/// Read a UIA element's `IsPassword` property through [`is_password_value`].
+unsafe fn get_is_password(element: &IUIAutomationElement) -> bool {
+    is_password_value(property_value(element, UIA_IsPasswordPropertyId).as_ref())
+}
+
 /// Resolve the top-level (GA_ROOT) window handle for a native window handle
 /// reported by UIA. Returns 0 when unresolvable.
 unsafe fn top_level_hwnd(native_hwnd: i32) -> i64 {
-    use crate::capture::win32_bindings::{GetAncestor, GA_ROOT};
     if native_hwnd == 0 {
         return 0;
     }
@@ -2547,8 +2544,8 @@ pub(crate) unsafe fn find_child_value_by_automation_id(
     parent: &IUIAutomationElement,
     target_automation_id: &str,
 ) -> Option<String> {
-    use crate::capture::uia_core_api::UIA_EditControlTypeId;
-    use crate::capture::win32_bindings::TreeScope_Descendants;
+    use super::uia_core_api::UIA_EditControlTypeId;
+    use super::win32_bindings::TreeScope_Descendants;
 
     // Create a condition to find Edit controls.
     let edit_condition = uia
@@ -2587,7 +2584,7 @@ pub(crate) unsafe fn read_file_dialog_directory(
     uia: &IUIAutomation,
     dialog_element: &IUIAutomationElement,
 ) -> Option<String> {
-    use crate::capture::win32_bindings::TreeScope_Descendants;
+    use super::win32_bindings::TreeScope_Descendants;
 
     // Strategy 1: Look for the address bar edit with AutomationId "41477".
     if let Some(addr) = find_child_value_by_automation_id(uia, dialog_element, "41477") {
@@ -2601,7 +2598,7 @@ pub(crate) unsafe fn read_file_dialog_directory(
     let toolbar_condition = uia
         .CreatePropertyCondition(
             UIA_ControlTypePropertyId,
-            Variant::from(crate::capture::uia_core_api::UIA_ToolBarControlTypeId.0).as_raw(),
+            Variant::from(UIA_ToolBarControlTypeId.0).as_raw(),
         )
         .ok()?;
 
@@ -2703,19 +2700,21 @@ pub(crate) unsafe fn get_process_name_for_hwnd(hwnd: HWND) -> String {
 }
 
 fn get_process_name_for_pid(pid: u32) -> String {
-    use crate::capture::win32_bindings::GetModuleFileNameExW;
-    use crate::capture::win32_bindings::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
+    use super::win32_bindings::{
+        GetModuleFileNameExW, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
+    };
 
     unsafe {
-        let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION as u32, false, pid);
-        // A null handle or INVALID_HANDLE_VALUE is the failure read.
-        let handle = (!handle.0.is_null() && handle != INVALID_HANDLE_VALUE).then_some(handle);
-        match handle {
+        match valid_handle(OpenProcess(
+            PROCESS_QUERY_LIMITED_INFORMATION as u32,
+            false,
+            pid,
+        )) {
             Some(h) => {
                 let mut buf = [0u16; 512];
                 let len =
                     GetModuleFileNameExW(Some(h), None, PWSTR(buf.as_mut_ptr()), buf.len() as u32);
-                let _ = crate::capture::win32_bindings::CloseHandle(h);
+                let _ = CloseHandle(h);
                 if len > 0 {
                     let full_path = String::from_utf16_lossy(&buf[..len as usize]);
                     full_path
@@ -2897,9 +2896,6 @@ impl AccessibilityBackend for WindowsAccessibilityBackend {
     }
 
     fn root_window_handle(&self, window_handle: i64) -> i64 {
-        use crate::capture::win32_bindings::GetAncestor;
-        use crate::capture::win32_bindings::GA_ROOT;
-
         let hwnd = HWND(window_handle as *mut _);
         let root = unsafe { GetAncestor(hwnd, GA_ROOT as u32) };
         if root.0.is_null() {
@@ -2910,8 +2906,7 @@ impl AccessibilityBackend for WindowsAccessibilityBackend {
     }
 
     fn window_rect(&self, window_handle: i64) -> Option<super::WindowRect> {
-        use crate::capture::win32_bindings::RECT;
-        use crate::capture::win32_bindings::{GetAncestor, GetWindowRect, GA_ROOT};
+        use super::win32_bindings::{GetWindowRect, RECT};
 
         let hwnd = HWND(window_handle as *mut _);
         let root = unsafe { GetAncestor(hwnd, GA_ROOT as u32) };
@@ -2938,8 +2933,6 @@ impl AccessibilityBackend for WindowsAccessibilityBackend {
     }
 
     fn selected_item_name(&self, _window_handle: i64) -> Option<(ElementDescription, String)> {
-        use windows_core::Interface;
-
         let uia = self.uia.as_ref()?;
         let focused = unsafe { uia.GetFocusedElement().ok()? };
 
@@ -2977,8 +2970,39 @@ impl AccessibilityBackend for WindowsAccessibilityBackend {
 mod tests {
     use super::{
         control_type_name, get_parent_pid, get_process_exe_name, is_descendant_of,
-        is_recognized_by_exe_name, windows_should_keep_event,
+        is_password_value, is_recognized_by_exe_name, windows_should_keep_event,
+        GetCurrentThreadId, Variant, BSTR, VT_EMPTY,
     };
+    use crate::capture::uia_core_api::UiaGetReservedNotSupportedValue;
+    use crate::capture::win32_bindings::VARIANT;
+
+    // -- the IsPassword reading rule -----------------------------------------
+
+    #[test]
+    fn is_password_value_reads_a_bool_answer_as_itself() {
+        assert!(is_password_value(Some(&Variant::from(true))));
+        assert!(!is_password_value(Some(&Variant::from(false))));
+    }
+
+    #[test]
+    fn is_password_value_reads_no_answer_as_false() {
+        assert!(!is_password_value(None));
+        // SAFETY: a zeroed VARIANT is VT_EMPTY and owns nothing to clear.
+        let empty = unsafe { Variant::from_raw(VARIANT::default()) };
+        assert_eq!(empty.vt(), VT_EMPTY);
+        assert!(!is_password_value(Some(&empty)));
+    }
+
+    #[test]
+    fn is_password_value_reads_an_answer_of_another_type_as_a_password() {
+        assert!(is_password_value(Some(&Variant::from(0i32))));
+        assert!(is_password_value(Some(&Variant::from(1i32))));
+        assert!(is_password_value(Some(&Variant::from(BSTR::from("false")))));
+        // SAFETY: the reserved value is handed over with one reference, which the
+        // wrapper releases on drop.
+        let not_supported = unsafe { UiaGetReservedNotSupportedValue() }.expect("reserved value");
+        assert!(is_password_value(Some(&Variant::from(not_supported))));
+    }
 
     // -- process-tree helpers (against the live process table) -------------
     //
@@ -3740,7 +3764,7 @@ mod tests {
                 PM_NOREMOVE as u32,
             );
         }
-        let own_tid = unsafe { crate::capture::win32_bindings::GetCurrentThreadId() };
+        let own_tid = unsafe { GetCurrentThreadId() };
         let (capture, pending, rx) = capture_with_seeded_buffer(own_tid, "q");
 
         let report = capture.run_flush_barrier_with(Duration::from_millis(100));

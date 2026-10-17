@@ -31,6 +31,7 @@ use enigo::{Coordinate, Direction, Enigo, Keyboard, Mouse, Settings};
 use docent_desktop_lib::capture::{ActionEvent, ActionPayload, CaptureLayer};
 use serial_test::serial;
 
+use docent_desktop_lib::capture::win32_bindings::HWND;
 use docent_desktop_lib::capture::windows::WindowsCapture;
 
 /// STATIC's default window procedure answers `WM_NCHITTEST` with
@@ -83,21 +84,23 @@ impl ResponsiveWindow {
         let (tx, rx) = smpsc::channel::<u32>();
         let handle = thread::spawn(move || unsafe {
             let title_wide: Vec<u16> = title.encode_utf16().chain(std::iter::once(0)).collect();
-            let hwnd = CreateWindowExW(
-                docent_desktop_lib::capture::win32_bindings::WS_EX_TOPMOST as u32,
-                windows_core::w!("STATIC"),
-                windows_core::PCWSTR(title_wide.as_ptr()),
-                (WS_OVERLAPPEDWINDOW | WS_VISIBLE) as u32 | SS_NOTIFY_STYLE,
-                200,
-                200,
-                600,
-                400,
-                None,
-                None,
-                None,
-                Some(std::ptr::null()),
+            let hwnd = crate::expect_hwnd(
+                CreateWindowExW(
+                    docent_desktop_lib::capture::win32_bindings::WS_EX_TOPMOST as u32,
+                    windows_core::w!("STATIC"),
+                    windows_core::PCWSTR(title_wide.as_ptr()),
+                    (WS_OVERLAPPEDWINDOW | WS_VISIBLE) as u32 | SS_NOTIFY_STYLE,
+                    200,
+                    200,
+                    600,
+                    400,
+                    None,
+                    None,
+                    None,
+                    Some(std::ptr::null()),
+                ),
+                "Failed to create target window",
             );
-            assert!(!hwnd.0.is_null(), "Failed to create target window");
             let _ = SetForegroundWindow(hwnd);
             tx.send(GetCurrentThreadId())
                 .expect("failed to hand back thread id");
@@ -379,6 +382,13 @@ fn context_switches(events: &[ActionEvent]) -> Vec<&ActionEvent> {
 // USER ACTION TESTS — verify real input IS captured
 // ═══════════════════════════════════════════════════════════════════════════════
 
+/// Assert that a window lookup or creation returned a handle, with the caller's
+/// message, and hand the handle on — the suite's one read of a null `HWND`.
+fn expect_hwnd(hwnd: HWND, msg: &str) -> HWND {
+    assert!(!hwnd.0.is_null(), "{msg}");
+    hwnd
+}
+
 mod user_actions {
     use super::*;
     use docent_desktop_lib::capture::win32_bindings::HWND;
@@ -392,21 +402,23 @@ mod user_actions {
 
     /// Create a test window and return its handle + center coordinates.
     unsafe fn create_target_window() -> (HWND, i32, i32) {
-        let hwnd = CreateWindowExW(
-            docent_desktop_lib::capture::win32_bindings::WS_EX_TOPMOST as u32,
-            w!("STATIC"),
-            w!("Docent Test Target"),
-            (WS_OVERLAPPEDWINDOW | WS_VISIBLE) as u32 | SS_NOTIFY_STYLE,
-            200,
-            200,
-            600,
-            400,
-            None,
-            None,
-            None,
-            Some(ptr::null()),
+        let hwnd = crate::expect_hwnd(
+            CreateWindowExW(
+                docent_desktop_lib::capture::win32_bindings::WS_EX_TOPMOST as u32,
+                w!("STATIC"),
+                w!("Docent Test Target"),
+                (WS_OVERLAPPEDWINDOW | WS_VISIBLE) as u32 | SS_NOTIFY_STYLE,
+                200,
+                200,
+                600,
+                400,
+                None,
+                None,
+                None,
+                Some(ptr::null()),
+            ),
+            "Failed to create target window",
         );
-        assert!(!hwnd.0.is_null(), "Failed to create target window");
 
         let _ = SetForegroundWindow(hwnd);
         thread::sleep(Duration::from_millis(100));
@@ -706,8 +718,8 @@ mod side_effects {
         let title_wide: Vec<u16> = title.encode_utf16().chain(std::iter::once(0)).collect();
         let class = w!("STATIC"); // Use built-in STATIC class
 
-        {
-            let hwnd = CreateWindowExW(
+        crate::expect_hwnd(
+            CreateWindowExW(
                 0,
                 class,
                 windows_core::PCWSTR(title_wide.as_ptr()),
@@ -720,12 +732,9 @@ mod side_effects {
                 None,
                 None,
                 Some(ptr::null()),
-            );
-
-            assert!(!hwnd.0.is_null(), "Failed to create test window");
-
-            hwnd
-        }
+            ),
+            "Failed to create test window",
+        )
     }
 
     #[test]
@@ -915,8 +924,8 @@ mod side_effects_additional {
     unsafe fn create_test_window(title: &str) -> HWND {
         let title_wide: Vec<u16> = title.encode_utf16().chain(std::iter::once(0)).collect();
         let class = w!("STATIC");
-        {
-            let hwnd = CreateWindowExW(
+        crate::expect_hwnd(
+            CreateWindowExW(
                 0,
                 class,
                 windows_core::PCWSTR(title_wide.as_ptr()),
@@ -929,10 +938,9 @@ mod side_effects_additional {
                 None,
                 None,
                 Some(ptr::null()),
-            );
-            assert!(!hwnd.0.is_null(), "Failed to create test window");
-            hwnd
-        }
+            ),
+            "Failed to create test window",
+        )
     }
 
     #[test]
@@ -1134,21 +1142,23 @@ mod user_actions_advanced {
 
     unsafe fn create_target_window(title: &str, x: i32, y: i32) -> (HWND, i32, i32) {
         let title_wide: Vec<u16> = title.encode_utf16().chain(std::iter::once(0)).collect();
-        let hwnd = CreateWindowExW(
-            docent_desktop_lib::capture::win32_bindings::WS_EX_TOPMOST as u32,
-            w!("STATIC"),
-            windows_core::PCWSTR(title_wide.as_ptr()),
-            (WS_OVERLAPPEDWINDOW | WS_VISIBLE) as u32 | SS_NOTIFY_STYLE,
-            x,
-            y,
-            400,
-            300,
-            None,
-            None,
-            None,
-            Some(ptr::null()),
+        let hwnd = crate::expect_hwnd(
+            CreateWindowExW(
+                docent_desktop_lib::capture::win32_bindings::WS_EX_TOPMOST as u32,
+                w!("STATIC"),
+                windows_core::PCWSTR(title_wide.as_ptr()),
+                (WS_OVERLAPPEDWINDOW | WS_VISIBLE) as u32 | SS_NOTIFY_STYLE,
+                x,
+                y,
+                400,
+                300,
+                None,
+                None,
+                None,
+                Some(ptr::null()),
+            ),
+            "Failed to create target window",
         );
-        assert!(!hwnd.0.is_null(), "Failed to create target window");
 
         let _ = SetForegroundWindow(hwnd);
         thread::sleep(Duration::from_millis(100));
@@ -1306,8 +1316,8 @@ mod side_effects_more {
 
     unsafe fn create_test_window(title: &str) -> HWND {
         let title_wide: Vec<u16> = title.encode_utf16().chain(std::iter::once(0)).collect();
-        {
-            let hwnd = CreateWindowExW(
+        crate::expect_hwnd(
+            CreateWindowExW(
                 docent_desktop_lib::capture::win32_bindings::WS_EX_TOPMOST as u32,
                 w!("STATIC"),
                 windows_core::PCWSTR(title_wide.as_ptr()),
@@ -1320,10 +1330,9 @@ mod side_effects_more {
                 None,
                 None,
                 Some(ptr::null()),
-            );
-            assert!(!hwnd.0.is_null(), "Failed to create test window");
-            hwnd
-        }
+            ),
+            "Failed to create test window",
+        )
     }
 
     #[test]
@@ -1380,8 +1389,8 @@ mod side_effects_more {
         // Create a topmost popup (simulates a notification toast).
         let hwnd = unsafe {
             let title = w!("Notification");
-            {
-                let hwnd = CreateWindowExW(
+            crate::expect_hwnd(
+                CreateWindowExW(
                     WS_EX_TOPMOST as u32,
                     w!("STATIC"),
                     title,
@@ -1394,10 +1403,9 @@ mod side_effects_more {
                     None,
                     None,
                     Some(ptr::null()),
-                );
-                assert!(!hwnd.0.is_null(), "Failed to create notification window");
-                hwnd
-            }
+                ),
+                "Failed to create notification window",
+            )
         };
         thread::sleep(Duration::from_millis(500));
 
@@ -1496,21 +1504,23 @@ mod capture_behaviour {
 
     unsafe fn create_target_window(title: &str) -> (HWND, i32, i32) {
         let title_wide: Vec<u16> = title.encode_utf16().chain(std::iter::once(0)).collect();
-        let hwnd = CreateWindowExW(
-            docent_desktop_lib::capture::win32_bindings::WS_EX_TOPMOST as u32,
-            w!("STATIC"),
-            windows_core::PCWSTR(title_wide.as_ptr()),
-            (WS_OVERLAPPEDWINDOW | WS_VISIBLE) as u32 | SS_NOTIFY_STYLE,
-            200,
-            200,
-            600,
-            400,
-            None,
-            None,
-            None,
-            Some(ptr::null()),
+        let hwnd = crate::expect_hwnd(
+            CreateWindowExW(
+                docent_desktop_lib::capture::win32_bindings::WS_EX_TOPMOST as u32,
+                w!("STATIC"),
+                windows_core::PCWSTR(title_wide.as_ptr()),
+                (WS_OVERLAPPEDWINDOW | WS_VISIBLE) as u32 | SS_NOTIFY_STYLE,
+                200,
+                200,
+                600,
+                400,
+                None,
+                None,
+                None,
+                Some(ptr::null()),
+            ),
+            "Failed to create target window",
         );
-        assert!(!hwnd.0.is_null(), "Failed to create target window");
 
         let _ = SetForegroundWindow(hwnd);
         thread::sleep(Duration::from_millis(100));
@@ -1682,8 +1692,8 @@ mod capture_behaviour {
 
         // Create a password edit control inside it.
         let edit = unsafe {
-            {
-                let hwnd = CreateWindowExW(
+            crate::expect_hwnd(
+                CreateWindowExW(
                     0,
                     w!("EDIT"),
                     w!(""),
@@ -1696,10 +1706,9 @@ mod capture_behaviour {
                     None,
                     None,
                     Some(ptr::null()),
-                );
-                assert!(!hwnd.0.is_null(), "Failed to create edit control");
-                hwnd
-            }
+                ),
+                "Failed to create edit control",
+            )
         };
         thread::sleep(Duration::from_millis(200));
 
@@ -1806,21 +1815,23 @@ mod user_actions_extended {
 
     unsafe fn create_target_window(title: &str) -> (HWND, i32, i32) {
         let title_wide: Vec<u16> = title.encode_utf16().chain(std::iter::once(0)).collect();
-        let hwnd = CreateWindowExW(
-            docent_desktop_lib::capture::win32_bindings::WS_EX_TOPMOST as u32,
-            w!("STATIC"),
-            windows_core::PCWSTR(title_wide.as_ptr()),
-            (WS_OVERLAPPEDWINDOW | WS_VISIBLE) as u32 | SS_NOTIFY_STYLE,
-            200,
-            200,
-            600,
-            400,
-            None,
-            None,
-            None,
-            Some(ptr::null()),
+        let hwnd = crate::expect_hwnd(
+            CreateWindowExW(
+                docent_desktop_lib::capture::win32_bindings::WS_EX_TOPMOST as u32,
+                w!("STATIC"),
+                windows_core::PCWSTR(title_wide.as_ptr()),
+                (WS_OVERLAPPEDWINDOW | WS_VISIBLE) as u32 | SS_NOTIFY_STYLE,
+                200,
+                200,
+                600,
+                400,
+                None,
+                None,
+                None,
+                Some(ptr::null()),
+            ),
+            "Failed to create target window",
         );
-        assert!(!hwnd.0.is_null(), "Failed to create target window");
         let _ = SetForegroundWindow(hwnd);
         thread::sleep(Duration::from_millis(100));
         let mut rect = RECT::default();
@@ -2078,21 +2089,23 @@ mod scroll_behaviour {
     use windows_core::w;
 
     unsafe fn create_target_window() -> (HWND, i32, i32) {
-        let hwnd = CreateWindowExW(
-            docent_desktop_lib::capture::win32_bindings::WS_EX_TOPMOST as u32,
-            w!("STATIC"),
-            w!("Scroll Test"),
-            (WS_OVERLAPPEDWINDOW | WS_VISIBLE) as u32 | SS_NOTIFY_STYLE,
-            200,
-            200,
-            600,
-            400,
-            None,
-            None,
-            None,
-            Some(ptr::null()),
+        let hwnd = crate::expect_hwnd(
+            CreateWindowExW(
+                docent_desktop_lib::capture::win32_bindings::WS_EX_TOPMOST as u32,
+                w!("STATIC"),
+                w!("Scroll Test"),
+                (WS_OVERLAPPEDWINDOW | WS_VISIBLE) as u32 | SS_NOTIFY_STYLE,
+                200,
+                200,
+                600,
+                400,
+                None,
+                None,
+                None,
+                Some(ptr::null()),
+            ),
+            "Failed to create target window",
         );
-        assert!(!hwnd.0.is_null(), "Failed to create target window");
         let _ = SetForegroundWindow(hwnd);
         thread::sleep(Duration::from_millis(100));
         let mut rect = RECT::default();
@@ -2193,21 +2206,23 @@ mod user_actions_missing {
 
     unsafe fn create_target_window(title: &str) -> (HWND, i32, i32) {
         let title_wide: Vec<u16> = title.encode_utf16().chain(std::iter::once(0)).collect();
-        let hwnd = CreateWindowExW(
-            docent_desktop_lib::capture::win32_bindings::WS_EX_TOPMOST as u32,
-            w!("STATIC"),
-            windows_core::PCWSTR(title_wide.as_ptr()),
-            (WS_OVERLAPPEDWINDOW | WS_VISIBLE) as u32 | SS_NOTIFY_STYLE,
-            200,
-            200,
-            600,
-            400,
-            None,
-            None,
-            None,
-            Some(ptr::null()),
+        let hwnd = crate::expect_hwnd(
+            CreateWindowExW(
+                docent_desktop_lib::capture::win32_bindings::WS_EX_TOPMOST as u32,
+                w!("STATIC"),
+                windows_core::PCWSTR(title_wide.as_ptr()),
+                (WS_OVERLAPPEDWINDOW | WS_VISIBLE) as u32 | SS_NOTIFY_STYLE,
+                200,
+                200,
+                600,
+                400,
+                None,
+                None,
+                None,
+                Some(ptr::null()),
+            ),
+            "Failed to create target window",
         );
-        assert!(!hwnd.0.is_null(), "Failed to create target window");
         let _ = SetForegroundWindow(hwnd);
         thread::sleep(Duration::from_millis(100));
         let mut rect = RECT::default();
@@ -2268,8 +2283,8 @@ mod side_effects_missing {
 
     unsafe fn create_test_window(title: &str) -> HWND {
         let title_wide: Vec<u16> = title.encode_utf16().chain(std::iter::once(0)).collect();
-        {
-            let hwnd = CreateWindowExW(
+        crate::expect_hwnd(
+            CreateWindowExW(
                 docent_desktop_lib::capture::win32_bindings::WS_EX_TOPMOST as u32,
                 w!("STATIC"),
                 windows_core::PCWSTR(title_wide.as_ptr()),
@@ -2282,10 +2297,9 @@ mod side_effects_missing {
                 None,
                 None,
                 Some(ptr::null()),
-            );
-            assert!(!hwnd.0.is_null(), "Failed to create test window");
-            hwnd
-        }
+            ),
+            "Failed to create test window",
+        )
     }
 
     #[test]
@@ -2341,21 +2355,23 @@ mod capture_behaviour_missing {
 
     unsafe fn create_target_window(title: &str) -> (HWND, i32, i32) {
         let title_wide: Vec<u16> = title.encode_utf16().chain(std::iter::once(0)).collect();
-        let hwnd = CreateWindowExW(
-            docent_desktop_lib::capture::win32_bindings::WS_EX_TOPMOST as u32,
-            w!("STATIC"),
-            windows_core::PCWSTR(title_wide.as_ptr()),
-            (WS_OVERLAPPEDWINDOW | WS_VISIBLE) as u32 | SS_NOTIFY_STYLE,
-            200,
-            200,
-            600,
-            400,
-            None,
-            None,
-            None,
-            Some(ptr::null()),
+        let hwnd = crate::expect_hwnd(
+            CreateWindowExW(
+                docent_desktop_lib::capture::win32_bindings::WS_EX_TOPMOST as u32,
+                w!("STATIC"),
+                windows_core::PCWSTR(title_wide.as_ptr()),
+                (WS_OVERLAPPEDWINDOW | WS_VISIBLE) as u32 | SS_NOTIFY_STYLE,
+                200,
+                200,
+                600,
+                400,
+                None,
+                None,
+                None,
+                Some(ptr::null()),
+            ),
+            "Failed to create target window",
         );
-        assert!(!hwnd.0.is_null(), "Failed to create target window");
         let _ = SetForegroundWindow(hwnd);
         thread::sleep(Duration::from_millis(100));
         let mut rect = RECT::default();
@@ -2479,21 +2495,23 @@ mod completeness {
 
     unsafe fn create_target_window(title: &str) -> (HWND, i32, i32) {
         let title_wide: Vec<u16> = title.encode_utf16().chain(std::iter::once(0)).collect();
-        let hwnd = CreateWindowExW(
-            docent_desktop_lib::capture::win32_bindings::WS_EX_TOPMOST as u32,
-            w!("STATIC"),
-            windows_core::PCWSTR(title_wide.as_ptr()),
-            (WS_OVERLAPPEDWINDOW | WS_VISIBLE) as u32 | SS_NOTIFY_STYLE,
-            200,
-            200,
-            600,
-            400,
-            None,
-            None,
-            None,
-            Some(ptr::null()),
+        let hwnd = crate::expect_hwnd(
+            CreateWindowExW(
+                docent_desktop_lib::capture::win32_bindings::WS_EX_TOPMOST as u32,
+                w!("STATIC"),
+                windows_core::PCWSTR(title_wide.as_ptr()),
+                (WS_OVERLAPPEDWINDOW | WS_VISIBLE) as u32 | SS_NOTIFY_STYLE,
+                200,
+                200,
+                600,
+                400,
+                None,
+                None,
+                None,
+                Some(ptr::null()),
+            ),
+            "Failed to create target window",
         );
-        assert!(!hwnd.0.is_null(), "Failed to create target window");
         let _ = SetForegroundWindow(hwnd);
         thread::sleep(Duration::from_millis(100));
         let mut rect = RECT::default();
@@ -2654,8 +2672,8 @@ mod completeness {
         // A second top-level window in the same process that never receives
         // input (WS_EX_NOACTIVATE: created without stealing focus).
         let hwnd_b = unsafe {
-            {
-                let hwnd = CreateWindowExW(
+            crate::expect_hwnd(
+                CreateWindowExW(
                     WS_EX_NOACTIVATE as u32,
                     w!("STATIC"),
                     w!("Selection Root B"),
@@ -2668,10 +2686,9 @@ mod completeness {
                     None,
                     None,
                     Some(ptr::null()),
-                );
-                assert!(!hwnd.0.is_null(), "Failed to create second window");
-                hwnd
-            }
+                ),
+                "Failed to create second window",
+            )
         };
         thread::sleep(Duration::from_millis(300));
 
@@ -2926,8 +2943,8 @@ mod completeness {
 
         let hwnd = unsafe {
             let title_wide: Vec<u16> = "Dedup Test\0".encode_utf16().collect();
-            {
-                let hwnd = CreateWindowExW(
+            crate::expect_hwnd(
+                CreateWindowExW(
                     0,
                     w!("EDIT"),
                     windows_core::PCWSTR(title_wide.as_ptr()),
@@ -2940,10 +2957,9 @@ mod completeness {
                     None,
                     None,
                     Some(ptr::null()),
-                );
-                assert!(!hwnd.0.is_null(), "Failed to create edit window");
-                hwnd
-            }
+                ),
+                "Failed to create edit window",
+            )
         };
         unsafe {
             let _ = SetForegroundWindow(hwnd);
@@ -3081,8 +3097,8 @@ mod selection {
 
         // Create parent window.
         let parent = unsafe {
-            {
-                let hwnd = CreateWindowExW(
+            crate::expect_hwnd(
+                CreateWindowExW(
                     docent_desktop_lib::capture::win32_bindings::WS_EX_TOPMOST as u32,
                     w!("STATIC"),
                     w!("Selection Test"),
@@ -3095,10 +3111,9 @@ mod selection {
                     None,
                     None,
                     Some(ptr::null()),
-                );
-                assert!(!hwnd.0.is_null(), "Failed to create parent");
-                hwnd
-            }
+                ),
+                "Failed to create parent",
+            )
         };
         unsafe {
             let _ = SetForegroundWindow(parent);
@@ -3107,8 +3122,8 @@ mod selection {
 
         // Create a LISTBOX with items.
         let listbox = unsafe {
-            {
-                let hwnd = CreateWindowExW(
+            crate::expect_hwnd(
+                CreateWindowExW(
                     0,
                     w!("LISTBOX"),
                     w!(""),
@@ -3121,10 +3136,9 @@ mod selection {
                     None,
                     None,
                     Some(ptr::null()),
-                );
-                assert!(!hwnd.0.is_null(), "Failed to create listbox");
-                hwnd
-            }
+                ),
+                "Failed to create listbox",
+            )
         };
 
         // Add items.
@@ -3189,21 +3203,23 @@ mod deduplication {
 
     unsafe fn create_target_window(title: &str) -> (HWND, i32, i32) {
         let title_wide: Vec<u16> = title.encode_utf16().chain(std::iter::once(0)).collect();
-        let hwnd = CreateWindowExW(
-            docent_desktop_lib::capture::win32_bindings::WS_EX_TOPMOST as u32,
-            w!("STATIC"),
-            windows_core::PCWSTR(title_wide.as_ptr()),
-            (WS_OVERLAPPEDWINDOW | WS_VISIBLE) as u32 | SS_NOTIFY_STYLE,
-            200,
-            200,
-            600,
-            400,
-            None,
-            None,
-            None,
-            Some(ptr::null()),
+        let hwnd = crate::expect_hwnd(
+            CreateWindowExW(
+                docent_desktop_lib::capture::win32_bindings::WS_EX_TOPMOST as u32,
+                w!("STATIC"),
+                windows_core::PCWSTR(title_wide.as_ptr()),
+                (WS_OVERLAPPEDWINDOW | WS_VISIBLE) as u32 | SS_NOTIFY_STYLE,
+                200,
+                200,
+                600,
+                400,
+                None,
+                None,
+                None,
+                Some(ptr::null()),
+            ),
+            "Failed to create target window",
         );
-        assert!(!hwnd.0.is_null(), "Failed to create target window");
         let _ = SetForegroundWindow(hwnd);
         thread::sleep(Duration::from_millis(100));
         let mut rect = RECT::default();
@@ -3345,8 +3361,8 @@ mod deduplication {
         // Create and immediately destroy a window — no user input precedes
         // the creation, so it won't be captured as context_open.
         let hwnd = unsafe {
-            {
-                let hwnd = CreateWindowExW(
+            crate::expect_hwnd(
+                CreateWindowExW(
                     docent_desktop_lib::capture::win32_bindings::WS_EX_TOPMOST as u32,
                     w!("STATIC"),
                     w!("Ephemeral Window"),
@@ -3359,10 +3375,9 @@ mod deduplication {
                     None,
                     None,
                     Some(ptr::null()),
-                );
-                assert!(!hwnd.0.is_null(), "Failed to create window");
-                hwnd
-            }
+                ),
+                "Failed to create window",
+            )
         };
         thread::sleep(Duration::from_millis(300));
 
@@ -3471,21 +3486,23 @@ mod os_chrome {
         let wide_title: Vec<u16> = title.encode_utf16().chain(std::iter::once(0)).collect();
         // SS_NOTIFY_STYLE + TOPMOST: see the file-level constant's doc — a bare
         // STATIC window is click-through and loses the stacking race.
-        let hwnd = CreateWindowExW(
-            WS_EX_TOPMOST as u32,
-            w!("STATIC"),
-            windows_core::PCWSTR(wide_title.as_ptr()),
-            (WS_OVERLAPPEDWINDOW | WS_VISIBLE) as u32 | SS_NOTIFY_STYLE,
-            200,
-            200,
-            600,
-            400,
-            None,
-            None,
-            None,
-            Some(ptr::null()),
+        let hwnd = crate::expect_hwnd(
+            CreateWindowExW(
+                WS_EX_TOPMOST as u32,
+                w!("STATIC"),
+                windows_core::PCWSTR(wide_title.as_ptr()),
+                (WS_OVERLAPPEDWINDOW | WS_VISIBLE) as u32 | SS_NOTIFY_STYLE,
+                200,
+                200,
+                600,
+                400,
+                None,
+                None,
+                None,
+                Some(ptr::null()),
+            ),
+            "Failed to create target window",
         );
-        assert!(!hwnd.0.is_null(), "Failed to create target window");
 
         let _ = SetForegroundWindow(hwnd);
         thread::sleep(Duration::from_millis(100));
@@ -3725,21 +3742,23 @@ mod taskbar_chrome {
 
     unsafe fn create_target_window(title: &str) -> (HWND, i32, i32) {
         let wide_title: Vec<u16> = title.encode_utf16().chain(std::iter::once(0)).collect();
-        let hwnd = CreateWindowExW(
-            docent_desktop_lib::capture::win32_bindings::WS_EX_TOPMOST as u32,
-            w!("STATIC"),
-            windows_core::PCWSTR(wide_title.as_ptr()),
-            (WS_OVERLAPPEDWINDOW | WS_VISIBLE) as u32 | SS_NOTIFY_STYLE,
-            200,
-            200,
-            600,
-            400,
-            None,
-            None,
-            None,
-            Some(ptr::null()),
+        let hwnd = crate::expect_hwnd(
+            CreateWindowExW(
+                docent_desktop_lib::capture::win32_bindings::WS_EX_TOPMOST as u32,
+                w!("STATIC"),
+                windows_core::PCWSTR(wide_title.as_ptr()),
+                (WS_OVERLAPPEDWINDOW | WS_VISIBLE) as u32 | SS_NOTIFY_STYLE,
+                200,
+                200,
+                600,
+                400,
+                None,
+                None,
+                None,
+                Some(ptr::null()),
+            ),
+            "Failed to create target window",
         );
-        assert!(!hwnd.0.is_null(), "Failed to create target window");
 
         let _ = SetForegroundWindow(hwnd);
         thread::sleep(Duration::from_millis(100));
@@ -3768,10 +3787,9 @@ mod taskbar_chrome {
         thread::sleep(Duration::from_millis(300));
 
         // Find the taskbar window to get its exact position.
-        let taskbar_hwnd = unsafe { FindWindowW(w!("Shell_TrayWnd"), None) };
-        assert!(
-            !taskbar_hwnd.0.is_null(),
-            "Shell_TrayWnd not found — test requires a desktop with taskbar"
+        let taskbar_hwnd = crate::expect_hwnd(
+            unsafe { FindWindowW(w!("Shell_TrayWnd"), None) },
+            "Shell_TrayWnd not found — test requires a desktop with taskbar",
         );
 
         let mut taskbar_rect = RECT::default();
@@ -3861,10 +3879,9 @@ mod taskbar_chrome {
         thread::sleep(Duration::from_millis(200));
 
         // Find the taskbar to compute tray position (right side of taskbar).
-        let taskbar_hwnd = unsafe { FindWindowW(w!("Shell_TrayWnd"), None) };
-        assert!(
-            !taskbar_hwnd.0.is_null(),
-            "Shell_TrayWnd not found — test requires a desktop with taskbar"
+        let taskbar_hwnd = crate::expect_hwnd(
+            unsafe { FindWindowW(w!("Shell_TrayWnd"), None) },
+            "Shell_TrayWnd not found — test requires a desktop with taskbar",
         );
 
         let mut taskbar_rect = RECT::default();
