@@ -48,38 +48,38 @@ use docent_desktop_lib::capture::timing;
 use docent_desktop_lib::capture::windows::WindowsCapture;
 use docent_desktop_lib::capture::{ActionEvent, ActionPayload, CaptureLayer, ElementDescription};
 
-use windows::core::{w, BSTR};
-use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM};
-use windows::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetMessageW, GetWindowRect,
-    RegisterClassW, TranslateMessage, MSG, WINDOW_STYLE, WM_GETOBJECT, WNDCLASSW, WS_EX_TOPMOST,
-    WS_OVERLAPPEDWINDOW, WS_VISIBLE,
+use windows_core::{
+    implement, w, Error as ComError, IUnknown, Interface, Result as ComResult, BSTR, PCWSTR,
 };
 
-// UIA imports for the conformance-vector Control-view snapshot walker (see the
+// Win32 and UIA names come from the crate's own generated bindings and its two
+// hand-written modules — the same declarations the capture backend compiles
+// against. The conformance-vector Control-view snapshot walker (see the
 // `v_vector_fixture` test at the end of this file) AND the labeled_by fixture's
-// UIA OverrideProvider (see the provider section below). The walker runs on the
-// test thread against the live fixture window; it reuses no crate-private capture
-// helper (those are pub(crate)), so the small UIA property reads and the
-// control-type-id → name table are self-contained here.
-use windows::core::Interface;
-use windows::Win32::System::Com::{
-    CoCreateInstance, CoInitializeEx, CLSCTX_ALL, COINIT_APARTMENTTHREADED, SAFEARRAY,
-};
-use windows::Win32::System::Variant::{VARIANT, VARIANT_0_0, VT_BSTR, VT_UNKNOWN};
-use windows::Win32::UI::Accessibility::{
-    CUIAutomation, IRawElementProviderFragment, IRawElementProviderFragmentRoot,
-    IRawElementProviderFragmentRoot_Impl, IRawElementProviderFragment_Impl,
-    IRawElementProviderHwndOverride, IRawElementProviderHwndOverride_Impl,
-    IRawElementProviderSimple, IRawElementProviderSimple_Impl, IUIAutomation, IUIAutomationElement,
-    IUIAutomationTreeWalker, NavigateDirection, ProviderOptions, ProviderOptions_OverrideProvider,
-    ProviderOptions_ServerSideProvider, ProviderOptions_UseComThreading,
+// UIA OverrideProvider (see the provider section below) use them; the walker
+// runs on the test thread against the live fixture window and reuses no
+// crate-private capture helper (those are pub(crate)), so the small UIA property
+// reads and the control-type-id → name table are self-contained here.
+use docent_desktop_lib::capture::uia_core_api::{
     UIA_AutomationIdPropertyId, UIA_ClassNamePropertyId, UIA_ControlTypePropertyId,
-    UIA_LabeledByPropertyId, UIA_NamePropertyId, UIA_ValueValuePropertyId,
-    UiaGetReservedNotSupportedValue, UiaHostProviderFromHwnd, UiaRect, UiaReturnRawElementProvider,
-    UiaRootObjectId, UIA_PATTERN_ID, UIA_PROPERTY_ID,
+    UIA_LabeledByPropertyId, UIA_NamePropertyId, UIA_TextControlTypeId, UIA_ValueValuePropertyId,
+    UiaGetReservedNotSupportedValue, UiaHostProviderFromHwnd, UiaReturnRawElementProvider,
+    UiaRootObjectId,
 };
-use windows_core::{implement, Error as ComError, IUnknown, Result as ComResult};
+use docent_desktop_lib::capture::variant::Variant;
+use docent_desktop_lib::capture::win32_bindings::{
+    CUIAutomation, CoCreateInstance, CoInitializeEx, CreateWindowExW, DefWindowProcW,
+    DestroyWindow, DispatchMessageW, GetMessageW, GetWindowRect, IRawElementProviderFragment,
+    IRawElementProviderFragmentRoot, IRawElementProviderFragmentRoot_Impl,
+    IRawElementProviderFragment_Impl, IRawElementProviderHwndOverride,
+    IRawElementProviderHwndOverride_Impl, IRawElementProviderSimple,
+    IRawElementProviderSimple_Impl, IUIAutomation, IUIAutomationElement, IUIAutomationTreeWalker,
+    NavigateDirection, ProviderOptions, ProviderOptions_OverrideProvider,
+    ProviderOptions_ServerSideProvider, ProviderOptions_UseComThreading, RegisterClassW,
+    TranslateMessage, UiaRect, CLSCTX_ALL, COINIT_APARTMENTTHREADED, HWND, LPARAM, LRESULT, MSG,
+    PATTERNID, PROPERTYID, RECT, SAFEARRAY, UIA_HWND, VARIANT, WM_GETOBJECT, WNDCLASSW, WPARAM,
+    WS_EX_TOPMOST, WS_OVERLAPPEDWINDOW, WS_VISIBLE,
+};
 
 #[derive(PartialEq, Clone, Copy)]
 enum Child {
@@ -122,8 +122,9 @@ const FIXTURE_AUTHORED_IDS: &[&str] = &["1001", "1002"];
 // read (capture's ElementFromPoint / ElementFromHandle) AND a Control-view walk
 // both see ControlType=Edit + the real LabeledBy relation. Nothing is fabricated
 // in the reader — UIA genuinely reports the relation, exactly as a WPF/XAML
-// AutomationProperties.LabeledBy does. `#[implement]` comes from windows-core, a
-// test-only dev-dependency (see Cargo.toml) that never enters the shipped build.
+// AutomationProperties.LabeledBy does. `#[implement]` comes from windows-core,
+// the crate's Windows dependency that supports the generated bindings; the test
+// binaries see it as the library does.
 // ---------------------------------------------------------------------------
 
 /// The label text the fixture's EDIT is labeled by (the visible STATIC's text).
@@ -133,23 +134,13 @@ fn as_hwnd(x: isize) -> HWND {
     HWND(x as *mut core::ffi::c_void)
 }
 
-/// Build a `VT_UNKNOWN` VARIANT owning `unknown` — the shape UIA expects for an
-/// element-valued property (and that `get_labeled_by_name` reads). Written via a
-/// raw pointer because Rust does not auto-`DerefMut` a `ManuallyDrop` union
-/// field; the freshly-defaulted VARIANT's empty slot is overwritten, not dropped.
-unsafe fn variant_from_unknown(unknown: IUnknown) -> VARIANT {
-    let mut v = VARIANT::default();
-    let slot = std::ptr::addr_of_mut!(v.Anonymous.Anonymous) as *mut VARIANT_0_0;
-    (*slot).vt = VT_UNKNOWN;
-    (*slot).Anonymous.punkVal = std::mem::ManuallyDrop::new(Some(unknown));
-    v
-}
-
-/// The UIA "not supported" sentinel, wrapped in a VARIANT — returned for every
-/// property the override does not itself supply, so those fall through to the
-/// host (native) provider rather than being blanked.
+/// The UIA "not supported" sentinel, handed over as an owned `VARIANT` — returned
+/// for every property the override does not itself supply, so those fall through
+/// to the host (native) provider rather than being blanked. Every VARIANT a
+/// provider returns is built through [`Variant`] and handed over by `into_raw`:
+/// the caller (UIA) clears it.
 unsafe fn not_supported() -> ComResult<VARIANT> {
-    Ok(variant_from_unknown(UiaGetReservedNotSupportedValue()?))
+    Ok(Variant::from(UiaGetReservedNotSupportedValue()?).into_raw())
 }
 
 /// A minimal self-describing UIA element (a custom provider object, NOT a bare
@@ -163,15 +154,15 @@ impl IRawElementProviderSimple_Impl for LabelProvider_Impl {
     fn ProviderOptions(&self) -> ComResult<ProviderOptions> {
         Ok(ProviderOptions_ServerSideProvider | ProviderOptions_UseComThreading)
     }
-    fn GetPatternProvider(&self, _id: UIA_PATTERN_ID) -> ComResult<IUnknown> {
+    fn GetPatternProvider(&self, _id: PATTERNID) -> ComResult<IUnknown> {
         Err(ComError::empty())
     }
-    fn GetPropertyValue(&self, id: UIA_PROPERTY_ID) -> ComResult<VARIANT> {
+    fn GetPropertyValue(&self, id: PROPERTYID) -> ComResult<VARIANT> {
         if id == UIA_NamePropertyId {
-            return Ok(VARIANT::from(BSTR::from(FIXTURE_LABEL_NAME)));
+            return Ok(Variant::from(BSTR::from(FIXTURE_LABEL_NAME)).into_raw());
         }
         if id == UIA_ControlTypePropertyId {
-            return Ok(VARIANT::from(50020i32)); // UIA_TextControlTypeId
+            return Ok(Variant::from(UIA_TextControlTypeId.0).into_raw());
         }
         unsafe { not_supported() }
     }
@@ -193,13 +184,13 @@ impl IRawElementProviderSimple_Impl for EditOverride_Impl {
             | ProviderOptions_OverrideProvider
             | ProviderOptions_UseComThreading)
     }
-    fn GetPatternProvider(&self, _id: UIA_PATTERN_ID) -> ComResult<IUnknown> {
+    fn GetPatternProvider(&self, _id: PATTERNID) -> ComResult<IUnknown> {
         Err(ComError::empty())
     }
-    fn GetPropertyValue(&self, id: UIA_PROPERTY_ID) -> ComResult<VARIANT> {
+    fn GetPropertyValue(&self, id: PROPERTYID) -> ComResult<VARIANT> {
         if id == UIA_LabeledByPropertyId {
             let label: IRawElementProviderSimple = LabelProvider.into();
-            return Ok(unsafe { variant_from_unknown(label.cast()?) });
+            return Ok(Variant::from(label.cast::<IUnknown>()?).into_raw());
         }
         // ControlType / Name / AutomationId / ClassName fall through to the EDIT.
         unsafe { not_supported() }
@@ -227,10 +218,10 @@ impl IRawElementProviderSimple_Impl for FixtureRoot_Impl {
     fn ProviderOptions(&self) -> ComResult<ProviderOptions> {
         Ok(ProviderOptions_ServerSideProvider | ProviderOptions_UseComThreading)
     }
-    fn GetPatternProvider(&self, _id: UIA_PATTERN_ID) -> ComResult<IUnknown> {
+    fn GetPatternProvider(&self, _id: PATTERNID) -> ComResult<IUnknown> {
         Err(ComError::empty())
     }
-    fn GetPropertyValue(&self, _id: UIA_PROPERTY_ID) -> ComResult<VARIANT> {
+    fn GetPropertyValue(&self, _id: PROPERTYID) -> ComResult<VARIANT> {
         unsafe { not_supported() }
     }
     fn HostRawElementProvider(&self) -> ComResult<IRawElementProviderSimple> {
@@ -246,7 +237,7 @@ impl IRawElementProviderFragment_Impl for FixtureRoot_Impl {
     fn GetRuntimeId(&self) -> ComResult<*mut SAFEARRAY> {
         Ok(std::ptr::null_mut())
     }
-    fn BoundingRectangle(&self) -> ComResult<UiaRect> {
+    fn get_BoundingRectangle(&self) -> ComResult<UiaRect> {
         Ok(UiaRect {
             left: 0.0,
             top: 0.0,
@@ -298,7 +289,7 @@ thread_local! {
 /// The fixture window's WndProc: answers the UIA object request with the
 /// fragment-root provider, forwards everything else to DefWindowProc.
 unsafe extern "system" fn fixture_wndproc(h: HWND, m: u32, w: WPARAM, l: LPARAM) -> LRESULT {
-    if m == WM_GETOBJECT && l.0 == UiaRootObjectId as isize {
+    if m == WM_GETOBJECT as u32 && l.0 == UiaRootObjectId as isize {
         let (parent, edit) = FIXTURE_HWNDS.with(|c| c.get());
         if parent != 0 && edit != 0 && h.0 as isize == parent {
             let provider: IRawElementProviderSimple = FixtureRoot { parent, edit }.into();
@@ -311,7 +302,7 @@ unsafe extern "system" fn fixture_wndproc(h: HWND, m: u32, w: WPARAM, l: LPARAM)
 /// SS_NOTIFY: a bare STATIC answers WM_NCHITTEST with HTTRANSPARENT
 /// (click-through); this style makes it hit-testable. Same rationale as
 /// capture_integration.rs's constant.
-const SS_NOTIFY_STYLE: WINDOW_STYLE = WINDOW_STYLE(0x0000_0100);
+const SS_NOTIFY_STYLE: u32 = 0x0000_0100;
 
 /// The controlled session window, hosted on its OWN thread running a
 /// continuous `GetMessageW` pump (the ResponsiveWindow discipline from
@@ -343,8 +334,8 @@ impl SessionWindow {
     /// only the window itself and capture falls back to coordinate mode
     /// deterministically (an SS_NOTIFY STATIC always resolves accessibility).
     fn build2(title: &'static str, x: i32, y: i32, child: Child, plain: bool) -> Self {
+        use docent_desktop_lib::capture::win32_bindings::GetCurrentThreadId;
         use std::sync::mpsc as smpsc;
-        use windows::Win32::System::Threading::GetCurrentThreadId;
 
         let (tx, rx) = smpsc::channel::<(u32, isize, i32, i32)>();
         let handle = thread::spawn(move || unsafe {
@@ -353,7 +344,7 @@ impl SessionWindow {
             // UseComThreading provider's WM_GETOBJECT calls. Other windows carry no
             // provider and stay apartment-free.
             if child == Child::LabeledEdit {
-                let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+                let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED as u32);
             }
             let title_wide: Vec<u16> = title.encode_utf16().chain(std::iter::once(0)).collect();
             let class = if child == Child::LabeledEdit {
@@ -393,10 +384,10 @@ impl SessionWindow {
                 w!("STATIC")
             };
             let hwnd = CreateWindowExW(
-                WS_EX_TOPMOST,
+                WS_EX_TOPMOST as u32,
                 class,
-                windows::core::PCWSTR(title_wide.as_ptr()),
-                WS_OVERLAPPEDWINDOW | WS_VISIBLE | SS_NOTIFY_STYLE,
+                PCWSTR(title_wide.as_ptr()),
+                (WS_OVERLAPPEDWINDOW | WS_VISIBLE) as u32 | SS_NOTIFY_STYLE,
                 x,
                 y,
                 600,
@@ -405,10 +396,10 @@ impl SessionWindow {
                 None,
                 None,
                 Some(std::ptr::null()),
-            )
-            .expect("Failed to create session window");
+            );
+            assert!(!hwnd.0.is_null(), "Failed to create session window");
             if child == Child::LabeledEdit {
-                use windows::Win32::UI::WindowsAndMessaging::{
+                use docent_desktop_lib::capture::win32_bindings::{
                     ES_AUTOVSCROLL, HMENU, WS_BORDER, WS_CHILD,
                 };
                 // A STATIC label (control id 1001) precedes the EDIT so UIA
@@ -419,10 +410,10 @@ impl SessionWindow {
                 // EDIT. Positions keep the EDIT under the window centre so the
                 // focus click lands on it.
                 let label = CreateWindowExW(
-                    Default::default(),
+                    0,
                     w!("STATIC"),
                     w!("Amount"),
-                    WS_CHILD | WS_VISIBLE,
+                    (WS_CHILD | WS_VISIBLE) as u32,
                     10,
                     10,
                     560,
@@ -431,13 +422,13 @@ impl SessionWindow {
                     Some(HMENU(1001isize as *mut core::ffi::c_void)),
                     None,
                     Some(std::ptr::null()),
-                )
-                .expect("Failed to create fixture label");
+                );
+                assert!(!label.0.is_null(), "Failed to create fixture label");
                 let edit = CreateWindowExW(
-                    Default::default(),
+                    0,
                     w!("EDIT"),
                     w!(""),
-                    WS_CHILD | WS_VISIBLE | WS_BORDER | WINDOW_STYLE(ES_AUTOVSCROLL as u32),
+                    (WS_CHILD | WS_VISIBLE | WS_BORDER | ES_AUTOVSCROLL) as u32,
                     10,
                     44,
                     560,
@@ -446,43 +437,32 @@ impl SessionWindow {
                     Some(HMENU(1002isize as *mut core::ffi::c_void)),
                     None,
                     Some(std::ptr::null()),
-                )
-                .expect("Failed to create fixture edit");
-                let _ = label;
+                );
+                assert!(!edit.0.is_null(), "Failed to create fixture edit");
                 // Publish (parent, edit) for fixture_wndproc to build the provider
                 // when UIA requests the window's element.
                 FIXTURE_HWNDS.with(|c| c.set((hwnd.0 as isize, edit.0 as isize)));
             } else if child != Child::None {
-                use windows::Win32::UI::WindowsAndMessaging::{
+                use docent_desktop_lib::capture::win32_bindings::{
                     SetWindowTextW, ES_AUTOVSCROLL, ES_MULTILINE, ES_PASSWORD, WS_BORDER, WS_CHILD,
                     WS_VSCROLL,
                 };
+                // Window and edit styles share one bit space: `WS_*` and `ES_*`
+                // are plain `i32` constants here, `dwStyle` a `u32`.
+                let mut style = WS_CHILD | WS_VISIBLE | WS_BORDER;
+                if child == Child::ScrollEdit {
+                    style |= WS_VSCROLL | ES_MULTILINE;
+                }
+                style |= if child == Child::PasswordEdit {
+                    ES_PASSWORD
+                } else {
+                    ES_AUTOVSCROLL
+                };
                 let edit = CreateWindowExW(
-                    Default::default(),
+                    0,
                     w!("EDIT"),
                     w!(""),
-                    WS_CHILD
-                        | WS_VISIBLE
-                        | WS_BORDER
-                        | if child == Child::ScrollEdit {
-                            WS_VSCROLL
-                        } else {
-                            Default::default()
-                        }
-                        | windows::Win32::UI::WindowsAndMessaging::WINDOW_STYLE(
-                            if child == Child::ScrollEdit {
-                                ES_MULTILINE as u32
-                            } else {
-                                0
-                            },
-                        )
-                        | windows::Win32::UI::WindowsAndMessaging::WINDOW_STYLE(
-                            if child == Child::PasswordEdit {
-                                ES_PASSWORD as u32
-                            } else {
-                                ES_AUTOVSCROLL as u32
-                            },
-                        ),
+                    style as u32,
                     10,
                     10,
                     560,
@@ -491,8 +471,8 @@ impl SessionWindow {
                     None,
                     None,
                     Some(std::ptr::null()),
-                )
-                .expect("Failed to create edit child");
+                );
+                assert!(!edit.0.is_null(), "Failed to create edit child");
                 if child == Child::ScrollEdit {
                     let lines: String = (1..=80)
                         .map(|i| {
@@ -503,11 +483,11 @@ impl SessionWindow {
                         })
                         .collect();
                     let wide: Vec<u16> = lines.encode_utf16().chain(std::iter::once(0)).collect();
-                    let _ = SetWindowTextW(edit, windows::core::PCWSTR(wide.as_ptr()));
+                    let _ = SetWindowTextW(edit, PCWSTR(wide.as_ptr()));
                 }
             }
             let mut rect = RECT::default();
-            GetWindowRect(hwnd, &mut rect).unwrap();
+            GetWindowRect(hwnd, &mut rect).ok().expect("GetWindowRect");
             tx.send((
                 GetCurrentThreadId(),
                 hwnd.0 as isize,
@@ -539,10 +519,9 @@ impl SessionWindow {
 
 impl Drop for SessionWindow {
     fn drop(&mut self) {
-        use windows::Win32::Foundation::{LPARAM, WPARAM};
-        use windows::Win32::UI::WindowsAndMessaging::{PostThreadMessageW, WM_QUIT};
+        use docent_desktop_lib::capture::win32_bindings::{PostThreadMessageW, WM_QUIT};
         unsafe {
-            let _ = PostThreadMessageW(self.thread_id, WM_QUIT, WPARAM(0), LPARAM(0));
+            let _ = PostThreadMessageW(self.thread_id, WM_QUIT as u32, WPARAM(0), LPARAM(0));
         }
         if let Some(h) = self.handle.take() {
             let _ = h.join();
@@ -656,12 +635,13 @@ fn run_mouse_session(
 /// the click point must belong to OUR window before input is synthesized —
 /// otherwise the click leaks into whatever overlaps that point.
 fn assert_owns_point(hwnd: HWND, x: i32, y: i32) {
-    use windows::Win32::Foundation::POINT;
-    use windows::Win32::UI::WindowsAndMessaging::{GetAncestor, WindowFromPoint, GA_ROOT};
+    use docent_desktop_lib::capture::win32_bindings::{
+        GetAncestor, WindowFromPoint, GA_ROOT, POINT,
+    };
     let start = Instant::now();
     loop {
         let under = unsafe { WindowFromPoint(POINT { x, y }) };
-        let root = unsafe { GetAncestor(under, GA_ROOT) };
+        let root = unsafe { GetAncestor(under, GA_ROOT as u32) };
         if under == hwnd || root == hwnd {
             return;
         }
@@ -722,15 +702,14 @@ fn d_context_switch() {
 /// helper): a synthetic EVENT_OBJECT_SELECTION on the window, which capture
 /// records only when correlated with recent real input in the same root.
 unsafe fn fire_selection(hwnd: HWND) {
-    use windows::Win32::UI::Accessibility::NotifyWinEvent;
-    use windows::Win32::UI::WindowsAndMessaging::{
-        CHILDID_SELF, EVENT_OBJECT_SELECTION, OBJID_CLIENT,
+    use docent_desktop_lib::capture::win32_bindings::{
+        NotifyWinEvent, CHILDID_SELF, EVENT_OBJECT_SELECTION, OBJID_CLIENT,
     };
     NotifyWinEvent(
-        EVENT_OBJECT_SELECTION,
+        EVENT_OBJECT_SELECTION as u32,
         hwnd,
-        OBJID_CLIENT.0,
-        CHILDID_SELF as i32,
+        OBJID_CLIENT,
+        CHILDID_SELF,
     );
 }
 
@@ -988,35 +967,27 @@ fn control_type_name(id: i32) -> &'static str {
 
 /// Read a BSTR property; empty string when absent (total, like the production
 /// property helpers).
-unsafe fn prop_string(element: &IUIAutomationElement, property_id: UIA_PROPERTY_ID) -> String {
+unsafe fn prop_string(element: &IUIAutomationElement, property_id: PROPERTYID) -> String {
     element
         .GetCurrentPropertyValue(property_id)
         .ok()
         .and_then(|v| {
-            let inner = &v.Anonymous.Anonymous;
-            if inner.vt == VT_BSTR {
-                let bstr_ptr = &inner.Anonymous.bstrVal;
-                if bstr_ptr.is_empty() {
-                    None
-                } else {
-                    Some(bstr_ptr.to_string())
-                }
-            } else {
-                None
-            }
+            // The returned out-value is this call's to clear.
+            let v = Variant::from_raw(v);
+            v.as_bstr()
+                .filter(|b| !b.is_empty())
+                .map(|b| String::from_utf16_lossy(b))
         })
         .unwrap_or_default()
 }
 
-/// Read an i32 property; 0 when absent.
-unsafe fn prop_i32(element: &IUIAutomationElement, property_id: UIA_PROPERTY_ID) -> i32 {
+/// Read an i32 property; 0 when absent or not a `VT_I4` (the reader is strict:
+/// a UIA property has one VARTYPE per id, so a mismatch is absence).
+unsafe fn prop_i32(element: &IUIAutomationElement, property_id: PROPERTYID) -> i32 {
     element
         .GetCurrentPropertyValue(property_id)
         .ok()
-        .and_then(|v| {
-            let val: Result<i32, _> = (&v).try_into();
-            val.ok()
-        })
+        .and_then(|v| Variant::from_raw(v).as_i32())
         .unwrap_or(0)
 }
 
@@ -1027,16 +998,9 @@ unsafe fn labeled_by_name(element: &IUIAutomationElement) -> String {
         .GetCurrentPropertyValue(UIA_LabeledByPropertyId)
         .ok()
         .and_then(|v| {
-            let inner = &v.Anonymous.Anonymous;
-            if inner.vt == VT_UNKNOWN {
-                inner
-                    .Anonymous
-                    .punkVal
-                    .as_ref()
-                    .and_then(|unk| unk.cast::<IUIAutomationElement>().ok())
-            } else {
-                None
-            }
+            let v = Variant::from_raw(v);
+            v.as_unknown()
+                .and_then(|unk| unk.cast::<IUIAutomationElement>().ok())
         })
         .map(|label| prop_string(&label, UIA_NamePropertyId))
         .unwrap_or_default()
@@ -1137,11 +1101,11 @@ unsafe fn walk_node(
 /// walk (tree_path derivation), never a downward subtree serializer.
 unsafe fn walk_window(hwnd: HWND, target_automation_id: &str) -> (SnapshotNode, Option<String>) {
     // UIA works in either apartment; ignore an already-initialized result.
-    let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+    let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED as u32);
     let uia: IUIAutomation =
-        CoCreateInstance(&CUIAutomation, None, CLSCTX_ALL).expect("create UIAutomation");
+        CoCreateInstance(&CUIAutomation, None, CLSCTX_ALL as u32).expect("create UIAutomation");
     let root = uia
-        .ElementFromHandle(hwnd)
+        .ElementFromHandle(UIA_HWND(hwnd.0))
         .expect("resolve the window UIA element");
     let walker = uia.ControlViewWalker().expect("control view walker");
     let mut counter = 0usize;

@@ -3,6 +3,7 @@ node_modules/
 
 # Rust build artifacts
 packages/desktop/src-tauri/target/
+packages/desktop/src-tauri/tools/bindgen/target/
 
 # Tauri auto-generated files (regenerated on build)
 packages/desktop/src-tauri/gen/

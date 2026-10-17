@@ -1,0 +1,19 @@
+[package]
+name = "docent-desktop-bindgen"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+publish = false
+description = "Generates the desktop crate's Win32 bindings from filter.txt with windows-bindgen"
+
+# A crate of its own, outside the desktop crate's dependency graph: the
+# generator runs at development time and in CI's lint job, and the
+# application never links it. The empty workspace table keeps any later
+# workspace from absorbing it.
+[workspace]
+
+[dependencies]
+# Pinned exactly: the committed bindings are the output of this version, and
+# `cargo run -- --check` holds this pin and the desktop crate's windows-core
+# pin on one 0.<minor> version line.
+windows-bindgen = "=0.100.0"

@@ -459,7 +459,22 @@ jobs:
 
       - name: cargo fmt check
         working-directory: packages/desktop/src-tauri
-        run: cargo fmt --check ${{ runner.debug == '1' && '-- --verbose' || '' }}
+        # Two Rust manifests: the desktop crate and the Win32 bindings generator
+        # under tools/bindgen (a crate of its own, outside the application's
+        # dependency graph).
+        run: |
+          cargo fmt --check ${{ runner.debug == '1' && '-- --verbose' || '' }}
+          cargo fmt --manifest-path tools/bindgen/Cargo.toml --check ${{ runner.debug == '1' && '-- --verbose' || '' }}
+
+      # The committed Win32 bindings (src/capture/win32_bindings.rs) are generated
+      # output. The generator's --check regenerates them into a temporary file and
+      # compares the bytes, and holds the desktop crate's windows-core pin and its
+      # own windows-bindgen pin on one 0.<minor> version line; a red names what
+      # drifted and prints the fix. Bounded on its own: the step reaches crates.io
+      # and compiles the generator — a registry install's shape.
+      - name: Verify the Win32 bindings are fresh
+        timeout-minutes: 5
+        run: cargo run --locked --manifest-path packages/desktop/src-tauri/tools/bindgen/Cargo.toml -- --check
 
   dependency-audit:
     # Sized for the run the observed sample does not contain: the one where a
@@ -530,6 +545,15 @@ jobs:
       - name: Audit Rust dependencies (advisories)
         working-directory: packages/desktop/src-tauri
         run: cargo deny check advisories
+
+      # The Win32 bindings generator (tools/bindgen) is a crate of its own with
+      # its own lockfile, outside the application's dependency graph: the same
+      # policy (deny.toml) runs a second time over that lockfile.
+      - name: Check the bindings generator's dependency licenses
+        run: cargo deny --manifest-path packages/desktop/src-tauri/tools/bindgen/Cargo.toml check --config packages/desktop/src-tauri/deny.toml licenses
+
+      - name: Audit the bindings generator's dependencies (advisories)
+        run: cargo deny --manifest-path packages/desktop/src-tauri/tools/bindgen/Cargo.toml check --config packages/desktop/src-tauri/deny.toml advisories
 
   unit-tests:
     needs: [lint, changes]
@@ -907,8 +931,11 @@ jobs:
           # RUST_UNIT_TEST_ARGS is a space-separated arg list (set into $GITHUB_ENV
           # above); it stays unquoted on purpose so each filter becomes a separate
           # cargo argument (and an empty value expands to nothing).
+          # --ignore-filename-regex keeps the crate entry points and the generated
+          # Win32 bindings (declarations the tests never call; the lint job's drift
+          # gate holds that file fresh) out of the measurement.
           # shellcheck disable=SC2086
-          cargo llvm-cov --lib $RUST_UNIT_TEST_ARGS --ignore-filename-regex "(lib|main)\.rs$" --lcov --output-path coverage-unit.lcov ${{ runner.debug == '1' && '-- --nocapture' || '' }}
+          cargo llvm-cov --lib $RUST_UNIT_TEST_ARGS --ignore-filename-regex "(lib|main|win32_bindings)\.rs$" --lcov --output-path coverage-unit.lcov ${{ runner.debug == '1' && '-- --nocapture' || '' }}
 
       - name: Run Rust integration tests with coverage
         working-directory: packages/desktop/src-tauri
@@ -926,7 +953,7 @@ jobs:
           # $GITHUB_ENV above); it stays unquoted on purpose so each filter becomes
           # a separate cargo argument (and an empty value expands to nothing).
           # shellcheck disable=SC2086
-          cargo llvm-cov $RUST_INTEGRATION_TEST_ARGS --ignore-filename-regex "(lib|main)\.rs$" --lcov --output-path coverage-integration.lcov -- --test-threads=1 ${{ runner.debug == '1' && '--nocapture' || '' }}
+          cargo llvm-cov $RUST_INTEGRATION_TEST_ARGS --ignore-filename-regex "(lib|main|win32_bindings)\.rs$" --lcov --output-path coverage-integration.lcov -- --test-threads=1 ${{ runner.debug == '1' && '--nocapture' || '' }}
 
       # The save half of the split above, after the last step that builds into
       # the tree it stores. Its gate and its reasoning are that block's.

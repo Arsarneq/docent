@@ -17,6 +17,28 @@ pub mod worker_pool;
 #[cfg(target_os = "windows")]
 pub mod windows;
 
+/// Generated Win32 bindings — the output of windows-bindgen 0.100 over the
+/// `filter.txt` of `tools/bindgen/` (the flat layout), never hand-edited.
+/// Regenerate with `cargo run --locked --manifest-path
+/// packages/desktop/src-tauri/tools/bindgen/Cargo.toml`; CI's lint job reds a
+/// committed file that differs from a fresh run. The allows cover the Win32
+/// spellings and the declarations this crate does not call.
+#[cfg(target_os = "windows")]
+#[rustfmt::skip]
+#[allow(non_snake_case, non_camel_case_types, non_upper_case_globals, dead_code, unused_imports, clippy::all)]
+pub mod win32_bindings;
+
+/// The `UIAutomationCoreApi.h` surface the Win32 metadata does not carry
+/// (microsoft/windows-rs#5111): hand-written `link!` declarations and the
+/// typed UI Automation ids, each paired with its SDK header line.
+#[cfg(target_os = "windows")]
+pub mod uia_core_api;
+
+/// Owning wrapper over the generated `VARIANT`: a value it holds is cleared
+/// exactly once.
+#[cfg(target_os = "windows")]
+pub mod variant;
+
 // Placeholder backend for platforms without a native implementation yet
 // (Linux/X11 #84, Wayland #85). Keeps the crate compiling on every
 // target while the cross-platform seam is prepared (#97). (macOS is out of

@@ -36,6 +36,18 @@ updates:
       - 'dependencies'
       - 'desktop-windows'
 
+  # The Win32 bindings generator: a crate of its own with its own lockfile. A
+  # windows-bindgen bump is a regeneration — the lint job's drift gate reds the
+  # bot's PR until the bindings are regenerated onto it.
+  - package-ecosystem: 'cargo'
+    directory: '/packages/desktop/src-tauri/tools/bindgen'
+    schedule:
+      interval: 'weekly'
+    open-pull-requests-limit: 1
+    labels:
+      - 'dependencies'
+      - 'desktop-windows'
+
   - package-ecosystem: 'github-actions'
     directory: '/'
     schedule:
