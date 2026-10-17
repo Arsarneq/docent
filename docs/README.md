@@ -192,7 +192,7 @@ Contributor and project-governance docs live outside this folder:
 
 - [Contributing guide](../.github/CONTRIBUTING.md) — development setup, project
   structure, coding conventions, testing, and PR guidelines
-- [Contributor License Agreement](../CLA.md)
+- [Contributor License Agreement](../.github/CLA.md)
 - [Code of Conduct](../.github/CODE_OF_CONDUCT.md) — the Contributor Covenant this project follows
 - [Security policy](../.github/SECURITY.md) — how to report a vulnerability
 - [Publishing](../.github/PUBLISHING.md) — release process for each platform,

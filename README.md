@@ -108,7 +108,7 @@ See [docs/technical/session-format.md](docs/technical/session-format.md) for ann
 
 ## Contributing
 
-Contributions are welcome — start with the **[contributing guide](.github/CONTRIBUTING.md)**. By participating you agree to the [Code of Conduct](.github/CODE_OF_CONDUCT.md), and all contributors sign the [CLA](CLA.md) (the CLA Assistant bot prompts you automatically on pull requests).
+Contributions are welcome — start with the **[contributing guide](.github/CONTRIBUTING.md)**. By participating you agree to the [Code of Conduct](.github/CODE_OF_CONDUCT.md), and all contributors sign the [CLA](.github/CLA.md) (the CLA Assistant bot prompts you automatically on pull requests).
 
 Project references:
 
@@ -117,7 +117,7 @@ Project references:
 - [Code of Conduct](.github/CODE_OF_CONDUCT.md) — the Contributor Covenant we follow
 - [Security policy](.github/SECURITY.md) — reporting a vulnerability
 - [Publishing](.github/PUBLISHING.md) — the per-platform release process
-- [Contributor License Agreement](CLA.md)
+- [Contributor License Agreement](.github/CLA.md)
 
 ---
 

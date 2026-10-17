@@ -1502,10 +1502,10 @@ describe('auditClauseRegistry — structured test-case cites, and the closed row
 
 describe("auditClauseRegistry — the check's own register", () => {
   it('flags an enumerated citable root file that is not tracked, uncited', () => {
-    const files = BASE_FILES.filter((f) => f !== 'CLA.md');
+    const files = BASE_FILES.filter((f) => f !== 'lefthook.yml');
     const r = audit({ files });
     assert.deepEqual(r.listErrors, [
-      'CITABLE_ROOT_FILES enumerates CLA.md, which is not a tracked file; an enumerated root file names one tracked source',
+      'CITABLE_ROOT_FILES enumerates lefthook.yml, which is not a tracked file; an enumerated root file names one tracked source',
     ]);
     assert.deepEqual(r.refErrors, []);
   });

@@ -206,14 +206,15 @@ job beyond it.
 A file outside the package trees — this workflow and its composite actions, a
 sibling workflow, a contributor contract file, the root npm manifests, a root
 config, a script, a schema, a corpus file, a document, the clause registry, a
-reference implementation — sets a flag for one of two reasons. Some
-path-filtered job's run depends on it: this workflow, the composite actions and
-the root npm manifests set `ciCore` for every job; the scripts a heavy job
-executes set `buildScripts`; every script and the coverage config `.c8rc.json`
-set `ci` for `unit-tests`; the schemas and the corpus set `schema` and `corpus`
-for the jobs that read them; and the reference implementations set
-`referenceServer` for the end-to-end, desktop-integration and reference-server
-jobs, whose runs execute the reference server. Or a test suite holds it: the
+reference implementation, the Codecov configuration — sets a flag for one of
+two reasons. Some path-filtered job's run depends on it: this workflow,
+the composite actions and the root npm manifests set `ciCore` for every
+job; the scripts a heavy job executes set `buildScripts`; every script and
+the coverage config `.c8rc.json` set `ci` for `unit-tests`; the schemas
+and the corpus set `schema` and `corpus` for the jobs that read them; and
+the reference implementations set `referenceServer` for the end-to-end,
+desktop-integration and reference-server jobs, whose runs execute the
+reference server. Or a test suite holds it: the
 reference implementations again, through that same flag, for `unit-tests` (a
 shared suite walks them for resolution-procedure tokens); the publish workflows
 and the release-output guard through `releasePipeline`, which reaches
@@ -225,8 +226,8 @@ the committed tree, or only as one of every tracked source under a lock on the
 suite's own machinery, sets no flag, because that gate reds the same drift on
 every PR and that lock asserts nothing about the file — so for `cla.yml` and
 `pr-title.yml` among the sibling workflows (the workflow-bounds suite re-runs
-its check over them) and for `codecov.yml` among the root configs (the
-clause-governance suite's citation walk); and a file no suite reads and no
+its check over them) and for `.github/codecov.yml`, the Codecov configuration
+(the clause-governance suite's citation walk); and a file no suite reads and no
 path-filtered job's run depends on, `.editorconfig` and `.prettierrc` among
 the root configs, sets none either. `eslint.config.js` is read both ways: the
 clause-governance suite's citation walk and the test-inventory suite's
@@ -395,9 +396,9 @@ Codecov; the other test jobs stage none (the reference server's suite is
 the one suite never coverage-measured — the corpus and vector jobs' test
 content is measured inside `desktop-rust-tests` and `unit-tests`). The
 required status is `codecov/patch`, configured in
-[`codecov.yml`](../../codecov.yml) with a fixed target over the lines a diff
-changes: a diff with no coverable lines passes it as "coverage not
-affected", and the empty upload
+[`.github/codecov.yml`](../../.github/codecov.yml) with a fixed target over
+the lines a diff changes: a diff with no coverable lines passes it as
+"coverage not affected", and the empty upload
 ([above](#prs-that-touch-no-filtered-path)) keeps it from waiting on a commit
 no test job measured. The `codecov/project` status the same file configures
 is not a required check. The per-flag and
@@ -731,10 +732,11 @@ shows:
 - `ci-gate` aggregates the whole test suite into one always-reported
   result, built precisely so a single required check can represent the job
   graph.
-- The workflow and [`codecov.yml`](../../codecov.yml) comments name
-  `codecov/patch` as the required Codecov check, and the `codecov/project`
-  status that file configures as not required; the empty-upload path exists
-  so the required check is reported even on PRs that produce no coverage.
+- The workflow and [`.github/codecov.yml`](../../.github/codecov.yml)
+  comments name `codecov/patch` as the required Codecov check, and the
+  `codecov/project` status that file configures as not required; the
+  empty-upload path exists so the required check is reported even on PRs
+  that produce no coverage.
 - [PUBLISHING](../../.github/PUBLISHING.md#test-gating-and-the-version-pr)
   records that `main` requires zero approvals: the automated version-table
   PR merges on green checks alone, with the release-output guard as the
@@ -747,10 +749,9 @@ shows:
 
 Informational today — these do not block: the schema-version impact step
 in `unit-tests` (`continue-on-error`), the `codecov/project` status (which
-`codecov.yml` configures beside `codecov/patch` and no ruleset requires), the
-per-flag and per-component
-Codecov statuses (declared informational in `codecov.yml`, which marks the
-declaration as advisory-for-now) and the Codecov PR comment, Scorecard,
-the weekly docs-disposition audit, the weekly pin-history probe, the
-`cargo-mutants` job's current measurement posture, and the next-release-version
-suggestion.
+`.github/codecov.yml` configures beside `codecov/patch` and no ruleset
+requires), the per-flag and per-component Codecov statuses (declared
+informational in `.github/codecov.yml`, which marks the declaration as
+advisory-for-now) and the Codecov PR comment, Scorecard, the weekly
+docs-disposition audit, the weekly pin-history probe, the `cargo-mutants`
+job's current measurement posture, and the next-release-version suggestion.
