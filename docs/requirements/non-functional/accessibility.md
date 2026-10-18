@@ -8,8 +8,8 @@ documents and distinguished below). The panel UI both platforms render is
 the shared views fragment and its rendering functions
 ([Shared Core — one fragment, two shells](../../architecture/system/shared-core.md#shared-views--one-fragment-two-shells));
 this document claims nothing beyond what is in that markup, its stylesheet,
-those functions' output, and the shells' own markup the paragraph after the
-enumeration lists.
+those functions' output, the shells' own markup the paragraph after the
+enumeration lists, and the two automated scans the conformance posture names.
 
 ## Conformance posture
 
