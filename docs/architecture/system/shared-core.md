@@ -169,7 +169,7 @@ therefore render the same view markup, styled by the shared
 no platform calls, so how a step or action is rendered is defined once. The
 two shells differ in presentation — the document title ("Docent" and "Docent
 Desktop"), a header logo the desktop shell carries, and the column each
-platform's panel driver places a recording row's attention badge in — and in
+platform's panel driver places a row's attention badges in — and in
 the controls each platform's
 deliberate differences add outside the fragment (the desktop's target-application
 selector and self-capture toggle, the extension's storage-pressure banner),
