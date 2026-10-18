@@ -8,7 +8,7 @@
  * both platforms persist the same `SyncState` shape and feed the shared
  * orchestrator the same `LiveState` / `SyncStore` interfaces, each host building
  * them over its own platform seam: the extension's side panel and service worker
- * over the shared adapter, the desktop's panel driver over its session commands
+ * over the same platform adapter, the desktop's panel driver over its session commands
  * (the store) and its in-memory recording flags (the live state).
  *
  * The two platform-specific seams are:
@@ -193,8 +193,8 @@
  * `conflicts` are mutually exclusive for any given `unitRef`.
  *
  * `dismissedIncoming` and `settings` were added in a later revision and are
- * forward-compatible: a legacy persisted blob omits them, so the store
- * normalizes both to their empty defaults on load. `settings` is
+ * forward-compatible: a legacy persisted blob omits them, so the shared
+ * `loadSyncState` wrapper normalizes both to their empty defaults on load. `settings` is
  * client-local and is never placed in a `Full_Project_Payload`.
  *
  * @typedef {Object} SyncState

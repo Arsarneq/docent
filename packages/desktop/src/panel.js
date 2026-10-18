@@ -279,9 +279,10 @@ async function saveState() {
 //
 // Graded sync conflict resolution lives entirely in packages/shared and is fed
 // two platform-provided seams (see sync-types.js): a durable `SyncStore` and a
-// synchronous `LiveState`. On desktop both are backed by panel state that is
-// itself persisted through the Tauri load_state/save_state blob — identical in
-// behavior to the extension's chrome.storage.local backing, so the shared
+// synchronous `LiveState`. On desktop the store is backed by panel state that
+// is persisted through the Tauri load_state/save_state blob, and the live state
+// by the panel's in-memory recording flags — the same split as the extension's
+// (chrome.storage.local and the worker's capture flag), so the shared
 // orchestrator and resolution workflow behave the same on both platforms.
 
 /**
