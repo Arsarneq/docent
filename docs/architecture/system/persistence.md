@@ -119,8 +119,9 @@ losing it:
   desktop frontend is a continuously running window, so its buffer lives in
   memory and quitting the application discards uncommitted actions
   (committed steps are already in the session file). Across a restart the
-  two platforms reach the same outcome for the user — entering a recording
-  again discards its pending buffer on both — so the persisted buffer serves
+  two platforms reach the same outcome for the user — the desktop's buffer is
+  gone with the quit, the extension's is discarded when a recording is opened
+  or created — so the persisted buffer serves
   the extension's worker suspension, which a continuously running window has
   no counterpart of.
 - **Desktop — the capture flag, the target application and the barrier

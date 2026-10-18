@@ -678,7 +678,7 @@ async function persist() {
 async function setRecording(value) {
   // Update the in-memory capture mirror eagerly so the Auto-Sync scheduler sees
   // the new value immediately — in particular, a RECORDING_STOP must clear the
-  // flag BEFORE its recording-close trigger fires, or the scheduler would drop
+  // flag BEFORE its Auto-Sync trigger fires, or the scheduler would drop
   // that trigger as capture-active. The storage write below also fires the
   // recording-flag watch (this file registers two storage.onChanged listeners
   // — that one and the sync-state watch), which keeps the mirror correct for
@@ -764,8 +764,11 @@ let autoSyncNotify = null;
 let autoSyncActive = false;
 
 // Local data events that should fire an Auto-Sync trigger: a step
-// commit, a recording close (capture stop), and project/recording create or
-// delete. Fired centrally from the message dispatcher on a successful response.
+// commit, a recording close, and project/recording create or delete (sync
+// SP-21). RECORDING_STOP stands in for the recording close and is sent more
+// widely than the clause's leaving-the-recording-view moment — the departure
+// SP-21 records. Fired centrally from the message dispatcher on a successful
+// response.
 const AUTO_SYNC_DATA_EVENTS = new Set([
   'STEP_COMMIT',
   'RECORDING_STOP',
