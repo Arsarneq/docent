@@ -103,7 +103,11 @@ listener is itself an event-plugin invocation that grant authorizes,
 exercised on every captured action. The dialog grants are unused headroom
 today — no shipped frontend code invokes the dialog plugin; the file dialogs
 are opened from Rust inside `export_file`/`import_file`, which capabilities
-do not gate. The capability files are the closed admission gate for the
+do not gate. For the user the native dialogs stand in for the browser's
+download and file-picker flows — Export writes the same file, Import picks a
+file — a difference of mechanism, not of outcome, which the
+[index of deliberate differences](../../../../design/ui_ux/shared-interaction-model.md#the-deliberate-platform-differences)
+lists. The capability files are the closed admission gate for the
 plugin surface: a command outside the crate's table and the granted set is
 not invokable, and widening a grant widens what the webview can reach.
 
@@ -188,6 +192,11 @@ the icon) carries **Show Docent**, which re-shows and focuses the window, and
 **Quit**, which exits the application regardless of the keep-alive. The
 user-facing statement of this behaviour is the
 [desktop guide's Sync section](../../../../user/desktop-windows.md#sync).
+For the user the two platforms are equivalent — background cycles keep running
+on both — so the tray stands in for the browser's background context, its
+service worker — a difference of mechanism, not of outcome, which the
+[index of deliberate differences](../../../../design/ui_ux/shared-interaction-model.md#the-deliberate-platform-differences)
+lists.
 
 The host itself
 ([`auto-sync-host.js`](../../../../../packages/desktop/src/auto-sync-host.js))
@@ -238,7 +247,12 @@ with `withGlobalTauri: false` and the `script-src 'self'` CSP, the Tauri API —
 the crate commands above and the granted plugin surface — is never published
 to a `window` global and is reached through the bridge module's bundled ESM
 import, and the CSP's `connect-src` independently constrains the webview's
-own `fetch`.
+own `fetch`. That `connect-src` is narrower than the extension's for remote
+hosts — `https:` and loopback `http:`, beside the webview's own `'self'` and
+`ipc:` origins — because the shared sync and dispatch traffic leaves
+through the native command, never through the webview's `fetch`. The bridge
+module prefers an injected `window.__TAURI__` when one is present (the seam
+the integration suite's mock uses) before its bundled import.
 
 ---
 

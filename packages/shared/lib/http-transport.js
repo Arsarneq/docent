@@ -30,11 +30,12 @@
  * architecture, which injects fetch behaviour by assigning `globalThis.fetch`
  * before driving `sync()`/`sendPayload()`/`testConnection()`.
  *
- * The contract is intentionally a strict subset of `fetch`:
+ * The contract is intentionally a strict subset of `fetch` — dispatch DI-12
+ * states it, and the `cache` option rides it for sync SP-15's no-store reads:
  *
  *   transport(url: string, options?: {
  *     method?: string, headers?: Record<string,string>,
- *     body?: string|null, signal?: AbortSignal
+ *     body?: string|null, signal?: AbortSignal, cache?: string
  *   }) => Promise<{
  *     ok: boolean, status: number,
  *     headers: { get(name: string): string | null },
@@ -43,8 +44,10 @@
  *
  * A bound transport need only honour the fields the shared callers use. The
  * desktop transport ignores `signal` (the native command enforces its own
- * timeout) — abort is a best-effort optimisation, never a correctness
- * requirement here.
+ * timeout) and `cache` (its native client keeps no HTTP cache, so the no-store
+ * reads sync SP-15 requires hold by construction; dispatch DI-12 states the
+ * condition). Abort is a best-effort optimisation; a transport that has an HTTP
+ * cache MUST honour `cache`.
  *
  * This file is part of Docent.
  * Licensed under the GNU General Public License v3.0
@@ -87,7 +90,7 @@ export function resetHttpTransport() {
  * connection-test code calls this in place of `fetch`.
  *
  * @param {string} url
- * @param {object} [options] - `fetch`-shaped options (method, headers, body, signal)
+ * @param {object} [options] - `fetch`-shaped options (method, headers, body, signal, cache)
  * @returns {Promise<object>} a `fetch`-shaped response (see the module contract)
  */
 export function httpRequest(url, options) {

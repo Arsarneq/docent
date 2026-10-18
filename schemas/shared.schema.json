@@ -392,10 +392,12 @@
           "$ref": "#/$defs/context_id"
         },
         "source": {
-          "type": "string"
+          "type": "string",
+          "description": "Identifies the switched-to context in the producing platform's own terms: a location or a process name (a process identifier stands in where the name cannot be read)."
         },
         "title": {
-          "type": ["string", "null"]
+          "type": ["string", "null"],
+          "description": "The switched-to context's title, or null when it has none."
         },
         "capture_mode": {
           "$ref": "#/$defs/capture_mode"
@@ -412,10 +414,12 @@
           "$ref": "#/$defs/context_id"
         },
         "opener_context_id": {
-          "type": ["integer", "null"]
+          "type": ["integer", "null"],
+          "description": "The context_id of the context that opened this one, or null when none is known or the producing platform records no opener."
         },
         "source": {
-          "type": ["string", "null"]
+          "type": ["string", "null"],
+          "description": "Identifies the opened context in the producing platform's own terms: a location or a process name (a process identifier stands in where the name cannot be read), or null when unknown at open time."
         },
         "capture_mode": {
           "$ref": "#/$defs/capture_mode"
@@ -432,7 +436,8 @@
           "$ref": "#/$defs/context_id"
         },
         "window_closing": {
-          "type": "boolean"
+          "type": "boolean",
+          "description": "Whether closing this context closed its whole window; always true where every context is a window."
         },
         "capture_mode": {
           "$ref": "#/$defs/capture_mode"
@@ -490,7 +495,7 @@
         },
         "text": {
           "type": ["string", "null"],
-          "description": "Visible text, truncated to 100 characters (a truncation mark may be appended). Null for password fields or when empty."
+          "description": "Visible text, truncated to 100 characters (a truncation mark may be appended). Null for sensitive fields (password fields, and fields the shared sensitivity detection recognises) or when empty."
         },
         "selector": {
           "type": "string",

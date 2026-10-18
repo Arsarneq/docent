@@ -212,7 +212,7 @@
       "doc": "docs/technical/locator-resolution.md",
       "clause": "LR-11",
       "tag": "check-exists",
-      "check-ref": "The coverage-ledger lock (corpus/vectors-coverage.json, locked in packages/shared/tests/unit/conformance-vectors.test.js) ties every emitted extension strategy to a committed vector, every emitted desktop strategy to a committed vector or an accounted-for gap (the gap list is empty today), and keeps reserved strategies outside vector scope; run via npm run test:shared."
+      "check-ref": "The coverage-ledger lock (corpus/vectors-coverage.json, locked in packages/shared/tests/unit/conformance-vectors.test.js) ties every strategy in the test's per-platform EMITTED lists — hand-maintained constants that match the emitters today, not derived from them — to a committed vector on the extension, and on the desktop to a committed vector or an accounted-for gap (the gap list is empty today), and keeps reserved strategies outside vector scope; run via npm run test:shared."
     },
     {
       "doc": "docs/technical/locator-resolution.md",
@@ -677,7 +677,7 @@
       "doc": "docs/api/sync-protocol.md",
       "clause": "SP-7",
       "tag": "check-exists",
-      "check-ref": "The capture halt by packages/shared/tests/unit/capture-active-halt.property.test.js, the pending-actions halt by packages/shared/tests/unit/pending-action-protection.property.test.js, and the inbound locked exclusion by packages/shared/tests/unit/locked-recording-exclusion.property.test.js (npm run test:shared)."
+      "check-ref": "The capture halt by packages/shared/tests/unit/capture-active-halt.property.test.js, the pending-actions halt by packages/shared/tests/unit/pending-action-protection.property.test.js, and the inbound locked exclusion by packages/shared/tests/unit/locked-recording-exclusion.property.test.js (npm run test:shared) — each over a simulated live-state view; neither platform's own answer (capture active, locked, pending) is pinned."
     },
     {
       "doc": "docs/api/sync-protocol.md",
@@ -717,7 +717,7 @@
       "doc": "docs/api/sync-protocol.md",
       "clause": "SP-13",
       "tag": "check-exists",
-      "check-ref": "Per-recording assembly, the no-omission rule, deferred/locked version selection, and the content-decided skip are pinned by packages/shared/tests/unit/per-unit-push-assembly.property.test.js, packages/shared/tests/unit/locked-recording-push-preservation.property.test.js, and packages/shared/tests/unit/changed-local-outgoing-push.property.test.js (npm run test:shared)."
+      "check-ref": "Per-recording assembly, the no-omission rule, deferred/locked version selection, and the content-decided skip are pinned by packages/shared/tests/unit/per-unit-push-assembly.property.test.js, packages/shared/tests/unit/locked-recording-push-preservation.property.test.js, and packages/shared/tests/unit/changed-local-outgoing-push.property.test.js (npm run test:shared), over simulated live-state views — the shipped platform views are not driven."
     },
     {
       "doc": "docs/api/sync-protocol.md",
@@ -778,7 +778,7 @@
       "doc": "docs/api/sync-protocol.md",
       "clause": "SP-21",
       "tag": "checkable",
-      "check-ref": "Intended: unit pins that the extension's AUTO_SYNC_DATA_EVENTS set (packages/extension/background/service-worker.js) and the desktop panel's notifyDataEvent call sites cover exactly the six events, and that the desktop backstop defaults to BACKSTOP_INTERVAL_MS (not built; the desktop host test passes the interval explicitly). Built: packages/extension/tests/unit/auto-sync-host.test.js pins the extension alarm's period to BACKSTOP_INTERVAL_MS. Interim probe: backstop-triggered background cycles are exercised end-to-end by packages/extension/tests/unit/auto-sync-host.test.js (chrome.alarms) and packages/desktop/tests/unit/auto-sync-host.test.js (interval + data-event hooks) (npm run test:extension / npm run test:desktop)."
+      "check-ref": "Intended: unit pins that the extension's AUTO_SYNC_DATA_EVENTS set (packages/extension/background/service-worker.js) and the desktop panel's notifyDataEvent call sites cover exactly the six events and that each platform reaches its recording-close trigger on the clause's recording close only — the extension's panel sends RECORDING_STOP more widely today, the departure SP-21 records, so that pin reds until the extension converges — and that the desktop backstop defaults to BACKSTOP_INTERVAL_MS (not built; the desktop host test passes the interval explicitly). Built: packages/extension/tests/unit/auto-sync-host.test.js pins the extension alarm's period to BACKSTOP_INTERVAL_MS. Interim probe: backstop-triggered background cycles are exercised end-to-end by packages/extension/tests/unit/auto-sync-host.test.js (chrome.alarms) and packages/desktop/tests/unit/auto-sync-host.test.js (interval + data-event hooks) (npm run test:extension / npm run test:desktop)."
     },
     {
       "doc": "docs/api/sync-protocol.md",
@@ -875,7 +875,7 @@
       "doc": "docs/verification/scripted-truth-corpus.md",
       "clause": "STC-12",
       "tag": "check-exists",
-      "check-ref": "The ledger lock ties every emitted strategy to a committed vector or a reasoned gap (corpus/vectors-coverage.json, locked in packages/shared/tests/unit/conformance-vectors.test.js; npm run test:shared)."
+      "check-ref": "The ledger lock ties every strategy in the test's hand-maintained per-platform EMITTED lists to a committed vector or a reasoned gap (corpus/vectors-coverage.json, locked in packages/shared/tests/unit/conformance-vectors.test.js; npm run test:shared)."
     },
     {
       "doc": "docs/verification/scripted-truth-corpus.md",
@@ -974,7 +974,7 @@
       "doc": "docs/api/dispatch.md",
       "clause": "DI-3",
       "tag": "check-exists",
-      "check-ref": "The exact five-field wrapper is asserted by packages/shared/tests/unit/contract.test.js ('has exactly five top-level keys') and packages/extension/tests/unit/dispatch.test.js (npm run test:shared / test:extension); the three-field export contrast is pinned by the desktop export suite validating buildExport output against the closed schema root (packages/desktop/tests/unit/export.test.js; npm run test:desktop); the stamp-or-fail sourcing lives in the stampFromSchema throw path (packages/shared/lib/format-stamp.js), which the composition suites exercise on its happy path only — the throw itself is unpinned (intended, not built).",
+      "check-ref": "The exact five-field wrapper is asserted by packages/shared/tests/unit/contract.test.js ('has exactly five top-level keys') over the extension's composed schema and by packages/extension/tests/unit/dispatch.test.js over generated schemas stamped with either platform (npm run test:shared / test:extension) — no composed desktop schema is exercised; the three-field export contrast is pinned by the desktop export suite validating buildExport output against the closed schema root (packages/desktop/tests/unit/export.test.js; npm run test:desktop); the stamp-or-fail sourcing lives in the stampFromSchema throw path (packages/shared/lib/format-stamp.js), which the composition suites exercise on its happy path only — the throw itself is unpinned (intended, not built).",
       "test-cases": ["has exactly five top-level keys"]
     },
     {
@@ -997,14 +997,14 @@
       "doc": "docs/api/dispatch.md",
       "clause": "DI-6",
       "tag": "check-exists",
-      "check-ref": "2xx-with-unparseable-body success ('returns empty object when response is not valid JSON'), per-status DispatchError surfacing (400/401/403/404/500/502), and adversarial response tolerance are pinned by packages/shared/tests/unit/dispatch-core.test.js and packages/shared/tests/unit/security.test.js (npm run test:shared).",
+      "check-ref": "2xx-with-unparseable-body success ('returns empty object when response is not valid JSON'), per-status DispatchError surfacing (400/401/403/404/500/502), and adversarial response tolerance are pinned by packages/shared/tests/unit/dispatch-core.test.js and packages/shared/tests/unit/security.test.js (npm run test:shared), both over a fake transport — how each platform's transport reports a status to the shared code is unpinned here.",
       "test-cases": ["returns empty object when response is not valid JSON"]
     },
     {
       "doc": "docs/api/dispatch.md",
       "clause": "DI-7",
       "tag": "check-exists",
-      "check-ref": "The retry/backoff describe in packages/shared/tests/unit/dispatch-core.test.js pins 503 and 429 retries, the maxRetries exhaustion path, the fail-fast on non-transient 4xx, Retry-After honouring via injected sleep, and network-error retries (npm run test:shared); the AbortError case in the same file pins the timeout error's shape and message with retries off (maxRetries 0); that a timeout is retried as transient is unpinned (intended, not built) — the 30-second per-attempt duration is comment-pinned at its call site and review-held."
+      "check-ref": "The retry/backoff describe in packages/shared/tests/unit/dispatch-core.test.js pins 503 and 429 retries, the maxRetries exhaustion path, the fail-fast on non-transient 4xx, Retry-After honouring via injected sleep, and network-error retries (npm run test:shared), all over a fake transport — the native command's status and timeout reporting to the retry classifier is unpinned; the AbortError case in the same file pins the timeout error's shape and message with retries off (maxRetries 0); that a timeout is retried as transient is unpinned (intended, not built) — the 30-second per-attempt duration is comment-pinned at its call site and review-held."
     },
     {
       "doc": "docs/api/dispatch.md",
@@ -1044,7 +1044,7 @@
       "doc": "docs/api/dispatch.md",
       "clause": "DI-13",
       "tag": "check-exists",
-      "check-ref": "'dispatch button disabled without endpoint configured' and 'dispatch flow shows confirmation with step count' in packages/desktop/tests/integration/panel-dispatch-sync.spec.js pin the desktop panel's endpoint gate and confirmation surface (npm run test:integration). The extension panel's active-steps eligibility filter, recording selection and confirmation values are pinned by packages/extension/tests/unit/panel.test.js against the send-gate module the panel calls (npm run test:extension), and its endpoint gate by 'configure endpoint → Send button becomes enabled' in packages/extension/tests/e2e/specs/panel-core-flows.spec.js (npm run test:e2e). Named gap: the desktop panel's active-steps eligibility filter has no dedicated pin and is review-held.",
+      "check-ref": "'dispatch button disabled without endpoint configured' and 'dispatch flow shows confirmation with step count' in packages/desktop/tests/integration/panel-dispatch-sync.spec.js pin the desktop panel's endpoint gate and its confirmation's endpoint and step count (the recording names the confirmation also shows are unpinned; npm run test:integration). The extension panel's active-steps eligibility filter, recording selection and confirmation values are pinned by packages/extension/tests/unit/panel.test.js against the send-gate module the panel calls (npm run test:extension), and its endpoint gate by 'configure endpoint → Send button becomes enabled' in packages/extension/tests/e2e/specs/panel-core-flows.spec.js (npm run test:e2e). Named gap: the desktop panel's active-steps eligibility filter has no dedicated pin and is review-held.",
       "test-cases": [
         "dispatch button disabled without endpoint configured",
         "dispatch flow shows confirmation with step count",

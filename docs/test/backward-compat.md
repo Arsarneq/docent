@@ -73,7 +73,9 @@ may carry the suffix here. The directory's residents are exactly:
 
 ## Important
 
-These are **real exports**, not hand-authored guesses. They are frozen on
+These are **frozen exports** — producer output of their day, not hand-authored
+guesses, though not byte-for-byte a producer's file (no fixture in the corpus carries the
+per-action `frame_src` the producers already emitted when the fixtures landed). They are frozen on
 purpose — fixed UUIDs and timestamps make them deterministic regression anchors.
 Do not "fix" a fixture to make a failing test pass: a failure means a schema
 change broke backward compatibility, which is the signal this corpus exists to

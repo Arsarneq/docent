@@ -454,8 +454,13 @@
     },
     {
       "path": "packages/extension/sidepanel/panel.js",
-      "reason": "The extension panel — its committed format pointer would drag the schema-contract set onto a module that emits no locators; this declaration states its true governors: the sidepanel area's docs plus the format doc its commit logic implements.",
-      "governed-by": ["area:extension/sidepanel", "docs/technical/session-format.md"]
+      "reason": "The extension panel — its committed format pointer would drag the schema-contract set onto a module that emits no locators; this declaration states its true governors: the sidepanel area's docs, the format doc its commit logic implements, and the two design records its views implement (the shared interaction model and the sync-resolution design).",
+      "governed-by": [
+        "area:extension/sidepanel",
+        "docs/technical/session-format.md",
+        "docs/design/ui_ux/shared-interaction-model.md",
+        "docs/design/ui_ux/sync-resolution-ui.md"
+      ]
     },
     {
       "path": "packages/extension/sidepanel/send-gate.js",
@@ -657,11 +662,13 @@
     },
     {
       "path": "packages/desktop/src/panel.js",
-      "reason": "the desktop panel assembles, exports, and dispatches .docent.json sessions, so it owes the session-format doc on top of its capture-area governance; declared single-source (its governing set stated here as its covering areas' whole doc sets plus that one doc) so the pointer to the format doc does not resolve at area granularity and drag the format-contract area's other docs onto it — the amplification the sync re-cut terminated on the shared chokepoints. The per-platform schemas remain authoritative for field semantics.",
+      "reason": "the desktop panel assembles, exports, and dispatches .docent.json sessions, so it owes the session-format doc on top of its capture-area governance; declared single-source (its governing set stated here as its covering areas' whole doc sets plus that one doc and the two design records its views implement — the shared interaction model and the sync-resolution design) so the pointer to the format doc does not resolve at area granularity and drag the format-contract area's other docs onto it — the amplification the sync re-cut terminated on the shared chokepoints. The per-platform schemas remain authoritative for field semantics.",
       "governed-by": [
         "area:desktop-windows/capture",
         "area:desktop-windows/shell",
-        "docs/technical/session-format.md"
+        "docs/technical/session-format.md",
+        "docs/design/ui_ux/shared-interaction-model.md",
+        "docs/design/ui_ux/sync-resolution-ui.md"
       ]
     },
     {

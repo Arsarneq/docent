@@ -864,8 +864,13 @@ a minute.
 **SP-21.** A cycle is requested by exactly two kinds of trigger:
 
 - **Local data events** — a closed set of six: a step commit, a recording
-  close (capture stop), a project creation, a project deletion, a recording
-  creation, and a recording deletion. No other local event requests a cycle.
+  close (leaving the recording view), a project creation, a project deletion, a
+  recording creation, and a recording deletion. No other local event requests a
+  cycle. The extension today departs from this set: its `RECORDING_STOP`
+  message requests a cycle wherever the panel sends it, which is on more
+  occasions than a recording close (every capture stop the panel itself requests
+  among them); the desktop
+  requests one on leaving the view only, as the set states.
 - **A periodic backstop** (~60 s) — so a locally idle client still pulls other
   clients' changes, and a follow-up deferred by the cooldown (SP-22) is
   guaranteed a trigger that dispatches it.

@@ -442,7 +442,8 @@ platform, to the committed vector where it is the measured-unique candidate,
 at element granularity (extension rows carry exactly `session`, `vector`,
 `element`, `action_index`; desktop rows exactly `fixture`, `vector`,
 `element`). A lock ties
-every emitted strategy to a real committed vector — on the desktop, a
+every strategy in the test's per-platform emitted lists (kept in step with the
+emitters by hand) to a real committed vector — on the desktop, a
 strategy MAY instead carry a recorded reason on the ledger's gap side, and
 the union equals the emitted set. On the extension, `role_name` and `label`
 are schema-reserved and not emitted, so they are outside the extension's
@@ -587,8 +588,9 @@ limit of this kind is.
 
 ## Adding or retiring a session
 
-**STC-14.** Add: create `corpus/sessions/<id>/` (pages, script and truth among
-them, per the doctrine above), register it in `corpus/manifest.json`, produce,
+**STC-14.** Add: create `corpus/sessions/<id>/` (the truth, and for an
+extension session its pages and script — a desktop session is driven from its
+Rust test and carries neither — per the doctrine above), register it in `corpus/manifest.json`, produce,
 review the truth line-by-line, regenerate and review both baselines, and — for a
 desktop session — name it in STC-22's enumeration, which is held to the
 manifest's active sessions both ways by the verification-inventory lint. Retire:

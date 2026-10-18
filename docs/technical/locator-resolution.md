@@ -291,9 +291,12 @@ measured-unique-and-selecting (`match_count: 1`, `match_index: 0`). Element
 classes outside the criterion — masked-only-unique, fully unmeasured,
 ordinal-only and unbindable-scope elements among them — are out of vector scope;
 their sufficiency story is owned by the static lint and the capture backlog, not
-by resolution vectors. Per-strategy coverage on both platforms is owned by the
-corpus's page-authoring and coverage-ledger clauses, [scripted-truth-corpus
-§STC-6 and §STC-12](../verification/scripted-truth-corpus.md).
+by resolution vectors. Per-strategy coverage is owned by the corpus's
+coverage-ledger clause, [scripted-truth-corpus
+§STC-12](../verification/scripted-truth-corpus.md), with the extension's
+page-authoring rule (§STC-6) and the
+[desktop leg's](../verification/scripted-truth-corpus.md#desktop-leg) fixture
+window supplying the covered strategies.
 
 ---
 

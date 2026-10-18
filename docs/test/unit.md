@@ -25,7 +25,7 @@ export handlers and the capture-timing suite's recent-action decision; in the
 shared tree, the settings state-machine suite's panel settings logic and, as
 fixture seeds, the sync suites' allowlisted projections (their baseline and
 payload builders); and in the desktop tree, the
-settings suite's save and load. Where a suite holds the module's output to one
+settings suite's save and load and the import suite's stand-in validator. Where a suite holds the module's output to one
 of those projections, the projection serves as an oracle there, and a drift
 fails the comparison.
 
