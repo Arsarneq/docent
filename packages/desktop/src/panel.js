@@ -281,9 +281,8 @@ async function saveState() {
 // two platform-provided seams (see sync-types.js): a durable `SyncStore` and a
 // synchronous `LiveState`. On desktop the store is backed by panel state that
 // is persisted through the Tauri load_state/save_state blob, and the live state
-// by the panel's in-memory recording flags — the same split as the extension's
-// (chrome.storage.local and the worker's capture flag), so the shared
-// orchestrator and resolution workflow behave the same on both platforms.
+// by the panel's in-memory recording flags, so the shared orchestrator and
+// resolution workflow behave the same on both platforms.
 
 /**
  * SyncStore adapter — durable read/write of the single
