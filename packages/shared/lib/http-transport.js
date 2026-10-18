@@ -44,8 +44,9 @@
  *
  * A bound transport need only honour the fields the shared callers use. The
  * desktop transport ignores `signal` (the native command enforces its own
- * timeout) — abort is a best-effort optimisation, never a correctness
- * requirement here.
+ * timeout) and `cache` (the native client keeps no HTTP cache; dispatch DI-12)
+ * — abort and cache control are best-effort optimisations, never a
+ * correctness requirement here.
  *
  * This file is part of Docent.
  * Licensed under the GNU General Public License v3.0

@@ -13,12 +13,13 @@ and those functions' output.
 ## Conformance posture
 
 Docent states no accessibility conformance target for its own UI. Each
-platform's end-to-end suite runs an automated accessibility scan (axe, the
+platform's browser-driven suite — the extension's end-to-end suite and the
+desktop's integration suite — runs an automated accessibility scan (axe, the
 WCAG 2.1 A and AA rules) over the panel's views in CI — the extension's in
 [`accessibility.spec.js`](../../../packages/extension/tests/e2e/specs/accessibility.spec.js),
 the desktop's in
 [`accessibility-desktop.spec.js`](../../../packages/desktop/tests/integration/accessibility-desktop.spec.js);
-a passing scan is a floor, not a conformance claim. What the shipped UI
+a passing scan is a floor, not a conformance claim. What the shared fragment
 provides is exactly the enumeration below.
 
 ## What the shipped panel provides
@@ -42,9 +43,11 @@ From [`views.html`](../../../packages/shared/views/views.html) and
   the rendering functions produce (re-record, history, and the delete
   controls) carry a `title` attribute and no other accessible name
   ([`render.js`](../../../packages/shared/views/render.js)).
-- The sync resolution view's redirect notice is announced with
-  `role="status"`
-  ([sync-conflict-ui.js](../../../packages/shared/sync-conflict-ui.js)).
+- The sync resolution renderer announces its wrong-interface redirect notice
+  with `role="status"`
+  ([sync-conflict-ui.js](../../../packages/shared/sync-conflict-ui.js)) — a
+  renderer capability the shipped panels never reach
+  ([sync resolution design](../../design/ui_ux/sync-resolution-ui.md)).
 - Focus indication: text, textarea, and password inputs replace the default
   outline with an accent border plus a shadow ring; every other control
   keeps the browser's default focus outline (the stylesheet leaves it
@@ -54,10 +57,15 @@ From [`views.html`](../../../packages/shared/views/views.html) and
   [Shared Core](../../architecture/system/shared-core.md#shared-views--one-fragment-two-shells)
   owns).
 
-Outside the fragment, the extension's shell adds one element of its own: the
-storage-pressure banner, a `role="status"` region with `aria-live="polite"`, so
+Outside the fragment each shell adds markup of its own, which the enumeration
+above leaves to the shell: the extension's header and recording badge, its
+Settings button named by `aria-label`, its breadcrumb navigation and its
+storage-pressure banner — a `role="status"` region with `aria-live="polite"`, so
 its appearance is announced
-([`index.shell.html`](../../../packages/extension/sidepanel/index.shell.html)).
+([`index.shell.html`](../../../packages/extension/sidepanel/index.shell.html));
+the desktop's header and logo, its target-application selector and its
+self-capture toggle
+([`index.shell.html`](../../../packages/desktop/src/index.shell.html)).
 
 ## Distinct: accessibility APIs as a capture data source
 

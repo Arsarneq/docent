@@ -22,6 +22,9 @@ to build and load the extension from source, see
 
 Captured actions accumulate in the **Captured actions** list until you commit
 the step — the rules for that list are in [Pending actions](#pending-actions).
+For the full capture rules — what is recorded, and the actions the extension
+leaves out — see
+[Extension capture](../architecture/application/extension/capture-principles.md).
 
 ## Pending actions
 
@@ -29,13 +32,13 @@ While you record, each captured action joins the **Captured actions** list —
 the step's pending actions. They become part of the recording only when you
 commit the step:
 
-| You do                                         | Pending actions                                                    |
-| ---------------------------------------------- | ------------------------------------------------------------------ |
-| **Done this step** (**Commit** in simple mode) | Committed into the step — the next step starts from an empty list. |
-| **Clear**                                      | Discarded, after a confirmation.                                   |
-| **Pause**, then **Resume**                     | Preserved.                                                         |
-| Open or create any recording                   | Discarded.                                                         |
-| Restart the browser                            | Preserved.                                                         |
+| You do                                         | Pending actions                                                                                              |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| **Done this step** (**Commit** in simple mode) | Committed into the step — the next step starts from an empty list.                                           |
+| **Clear**                                      | Discarded, after a confirmation.                                                                             |
+| **Pause**, then **Resume**                     | Preserved.                                                                                                   |
+| Open or create any recording                   | Discarded.                                                                                                   |
+| Restart the browser                            | Kept until you open the recording again, which discards it (the reopened panel starts at the projects list). |
 
 The commit button stays disabled while the list is empty; in narration mode it
 also requires narration text.

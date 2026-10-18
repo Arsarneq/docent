@@ -393,7 +393,7 @@
         },
         "source": {
           "type": "string",
-          "description": "Identifies the switched-to context in the producing platform's own terms: a location or an executable name."
+          "description": "Identifies the switched-to context in the producing platform's own terms: a location or a process name (a process identifier stands in where the name cannot be read)."
         },
         "title": {
           "type": ["string", "null"],
@@ -415,11 +415,11 @@
         },
         "opener_context_id": {
           "type": ["integer", "null"],
-          "description": "The context_id of the context that opened this one, or null where the producing platform records no opener."
+          "description": "The context_id of the context that opened this one, or null when none is known or the producing platform records no opener."
         },
         "source": {
           "type": ["string", "null"],
-          "description": "Identifies the opened context in the producing platform's own terms: a location or an executable name, or null when unknown at open time."
+          "description": "Identifies the opened context in the producing platform's own terms: a location or a process name (a process identifier stands in where the name cannot be read), or null when unknown at open time."
         },
         "capture_mode": {
           "$ref": "#/$defs/capture_mode"

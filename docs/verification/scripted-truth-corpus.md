@@ -442,7 +442,8 @@ platform, to the committed vector where it is the measured-unique candidate,
 at element granularity (extension rows carry exactly `session`, `vector`,
 `element`, `action_index`; desktop rows exactly `fixture`, `vector`,
 `element`). A lock ties
-every emitted strategy to a real committed vector — on the desktop, a
+every strategy in the test's per-platform emitted lists (kept in step with the
+emitters by hand) to a real committed vector — on the desktop, a
 strategy MAY instead carry a recorded reason on the ledger's gap side, and
 the union equals the emitted set. On the extension, `role_name` and `label`
 are schema-reserved and not emitted, so they are outside the extension's

@@ -146,9 +146,8 @@ at capture time,
 the element's `text` nulled, and the element flagged `redacted`; the action
 stays in the stream, the secret MUST NOT enter it. Detection is a **single
 shared implementation** used by both
-platforms, applied to the field description each platform captures — the
-extension's form name, DOM id and `autocomplete` token, the desktop's
-accessible name and automation id — so each platform masks the fields its own
+platforms, applied to the field description each platform captures (ECP-9
+and DCP-11 name the inputs), so each platform masks the fields its own
 description reveals; the platforms differ in those inputs, in the native
 signal each reads for password fields, and in where its capture path applies
 the shared detection.

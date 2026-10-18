@@ -3,9 +3,12 @@
 The storage architecture on both platforms: what is persisted, where it
 lives, and which state is deliberately ephemeral. Companion to
 [Shared Core](shared-core.md) — the logic operating on this data is shared,
-while the storage substrate is per-platform: the extension reaches it through
-its adapter, the desktop through the panel driver's session commands, the
-split [Shared Core's adapter seam](shared-core.md#the-adapter-seam) states. The per-key and user-facing detail stays with the platform
+while the storage substrate is per-platform: on the extension every model
+mutation flows as a message to the service worker, which owns the model keys;
+on the desktop the frontend holds the model and persists it through the session
+commands; settings go through each platform's adapter
+([Shared Core — the adapter seam](shared-core.md#the-adapter-seam)). The per-key
+and user-facing detail stays with the platform
 documents: the extension's complete key inventory and write-ownership
 contract is
 [runtime §ERT-3](../application/extension/runtime.md#storage-keys-and-write-ownership),
@@ -31,15 +34,17 @@ governs what may live in worker memory instead.
   the keys that double as change signals — is
   [runtime §ERT-3](../application/extension/runtime.md#storage-keys-and-write-ownership).
   Because the pending buffer is persisted, capture in progress survives a
-  worker suspension and a browser restart
+  worker suspension; across a browser restart the buffer is kept until the
+  recording is opened again, which discards it
   ([user guide — pending actions](../../user/extension.md#pending-actions)).
 - **`chrome.storage.session`** holds the ephemeral AES key for the
   encrypted API-key values stored in `chrome.storage.local`. The browser
   keeps it in memory and clears it on browser restart, after which a stored
   key no longer decrypts and reads back as "not configured", so the user
-  re-enters it. With Auto-sync on, the first background cycle after the
-  restart fails authentication, turns Auto-sync off and records the failed
-  test, so the user also re-tests the connection once the key is re-entered.
+  re-enters it. With Auto-sync on against a server that requires the key, the
+  first background cycle after the restart is sent without it, fails
+  authentication, turns Auto-sync off and records the failed test, so the user
+  also re-tests the connection once the key is re-entered.
   The at-rest encryption design is in the
   [security policy](../../../.github/SECURITY.md#protecting-stored-credentials).
 
@@ -102,8 +107,8 @@ losing it:
   enumerates and governs, each safe to lose with a suspension.
 - **Extension — the settings-encryption key** (`chrome.storage.session`,
   above): browser-restart-scoped by design, and losing it costs a key
-  re-entry — and, with Auto-sync on, a fresh connection test after the first
-  background cycle's authentication failure — never data.
+  re-entry (the `chrome.storage.session` bullet above states the Auto-sync
+  consequence) — never data.
 - **Desktop — the pending capture buffer.** Uncommitted captured actions
   live in the frontend adapter's memory, fed by the backend's
   `capture:action` events

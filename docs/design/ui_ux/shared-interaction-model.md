@@ -72,9 +72,9 @@ Each difference is deliberate, and each is owned by a document:
   extension's background context is its service worker
   ([extension runtime](../../architecture/application/extension/runtime.md)).
 - **Pending-buffer persistence** — the extension persists the pending
-  capture buffer (it survives a worker suspension and a browser restart);
-  the desktop holds it in memory, and quitting discards uncommitted
-  actions. Owned by
+  capture buffer (it survives a worker suspension; across a browser restart it
+  is kept until the recording is opened again, which discards it); the desktop
+  holds it in memory, and quitting discards uncommitted actions. Owned by
   [Persistence](../../architecture/system/persistence.md#deliberately-ephemeral-state).
 - **Storage pressure** — the extension pauses capture and shows a banner
   when `chrome.storage.local` nears its quota, with a resume control; the
@@ -89,8 +89,7 @@ Each difference is deliberate, and each is owned by a document:
   in the operating system's credential store
   ([Persistence](../../architecture/system/persistence.md)).
 - **The API key across a restart** — the extension's stored API keys read as
-  "not configured" after a browser restart and are re-entered; with Auto-sync
-  on, the first background cycle after the restart fails authentication and
-  turns Auto-sync off until a fresh connection test passes. The desktop's keys
-  persist in the credential store
+  "not configured" after a browser restart and are re-entered, with the
+  consequence for Auto-sync stated in Persistence; the desktop's keys persist
+  in the credential store
   ([Persistence — deliberately ephemeral state](../../architecture/system/persistence.md#deliberately-ephemeral-state)).

@@ -7,9 +7,10 @@
  * here is what makes cross-platform parity *structural* rather than duplicated:
  * both platforms persist the same `SyncState` shape and feed the shared
  * orchestrator the same `LiveState` / `SyncStore` interfaces — each platform's
- * panel driver and background host build them (the extension's store through
- * its adapter, the desktop's through the panel's session save), the split
- * Shared Core's adapter-seam section states.
+ * panel driver builds them over its adapter and persists them where its
+ * platform keeps the model (the extension's in the service worker's storage
+ * keys, the desktop's through the session commands), as Shared Core's
+ * panel-driver bullet states.
  *
  * The two platform-specific seams are:
  *   - `SyncStore`  — durable read/write of all conflict-handling state.

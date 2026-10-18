@@ -212,7 +212,7 @@
       "doc": "docs/technical/locator-resolution.md",
       "clause": "LR-11",
       "tag": "check-exists",
-      "check-ref": "The coverage-ledger lock (corpus/vectors-coverage.json, locked in packages/shared/tests/unit/conformance-vectors.test.js) ties every strategy in the test's per-platform EMITTED lists — hand-maintained constants that match the emitters today, not derived from them — to a committed vector or an accounted-for gap (the gap list is empty today), and keeps reserved strategies outside vector scope; run via npm run test:shared."
+      "check-ref": "The coverage-ledger lock (corpus/vectors-coverage.json, locked in packages/shared/tests/unit/conformance-vectors.test.js) ties every strategy in the test's per-platform EMITTED lists — hand-maintained constants that match the emitters today, not derived from them — to a committed vector on the extension, and on the desktop to a committed vector or an accounted-for gap (the gap list is empty today), and keeps reserved strategies outside vector scope; run via npm run test:shared."
     },
     {
       "doc": "docs/technical/locator-resolution.md",
@@ -974,7 +974,7 @@
       "doc": "docs/api/dispatch.md",
       "clause": "DI-3",
       "tag": "check-exists",
-      "check-ref": "The exact five-field wrapper is asserted by packages/shared/tests/unit/contract.test.js ('has exactly five top-level keys') and packages/extension/tests/unit/dispatch.test.js (npm run test:shared / test:extension), both over the extension's composed schema — no desktop-schema counterpart; the three-field export contrast is pinned by the desktop export suite validating buildExport output against the closed schema root (packages/desktop/tests/unit/export.test.js; npm run test:desktop); the stamp-or-fail sourcing lives in the stampFromSchema throw path (packages/shared/lib/format-stamp.js), which the composition suites exercise on its happy path only — the throw itself is unpinned (intended, not built).",
+      "check-ref": "The exact five-field wrapper is asserted by packages/shared/tests/unit/contract.test.js ('has exactly five top-level keys') over the extension's composed schema and by packages/extension/tests/unit/dispatch.test.js over generated schemas stamped with either platform (npm run test:shared / test:extension) — no composed desktop schema is exercised; the three-field export contrast is pinned by the desktop export suite validating buildExport output against the closed schema root (packages/desktop/tests/unit/export.test.js; npm run test:desktop); the stamp-or-fail sourcing lives in the stampFromSchema throw path (packages/shared/lib/format-stamp.js), which the composition suites exercise on its happy path only — the throw itself is unpinned (intended, not built).",
       "test-cases": ["has exactly five top-level keys"]
     },
     {

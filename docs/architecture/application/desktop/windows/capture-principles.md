@@ -368,7 +368,7 @@ with a caveat):
   window itself, introduced by a `context_switch` — records no
   `context_close`: `EVENT_OBJECT_DESTROY` is dispatched only for a window
   previously opened within the recording (DCP-7)
-- A selection the application changes within `SELECTION_CORRELATION_MS` of an
-  input is recorded as a `select` — UI Automation carries no per-event trust
+- A selection the application changes within `SELECTION_CORRELATION_MS`
+  (`src/capture/timing.rs`) of an input is recorded as a `select` — UI Automation carries no per-event trust
   flag, so a correlated application-fired selection cannot be told from the
   user's (the inverse of the assistive-technology limitation above)

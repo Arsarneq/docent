@@ -294,8 +294,9 @@ their sufficiency story is owned by the static lint and the capture backlog, not
 by resolution vectors. Per-strategy coverage is owned by the corpus's
 coverage-ledger clause, [scripted-truth-corpus
 §STC-12](../verification/scripted-truth-corpus.md), with the extension's
-page-authoring rule (§STC-6) and the desktop leg's fixture window supplying the
-covered strategies.
+page-authoring rule (§STC-6) and the
+[desktop leg's](../verification/scripted-truth-corpus.md#desktop-leg) fixture
+window supplying the covered strategies.
 
 ---
 

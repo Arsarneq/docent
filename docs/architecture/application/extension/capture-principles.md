@@ -281,8 +281,9 @@ with a caveat):
   the content script
 - Actions performed during a [storage-pressure pause](#storage-pressure) are
   not captured
-- A middle-button click — the recorder listens for no `auxclick`, so nothing
-  is recorded
+- A middle-button click — the recorder listens for no `auxclick`, so the click
+  is not recorded; a tab it opens arrives as a `context_open` with no action
+  behind it
 - A pointer drag that is not HTML5 drag-and-drop (a slider, a splitter, a text
   selection) — recorded as the click its release produces, not as a
   `drag_start`/`drop` pair
