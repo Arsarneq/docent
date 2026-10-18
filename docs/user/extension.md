@@ -169,7 +169,7 @@ after a restart is sent
 without the key, the server rejects it, and Auto-sync turns itself off until
 you re-enter the key and test the connection again. A sync follows the main
 recording events — committing a
-step, closing a recording (leaving its view; in the extension, stopping capture
+step, closing a recording (leaving its view; in the extension, pausing capture
 also requests one), and creating or deleting a project or recording —
 with bursts of events folded together; a backstop sync runs about once a
 minute, and it also carries every other kind of edit and brings in other

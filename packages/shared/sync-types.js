@@ -6,12 +6,10 @@
  * platform adapters (Chrome extension + desktop). Centralizing the contracts
  * here is what makes cross-platform parity *structural* rather than duplicated:
  * both platforms persist the same `SyncState` shape and feed the shared
- * orchestrator the same `LiveState` / `SyncStore` interfaces — built wherever
- * a cycle runs: the extension's side panel and its service worker each build a
- * `SyncStore` through the shared sync-store helpers over the same adapter
- * (runtime §ERT-3 names the writers of the sync-state key) and a `LiveState`
- * from the adapter's live-state read; the desktop's panel driver builds both
- * over the session commands.
+ * orchestrator the same `LiveState` / `SyncStore` interfaces, each host building
+ * them over its own platform seam: the extension's side panel and service worker
+ * over the shared adapter, the desktop's panel driver over its session commands
+ * (the store) and its in-memory recording flags (the live state).
  *
  * The two platform-specific seams are:
  *   - `SyncStore`  — durable read/write of all conflict-handling state.
