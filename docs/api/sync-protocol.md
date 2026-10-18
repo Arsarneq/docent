@@ -866,9 +866,10 @@ a minute.
 - **Local data events** — a closed set of six: a step commit, a recording
   close (leaving the recording view), a project creation, a project deletion, a
   recording creation, and a recording deletion. No other local event requests a
-  cycle. Today the extension requests a cycle on every capture stop, inside the
-  recording view included (its `RECORDING_STOP` message); the desktop requests
-  one on leaving the view, the moment this clause names.
+  cycle. The extension today departs from this set: its `RECORDING_STOP`
+  message — sent on every capture stop, on the Projects breadcrumb and before a
+  recording is created — requests a cycle wherever it is sent; the desktop
+  requests one on leaving the view only, as the set states.
 - **A periodic backstop** (~60 s) — so a locally idle client still pulls other
   clients' changes, and a follow-up deferred by the cooldown (SP-22) is
   guaranteed a trigger that dispatches it.

@@ -32,13 +32,13 @@ While you record, each captured action joins the **Captured actions** list —
 the step's pending actions. They become part of the recording only when you
 commit the step:
 
-| You do                                         | Pending actions                                                                                              |
-| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| **Done this step** (**Commit** in simple mode) | Committed into the step — the next step starts from an empty list.                                           |
-| **Clear**                                      | Discarded, after a confirmation.                                                                             |
-| **Pause**, then **Resume**                     | Preserved.                                                                                                   |
-| Open or create any recording                   | Discarded.                                                                                                   |
-| Restart the browser                            | Kept until you open the recording again, which discards it (the reopened panel starts at the projects list). |
+| You do                                         | Pending actions                                                                                                |
+| ---------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| **Done this step** (**Commit** in simple mode) | Committed into the step — the next step starts from an empty list.                                             |
+| **Clear**                                      | Discarded, after a confirmation.                                                                               |
+| **Pause**, then **Resume**                     | Preserved.                                                                                                     |
+| Open or create any recording                   | Discarded.                                                                                                     |
+| Restart the browser                            | Kept until you open or create a recording, which discards it (the reopened panel starts at the projects list). |
 
 The commit button stays disabled while the list is empty; in narration mode it
 also requires narration text.
@@ -169,7 +169,8 @@ after a restart is sent
 without the key, the server rejects it, and Auto-sync turns itself off until
 you re-enter the key and test the connection again. A sync follows the main
 recording events — committing a
-step, stopping capture, and creating or deleting a project or recording —
+step, closing a recording (leaving its view; in the extension, stopping capture
+also requests one), and creating or deleting a project or recording —
 with bursts of events folded together; a backstop sync runs about once a
 minute, and it also carries every other kind of edit and brings in other
 machines' changes. While you are recording, automatic syncs stay quiet. An

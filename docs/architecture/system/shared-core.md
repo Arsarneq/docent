@@ -174,7 +174,9 @@ deliberate differences add outside the fragment (the desktop's target-applicatio
 selector and self-capture toggle, the extension's storage-pressure banner),
 which the
 [index of deliberate differences](../../design/ui_ux/shared-interaction-model.md#the-deliberate-platform-differences)
-lists. The
+lists, and in the content-security policy each shell's head declares (the
+[application shell](../application/desktop/windows/application-shell.md#native-http-transport)
+states the desktop's). The
 assembled `index.html` files are committed build output (see
 [freshness](#the-outputs-and-their-freshness) below).
 

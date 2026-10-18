@@ -278,11 +278,13 @@ The closed set of request types the panel sends, by group:
 | Steps             | `STEP_COMMIT`, `STEP_DELETE`, `STEPS_REORDER`                                                                                                                    |
 | Import / export   | `PROJECT_IMPORT`, `PROJECT_EXPORT`                                                                                                                               |
 
-A successful response to one of the data events
-[SP-21](../../../api/sync-protocol.md#automatic-sync-auto-sync) enumerates —
-as message types: `STEP_COMMIT`, `RECORDING_STOP`, `PROJECT_CREATE`,
-`PROJECT_DELETE`, `RECORDING_CREATE`, `RECORDING_DELETE` — additionally
-fires a background Auto-Sync trigger.
+A successful response to one of the messages in the worker's data-event set —
+`STEP_COMMIT`, `RECORDING_STOP`, `PROJECT_CREATE`, `PROJECT_DELETE`,
+`RECORDING_CREATE`, `RECORDING_DELETE` — additionally fires a background
+Auto-Sync trigger. The set stands in for the six events
+[SP-21](../../../api/sync-protocol.md#automatic-sync-auto-sync) enumerates;
+`RECORDING_STOP` is sent more widely than the clause's recording close, the
+departure SP-21 records.
 
 ### Response contract
 

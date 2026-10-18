@@ -73,7 +73,7 @@ Each difference is deliberate, and each is owned by a document:
   ([extension runtime](../../architecture/application/extension/runtime.md)).
 - **Pending-buffer persistence** — the extension persists the pending
   capture buffer (it survives a worker suspension; across a browser restart it
-  is kept until the recording is opened again, which discards it); the desktop
+  is kept until a recording is opened or created, which discards it); the desktop
   holds it in memory, and quitting discards uncommitted actions. Owned by
   [Persistence](../../architecture/system/persistence.md#deliberately-ephemeral-state).
 - **Storage pressure** — the extension pauses capture and shows a banner

@@ -34,8 +34,8 @@ governs what may live in worker memory instead.
   the keys that double as change signals — is
   [runtime §ERT-3](../application/extension/runtime.md#storage-keys-and-write-ownership).
   Because the pending buffer is persisted, capture in progress survives a
-  worker suspension; across a browser restart the buffer is kept until the
-  recording is opened again, which discards it
+  worker suspension; across a browser restart the buffer is kept until a
+  recording is opened or created, which discards it
   ([user guide — pending actions](../../user/extension.md#pending-actions)).
 - **`chrome.storage.session`** holds the ephemeral AES key for the
   encrypted API-key values stored in `chrome.storage.local`. The browser

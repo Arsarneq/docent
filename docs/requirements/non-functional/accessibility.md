@@ -8,7 +8,7 @@ documents and distinguished below). The panel UI both platforms render is
 the shared views fragment and its rendering functions
 ([Shared Core — one fragment, two shells](../../architecture/system/shared-core.md#shared-views--one-fragment-two-shells));
 this document claims nothing beyond what is in that markup, its stylesheet,
-and those functions' output.
+those functions' output, and the shells' own markup its closing paragraph lists.
 
 ## Conformance posture
 
@@ -58,13 +58,13 @@ From [`views.html`](../../../packages/shared/views/views.html) and
   owns).
 
 Outside the fragment each shell adds markup of its own, which the enumeration
-above leaves to the shell: the extension's header and recording badge, its
-Settings button named by `aria-label`, its breadcrumb navigation and its
-storage-pressure banner — a `role="status"` region with `aria-live="polite"`, so
-its appearance is announced
+above leaves to the shell. Both shells carry a header with the recording badge,
+a Settings button named by `aria-label`, and the breadcrumb navigation. The
+extension's adds the storage-pressure banner — a `role="status"` region with
+`aria-live="polite"`, so its appearance is announced
 ([`index.shell.html`](../../../packages/extension/sidepanel/index.shell.html));
-the desktop's header and logo, its target-application selector and its
-self-capture toggle
+the desktop's adds its header logo, the target-application selector with a
+refresh button named by `title` only, and the self-capture toggle
 ([`index.shell.html`](../../../packages/desktop/src/index.shell.html)).
 
 ## Distinct: accessibility APIs as a capture data source
