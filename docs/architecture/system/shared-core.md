@@ -168,8 +168,9 @@ therefore render the same view markup, styled by the shared
 `views/render.js` — pure HTML-string functions with no DOM manipulation and
 no platform calls, so how a step or action is rendered is defined once. The
 two shells differ in presentation — the document title ("Docent" and "Docent
-Desktop"), a header logo the desktop shell carries, and the column a recording
-row's attention badge is placed in — and in the controls each platform's
+Desktop"), a header logo the desktop shell carries, and the column each
+platform's panel driver places a recording row's attention badge in — and in
+the controls each platform's
 deliberate differences add outside the fragment (the desktop's target-application
 selector and self-capture toggle, the extension's storage-pressure banner),
 which the
