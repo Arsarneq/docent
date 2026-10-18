@@ -8,7 +8,8 @@ documents and distinguished below). The panel UI both platforms render is
 the shared views fragment and its rendering functions
 ([Shared Core — one fragment, two shells](../../architecture/system/shared-core.md#shared-views--one-fragment-two-shells));
 this document claims nothing beyond what is in that markup, its stylesheet,
-those functions' output, and the shells' own markup its closing paragraph lists.
+those functions' output, and the shells' own markup the paragraph after the
+enumeration lists.
 
 ## Conformance posture
 
@@ -77,5 +78,6 @@ That concerns the accessibility of the **applications being recorded**: the
 richness of a recording depends on the target application's accessibility
 data, and a desktop element without it falls back to coordinate capture
 ([desktop guide](../../user/desktop-windows.md#record-a-workflow)). It is a
-separate property from the conformance posture of Docent's own panels,
-which is only what the section above enumerates.
+separate property from the conformance posture of Docent's own panels, which
+is the enumeration above, the shell markup listed after it, and the scans the
+conformance posture names.

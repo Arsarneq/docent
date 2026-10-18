@@ -81,7 +81,8 @@ Each difference is deliberate, and each is owned by a document:
   desktop's session file has no quota and no such pause
   ([Persistence — storage pressure](../../architecture/system/persistence.md#storage-pressure)).
 - **Self-capture exclusion** — the desktop offers a setting that keeps its own
-  window out of a recording, because its hooks see every window; the
+  process (its window and the dialogs it opens) out of a recording, because its
+  hooks see every window; the
   extension's recorder is never injected into its own panel
   ([desktop guide](../../user/desktop-windows.md#record-a-workflow)).
 - **Where the data lives** — the extension keeps its model in
