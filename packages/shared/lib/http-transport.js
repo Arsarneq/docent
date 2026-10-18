@@ -90,7 +90,7 @@ export function resetHttpTransport() {
  * connection-test code calls this in place of `fetch`.
  *
  * @param {string} url
- * @param {object} [options] - `fetch`-shaped options (method, headers, body, signal)
+ * @param {object} [options] - `fetch`-shaped options (method, headers, body, signal, cache)
  * @returns {Promise<object>} a `fetch`-shaped response (see the module contract)
  */
 export function httpRequest(url, options) {
