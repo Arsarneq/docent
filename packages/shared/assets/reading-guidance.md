@@ -32,8 +32,8 @@ The versions this leaves out are the earlier and deleted states, retained as his
 
 ## Properties of specific values
 
-- Sensitive values are masked. When the user enters something sensitive, such as a password, the recording records where the value went — the target element, flagged as masked — but not the value itself. A masked field is a parameter to fill when reproducing the session, not missing data.
-- Time is descriptive, not prescriptive. Recorded timestamps and observed delays are facts about what happened; literal timing is specific to the machine that produced it. Where an action depended on the interface becoming ready, that readiness is present as an observable condition in the recorded context.
+- Sensitive values are masked. When the user enters something sensitive, such as a password, the recording records where the value went — the target element, flagged as redacted — but not the value itself. A masked field is a parameter to fill when reproducing the session, not missing data.
+- Time is descriptive, not prescriptive. Recorded timestamps and observed delays are facts about what happened; literal timing is specific to the machine that produced it. Where an action depended on the interface becoming ready and the platform observed how long that took, that readiness is present as an observable condition in the recorded context.
 - Some identifiers are meaningful only within the session. Certain ids — for example the handle identifying a browser tab or an application window — are valid only for the session that produced them and are not stable across restarts.
 - Actions carry as much identity as was observable. Where the application exposed rich descriptive information, an action identifies the element it targeted in detail; on the desktop, where it did not, the action falls back to a screen position and the surrounding geometry. Each action records its capture mode: a browser action is always captured through the page's document, a desktop action through the accessibility tree or, as the fallback, by position.
 

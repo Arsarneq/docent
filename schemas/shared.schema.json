@@ -198,7 +198,7 @@
         },
         "value": {
           "type": "string",
-          "description": "The entered value. Sensitive values are masked at capture — passwords, payment fields designated by their autocomplete tokens, and fields whose name/id matches the shared financial/secret/SSN pattern — and the element is flagged redacted."
+          "description": "The entered value; the session-format document states each platform's cut. Sensitive values are masked at capture — passwords, payment fields designated by their autocomplete tokens, and fields whose name/id matches the shared financial/secret/SSN pattern — and the element is flagged redacted."
         },
         "context_id": {
           "$ref": "#/$defs/context_id"
@@ -219,7 +219,7 @@
         },
         "value": {
           "type": "string",
-          "description": "Visible text of the selected option."
+          "description": "Visible text of the selected option; the session-format document states each platform's source."
         },
         "context_id": {
           "$ref": "#/$defs/context_id"
@@ -237,7 +237,7 @@
         },
         "key": {
           "type": "string",
-          "description": "Key name. Control keys use standard names (Enter, Escape, Tab, ArrowUp, etc.). Printable characters use their character value (A, 1, Space, etc.)."
+          "description": "Key name. Control keys use standard names (Enter, Escape, Tab, ArrowUp, etc.). Printable characters use their character value (A, 1, Space, etc.); the session-format document states each platform's source for the name."
         },
         "modifiers": {
           "$ref": "#/$defs/modifiers"
@@ -313,7 +313,7 @@
               "type": "null"
             }
           ],
-          "description": "The dragged element. Null if drag started before recording."
+          "description": "The dragged element. Null when no drag start was observed for it: a drag begun before recording, or one whose start the capturing side did not observe."
         },
         "context_id": {
           "$ref": "#/$defs/context_id"
@@ -347,23 +347,23 @@
               "type": "null"
             }
           ],
-          "description": "The scrolled element. Null for page-level scroll."
+          "description": "The scrolled element. Null for a page-level scroll; the session-format document states each platform's source."
         },
         "scroll_top": {
           "type": "number",
-          "description": "Vertical scroll offset of the scrolled container (the page when element is null) when the gesture settled: the container's offset in the document's layout pixels for in-page capture; 0 for native capture, which observes wheel input rather than container offsets."
+          "description": "Vertical scroll offset of the scrolled container (the page when element is null) when the gesture settled: the container's offset in the document's layout pixels for in-page capture; 0 for native capture today, which observes wheel input rather than container offsets; the session-format document states each platform's source."
         },
         "scroll_left": {
           "type": "number",
-          "description": "Horizontal scroll offset of the scrolled container (the page when element is null) when the gesture settled: the container's offset in the document's layout pixels for in-page capture; 0 for native capture, which observes wheel input rather than container offsets."
+          "description": "Horizontal scroll offset of the scrolled container (the page when element is null) when the gesture settled: the container's offset in the document's layout pixels for in-page capture; 0 for native capture today, which observes wheel input rather than container offsets; the session-format document states each platform's source."
         },
         "delta_y": {
           "type": "number",
-          "description": "Net vertical displacement of the settled scroll sequence: the vertical scroll offset observed at the sequence's last scroll event minus the offset observed at its first (in the document's layout pixels) for in-page capture, or the sum of the sequence's raw vertical wheel deltas as reported by the platform's input layer (native wheel-delta units, not pixels; sign follows the platform's wheel convention) for native capture."
+          "description": "Net vertical displacement of the settled scroll sequence: the change in the scrolled container's vertical offset (in the document's layout pixels) for in-page capture, or the sum of the sequence's raw vertical wheel deltas as reported by the platform's input layer (native wheel-delta units, not pixels; sign follows the platform's wheel convention) for native capture; the session-format document states each platform's measurement and its anchor."
         },
         "delta_x": {
           "type": "number",
-          "description": "Net horizontal displacement of the settled scroll sequence: the horizontal scroll offset observed at the sequence's last scroll event minus the offset observed at its first (in the document's layout pixels) for in-page capture, or the sum of the sequence's raw horizontal wheel deltas as reported by the platform's input layer (native wheel-delta units, not pixels; sign follows the platform's wheel convention) for native capture."
+          "description": "Net horizontal displacement of the settled scroll sequence: the change in the scrolled container's horizontal offset (in the document's layout pixels) for in-page capture, or the sum of the sequence's raw horizontal wheel deltas as reported by the platform's input layer (native wheel-delta units, not pixels; sign follows the platform's wheel convention) for native capture; the session-format document states each platform's measurement and its anchor."
         },
         "context_id": {
           "$ref": "#/$defs/context_id"
@@ -495,7 +495,7 @@
         },
         "text": {
           "type": ["string", "null"],
-          "description": "Visible text, truncated to 100 characters (a truncation mark may be appended). Null for sensitive fields (password fields, and fields the shared sensitivity detection recognises) or when empty."
+          "description": "Visible text, truncated to 100 characters (a truncation mark may be appended); the session-format document states each platform's source and whether it marks the cut. Null for sensitive fields (password fields, and fields the shared sensitivity detection recognises) or when empty."
         },
         "selector": {
           "type": "string",
@@ -522,12 +522,12 @@
     "locator_match_count": {
       "type": "integer",
       "minimum": 1,
-      "description": "How many elements this candidate matched, measured under the scope, order, and timing stated by this schema's locator definition. Present only where it was cheap to measure at capture time; absent means not measured, never a guess."
+      "description": "How many elements this candidate matched, measured under the scope, order, and timing stated by this schema's locator definition. Present only where it was cheap to measure at capture time; absent means not measured, never a guess — though the current producers also write no pair for a candidate measured and matching nothing, the case the format encodes as match_index null with no match_count."
     },
     "locator_match_index": {
       "type": ["integer", "null"],
       "minimum": 0,
-      "description": "Zero-based position of the acted-on element in this candidate's match list, measured together with match_count (0 <= match_index < match_count; the upper bound is stated here because it cannot be schema-enforced). Null means this candidate did not match the acted-on element at all. Absent means not measured."
+      "description": "Zero-based position of the acted-on element in this candidate's match list, measured together with match_count (0 <= match_index < match_count; the upper bound is stated here because it cannot be schema-enforced). Null means this candidate did not match the acted-on element at all (the current producers write it only beside a match_count). Absent means not measured — or, from the current producers, measured and matching nothing, as match_count states."
     },
     "locator_masked": {
       "type": "boolean",

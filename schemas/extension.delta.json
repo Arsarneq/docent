@@ -18,7 +18,7 @@
     },
     "frame_src": {
       "type": ["string", "null"],
-      "description": "Iframe URL if the action occurred inside an iframe. Null for the top frame."
+      "description": "Iframe URL if the action occurred inside an iframe. Null for the top frame; absent on the actions the worker records (navigate, always a top-frame navigation, and the context lifecycle)."
     },
     "action_navigate": {
       "properties": {
@@ -27,6 +27,7 @@
         },
         "nav_type": {
           "type": "string",
+          "description": "The navigation's kind, derived from the browser's transition type; a back/forward qualifier takes precedence over the type it rides on.",
           "enum": [
             "link",
             "typed",
@@ -42,7 +43,7 @@
         },
         "url": {
           "type": "string",
-          "description": "The destination URL. Values of sensitive query parameters are masked at capture; the masked parameter names (matched case-insensitively) are exactly: token, access_token, id_token, refresh_token, auth, authorization, api_key, apikey, key, secret, client_secret, password, pwd, session, sessionid, sid, otp, code, signature, sig, sso. Other parameters are preserved."
+          "description": "The destination URL. Values of sensitive query parameters are masked at capture; the masked parameter names (matched case-insensitively) are exactly: token, access_token, id_token, refresh_token, auth, authorization, api_key, apikey, key, secret, client_secret, password, pwd, session, sessionid, sid, otp, code, signature, sig, sso. Other parameters are preserved in name and order (the session-format document states how the current masking re-serializes the query)."
         },
         "context_id": {
           "$ref": "#/$defs/context_id"
@@ -223,7 +224,7 @@
         },
         "attribute": {
           "type": "string",
-          "description": "The attribute that carried the value, e.g. \"data-testid\"."
+          "description": "The attribute that carried the value: the first with a non-empty value among data-testid, data-test, data-test-id, data-qa and data-cy; the others are not written, although the format admits an entry per attribute."
         },
         "value": {
           "type": "string",
@@ -351,7 +352,7 @@
         },
         "value": {
           "type": "string",
-          "description": "The element's rendered (visible) text, whitespace-normalized (leading/trailing whitespace removed, internal runs collapsed to single spaces). The candidate is omitted when the element has no rendered text (a form control's value is not rendered text) or when the normalized text exceeds 100 characters — a truncated value would not be an exact observed value. Match statistics count the same-tag-name elements in the stated scope whose rendered text, under this same normalization, equals this value; the pair is absent when that set was too large to measure cheaply."
+          "description": "The element's rendered (visible) text, whitespace-normalized (leading/trailing whitespace removed, internal runs collapsed to single spaces). The candidate is omitted when the element has no rendered text (a form control's value is not rendered text) or when the normalized text exceeds 100 characters — a truncated value would not be an exact observed value. Match statistics count the same-tag-name elements in the stated scope whose rendered text, under this same normalization, equals this value; the pair is absent when more than 100 same-tag elements would be compared."
         },
         "match_count": {
           "$ref": "#/$defs/locator_match_count"
@@ -443,7 +444,7 @@
         },
         "value": {
           "type": "string",
-          "description": "A CSS selector derived for the element from observed attributes and structure."
+          "description": "A CSS selector derived for the element from observed attributes and structure: per-level segments (#id, else tag[test-attr=\"value\"] for the first test attribute with a non-empty value, else the tag) built upward from the element until the path matches it uniquely in the document, a unique id ending the walk; :nth-of-type positions only when no semantic path is unique, deepest level first, within 25 uniqueness probes in all; failing both, the fully positional path — written even where a unique semantic path lies beyond the budget."
         },
         "match_count": {
           "$ref": "#/$defs/locator_match_count"

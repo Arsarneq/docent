@@ -88,8 +88,8 @@ instructions. Literal timing cannot transfer across machine speeds, so a
 consumer derives nothing normative from timestamp spacing.
 
 Readiness is expressed as **observable facts**, never as durations to wait.
-`described_after_ms` is the model: an observed gap, exported so the consumer
-can apply its own judgement instead of inheriting an implicit one. The consumer
+`described_after_ms` is the model: an observed gap, exported where a platform observes it, so the consumer
+can apply its own judgement instead of inheriting an implicit one (core CP-18). The consumer
 owns its timeouts — a recording cannot encode "how long is too long" on a
 slower machine, and a slow success is not a failed replay.
 
@@ -105,7 +105,7 @@ here, not from a failed replay:
 - **Coordinate-mode actions** — when no accessibility description was
   available, an action carries a screen point and window geometry instead of
   element identity; reproduction depends on reproducing that geometry, and no
-  element-level claims are made.
+  element-level claims are made (core CP-18).
 - **Interactions outside the capture surface** — each platform enumerates the
   surface its capture layer observes and treats it as closed: an interaction
   that reaches none of it is not captured, with no per-case listing to go

@@ -71,7 +71,7 @@ emits the completion marker after them, and the report states the barrier
 completed by **fallback drain** rather than marker-ordered — completeness is
 preserved, marker-exact ordering is the stated trade (delivered sequence ids
 still order the recovered actions where present), and the timeout is never
-shaped as a success. The frontend's wait for the marker is also bounded — a
+shaped as a success. The frontend's wait for the marker is also bounded (5000 ms) — a
 marker lost in transit cannot hang a commit — and an expired wait is surfaced
 through the shell's logging affordance before the commit proceeds with the
 actions delivered by then. A marker that arrives before the commit starts
@@ -282,7 +282,7 @@ Of the fields an accessibility-described desktop element can carry,
 the ones it never carries are exactly the locators, the provider facts
 (`position_in_set`, `size_of_set`, `level`, `framework_id`) and the describe
 latency: coordinate mode records where the user acted and in which window, not
-which element the accessibility layer resolved.
+which element the accessibility layer resolved (core CP-18).
 
 ---
 
@@ -364,6 +364,17 @@ with a caveat):
 - A file dialog confirmed from the keyboard (Enter on the filename field)
   produces no `file_dialog` action — the proxy triggers only on a click of
   the dialog's Save/Open button
+- A file dialog whose confirm button is named other than "Save" or "Open", or
+  whose window title contains none of "save as", "save" or "open" — both tests
+  English-only, so a localized dialog — produces no `file_dialog` action
+- A `type` whose value equals the worker's last for the same selector — not
+  written, and for a password field, whose value is the mask, every entry
+  after the first on that worker; a departure (core CP-18)
+- A focus whose selector equals the worker's last — not written; a departure
+  (core CP-18)
+- A focus or value change on an element the accessibility layer cannot
+  describe — not written, the keys buffered for the value change discarded
+  with it; a departure (core CP-18)
 - A title-bar close of a window the recording did not see open — the target
   window itself, introduced by a `context_switch` — records no
   `context_close`: `EVENT_OBJECT_DESTROY` is dispatched only for a window

@@ -112,8 +112,9 @@ the capture phase, for exactly these DOM events:
 - `mousedown` — the press ahead of a click, held so a blur-caused `change` can
   be attributed to the element the user moved to
 - `click` — activation of the clicked element or its nearest interactive
-  ancestor
-- `contextmenu` — the right-click
+  ancestor (the set the recorder tests is stated in the session-format
+  document's action table; core CP-18)
+- `contextmenu` — the right-click, its element picked as for `click`
 - `keydown` — the keys in the captured keyboard set
 - `change` — a committed value: a `select` choice, an `input`/`textarea` entry,
   and a file chosen through the OS dialog
@@ -192,7 +193,8 @@ observable signals:
 
 - `event.isTrusted` rejects programmatic DOM events
 - Chrome's `transitionType` identifies browser chrome navigations vs effects
-- `programmaticTabs` set tracks tabs from `window.open()`
+- `programmaticTabs` set tracks every tab created within 500 ms after an
+  in-page action (`window.open()` and its like)
 - Timing windows centralized in `lib/capture-timing.js` (see code for values)
 
 The listed signals illustrate how this clause reads the stream;
@@ -267,16 +269,45 @@ with a caveat):
   report it
 - A second navigation to the same address within the worker's repeat window
   (five seconds) of the last recorded one, reloads excepted — dropped as a
-  repeat
+  repeat, a genuine re-navigation the user asked for dropped with it; a
+  departure (core CP-18)
+- A browser-chrome navigation the server or the page redirected — the
+  committed navigation carries a redirect qualifier and the handler skips it,
+  so a typed address the site redirects records no `navigate`; a departure
+  (core CP-18)
 - A typed address on an internal scheme (`chrome://`, `chrome-extension://`,
   `about:`) — the worker skips those schemes before any proxy is considered
 - `window.open()` detection uses a timing window (see `capture-timing.js`)
+- A tab the user opened (Ctrl+T, Ctrl+N, Ctrl+Shift+T) within 500 ms after an
+  in-page action — no `context_open` written, the tab being taken for a
+  page-opened one; a departure (core CP-18)
 - `window.close()` detection uses a timing window on programmatic tabs
+- The close, within 2000 ms after an in-page action, of a tab the user opened
+  within 500 ms after an in-page action — not written, the tab being in the
+  programmatic set; a departure (core CP-18)
+- A click or right-click whose picked element is the body or the document
+  element — not written; a departure (core CP-18)
+- A captured key other than Tab while nothing is focused — not written; a
+  departure (core CP-18)
+- A `type` on an input or textarea when a button or input marked
+  `type="submit"` in the same form was pressed within 100 ms of the change —
+  not written; a departure (core CP-18;
+  [docent#223](https://github.com/Arsarneq/docent/issues/223))
+- The first activation of a tab opened in the background, when no tab was
+  created after it — not written; a departure (core CP-18)
+- The activation of a tab with no address — not written; a departure
+  (core CP-18)
+- The activation of a `chrome://` or `chrome-extension://` tab — not written,
+  the internal schemes being outside the surface as for a typed address
+- A Tab-focus of a password field — not written; a departure (core CP-11)
 - Scroll gestures are debounced and coalesced with a sub-threshold discard —
   the shared rule in
   [core CP-16](../../../architecture/system/capture-principles.md#capture-surface);
   the quantity here is the change in the scrolled container's offset in the
-  document's layout pixels, and the floor is declared as
+  document's layout pixels — read today from the first scroll event's target
+  to the last event's, so the first event's own movement is left out and a
+  sequence that moves across containers subtracts two targets' offsets, a
+  departure ([docent#251](https://github.com/Arsarneq/docent/issues/251)) — and the floor is declared as
   `SCROLL_MIN_DISTANCE_PX` in `lib/capture-timing.js` and applied inline in
   the content script
 - Actions performed during a [storage-pressure pause](#storage-pressure) are
@@ -291,6 +322,7 @@ with a caveat):
   `windows.onFocusChanged`, so the switch records no `context_switch`
 - Closing a whole browser window — the tab-removal listener skips tabs removed
   by a window close, so no `context_close` is recorded
-- A file chooser opened from the keyboard (Enter on the control) — the
-  suppressed detail-0 click leaves the resulting file change uncorrelated, so
-  no `file_upload` is recorded
+- A file chosen without a trusted click on the input within the 10 s before
+  the change — a chooser opened from the keyboard (Enter on the control, whose
+  detail-0 click is suppressed), a click the page scripted on the input, or a
+  choice made later — no `file_upload` is recorded; a departure (core CP-18)

@@ -48,6 +48,35 @@ outside the actions that functions as an action entry violates this rule.
 
 ---
 
+## Recorded Facts
+
+**CP-18.** A recording carries the facts the capture layer observed, as it
+observed them. For every field the format has, the layer writes the fact it
+holds and makes no choice on behalf of whoever reads the recording or of the
+user whose work it records: it does not prune, rank or prefer among the facts
+it holds, save as the admission test below admits. Where a kind of fact has an unbounded solution space — a CSS
+selector, an accessibility tree path — one candidate is unavoidable; the layer
+then records the technically most stable candidate within that type, and the
+field's documentation discloses the selection. The field's documentation is
+the field's row in the session-format document, or the platform capture
+document that states a bound of its own. The admission test: a fact the layer
+observed about an action it records, for which the format has a field, MUST
+be written, save in exactly these classes — a fact a scope clause of this
+document leaves outside the recording (what a user action is and is not:
+CP-5, CP-6, the scroll floor of CP-16, and each platform's surface
+enumeration with its exceptions under CP-14 and CP-15, less an exception
+the list marks as a departure; what a proxy stands
+in for and records, at most one and never its cascades: CP-7 through CP-10;
+which contexts take an establishment entry: CP-17; the ambient context the
+format records: CP-3); a fact a masking clause masks, a marker keeping its place (CP-11,
+CP-12); a fact a limit the field's documentation discloses trims; one slot
+filled from several observed candidates by a rule the field's documentation
+discloses, where the format has no field for the unchosen candidates; and a
+field set a platform's capture document conditions on a capture mode. The
+classes are closed: a held fact left unwritten outside them is a defect.
+
+---
+
 ## What IS a User Action
 
 **CP-5.** A user action is a physical input the user deliberately performed:

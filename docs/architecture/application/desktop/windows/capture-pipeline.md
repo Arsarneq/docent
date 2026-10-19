@@ -167,14 +167,16 @@ the barrier already emptied:
   respawn retries only the event whose send detected the death — and the
   rescues cover completed-but-held actions, which are the only ones that
   exist as actions yet.
-- Capture start blocks (bounded, generously) until every worker has finished
-  its possibly-cold accessibility-API initialization — otherwise an event
+- Capture start blocks (bounded, 30 s per worker) until every worker reports its
+  possibly-cold accessibility-API initialization finished — otherwise an event
   dispatched into a still-initializing worker could sit unconsumed and be
-  lost to a fast stop.
+  lost to a fast stop; when the first bound expires, start stops waiting for
+  the rest and proceeds with a warning that early events may be missed.
 - Capture start also verifies the Input_Thread itself: after the thread
   reports its id (its message queue already forced into existence), start
   posts a benign probe message to runtime-check that queue and then waits
-  (bounded) for the thread's hooks-registered report. A COM-init or
+  (bounded, 30 s) for the thread's hooks-registered report, proceeding with a
+  warning when that bound expires. A COM-init or
   hook-registration failure fails start loudly with the real error — and
   tears down what was already spawned — instead of returning a session whose
   input thread is dead on arrival and whose every barrier could only complete
