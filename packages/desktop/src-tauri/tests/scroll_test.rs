@@ -1,11 +1,15 @@
 // Scroll debounce and threshold filtering
 //
-//
-// For any sequence of scroll events with timestamps, the capture layer shall
-// emit a scroll action only when (a) no scroll event occurs for 300ms after
-// the last event in the sequence, AND (b) the total scroll distance exceeds
-// 200 native wheel-delta units (not pixels) in at least one axis. Sequences
-// that do not meet both conditions shall produce no scroll action.
+// Properties of the batch scroll algorithm (`process_scroll_events`): for any
+// sequence of scroll events with timestamps, a scroll action is emitted only
+// when (a) no scroll event occurs for SCROLL_DEBOUNCE_MS after the last event
+// in the sequence, AND (b) the total scroll distance exceeds
+// SCROLL_MIN_DISTANCE_PX native wheel-delta units (not pixels) in at least one
+// axis. The oracle reads the same timing constants, so the cases pin the
+// algorithm relative to them, not their values. One case checks that the
+// shipped accumulator (`ScrollAccumulator::try_flush`) agrees with the batch
+// at the boundary; its not-yet-elapsed branch is covered by
+// windows_capture_test.rs and scroll.rs's module tests.
 
 use docent_desktop_lib::capture::scroll::{
     process_scroll_events, RawScrollEvent, ScrollAccumulator,
@@ -44,11 +48,11 @@ fn arb_scroll_sequence() -> impl Strategy<Value = Vec<RawScrollEvent>> {
 }
 
 /// Strategy for a single scroll sequence that stays within the debounce window
-/// (all events within 300ms of each other).
+/// (all events within the debounce window of each other).
 fn arb_tight_sequence() -> impl Strategy<Value = Vec<RawScrollEvent>> {
     prop::collection::vec(
         (
-            1..50u64,         // small inter-event gap (well within 300ms)
+            1..50u64,         // small inter-event gap (well within the debounce window)
             -500.0..500.0f64, // delta_x
             -500.0..500.0f64, // delta_y
         ),
@@ -147,7 +151,7 @@ proptest! {
     /// Scroll debounce and threshold filtering
     ///
     /// For any emitted scroll result, at least one axis must exceed the
-    /// 200-wheel-delta-unit threshold.
+    /// SCROLL_MIN_DISTANCE_PX wheel-delta-unit threshold.
     #[test]
     fn emitted_scrolls_always_exceed_threshold(events in arb_scroll_sequence()) {
         let results = process_scroll_events(&events);

@@ -26,7 +26,8 @@
  *
  * Captures:
  *   - clicks (interactive elements + fallback to any clicked element)
- *   - keyboard: Enter/Escape/Tab/arrow keys on interactive elements
+ *   - keyboard: Enter/Escape/Tab/arrow keys (CAPTURE_KEYS) on the focused
+ *     element, whatever it is (Tab also with nothing focused)
  *   - text input (value on change)
  *   - file uploads
  *   - select changes
@@ -613,7 +614,8 @@
   );
 
   // ─── Keyboard capture ─────────────────────────────────────────────────────────
-  // Captures meaningful key presses on interactive elements:
+  // Captures these key presses on the focused element, whatever it is (Tab also
+  // with nothing focused):
   //   Enter  — form submission, button activation
   //   Escape — modal/dialog/dropdown dismiss
   //   Tab    — focus navigation
@@ -743,7 +745,8 @@
   );
 
   // ─── Focus capture ────────────────────────────────────────────────────────────
-  // Records focus only when correlated with a preceding Tab key press within 200ms.
+  // Records focus only when correlated with a preceding Tab key press within
+  // TAB_FOCUS_CORRELATION_WINDOW.
   // Click-caused focus is suppressed (click already captures the action).
   // Programmatic focus (element.focus()) is not captured.
 
@@ -763,7 +766,8 @@
       const capturedEl = el;
       setTimeout(() => {
         if (!active) return;
-        // Only record focus if it follows a Tab key press within 200ms
+        // Only record focus if it follows a Tab key press within
+        // TAB_FOCUS_CORRELATION_WINDOW
         if (Date.now() - lastTabKeyTimestamp > TAB_FOCUS_CORRELATION_WINDOW) return;
         // Suppress click-caused focus on the same element (click already captures the action)
         if (capturedEl === lastClickedEl && Date.now() - lastClickTime < CLICK_FOCUS_DEDUP_WINDOW)

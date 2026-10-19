@@ -31,8 +31,9 @@
  * a parked sentinel is evicted on the wait window below). It reaches the pending
  * list through the platform-specific members this file adds beside the declared
  * set: `getPendingActions` for the count and the actions a commit collects, and
- * `clearPendingActions` when a recording opens, when the user clears the step,
- * and once a step has been committed.
+ * `clearPendingActions` when a new recording is created, when the user clears
+ * the step, once a step has been committed, and when a re-record opens or is
+ * cancelled.
  *
  * Which declared members the shipped panel reaches, and what for:
  * `loadSchema` for the composed schema behind an export's format stamp, a
@@ -154,6 +155,9 @@ let _barrierWaitTimeoutMs = _BARRIER_SENTINEL_TIMEOUT_MS;
 const _barrierResolvers = new Map();
 const _seenBarriers = new Set();
 
+// Seam parity only: the shipped panel invokes `start_capture` directly and never
+// reaches this reset; it runs in `send`'s RECORDING_START arm so a caller taking
+// the seam route starts from the same reorder state as the direct one.
 function _resetReorderState() {
   _barrierResolvers.clear();
   _seenBarriers.clear();

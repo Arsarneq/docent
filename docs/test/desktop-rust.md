@@ -48,23 +48,23 @@ Tests live in two places:
   is open by design: a surface that states the rule is one the widening moves,
   whether or not it is named here.
 
-| Test file                   | Covers                                                                                                                                                                                                                                                   |
-| --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `action_mapping_test.rs`    | Action-mapping invariants: valid timestamps, `frame_src` null, and every mapped type in `VALID_ACTION_TYPES`, the list [`rust-action-types-lock.test.js`](unit.md#desktop-application) holds equal to the composed desktop schema's action types.        |
-| `capture_integration.rs`    | The real-input integration suite: user actions captured, programmatic side effects filtered, deduplication suppressions, OS-chrome and taskbar proxies, selection correlation.                                                                           |
-| `capture_lifecycle_test.rs` | The `CaptureLayer` start/stop state machine — idempotent start, no-op stop, `is_active()` transitions, bounded restart — and the commit flush barrier's sentinel delivery on the action stream; no real input required.                                  |
-| `capture_mode_test.rs`      | `accessibility` vs `coordinate` capture-mode selection.                                                                                                                                                                                                  |
-| `commands_test.rs`          | `load_state`/`save_state` persistence logic (APPDATA overridden to a temp directory).                                                                                                                                                                    |
-| `coordinate_dpi_test.rs`    | Multi-monitor and DPI coordinate math over the coordinate module's pure helpers.                                                                                                                                                                         |
-| `coordinate_test.rs`        | Coordinate helper properties (`relative_coordinates`, `fallback_element`, `create_window_rect`) in isolation.                                                                                                                                            |
-| `corpus_capture.rs`         | The [scripted-truth corpus](../verification/scripted-truth-corpus.md) producer (desktop leg) and the desktop conformance-vector fixture producer.                                                                                                        |
-| `element_mapping_test.rs`   | UIA properties → `ElementDescription` mapping completeness.                                                                                                                                                                                              |
-| `file_dialog_test.rs`       | Real file-dialog navigation produces no spurious events — local-only, see [`ci-skip`](#classification-and-ci) below.                                                                                                                                     |
-| `password_test.rs`          | Password masking: a password field's recorded `value` is always the mask glyph.                                                                                                                                                                          |
-| `pid_filter_test.rs`        | The platform-agnostic PID base filter: own-process events discarded while self-capture exclusion is enabled, every other resolvable process kept whether that setting is on or off, and events from an unresolvable window (PID 0) discarded either way. |
-| `scroll_test.rs`            | Scroll debounce (300 ms settle) and the displacement-floor filter.                                                                                                                                                                                       |
-| `windows_capture_test.rs`   | Pure-function and state-machine units: scroll accumulator, PID filtering, key mapping.                                                                                                                                                                   |
-| `worker_pool_test.rs`       | Worker-pool properties: sequence numbering, shortest-queue dispatch, sticky routing, drag-pair routing, and the dead-worker drain rescues (dispatch-time respawn and shutdown join) — the pipeline-level truth-lock.                                     |
+| Test file                   | Covers                                                                                                                                                                                                                                                                                             |
+| --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `action_mapping_test.rs`    | Action-mapping invariants: valid timestamps, `frame_src` null, and every mapped type in `VALID_ACTION_TYPES`, the list [`rust-action-types-lock.test.js`](unit.md#desktop-application) holds equal to the composed desktop schema's action types.                                                  |
+| `capture_integration.rs`    | The real-input integration suite: user actions captured, programmatic side effects filtered, deduplication suppressions, OS-chrome and taskbar proxies, selection correlation.                                                                                                                     |
+| `capture_lifecycle_test.rs` | The `CaptureLayer` start/stop state machine — idempotent start, no-op stop, `is_active()` transitions, bounded restart — and the commit flush barrier's sentinel delivery on the action stream; no real input required.                                                                            |
+| `capture_mode_test.rs`      | `accessibility` vs `coordinate` capture-mode selection.                                                                                                                                                                                                                                            |
+| `commands_test.rs`          | `load_state`/`save_state` persistence logic (APPDATA overridden to a temp directory).                                                                                                                                                                                                              |
+| `coordinate_dpi_test.rs`    | Multi-monitor and DPI coordinate math over the coordinate module's pure helpers.                                                                                                                                                                                                                   |
+| `coordinate_test.rs`        | Coordinate helper properties (`relative_coordinates`, `fallback_element`, `create_window_rect`) in isolation.                                                                                                                                                                                      |
+| `corpus_capture.rs`         | The [scripted-truth corpus](../verification/scripted-truth-corpus.md) producer (desktop leg) and the desktop conformance-vector fixture producer.                                                                                                                                                  |
+| `element_mapping_test.rs`   | UIA properties → `ElementDescription` mapping completeness.                                                                                                                                                                                                                                        |
+| `file_dialog_test.rs`       | Real file-dialog navigation produces no spurious events — local-only, see [`ci-skip`](#classification-and-ci) below.                                                                                                                                                                               |
+| `password_test.rs`          | Password masking: a password field's recorded `value` is always the mask glyph.                                                                                                                                                                                                                    |
+| `pid_filter_test.rs`        | The platform-agnostic PID base filter: own-process events discarded while self-capture exclusion is enabled, every other resolvable process kept whether that setting is on or off, and events from an unresolvable window (PID 0) discarded either way.                                           |
+| `scroll_test.rs`            | The batch algorithm's debounce and floor relative to the timing constants, plus one accumulator/batch boundary agreement; not the settle's value (`src/capture/timing.rs`'s debounce boundary cases hold it) or the accumulator's not-yet-elapsed branch (`windows_capture_test.rs`, `scroll.rs`). |
+| `windows_capture_test.rs`   | Pure-function and state-machine units: state transitions, the scroll accumulator and batch scroll, PID filtering, and the file-dialog helper.                                                                                                                                                      |
+| `worker_pool_test.rs`       | Worker-pool properties: sequence numbering, shortest-queue dispatch, sticky routing, drag-pair routing, and the dead-worker drain rescues (dispatch-time respawn and shutdown join) — the pipeline-level truth-lock.                                                                               |
 
 **Property-based tests** use [`proptest`](https://docs.rs/proptest) (the
 convention set in the
@@ -112,8 +112,8 @@ Each test file classifies itself from its own source — CI's discovery step
 derives the layers, so adding a test never edits a workflow. The
 classification rules and the `ci-skip` marker are owned by
 [the test pyramid](strategy/test-pyramid.md); the short version a test author
-needs here: importing `enigo` makes a binary **integration**, everything else
-is **unit**, and a `ci-skip` marker excludes a file from CI entirely.
+needs here: a top-level `use enigo` makes a binary **integration**, everything
+else is **unit**, and a `ci-skip` marker excludes a file from CI entirely.
 `file_dialog_test.rs` is today's one `ci-skip` user — it needs Notepad and a
 real dialog, which CI runners do not reliably provide; the suppressions it
 exercises are pinned on CI by `capture_integration.rs`'s deduplication tests.
@@ -134,9 +134,9 @@ its tests.
 - **A unit of one module's private logic** — the module's `#[cfg(test)]`
   block in `src/`.
 - **Anything exercising the crate's public surface** — a file in `tests/`,
-  named `<concern>_test.rs`, beside the ones above. Import `enigo` only if it
-  genuinely synthesizes input (that import is the integration classifier);
-  add `#[serial]` if it does.
+  named `<concern>_test.rs`, beside the ones above. Add a top-level `use enigo`
+  only if it genuinely synthesizes input (that import is the integration
+  classifier); add `#[serial]` if it does.
 - Whether a new binary joins the mutation run's per-mutant test list is not a
   choice made here: the membership criterion in
   [mutation testing](strategy/mutation.md) (§MUT-7) decides it from what the

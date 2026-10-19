@@ -131,8 +131,8 @@ whenever it arrives.
 level of the action's effect, not its gesture: the proxy records the action's
 kind and the parameters that define its effect, such as the context it acts on
 or a navigation's destination. The activation recorded beside a click into
-another window and Alt+Tab's proxy, which each switch the window in focus,
-share one entry shape (CP-17); a typed address
+another window and beside an Alt+Tab `key`, which each switch the window in
+focus, share one entry shape (CP-17); a typed address
 and a bookmark to the same page share the navigation's shape, told apart by one
 of its fields: a classification derived from the browser's transition type.
 

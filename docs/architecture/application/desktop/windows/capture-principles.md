@@ -35,10 +35,12 @@ numeric sequence.
 restored without delaying the user: the frontend delivers each event
 immediately, splicing it into the pending list by `sequence_id` (ordered
 insertion — no lag waiting on slower workers); an event that carries no id (a
-settled scroll) is appended at its arrival point, and neither internal ever
-reaches a stored or exported recording — the sequence id is stripped before
-the action is stored or exported, and the barrier completion marker below
-never enters the pending list. Committing a step then applies a
+scroll flushed with no arriving event — by the worker's periodic tick or by a
+buffer drain; a scroll an arriving event flushes carries that event's id) is
+appended at its arrival point, and neither internal ever reaches a stored or
+exported recording — the sequence id is stripped before the action is stored
+or exported, and the barrier completion marker below never enters the pending
+list. Committing a step then applies a
 **flush barrier**: the backend drains every worker's completed-but-held buffers
 into the action stream, emits a completion marker (the barrier _sentinel_, as
 [the capture pipeline](capture-pipeline.md) and its tests call it) onto that
@@ -53,9 +55,10 @@ The barrier does not wait on sequence numbers. The ids delivered to the frontend
 are legitimately a **subset** of those the input thread assigned — the workers
 drop or coalesce input, for example: lone Shift, Ctrl or Alt presses are
 dropped, a typing burst coalesces to one action carrying only its last id, and a
-settled scroll carries no id at all — so "wait until the highest id assigned has
-arrived" is both unsatisfiable in normal use and unable to tell a filtered id
-from a late one. Only the backend knows when each worker has finished, which is
+scroll flushed with no arriving event (the periodic tick or a buffer drain)
+carries no id at all — so "wait until the highest id assigned has arrived" is
+both unsatisfiable in normal use and unable to tell a filtered id from a late
+one. Only the backend knows when each worker has finished, which is
 what the drain-and-acknowledge barrier establishes.
 
 The barrier is **bounded** at every tier, and an expired bound MUST be
@@ -104,8 +107,9 @@ can mix both:
 [core CP-14](../../../../architecture/system/capture-principles.md#capture-surface)'s
 closed positive-enumeration principle: the two low-level input hooks
 (`WH_MOUSE_LL`, `WH_KEYBOARD_LL`), the correlated WinEvent classes in the
-[Input Correlation](#input-correlation) table, and the OS/shell proxies in the
-table below. Interactions that would appear covered but are not are kept as
+[Input Correlation](#input-correlation) table, and the window switches and
+OS/shell proxies in the table below. Interactions that would appear covered but
+are not are kept as
 [exceptions within the surface](#exceptions-within-the-surface) (core
 [CP-15](../../../../architecture/system/capture-principles.md#capture-surface)).
 
@@ -162,16 +166,17 @@ is itself the user action that makes that window foreground.
 
 ---
 
-## OS/Shell Proxies
+## Window Switches and OS/Shell Proxies
 
-**DCP-6.** These rows record a click into a different window,
-captured directly with its window's activation recorded beside it (core CP-17),
-and actions outside the hooks' visibility, captured by proxy (core CP-7):
+**DCP-6.** These rows record a click into a different window and an Alt+Tab,
+each captured directly with its window's activation recorded beside it (core
+CP-17), and actions outside the hooks' visibility, captured by proxy (core
+CP-7):
 
 | User action               | Captured as                         |
 | ------------------------- | ----------------------------------- |
 | Click a different window  | `context_switch` beside the `click` |
-| Alt+Tab                   | `context_switch`                    |
+| Alt+Tab                   | `context_switch` beside the `key`   |
 | Click title bar close (X) | `context_close`                     |
 | File dialog selection     | `file_dialog`                       |
 
@@ -183,14 +188,14 @@ and actions outside the hooks' visibility, captured by proxy (core CP-7):
 programmatic ones using **input correlation**: WinEvent callbacks MUST be
 dispatched only when correlated with a preceding low-level input event.
 
-| WinEvent                   | Correlation source  | Additional filter                                                                                                                               |
-| -------------------------- | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| `EVENT_SYSTEM_FOREGROUND`  | Any low-level input | Skipped when its root window is the one the last dispatched switch named (a click into a different window dispatches its switch at button-down) |
-| `EVENT_OBJECT_FOCUS`       | Any low-level input | Suppressed while the left button is held or within `CLICK_REDUNDANCY_MS` of a click (redundant)                                                 |
-| `EVENT_OBJECT_CREATE`      | Any low-level input | —                                                                                                                                               |
-| `EVENT_OBJECT_DESTROY`     | Any low-level input | Only if previously opened                                                                                                                       |
-| `EVENT_OBJECT_VALUECHANGE` | Keyboard input only | Same root window as keyboard                                                                                                                    |
-| `EVENT_OBJECT_SELECTION`   | Any low-level input | Same root window as the input; suppressed while the left button is held or within `CLICK_REDUNDANCY_MS` of a click (redundant)                  |
+| WinEvent                   | Correlation source  | Additional filter                                                                                                                                                                   |
+| -------------------------- | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `EVENT_SYSTEM_FOREGROUND`  | Any low-level input | Skipped when its root window is the one the last dispatched switch named (a click into a different window dispatches its switch at button-down)                                     |
+| `EVENT_OBJECT_FOCUS`       | Any low-level input | Suppressed while the left button is held or within `CLICK_REDUNDANCY_MS` of a click (redundant)                                                                                     |
+| `EVENT_OBJECT_CREATE`      | Any low-level input | A real, visible top-level window with no parent (no `WS_CHILD` style; `GetParent` returns nothing — for a popup window that is its owner); within `WINDOW_LIFECYCLE_CORRELATION_MS` |
+| `EVENT_OBJECT_DESTROY`     | Any low-level input | A titled, unowned top-level window whose open was dispatched and whose root is not the foreground window; within `WINDOW_LIFECYCLE_CORRELATION_MS`                                  |
+| `EVENT_OBJECT_VALUECHANGE` | Keyboard input only | Same root window as keyboard                                                                                                                                                        |
+| `EVENT_OBJECT_SELECTION`   | Any low-level input | Same root window as the input; suppressed while the left button is held or within `CLICK_REDUNDANCY_MS` of a click (redundant)                                                      |
 
 Both click gates treat a focus or selection event as an effect of the left
 press, which the press's own action records (a `click`, or the
@@ -220,8 +225,10 @@ root, selections against the root of the most recent input of any kind. This
 prevents dialog initialization noise (e.g. Ctrl+S in Notepad does not
 correlate with the Save As dialog's filename field pre-fill or its pre-selected
 filename ComboBox — the dialog's root received no input yet). "Any low-level
-input" means button presses and releases, key presses, and wheel — all of
-which refresh the correlation state.
+input" means the left, right and middle button presses, the left button's
+release, key presses and wheel — each of which refreshes the correlation
+state; a right or middle button's release, and an extra button's press (see
+the exceptions), refresh none.
 
 **DCP-9.** **Printable key buffering:** Printable keystrokes are buffered.
 If a value-change event arrives (producing a `type` action), the buffered
@@ -368,18 +375,68 @@ with a caveat):
   whose window title contains none of "save as", "save" or "open" — both tests
   English-only, so a localized dialog — produces no `file_dialog` action
 - A `type` whose value equals the worker's last for the same selector — not
-  written, and for a password field, whose value is the mask, every entry
-  after the first on that worker; a departure (core CP-18)
+  written, the keys buffered for it discarded with it, and for a password
+  field, whose value is the mask, every entry after the first on that worker;
+  a departure (core CP-18)
 - A focus whose selector equals the worker's last — not written; a departure
   (core CP-18)
 - A focus or value change on an element the accessibility layer cannot
   describe — not written, the keys buffered for the value change discarded
   with it; a departure (core CP-18)
-- A title-bar close of a window the recording did not see open — the target
-  window itself, introduced by a `context_switch` — records no
-  `context_close`: `EVENT_OBJECT_DESTROY` is dispatched only for a window
-  previously opened within the recording (DCP-7)
+- A title-bar close of a window the recording did not see open (a window open
+  before the recording started — the target window itself, introduced by a
+  `context_switch`, among them) — records no `context_close`:
+  `EVENT_OBJECT_DESTROY` is dispatched only for a window previously opened
+  within the recording (DCP-7); a departure (core CP-18)
+- An owned popup window (a dialog such as Find, for example) — its creation
+  records no `context_open` (DCP-7's `EVENT_OBJECT_CREATE` test), a
+  `context_switch` introduces it when its activation correlates, and its
+  title-bar close records no `context_close` (DCP-7); a departure (core CP-18)
+- An owned top-level window without the popup style — `GetParent` returns
+  nothing for it, so its creation, when DCP-7's create test passes, records a
+  `context_open`, and its close, which the destroy test's owner check drops,
+  records no `context_close`; a departure (core CP-18)
+- A window whose title is empty when it closes — its creation, when DCP-7's
+  create test passes, records a `context_open` (the create test reads no
+  title), its close none (the destroy test requires one); a departure (core
+  CP-18)
 - A selection the application changes within `SELECTION_CORRELATION_MS`
   (`src/capture/timing.rs`) of an input is recorded as a `select` — UI Automation carries no per-event trust
   flag, so a correlated application-fired selection cannot be told from the
   user's (the inverse of the assistive-technology limitation above)
+- Typing, focus and selection in the web content of a WebView2-based
+  application other than Docent — its content windows belong to the webview
+  runtime's process, which never equals the host's foreground process, so the
+  accessibility events they raise (focus, value change, selection) are dropped
+  in every filter setting — by the target filter when a target is selected, by
+  the exclusion's executable-name ground when none is and the exclusion is on,
+  and otherwise by the foreground gate (DCP-14); the key presses, attributed to
+  the host's foreground window, are written as `key` actions one by one, with
+  no value change to correlate them into a `type`; a departure (core CP-18)
+- Clicks, wheel and drags over that web content, while the self-capture
+  exclusion is on (its default, DCP-5) or the application is the selected
+  target — the mouse hook attributes them to the content window under the
+  pointer, whose process the exclusion's executable-name ground excludes and
+  which never equals a selected target's process — not written; a departure
+  (core CP-18): the content lies within the default or the selected scope, and
+  a filter's process test drops it
+- A window activation, opening or close that follows its causing input by more
+  than its correlation window (an Alt+Tab whose Alt is released late, a
+  slow-starting application, a window closed late after its click, for
+  example) — classified as programmatic: the `key` or `click` is written, the
+  `context_switch`, `context_open` or `context_close` is not; a departure
+  (core CP-18)
+- A window activation, opening or close whose causing input fell outside the
+  scope filters (a taskbar or Start-menu switch into a selected target, for
+  example) — classified as programmatic: no `context_switch`, `context_open`
+  or `context_close`
+- An extra mouse button press (the back and forward buttons) — it reaches the
+  mouse hook but is not written, the format having no action type for it
+- A drag that starts inside the captured scope and is released outside it —
+  the release is filtered, and the pair is dispatched only at release
+  (DCP-10), so nothing is written; a departure (core CP-18)
+- A drag that starts outside the captured scope and is released inside it —
+  captured with a caveat: a `click` at the release point, with no
+  `drag_start`/`drop` pair
+- A file chosen in a picker the application draws itself rather than the
+  system's common file dialog — no `file_dialog` action

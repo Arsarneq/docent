@@ -464,10 +464,10 @@ thread_local! {
     static INPUT_LAST_CLICK_TIMESTAMP: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
 }
 
-/// Record a low-level input event (button press or release, key press, or
-/// wheel) for WinEvent correlation: the timestamp gates whether a subsequent
-/// WinEvent is user-caused at all, the window scopes selection correlation to
-/// the root the input landed in.
+/// Record a low-level input event (a left, right or middle button press, the
+/// left button's release, a key press, or wheel) for WinEvent correlation: the
+/// timestamp gates whether a subsequent WinEvent is user-caused at all, the
+/// window scopes selection correlation to the root the input landed in.
 fn note_input(timestamp: u64, window_handle: i64) {
     INPUT_LAST_INPUT_TIMESTAMP.with(|t| t.set(timestamp));
     INPUT_LAST_INPUT_WINDOW.with(|w| w.set(window_handle));

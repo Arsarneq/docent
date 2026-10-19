@@ -11,9 +11,9 @@
 // `sync_http_request` command). It is deliberately a narrow, purpose-built
 // command rather than the general `tauri-plugin-http` `fetch` granted to JS, so
 // the only outbound primitive the webview can reach is this one, which:
-//   - enforces the same transport policy as the CSP `connect-src`:
-//     `https://` to any host, plaintext `http://` only to loopback, and never a
-//     link-local / cloud-metadata address (169.254.0.0/16); and
+//   - enforces the transport policy dispatch DI-11 states, independently of
+//     the webview CSP's `connect-src` (the application shell's Native HTTP
+//     Transport section); and
 //   - applies its own request timeout (the webview `signal` is not plumbed
 //     through `invoke`, so the timeout lives here).
 //
@@ -67,9 +67,10 @@ fn is_link_local_host(host: &str) -> bool {
     matches!(unbracket(host).parse::<IpAddr>(), Ok(IpAddr::V4(v4)) if v4.is_link_local())
 }
 
-/// Validate and parse a sync/dispatch target URL, enforcing the same transport
-/// policy as the webview `connect-src` CSP. Returns the parsed URL on
-/// success, or an actionable error string. This is the security-critical core
+/// Validate and parse a sync/dispatch target URL, enforcing the transport
+/// policy dispatch DI-11 states, independently of the webview `connect-src` CSP
+/// (the application shell's Native HTTP Transport section). Returns the parsed
+/// URL on success, or an actionable error string. This is the security-critical core
 /// and is unit-tested directly.
 ///
 /// Policy:
