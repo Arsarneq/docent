@@ -14,7 +14,7 @@
           "description": "Locator strategy identifier — selects which entry shape applies."
         }
       },
-      "description": "A locator candidate for the acted-on element. Match statistics (match_count / match_index) are measured within the acted-on element's top-level window (the window itself included), over the UI Automation Control view in depth-first pre-order (tree order, as returned by the automation engine), at the moment the acted-on element is described for capture. This platform describes elements asynchronously on a worker after the input that caused them, so the measurement reflects the tree as it stands when the description is built — the action's effects may already be underway. Click actions whose element was described directly at input time carry candidate values only, with the pair absent (not measured).",
+      "description": "A locator candidate for the acted-on element. Match statistics (match_count / match_index) are measured within the acted-on element's top-level window (the window itself included), over the UI Automation Control view in depth-first pre-order (tree order, as returned by the automation engine), at the moment the acted-on element is described for capture. This platform describes elements asynchronously on a worker after the input that caused them, so the measurement reflects the tree as it stands when the description is built — the action's effects may already be underway. Click actions whose element was described directly at input time carry candidate values only, with the pair absent (not measured). The index is measured over at most 50 elements; past them match_count is written with match_index absent (not measured).",
       "oneOf": [
         {
           "$ref": "#/$defs/locator_automation_id"
@@ -137,7 +137,7 @@
         },
         "value": {
           "type": "string",
-          "description": "Path of control types and names from the window root to the element, segments joined with \" > \"."
+          "description": "Path of control types and names from the window root to the element — every ancestor as Type:Name (Type when the name is empty) — segments joined with \" > \"; the walk climbs at most 20 ancestors, and the entry is absent when it did not confirm the window root (an element deeper than that, or a root the walk could not identify)."
         },
         "match_count": {
           "$ref": "#/$defs/locator_match_count"

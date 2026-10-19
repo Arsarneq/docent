@@ -149,6 +149,12 @@
       "justification": "Judgment at review: whether a context change is the first in a user action's causal chain, a cascade, or one with no user action behind it reads a causal chain no check can. The sufficiency lint (npm run sufficiency:check) holds one consequence mechanically: a context other than the recording's initial one that first appears on an entry other than a `context_open` or `context_switch` fails its context-introduced predicate."
     },
     {
+      "doc": "docs/architecture/system/capture-principles.md",
+      "clause": "CP-18",
+      "tag": "judgment-only",
+      "justification": "Judgment at review: whether a capture site writes every fact it holds for a field the format has, and trims, picks or masks only within the classes the clause names and the field's documentation discloses, reads the site's write path against that documentation, which no check can; the disclosure sentences the clause asks for are prose the review reads beside the site."
+    },
+    {
       "doc": "docs/technical/locator-resolution.md",
       "clause": "LR-1",
       "tag": "check-exists",

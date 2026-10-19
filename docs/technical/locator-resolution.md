@@ -38,7 +38,7 @@ parameter or an application change explains it, for example — belongs to
 conservatively — for eligibility exclusions — it MUST NOT use them to decide
 an outcome.
 
-**LR-3.** The recording's `locators[]` order remains semantics-free; any
+**LR-3.** The recording's `locators[]` order remains semantics-free (core CP-18); any
 evaluation order an implementation chooses has no effect on the outcome (see
 [No short-circuit](#the-algorithm)).
 
