@@ -142,7 +142,8 @@ pub enum BarrierCompletion {
     /// sentinel emitted after them. Every buffered action is recovered, but
     /// the drain is by arrival, not marker-exact: actions carrying a sequence
     /// id still splice into place in the frontend's pending list; id-less ones
-    /// (a settled scroll) append at arrival.
+    /// (a scroll flushed with no arriving event — the tick or a buffer drain)
+    /// append at arrival.
     FallbackDrained,
     /// No barrier ran: there was no active capture (nothing buffered, nothing
     /// to flush) or no capture backend exists on this platform. Always paired

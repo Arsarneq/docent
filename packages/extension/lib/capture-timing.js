@@ -14,8 +14,10 @@
  * than ~200ms apart. Anything under 100ms is reliably "same action."
  *
  * This file is imported by the service worker (ES module).
- * The content script (IIFE, not a module) duplicates these values inline
- * with a reference comment pointing here as the source of truth.
+ * The content script (IIFE, not a module) duplicates the values it uses inline
+ * with a reference comment pointing here as the source of truth. The recorder
+ * and the service worker also carry inline windows of their own that this
+ * module does not declare.
  */
 // Governance declared in scripts/area-map.json (see its declared-governance entry): these suppression windows decide whether context lifecycle actions are emitted or suppressed, so mis-tuning bears on the format's context-introduction rule; the per-platform schemas are authoritative for field semantics.
 
@@ -57,7 +59,7 @@ export const CLICK_FOCUS_DEDUP_WINDOW = 100;
 
 /**
  * Scroll settle debounce: a scroll action is committed once no further scroll
- * event arrives for this long, accumulating the deltas in between.
+ * event arrives for this long.
  */
 export const SCROLL_DEBOUNCE = 300;
 

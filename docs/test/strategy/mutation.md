@@ -101,8 +101,8 @@ on the Rust side the binaries of the registered cargo suite. Each engine then ha
 a class of its own taken out of that population by classification rather than as
 an exclusion recorded against it, the two standing in the same place: the
 property suites on the JavaScript side, and on the Rust side the integration
-class — the binaries an `enigo` import classifies as integration, a rule whose
-home is
+class — the binaries a top-level `use enigo` classifies as integration, a rule
+whose home is
 [Rust test self-classification](test-pyramid.md#rust-test-self-classification)
 and which the
 [desktop Rust suite](../desktop-rust.md#classification-and-ci) states for a test

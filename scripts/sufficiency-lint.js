@@ -332,7 +332,7 @@ export const RECORDING_PREDICATES = [
   {
     id: 'start-point',
     class: 'gap',
-    title: 'each context states where reproduction begins',
+    title: "the initial context's first action states where reproduction begins",
     // The format cannot state a starting point for the recording's initial
     // context today (no recording-level start URL / app identity — the
     // capture backlog's recording-context work). A context counts as covered

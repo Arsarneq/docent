@@ -96,9 +96,13 @@ MUST complete within half the ~200 ms deliberate-action floor — the shortest
 gap in which a human plausibly performs a deliberate action — so a frame is
 capture-ready before anyone can act in it (in practice the gap is well under
 the bound). The floor and the
-recorder's other timing windows are **causality proxies**, centralized with
-their doctrine in [`lib/capture-timing.js`](../../../../packages/extension/lib/capture-timing.js);
-an end-to-end spec enforces the readiness bound.
+recorder's other timing windows are **causality proxies**. The floor, with its
+doctrine, and the windows the module declares live in
+[`lib/capture-timing.js`](../../../../packages/extension/lib/capture-timing.js);
+the recorder carries its windows inline — copies of the module's values it uses,
+and windows of its own the module does not declare — and the service worker
+carries an inline window of its own, the repeat window ECP-12 names; an
+end-to-end spec enforces the readiness bound.
 
 ---
 
@@ -195,7 +199,7 @@ observable signals:
 - Chrome's `transitionType` identifies browser chrome navigations vs effects
 - `programmaticTabs` set tracks every tab created within 500 ms after an
   in-page action (`window.open()` and its like)
-- Timing windows centralized in `lib/capture-timing.js` (see code for values)
+- Timing windows (ECP-5 states where each lives; see code for values)
 
 The listed signals illustrate how this clause reads the stream;
 core CP-2 decides what the filter excludes: CP-6's effects, save a proxy (CP-7)
@@ -267,6 +271,9 @@ with a caveat):
 - Back/forward between same-document entries (an SPA's history) — a
   browser-chrome action; the worker's committed-navigation listener does not
   report it
+- Back/forward that moves only an embedded frame's document — the committed
+  navigation is the frame's, and the worker proxies a tab's main-frame
+  navigations only, so no `navigate` is written
 - A second navigation to the same address within the worker's repeat window
   (five seconds) of the last recorded one, reloads excepted — dropped as a
   repeat, a genuine re-navigation the user asked for dropped with it; a
@@ -275,8 +282,10 @@ with a caveat):
   committed navigation carries a redirect qualifier and the handler skips it,
   so a typed address the site redirects records no `navigate`; a departure
   (core CP-18)
-- A typed address on an internal scheme (`chrome://`, `chrome-extension://`,
-  `about:`) — the worker skips those schemes before any proxy is considered
+- A navigation into an internal scheme (`chrome://`, `chrome-extension://`,
+  `about:`), a typed address among them — the worker skips those schemes for
+  every navigation, whatever its transition type, before any proxy is
+  considered
 - `window.open()` detection uses a timing window (see `capture-timing.js`)
 - A tab the user opened (Ctrl+T, Ctrl+N, Ctrl+Shift+T) within 500 ms after an
   in-page action — no `context_open` written, the tab being taken for a
@@ -285,13 +294,17 @@ with a caveat):
 - The close, within 2000 ms after an in-page action, of a tab the user opened
   within 500 ms after an in-page action — not written, the tab being in the
   programmatic set; a departure (core CP-18)
+- The user's close (Ctrl+W or the tab's X), within 2000 ms after an in-page
+  action, of a tab a page opened — not written, the close being taken for the
+  page's `window.close()`; a departure (core CP-18)
 - A click or right-click whose picked element is the body or the document
   element — not written; a departure (core CP-18)
 - A captured key other than Tab while nothing is focused — not written; a
   departure (core CP-18)
 - A `type` on an input or textarea when a button or input marked
-  `type="submit"` in the same form was pressed within 100 ms of the change —
-  not written; a departure (core CP-18;
+  `type="submit"` in the same form was pressed, with any mouse button, within
+  100 ms of the change — not written (a `<button>` with no `type` attribute
+  does not trigger the skip); a departure (core CP-18;
   [docent#223](https://github.com/Arsarneq/docent/issues/223))
 - The first activation of a tab opened in the background, when no tab was
   created after it — not written; a departure (core CP-18)
@@ -300,6 +313,10 @@ with a caveat):
 - The activation of a `chrome://` or `chrome-extension://` tab — not written,
   the internal schemes being outside the surface as for a typed address
 - A Tab-focus of a password field — not written; a departure (core CP-11)
+- A Tab focus move onto an element other than an input, a textarea or a
+  contenteditable host (a button, a link or a select, for example) — no
+  `focus` is written; the Tab `key` is written against the element it left; a
+  departure (core CP-18)
 - Scroll gestures are debounced and coalesced with a sub-threshold discard —
   the shared rule in
   [core CP-16](../../../architecture/system/capture-principles.md#capture-surface);
@@ -326,3 +343,35 @@ with a caveat):
   the change — a chooser opened from the keyboard (Enter on the control, whose
   detail-0 click is suppressed), a click the page scripted on the input, or a
   choice made later — no `file_upload` is recorded; a departure (core CP-18)
+- Input in a page between its navigation and the completion of its load — the
+  recorder is injected as the frame finishes loading (ECP-2), so an action
+  taken while the page is still loading is not captured; ECP-5's readiness
+  bound runs from that load completion
+- Input in a page or frame the browser does not let the extension inject (the
+  browser decides which: the Chrome Web Store, a PDF in the built-in viewer, a
+  `file://` page while file access is off and a host an enterprise policy
+  blocks, for example) — not captured; a browser-chrome navigation into it
+  still is
+- A link followed in a page the extension cannot inject — the click reaches no
+  recorder and the worker skips the `link` navigation as an in-page effect, so
+  neither is written; a departure (core CP-18)
+- A value committed in an input, textarea or select inside a shadow root —
+  `change` does not cross the shadow boundary to the recorder's `document`
+  listener, so no `type` or `select` is written
+- Actions in a tab after a service-worker suspension, once one frame of that
+  tab has registered again and the frame acted in has not — the tab's registry
+  entry exists, so no lazy reseed runs (ECP-3), and the frame-trust gate drops
+  the actions until that frame registers again (as it finishes a load, or
+  when its reinjected recorder reports ready) or the next record-start; a
+  departure (core CP-18)
+- Editing in a contenteditable host whose attribute is neither `""` nor
+  lower-case `true` (`plaintext-only` or `TRUE`, for example), or in a host
+  inside a shadow root — not taken for a contenteditable host, so no `type` is
+  written; a departure (core CP-18)
+- Editing in a contenteditable host whose text exceeds 500 characters —
+  captured with a caveat: the `type` value is cut at 500 characters with no
+  mark of the cut ([docent#238](https://github.com/Arsarneq/docent/issues/238));
+  a departure (core CP-18)
+- Text dragged from one contenteditable host into another — only the edit of
+  the host whose `input` fired last is written, the other host's edit is not;
+  a departure (core CP-18)

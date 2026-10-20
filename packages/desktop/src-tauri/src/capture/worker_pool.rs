@@ -1327,7 +1327,8 @@ fn process_raw_event<B: AccessibilityBackend>(
         }
         RawEventType::WindowCreate => {
             // The executable path is the documented `source` for desktop
-            // context lifecycle actions; empty reads stay honest as None.
+            // context lifecycle actions; `process_name` returns a `String`,
+            // and an empty read is written as a `None` source below.
             let process = backend.process_name(raw.window_handle);
             let _ = action_sender.send(ActionEvent {
                 timestamp: raw.timestamp,

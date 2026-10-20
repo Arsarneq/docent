@@ -1,8 +1,8 @@
 // Unit tests for Windows capture components.
 //
-// These tests verify state transitions, scroll accumulator behaviour,
-// PID filtering, and key mapping logic. They test pure functions and
-// state machines that do not require Windows API calls.
+// These tests cover state transitions, the scroll accumulator and batch
+// scroll, PID filtering, and the file-dialog helper. They test pure functions
+// and state machines that do not require Windows API calls.
 //
 
 use docent_desktop_lib::capture::scroll::{

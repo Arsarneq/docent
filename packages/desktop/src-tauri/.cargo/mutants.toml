@@ -9,11 +9,10 @@
 # edit to both surfaces.
 #
 # The live-input capture path in the rest of the backend is deliberately
-# unmutated: its only exercising tests synthesize real OS input and are excluded
-# from the per-mutant test runs, so its mutants would survive en masse and tell
-# us nothing. That path is guarded by the input-synthesis integration suites and
-# the scripted-truth corpus instead — an accepted, documented gap of this tool,
-# not an oversight.
+# unmutated: the tests that exercise it either synthesize real OS input or
+# drive it through process-global input hooks and run serially, and both
+# classes are excluded from the per-mutant test runs
+# (docs/test/strategy/mutation.md §MUT-3).
 examine_globs = [
   "src/capture/action_mapping.rs",
   "src/capture/element_mapping.rs",
