@@ -77,7 +77,7 @@
   },
   "overrides": {
     "js-yaml": "^4.2.0",
-    "markdown-it": "^14.3.2",
+    "markdown-it": "^14.3.3",
     "qs": "^6.15.2",
     "smol-toml": "^1.9.0"
   },
