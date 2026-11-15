@@ -157,7 +157,7 @@ machinery under `scripts/`.
 | `lock-unlock-round-trip.property.test.js` | Closing a lock makes the recording eligible again on the very next cycle. |
 | `locked-recording-exclusion.property.test.js` | A locked recording is excluded from the inbound merge while every other Unit in the same cycle still reconciles. |
 | `locked-recording-push-preservation.property.test.js` | A locked recording stays in the outbound payload at its agreed-or-pulled version, never at its un-reconciled local edits. |
-| `next-release-version.test.js` | The commit-to-semver bump classifier and the increment arithmetic it relies on. |
+| `next-release-version.test.js` | The commit-to-semver bump classifier and the increment arithmetic it relies on, the release base the bump is applied to (the latest final tag, or the app file when no tag is found), the per-platform suggestion built on it, and the read of a git log larger than the default child-process buffer. |
 | `no-baseline-no-one-sided-change.property.test.js` | With no recorded baseline, classification never attributes a change to one side. |
 | `no-discard-no-overwrite.property.test.js` | A cycle discards nothing and overwrites nothing without a resolution. |
 | `no-permanent-loss.property.test.js` | Across cycles interleaved with resolutions, no committed local step record is ever permanently lost. |
