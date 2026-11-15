@@ -595,6 +595,10 @@ function showView(viewKey) {
   views[viewKey].classList.remove('hidden');
   if (['projects', 'newProject', 'project', 'newRecording'].includes(viewKey)) {
     activeRecording = null;
+    // A re-record belongs to the recording it was started in: leaving that
+    // recording ends it, as Cancel does, so the next recording's first commit
+    // can never take the earlier step's logical id.
+    endRerecord();
   }
   updateBreadcrumb(viewKey);
 }
@@ -1324,19 +1328,29 @@ async function openRerecord(step) {
   updateCommitButton();
 }
 
-btnRerecordCancel.addEventListener('click', async () => {
+/**
+ * End a re-record without committing it: forget the step it targets, hide its
+ * banner and clear the narration it pre-filled. A no-op when none is active.
+ */
+function endRerecord() {
+  if (rerecordLogicalId === null) return;
   rerecordLogicalId = null;
+  previousRecordingView = null;
   rerecordBanner.classList.add('hidden');
   narrationInput.value = '';
+}
+
+btnRerecordCancel.addEventListener('click', async () => {
+  const wasRecordingBefore = previousRecordingView;
+  endRerecord();
   clearLiveActionList();
   adapter.clearPendingActions();
   pendingCount = 0;
 
-  if (!previousRecordingView) {
+  if (!wasRecordingBefore) {
     await invoke('stop_capture');
     isRecording = false;
   }
-  previousRecordingView = null;
   updateRecordingUI();
   updateCommitButton();
 });
