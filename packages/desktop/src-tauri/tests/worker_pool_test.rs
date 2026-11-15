@@ -2392,6 +2392,168 @@ fn win_l_key_combo_is_captured_if_received() {
 }
 
 // ---------------------------------------------------------------------------
+// Unicode-injected keystrokes (VK_PACKET) — docent#260
+// ---------------------------------------------------------------------------
+//
+// Text injected with `SendInput` and `KEYEVENTF_UNICODE` (IME results, remote
+// desktop stacks, software keyboards, automation) reaches the low-level hook as
+// `VK_PACKET` (0xE7) keydowns whose scan code is the injected UTF-16 code unit;
+// the hook hands that unit to the worker in `callback_params[0]`. These pin the
+// worker's side: such a keystroke is printable input, buffered like a layout
+// printable so a value change supersedes it, and named by its character when
+// no value change arrives.
+
+const VK_PACKET: u32 = 0xE7;
+
+/// Wall-clock milliseconds, so the worker's debounce tick (which compares
+/// against the real clock) holds buffered keys until the test's own events land.
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u64
+}
+
+/// A `VK_PACKET` keydown carrying one UTF-16 code unit, as the hook builds it.
+fn packet_key(seq: u64, timestamp: u64, unit: u16) -> RawEvent {
+    RawEvent {
+        event_type: RawEventType::Keyboard,
+        sequence_id: seq,
+        timestamp,
+        screen_x: 0,
+        screen_y: 0,
+        window_handle: 1234,
+        process_id: 1,
+        key_code: VK_PACKET,
+        modifiers: (false, false, false, false),
+        scroll_delta: 0.0,
+        callback_params: [i64::from(unit), 0, 0, 0],
+        pre_captured_element: None,
+    }
+}
+
+fn key_names_of(events: &[ActionEvent]) -> Vec<String> {
+    events
+        .iter()
+        .filter_map(|e| match &e.payload {
+            ActionPayload::Key { key, .. } => Some(key.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Regression for docent#260: injected keystrokes followed by the value change
+/// they caused are recorded as the one `type`, with no `key` beside it.
+#[test]
+fn regression_260_injected_keys_are_superseded_by_the_type() {
+    let backend = MockBackend::new();
+    let harness = WorkerTestHarness::new(backend);
+
+    let t = now_ms();
+    for (i, unit) in "hi".encode_utf16().enumerate() {
+        harness.send_event(packet_key(i as u64 + 1, t + i as u64, unit));
+    }
+    let mut value_change = make_raw_event(RawEventType::ValueChange, 1234);
+    value_change.sequence_id = 3;
+    value_change.timestamp = t + 2;
+    harness.send_event(value_change);
+
+    // Past TYPE_DEBOUNCE_MS (500 ms), so the type flushes on the worker's tick.
+    thread::sleep(Duration::from_millis(900));
+    let events = harness.shutdown();
+
+    assert_eq!(
+        key_names_of(&events),
+        Vec::<String>::new(),
+        "injected keystrokes must be superseded by the type, got {events:?}"
+    );
+    let type_count = events
+        .iter()
+        .filter(|e| matches!(e.payload, ActionPayload::Type { .. }))
+        .count();
+    assert_eq!(
+        type_count, 1,
+        "expected the one coalesced type, got {events:?}"
+    );
+}
+
+/// Regression for docent#260: with no value change (a control that is not
+/// editable), injected keystrokes are written as keys named by the character
+/// they carried — never `VK_0xE7`, which names no key the person pressed.
+#[test]
+fn regression_260_injected_keys_without_a_type_are_named_by_their_character() {
+    let backend = MockBackend::new();
+    let harness = WorkerTestHarness::new(backend);
+
+    let t = now_ms();
+    for (i, unit) in "hé".encode_utf16().enumerate() {
+        harness.send_event(packet_key(i as u64 + 1, t + i as u64, unit));
+    }
+
+    thread::sleep(Duration::from_millis(900));
+    let events = harness.shutdown();
+
+    assert_eq!(
+        key_names_of(&events),
+        vec!["h".to_string(), "é".to_string()]
+    );
+}
+
+/// A code unit that is no character on its own — either half of a surrogate
+/// pair, or a control character — is still buffered (so a value change
+/// supersedes it), and when written it carries `Unidentified`, the key value
+/// for a key whose identity is not known, rather than a made-up name.
+#[test]
+fn regression_260_injected_units_that_are_no_character_are_unidentified() {
+    let backend = MockBackend::new();
+    let harness = WorkerTestHarness::new(backend);
+
+    let t = now_ms();
+    // U+1F600 as its surrogate pair, then a carriage return.
+    let units: Vec<u16> = "😀\r".encode_utf16().collect();
+    assert_eq!(units.len(), 3);
+    for (i, unit) in units.iter().enumerate() {
+        harness.send_event(packet_key(i as u64 + 1, t + i as u64, *unit));
+    }
+
+    thread::sleep(Duration::from_millis(900));
+    let events = harness.shutdown();
+
+    assert_eq!(
+        key_names_of(&events),
+        vec!["Unidentified".to_string(); 3],
+        "no unit should be named VK_0xE7 or by a lone surrogate, got {events:?}"
+    );
+}
+
+/// The supersede rule holds for the units that are no character too: a value
+/// change after an injected surrogate pair leaves only the `type`.
+#[test]
+fn regression_260_injected_surrogate_pair_is_superseded_by_the_type() {
+    let backend = MockBackend::new();
+    let harness = WorkerTestHarness::new(backend);
+
+    let t = now_ms();
+    let units: Vec<u16> = "😀".encode_utf16().collect();
+    for (i, unit) in units.iter().enumerate() {
+        harness.send_event(packet_key(i as u64 + 1, t + i as u64, *unit));
+    }
+    let mut value_change = make_raw_event(RawEventType::ValueChange, 1234);
+    value_change.sequence_id = 3;
+    value_change.timestamp = t + 2;
+    harness.send_event(value_change);
+
+    thread::sleep(Duration::from_millis(900));
+    let events = harness.shutdown();
+
+    assert_eq!(
+        key_names_of(&events),
+        Vec::<String>::new(),
+        "got {events:?}"
+    );
+}
+
+// ---------------------------------------------------------------------------
 // Sacred-buffer drains on the dead-worker paths
 // ---------------------------------------------------------------------------
 //

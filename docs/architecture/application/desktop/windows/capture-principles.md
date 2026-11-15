@@ -233,7 +233,12 @@ the exceptions), refresh none.
 **DCP-9.** **Printable key buffering:** Printable keystrokes are buffered.
 If a value-change event arrives (producing a `type` action), the buffered
 keys are discarded (superseded). If no value-change arrives (non-editable
-control like Calculator), the keys are emitted individually.
+control like Calculator), the keys are emitted individually. A keystroke
+injected as Unicode (`VK_PACKET`, the path of IME results, remote-desktop
+stacks, software keyboards and automation) is printable input whatever it
+carries: the hook passes on its scan code, which is the injected UTF-16 code
+unit, and the worker names the key by that character, so the same text is
+never recorded twice.
 
 Timing constants and correlation windows live in `src/capture/timing.rs`.
 

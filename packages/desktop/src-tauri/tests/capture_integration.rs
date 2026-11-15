@@ -1633,6 +1633,21 @@ mod capture_behaviour {
             "Expected at most 1 coalesced type event, got {}",
             type_events.len()
         );
+
+        // enigo.text() injects Unicode keystrokes (VK_PACKET). No count is
+        // asserted (focus on a headless runner may not reach this window, see
+        // printable_keys_are_captured_when_no_type_event_arrives), but any
+        // such keystroke that is captured is named by the character it
+        // carried, never `VK_0xE7` (docent#260): the hook's scan code is the
+        // injected code unit.
+        for e in keys(&events) {
+            if let ActionPayload::Key { key, .. } = &e.payload {
+                assert!(
+                    ["h", "e", "l", "o"].contains(&key.as_str()),
+                    "an injected keystroke must be named by its character, got {key:?}"
+                );
+            }
+        }
     }
 
     #[test]
