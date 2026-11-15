@@ -70,6 +70,7 @@ export default [
         FileReader: 'readonly',
         DragEvent: 'readonly',
         DataTransfer: 'readonly',
+        WebSocket: 'readonly',
       },
     },
   },
@@ -179,6 +180,7 @@ export default [
         setInterval: 'readonly',
         clearInterval: 'readonly',
         setImmediate: 'readonly',
+        crypto: 'readonly',
       },
     },
   },
@@ -210,6 +212,7 @@ export default [
         DataTransfer: 'readonly',
         File: 'readonly',
         HTMLInputElement: 'readonly',
+        WebSocket: 'readonly',
       },
     },
     rules: {

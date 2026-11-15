@@ -40,6 +40,19 @@ directly: every model mutation flows as a message to the service worker,
 which owns the model keys in storage (the
 [write-ownership contract](#storage-keys-and-write-ownership) below).
 
+The side panel also hosts the opt-in
+[local control channel](../../../api/control-channel.md): one outward
+WebSocket to the loopback address, through which a paired local process
+triggers the panel's own structuring actions. It adds nothing to the surfaces
+this document specifies:
+
+| Runtime surface      | What the channel adds                                             |
+| -------------------- | ----------------------------------------------------------------- |
+| Service worker state | Nothing — the worker is not told the channel exists               |
+| Message protocol     | No message type — a command sends the messages a click sends      |
+| Storage keys         | No key — the channel's whole state is in the panel page's memory  |
+| Permissions          | None — the panel page's content security policy names the address |
+
 ---
 
 ## Lifecycle and the persisted-state model

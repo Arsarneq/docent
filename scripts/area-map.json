@@ -50,6 +50,14 @@
         "docs/user/troubleshooting.md"
       ]
     },
+    "extension/control-channel": {
+      "code": [
+        "packages/extension/sidepanel/{control-channel,control-channel-host,control-commands}.js",
+        "packages/extension/tests/unit/{control-channel,control-channel-host,control-commands}.test.js",
+        "packages/extension/tests/e2e/specs/control-channel.spec.js"
+      ],
+      "docs": ["docs/api/control-channel.md"]
+    },
     "extension/tests": {
       "code": ["packages/extension/tests/**"],
       "docs": [
@@ -454,12 +462,13 @@
     },
     {
       "path": "packages/extension/sidepanel/panel.js",
-      "reason": "The extension panel — its committed format pointer would drag the schema-contract set onto a module that emits no locators; this declaration states its true governors: the sidepanel area's docs, the format doc its commit logic implements, and the two design records its views implement (the shared interaction model and the sync-resolution design).",
+      "reason": "The extension panel — its committed format pointer would drag the schema-contract set onto a module that emits no locators; this declaration states its true governors: the sidepanel area's docs, the format doc its commit logic implements, the two design records its views implement (the shared interaction model and the sync-resolution design), and the local control channel it hosts and carries out commands for.",
       "governed-by": [
         "area:extension/sidepanel",
         "docs/technical/session-format.md",
         "docs/design/ui_ux/shared-interaction-model.md",
-        "docs/design/ui_ux/sync-resolution-ui.md"
+        "docs/design/ui_ux/sync-resolution-ui.md",
+        "docs/api/control-channel.md"
       ]
     },
     {
@@ -732,13 +741,14 @@
     },
     {
       "path": "packages/shared/tests/unit/security.test.js",
-      "reason": "The shared security suite — each doc here is one of its subjects: escaping and the assembled panel pages' policy meta tags (the shared-core doc owns the fragment and the assembly), payload and export secrecy (the dispatch doc, whose DI-6 and DI-10 rows cite this suite), the export structure the format doc defines, the storage-key naming the persistence doc states, and the extension manifest's permissions and web-accessible resources the permissions doc enumerates. The unit-suite orientation lists it.",
+      "reason": "The shared security suite — each doc here is one of its subjects: escaping and the assembled panel pages' policy meta tags (the shared-core doc owns the fragment and the assembly), payload and export secrecy (the dispatch doc, whose DI-6 and DI-10 rows cite this suite), the export structure the format doc defines, the storage-key naming the persistence doc states, and the extension manifest's permissions and web-accessible resources the permissions doc enumerates, and the panel page's one WebSocket source the local control channel doc states (its LC-3 row cites this suite). The unit-suite orientation lists it.",
       "governed-by": [
         "docs/architecture/system/shared-core.md",
         "docs/api/dispatch.md",
         "docs/technical/session-format.md",
         "docs/architecture/system/persistence.md",
         "docs/architecture/application/extension/permissions.md",
+        "docs/api/control-channel.md",
         "docs/test/unit.md"
       ]
     },

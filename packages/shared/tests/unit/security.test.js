@@ -605,6 +605,39 @@ describe('Security: Content-Security-Policy meta tag', () => {
       'Desktop CSP must include connect-src directive',
     );
   });
+
+  /** The sources of one CSP directive in a shell's meta tag. */
+  function cspSources(shell, directive) {
+    const policy = shell.match(/http-equiv="Content-Security-Policy"\s+content="([^"]*)"/)?.[1];
+    assert.ok(policy, 'shell must state its policy in a meta tag');
+    const entry = policy
+      .split(';')
+      .map((part) => part.trim().split(/\s+/))
+      .find(([name]) => name === directive);
+    return entry ? entry.slice(1) : [];
+  }
+
+  it('extension panel may open a WebSocket to IPv4 loopback only', () => {
+    // The local control channel's socket is the panel's one WebSocket use. The
+    // policy names the loopback literal, so the browser refuses any other
+    // WebSocket host whatever the panel's code asks for.
+    const webSocketSources = cspSources(extensionShell, 'connect-src').filter((source) =>
+      /^wss?:/i.test(source),
+    );
+    assert.deepEqual(webSocketSources, ['ws://127.0.0.1:*']);
+  });
+
+  it('extension panel CSP names no wildcard source', () => {
+    assert.ok(!cspSources(extensionShell, 'connect-src').includes('*'));
+    assert.ok(!cspSources(extensionShell, 'default-src').includes('*'));
+  });
+
+  it('desktop app CSP allows no WebSocket source', () => {
+    assert.deepEqual(
+      cspSources(desktopShell, 'connect-src').filter((source) => /^wss?:/i.test(source)),
+      [],
+    );
+  });
 });
 
 // ─── Adversarial Dispatch Endpoint Tests ─────────────────────────────────────

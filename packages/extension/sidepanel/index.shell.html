@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self'; style-src 'self'; connect-src http: https:;"
+      content="default-src 'self'; script-src 'self'; style-src 'self'; connect-src http: https: ws://127.0.0.1:*;"
     />
     <title>Docent</title>
     <link rel="stylesheet" href="../shared/views/panel.css" />
@@ -15,6 +15,29 @@
     <header>
       <div class="header-right">
         <div id="recording-badge" class="badge badge--idle">Idle</div>
+        <button
+          id="btn-control-channel"
+          class="btn btn--icon"
+          title="Local control"
+          aria-label="Local control"
+          aria-expanded="false"
+          aria-controls="control-channel-setup"
+        >
+          <svg
+            viewBox="0 0 20 20"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+            aria-hidden="true"
+          >
+            <path
+              d="M7 6 3 10l4 4M13 6l4 4-4 4"
+              stroke="currentColor"
+              stroke-width="1.6"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+          </svg>
+        </button>
         <button id="btn-settings" class="btn btn--icon" title="Settings" aria-label="Settings">
           <svg
             viewBox="0 0 20 20"
@@ -76,6 +99,42 @@
         Keep recording
       </button>
     </div>
+
+    <!-- Local control channel. View-independent (outside the injected views)
+         and extension-only: the indicator shows on every view for as long as
+         the channel is on, and the setup group opens from the header button. -->
+    <div
+      id="control-channel-indicator"
+      class="storage-quota-banner hidden"
+      role="status"
+      aria-live="polite"
+    >
+      <span>
+        <span id="control-channel-indicator-text"></span>
+        <code id="control-channel-code" class="hidden"></code>
+      </span>
+      <button id="btn-control-channel-off" class="btn btn--ghost btn--sm">Turn off</button>
+    </div>
+    <section id="control-channel-setup" class="settings-group hidden" aria-label="Local control">
+      <span class="settings-label">Local control</span>
+      <p class="settings-hint">
+        Lets a program on this computer create a project and a recording, pause and resume capture,
+        and commit steps. It is off until you turn it on, and it turns off when this panel closes.
+      </p>
+      <label class="settings-label mt-12" for="control-channel-port">Port on this computer</label>
+      <input
+        id="control-channel-port"
+        type="text"
+        inputmode="numeric"
+        value="8765"
+        aria-describedby="control-channel-error"
+      />
+      <p id="control-channel-error" class="settings-field-error hidden"></p>
+      <div class="form-actions">
+        <button id="btn-control-channel-on" class="btn btn--primary btn--sm">Turn on</button>
+      </div>
+      <p id="control-channel-notice" class="settings-hint hidden" role="status"></p>
+    </section>
 
     <!-- SHARED_VIEWS -->
 

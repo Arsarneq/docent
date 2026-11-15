@@ -236,6 +236,7 @@ const SUITE_HELD_HOLDINGS = {
   '.github/workflows/scorecard.yml':
     "the disposition suite's schedule welds — the cron field, its comment, and the guide's row and section",
   'README.md': "the version-sync step's table",
+  'docs/api/control-channel.md': "the preamble suite's registry link",
   'docs/api/dispatch.md': "the preamble suite's registry link and its clause-text anchors",
   'docs/api/sync-protocol.md': "the preamble suite's registry link",
   'docs/architecture/application/desktop/windows/application-shell.md':

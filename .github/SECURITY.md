@@ -65,6 +65,11 @@ Docent has several capabilities with distinct attack surfaces:
 - The extension encrypts stored dispatch/sync API keys at rest — see [Protecting stored credentials](#protecting-stored-credentials).
 - Vulnerabilities that allow unauthorised access to persisted session data or settings are in scope.
 
+### Local control channel
+
+- The Chrome extension's side panel can open one WebSocket to a port on the loopback address, through which a local process that proves it holds a one-time pairing code runs a closed set of structuring actions. It is off until a person turns it on, and it ends when the panel closes — see the [Local Control Channel](../docs/api/control-channel.md#threat-model) specification.
+- Vulnerabilities that allow the channel to be used without a person turning it on, pairing without the code, a connection to anything but the loopback address, a command outside the closed set, or captured data crossing the channel are in scope.
+
 ### OS-level permissions
 
 - The desktop application uses OS accessibility APIs and global input hooks. On future platforms (Linux — see [#84](https://github.com/Arsarneq/docent/issues/84)), this may require explicit user permission grants.

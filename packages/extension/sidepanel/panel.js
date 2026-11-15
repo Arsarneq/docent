@@ -41,6 +41,8 @@ import {
 } from '../shared/sync-conflict-ui.js';
 import { buildExport } from '../shared/lib/export-project.js';
 import adapter from './adapter-chrome.js';
+import { createControlChannelHost } from './control-channel-host.js';
+import { createControlExecutor } from './control-commands.js';
 import {
   escapeHtml,
   renderProjectList as renderProjectListHtml,
@@ -445,14 +447,19 @@ importFileInput.addEventListener('change', async () => {
 
 btnNewProjectCancel.addEventListener('click', () => showView('projects'));
 
-btnNewProjectCreate.addEventListener('click', async () => {
-  const name = newProjectName.value.trim() || 'Untitled Project';
+/** The New project action: create the project and show it. */
+async function createProjectNamed(name) {
   const { project } = await send({ type: 'PROJECT_CREATE', name });
   activeProject = project;
   activeRecording = null;
   renderProjectDetail();
   showView('project');
-});
+  return project;
+}
+
+btnNewProjectCreate.addEventListener('click', () =>
+  createProjectNamed(newProjectName.value.trim() || 'Untitled Project'),
+);
 
 newProjectName.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') btnNewProjectCreate.click();
@@ -516,8 +523,8 @@ btnNewRecording.addEventListener('click', () => {
 
 btnNewRecordingCancel.addEventListener('click', () => showView('project'));
 
-btnNewRecordingCreate.addEventListener('click', async () => {
-  const name = newRecordingName.value.trim() || 'Untitled Recording';
+/** The New recording action: create it in the open project and start capture. */
+async function createRecordingNamed(name) {
   // Stop any in-progress recording before switching recordings
   await send({ type: 'RECORDING_STOP' });
   const { recording, project } = await send({ type: 'RECORDING_CREATE', name });
@@ -526,7 +533,12 @@ btnNewRecordingCreate.addEventListener('click', async () => {
   activeSteps = [];
   isRecording = true;
   enterRecordingView();
-});
+  return recording;
+}
+
+btnNewRecordingCreate.addEventListener('click', () =>
+  createRecordingNamed(newRecordingName.value.trim() || 'Untitled Recording'),
+);
 
 newRecordingName.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') btnNewRecordingCreate.click();
@@ -733,16 +745,18 @@ recordingTitle.addEventListener('click', async () => {
   updateBreadcrumb('recording');
 });
 
-btnToggleRecording.addEventListener('click', async () => {
-  if (isRecording) {
-    await send({ type: 'RECORDING_STOP' });
-    isRecording = false;
-  } else {
+/** The Pause / Resume action: stop or start capture for the open recording. */
+async function setCapturing(on) {
+  if (on) {
     await send({ type: 'RECORDING_START' });
-    isRecording = true;
+  } else {
+    await send({ type: 'RECORDING_STOP' });
   }
+  isRecording = on;
   updateRecordingUI();
-});
+}
+
+btnToggleRecording.addEventListener('click', () => setCapturing(!isRecording));
 
 // ─── Step narration ───────────────────────────────────────────────────────────
 
@@ -798,42 +812,51 @@ async function commitStepSimple(logicalId) {
         ? (document.querySelector('input[name="step-expect"]:checked')?.value ?? 'present')
         : undefined;
 
-    const wasRecording = isRecording;
-
-    if (isRecording) {
-      await send({ type: 'RECORDING_STOP' });
-      isRecording = false;
-    }
-
-    const payload = {
-      type: 'STEP_COMMIT',
-      step_type: stepType,
-      logical_id: logicalId ?? undefined,
-    };
+    const payload = { step_type: stepType, logical_id: logicalId ?? undefined };
     if (expect) payload.expect = expect;
-
-    const response = await send(payload);
-
-    if (response?.ok) {
-      activeSteps = response.activeSteps;
-      clearLiveActionList();
-      renderStepList();
-      // Clear re-record state if active
-      if (rerecordLogicalId) {
-        rerecordLogicalId = null;
-        rerecordBanner.classList.add('hidden');
-        previousRecordingView = null;
-      }
-    }
-
-    if (wasRecording) {
-      await send({ type: 'RECORDING_START' });
-      isRecording = true;
-    }
-    updateRecordingUI();
+    await submitStepCommit(payload);
   } finally {
     commitInProgress = false;
   }
+}
+
+/**
+ * The Done this step action, shared by both step-context modes and the local
+ * control channel: pause capture around the commit, send it, and bring the step
+ * list and the re-record state up to date. Resolves with the worker's response.
+ * The caller holds `commitInProgress`.
+ */
+async function submitStepCommit(payload) {
+  const wasRecording = isRecording;
+  const recordingAtStart = activeRecording;
+
+  if (isRecording) {
+    await send({ type: 'RECORDING_STOP' });
+    isRecording = false;
+  }
+
+  const response = await send({ type: 'STEP_COMMIT', ...payload });
+
+  if (response?.ok) {
+    activeSteps = response.activeSteps;
+    clearLiveActionList();
+    renderStepList();
+    // Clear re-record state if active
+    if (rerecordLogicalId) {
+      rerecordLogicalId = null;
+      rerecordBanner.classList.add('hidden');
+      previousRecordingView = null;
+    }
+  }
+
+  // Capture resumes only for the recording the commit was made in: a person
+  // who left it meanwhile has stopped capture, and it stays stopped.
+  if (wasRecording && activeRecording === recordingAtStart) {
+    await send({ type: 'RECORDING_START' });
+    isRecording = true;
+  }
+  updateRecordingUI();
+  return response;
 }
 
 // ─── Recording mode ───────────────────────────────────────────────────────────
@@ -868,39 +891,16 @@ async function commitStep(inputEl, source, logicalId) {
     const narration = inputEl.value.trim();
     if (!narration) return;
 
-    const wasRecording = isRecording;
-
-    if (isRecording) {
-      await send({ type: 'RECORDING_STOP' });
-      isRecording = false;
-    }
-
-    const response = await send({
-      type: 'STEP_COMMIT',
+    const response = await submitStepCommit({
       narration,
       narration_source: source,
       logical_id: logicalId ?? undefined,
     });
 
     if (response?.ok) {
-      activeSteps = response.activeSteps;
       inputEl.value = '';
       if (inputEl === narrationInput) btnCommitStep.disabled = true;
-      clearLiveActionList();
-      renderStepList();
-      // Clear re-record state if active
-      if (rerecordLogicalId) {
-        rerecordLogicalId = null;
-        rerecordBanner.classList.add('hidden');
-        previousRecordingView = null;
-      }
     }
-
-    if (wasRecording) {
-      await send({ type: 'RECORDING_START' });
-      isRecording = true;
-    }
-    updateRecordingUI();
   } finally {
     commitInProgress = false;
   }
@@ -940,6 +940,8 @@ function renderStepList() {
 // ─── Re-record ────────────────────────────────────────────────────────────────
 
 async function openRerecord(step) {
+  // A commit under way finishes first; it would clear the re-record it lands in.
+  if (commitInProgress) return;
   rerecordLogicalId = step.logical_id;
   previousRecordingView = isRecording;
   if (isRecording) {
@@ -1950,6 +1952,118 @@ recordingMetadataList.addEventListener('change', async () => {
     metadata: metadata ?? null,
   });
 });
+
+// ─── Local control channel ────────────────────────────────────────────────────
+// An opt-in channel through which a program on this computer runs a closed set
+// of this panel's structuring actions. The rules — what may be dialled, the
+// pairing, the command set — live in control-channel.js; the on/off switch
+// and the socket in control-channel-host.js; the command-to-action mapping in
+// control-commands.js. This section binds them to the panel: the actions above
+// are the ones a click runs, so the view follows every command, and the channel
+// exists only in this page's memory, so it ends when the panel closes.
+
+const btnControlChannel = $('btn-control-channel');
+const controlChannelSetup = $('control-channel-setup');
+const controlChannelPort = $('control-channel-port');
+const controlChannelError = $('control-channel-error');
+const controlChannelNotice = $('control-channel-notice');
+const btnControlChannelOn = $('btn-control-channel-on');
+const controlChannelIndicator = $('control-channel-indicator');
+const controlChannelIndicatorText = $('control-channel-indicator-text');
+const controlChannelCode = $('control-channel-code');
+const btnControlChannelOff = $('btn-control-channel-off');
+
+const controlExecutor = createControlExecutor({
+  getState: () => ({
+    project: activeProject,
+    recording: activeRecording,
+    capturing: isRecording,
+    pendingCount,
+    stepCount: activeRecording ? activeSteps.length : 0,
+    rerecording: rerecordLogicalId !== null,
+    busy: commitInProgress,
+  }),
+  createProject: holdingCommit(async (name) => {
+    // Leave an open recording the way the Projects breadcrumb does.
+    if (isRecording) {
+      await send({ type: 'RECORDING_STOP' });
+      isRecording = false;
+    }
+    const project = await createProjectNamed(name);
+    updateRecordingUI();
+    return project;
+  }),
+  createRecording: holdingCommit(createRecordingNamed),
+  setCapture: holdingCommit(setCapturing),
+  commitStep: holdingCommit(submitStepCommit),
+});
+
+/**
+ * Run a channel action holding the flag a person's commit holds, so the two
+ * never interleave: the executor refuses a command while the flag is up, and a
+ * click on a commit or re-record control is ignored while a command holds it.
+ */
+function holdingCommit(action) {
+  return async (...args) => {
+    commitInProgress = true;
+    try {
+      return await action(...args);
+    } finally {
+      commitInProgress = false;
+    }
+  };
+}
+
+/** Show the channel's state: the indicator while it is on, the setup group's notice when it turned itself off. */
+function renderControlChannel(status) {
+  const on = status.state !== 'off';
+  controlChannelIndicator.classList.toggle('hidden', !on);
+  btnControlChannelOn.disabled = on;
+  controlChannelPort.disabled = on;
+  if (status.state === 'connecting') {
+    controlChannelIndicatorText.textContent = `Local control is on, waiting for a program on port ${status.port}. Pairing code: `;
+  } else if (status.state === 'awaiting-pair') {
+    controlChannelIndicatorText.textContent = 'Local control is on, pairing. Pairing code: ';
+  } else if (status.state === 'paired') {
+    controlChannelIndicatorText.textContent = 'Local control is on. A local program is connected.';
+  }
+  controlChannelCode.textContent = status.code ?? '';
+  controlChannelCode.classList.toggle('hidden', status.code === null);
+  controlChannelNotice.textContent = status.notice ?? '';
+  controlChannelNotice.classList.toggle('hidden', status.notice === null);
+  // A channel that turned itself off says why where the person turns it on again.
+  if (status.notice !== null) showControlChannelSetup(true);
+}
+
+function showControlChannelSetup(show) {
+  controlChannelSetup.classList.toggle('hidden', !show);
+  btnControlChannel.setAttribute('aria-expanded', String(show));
+}
+
+const controlChannel = createControlChannelHost({
+  createSocket: (url) => new WebSocket(url),
+  fillRandom: (bytes) => crypto.getRandomValues(bytes),
+  execute: controlExecutor,
+  onChange: renderControlChannel,
+});
+
+btnControlChannel.addEventListener('click', () =>
+  showControlChannelSetup(controlChannelSetup.classList.contains('hidden')),
+);
+
+function turnControlChannelOn() {
+  const result = controlChannel.enable(controlChannelPort.value.trim());
+  controlChannelError.textContent = result.ok ? '' : result.error;
+  controlChannelError.classList.toggle('hidden', result.ok);
+  if (result.ok) showControlChannelSetup(false);
+}
+
+btnControlChannelOn.addEventListener('click', turnControlChannelOn);
+controlChannelPort.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') turnControlChannelOn();
+});
+
+btnControlChannelOff.addEventListener('click', () => controlChannel.disable());
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
 

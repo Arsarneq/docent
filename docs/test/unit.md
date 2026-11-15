@@ -667,6 +667,9 @@ half of the extension is documented in
 | `auto-sync-host.test.js` | The background sync host wired in the service worker: one shared cycle, run headless, with its state persisted for the panel. |
 | `build-size.test.js` | Size tripwires over the extension bundle, per type and in total. |
 | `capture-timing.test.js` | The capture-timing constants' validity and relative ordering, and the recent-user-action decision they drive. |
+| `control-channel-host.test.js` | The local control channel's host, run against the shipped module with a fake socket: off by default, one code per turn-on, redialling and its cap, and every route that turns the channel off. |
+| `control-channel.test.js` | The local control channel's pure core: the loopback address, the pairing code and proof, frame parsing, the closed command set and its argument bounds, and the session's pairing and command handling. |
+| `control-commands.test.js` | The mapping from a control-channel command to a panel action: the state each command needs, the refusals, and results that carry identifiers, names and counts only. |
 | `dispatch.test.js` | Settings round-trip, endpoint validation, payload fidelity, the authorization header, and the action-event subscription. |
 | `e2e-suite-locks.test.js` | The end-to-end guide's retry, attempt, trace, timeout and worker sentences held to the Playwright config, each key read as text and set exactly once. |
 | `frame-trust.test.js` | The per-frame trust predicate deciding whether an appended action may enter a recording. |

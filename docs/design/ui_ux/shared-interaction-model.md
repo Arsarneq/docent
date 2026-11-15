@@ -80,6 +80,10 @@ Each difference is deliberate, and each is owned by a document:
   when `chrome.storage.local` nears its quota, with a resume control; the
   desktop's session file has no quota and no such pause
   ([Persistence — storage pressure](../../architecture/system/persistence.md#storage-pressure)).
+- **Local control** — the extension's panel carries a header control, a
+  setup group and an indicator for the opt-in channel through which a local
+  process runs the panel's structuring actions; the desktop has no such
+  channel ([Local Control Channel](../../api/control-channel.md)).
 - **Self-capture exclusion** — the desktop offers a setting that keeps its own
   process (its window and the dialogs it opens) out of a recording, because its
   hooks see every window; the

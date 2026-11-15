@@ -16,7 +16,8 @@
     "SL": "docs/verification/sufficiency-lint.md",
     "COV": "docs/test/strategy/coverage.md",
     "MUT": "docs/test/strategy/mutation.md",
-    "CI": "docs/guides/ci.md"
+    "CI": "docs/guides/ci.md",
+    "LC": "docs/api/control-channel.md"
   },
   "retired": {
     "CP": [],
@@ -34,7 +35,8 @@
     "SL": [],
     "COV": [],
     "MUT": [],
-    "CI": []
+    "CI": [],
+    "LC": []
   },
   "clauses": [
     {
@@ -1210,6 +1212,156 @@
       "clause": "CI-1",
       "tag": "check-exists",
       "check-ref": "scripts/check-clippy-invocation.js (npm run check:clippy-invocation, a step in CI's lint job) recomputes the agreement against the tree: the clippy steps .github/workflows/test.yml gives spell one command and run from one directory; the command the Clippy row leads with, and the directory its cell states, are those; the jobs that row names are the jobs carrying such a step, both ways; and each backticked span of tracked markdown that opens with the command, read outside code blocks, spells that same command, with every admitted variant recorded as a register the same check holds from both sides. What that leaves review-held — from a spelling the markdown read passes over to a clippy step an indirection reaches, in the forms observed so far rather than as a closed set — the check states as its own honest limits, in the file that decides them; this row and the guides cite that statement rather than each keeping a copy of it. Where a run line's clippy command carries a quote, which the workflow read blanks and so cannot recover to compare, or a surface it needs cannot be read, the check refuses on its own exit code rather than comparing or passing; a quoted spelling in documentation is read as written and reds as the ordinary disagreement it is, admissible through that register like any other. Which flags belong in the invocation at all is review's too, since the check reads surfaces and never runs the tool."
+    },
+    {
+      "doc": "docs/api/control-channel.md",
+      "clause": "LC-1",
+      "tag": "check-exists",
+      "check-ref": "The off-by-default start and the end with the panel are pinned in a real browser by packages/extension/tests/e2e/specs/control-channel.spec.js (npm run test:e2e): an open panel dials nothing until Turn on is used, and after the panel closes a new panel starts off with no channel key in chrome.storage.local or chrome.storage.session; the host's own starting state is pinned by packages/extension/tests/unit/control-channel-host.test.js (npm run test:extension). Named residue: that the panel sends the service worker no message about the channel is review-held against the panel module — the extension-surface check (npm run lint:extension-surface) holds the panel's literal sends to the documented protocol, which states no channel type.",
+      "test-cases": [
+        "is off until turned on: an open panel dials nothing",
+        "closing the panel ends the channel, and a new panel starts off",
+        "starts off, with no socket and no code"
+      ]
+    },
+    {
+      "doc": "docs/api/control-channel.md",
+      "clause": "LC-2",
+      "tag": "check-exists",
+      "check-ref": "The indicator is asserted on the projects view at turn-on (with the pairing code) and on the settings, project and recording views of a paired panel, and its Turn off control on the recording view and, used, on the projects view, by packages/extension/tests/e2e/specs/control-channel.spec.js (npm run test:e2e).",
+      "test-cases": [
+        "pairs with the displayed code and shows the indicator on every view",
+        "runs the structuring actions and the panel follows each one",
+        "Turn off closes the connection"
+      ]
+    },
+    {
+      "doc": "docs/api/control-channel.md",
+      "clause": "LC-3",
+      "tag": "check-exists",
+      "check-ref": "The address form and the port bounds are pinned by the controlUrl describe of packages/extension/tests/unit/control-channel.test.js (npm run test:extension); the policy's one WebSocket source by packages/shared/tests/unit/security.test.js over the shipped panel shell (npm run test:shared); the browser's refusal of another host by packages/extension/tests/e2e/specs/control-channel.spec.js (npm run test:e2e), which dials ws://localhost from the panel page and observes the policy violation, and does the same for a wss: URL to another host; the redial interval, the 10-second connect bound and the cap by packages/extension/tests/unit/control-channel-host.test.js.",
+      "test-cases": [
+        "builds a ws URL on 127.0.0.1 for a valid port",
+        "accepts the bounds of the unprivileged range",
+        "extension panel may open a WebSocket to IPv4 loopback only",
+        "the browser refuses a panel WebSocket to any host but the loopback literal",
+        "keeps dialling with the same code while nothing answers",
+        "counts a connection that does not open in time as unanswered",
+        "gives up and turns off after the stated number of attempts"
+      ]
+    },
+    {
+      "doc": "docs/api/control-channel.md",
+      "clause": "LC-4",
+      "tag": "check-exists",
+      "check-ref": "The code's length and alphabet, the nonce's form, the greeting's exact fields and the proof against a fixed vector are pinned by packages/extension/tests/unit/control-channel.test.js; a new code per turn-on, a new nonce per connection and the code leaving the display on pairing by packages/extension/tests/unit/control-channel-host.test.js (npm run test:extension). packages/extension/tests/e2e/specs/control-channel.spec.js pairs a real local server from the code the panel displays (npm run test:e2e). Named residue: the strength of the random source is the browser's; the suites pin that every character is drawn from the injected source.",
+      "test-cases": [
+        "produces a code of the stated length from the unambiguous alphabet",
+        "draws every character from the random source",
+        "is 32 hex characters drawn from the random source",
+        "matches a known vector",
+        "greets with the protocol version and the nonce, and nothing else",
+        "makes a new code every time it is turned on",
+        "uses a new nonce for every connection",
+        "pairs on a correct proof and stops showing the code"
+      ]
+    },
+    {
+      "doc": "docs/api/control-channel.md",
+      "clause": "LC-5",
+      "tag": "check-exists",
+      "check-ref": "Each outcome of the table is pinned: the wrong proof, the pair frame with a further field, the command as first frame, the unparseable first frame and the timeout by the session's pairing describe in packages/extension/tests/unit/control-channel.test.js; the connection ending before pairing, and the code being discarded with the channel off, by packages/extension/tests/unit/control-channel-host.test.js (npm run test:extension); the wrong proof and the early command against a real browser by packages/extension/tests/e2e/specs/control-channel.spec.js (npm run test:e2e), which also asserts that the early command created nothing. Frames behind the pair frame: answered after a correct proof and discarded after a wrong one, pinned by the session's pairing describe and, for the correct proof, against a real browser.",
+      "test-cases": [
+        "closes on a wrong proof and never pairs afterwards — one attempt per code",
+        "closes when the first frame is a command — nothing runs before pairing",
+        "closes on an unparseable frame before pairing",
+        "closes when no proof arrives in time",
+        "turns off on a wrong proof, closing the socket and spending the code",
+        "turns off when an accepted connection ends before pairing — no second attempt",
+        "a wrong proof turns the channel off and spends the code",
+        "a command sent before pairing runs nothing and turns the channel off",
+        "refuses a pair frame with unknown keys",
+        "answers a command sent right behind the proof, once paired",
+        "runs nothing sent right behind a wrong proof",
+        "answers a command sent right behind the proof"
+      ]
+    },
+    {
+      "doc": "docs/api/control-channel.md",
+      "clause": "LC-6",
+      "tag": "check-exists",
+      "check-ref": "The frame rule is pinned by the parseFrame describe of packages/extension/tests/unit/control-channel.test.js — an object accepted; a binary message, an oversized text, malformed JSON and an array, a string, a number, a boolean and null as JSON values refused, as generated cases — and the null-id answer on a connection that stays open and paired by the session's commands describe there (npm run test:extension).",
+      "test-cases": [
+        "accepts a JSON object",
+        "answers an unparseable frame with a null id",
+        "answers an oversized frame as too large"
+      ]
+    },
+    {
+      "doc": "docs/api/control-channel.md",
+      "clause": "LC-7",
+      "tag": "check-exists",
+      "check-ref": "The set's exact membership and its closure against in-place extension, each command's accepted arguments, the trimming, and the refusal of every other field, argument and name (generated cases in the validateCommand describe) are pinned by packages/extension/tests/unit/control-channel.test.js; that the executor carries out exactly the set by packages/extension/tests/unit/control-commands.test.js (npm run test:extension); the refusal of delete, export and settings command names, of an unknown field and of an unknown argument on a live channel by packages/extension/tests/e2e/specs/control-channel.spec.js (npm run test:e2e). The null id for an unusable id is pinned by the 'reports the id back when the id itself was usable' case. Named residue: the table's 'What the panel does' column is held under LC-8.",
+      "test-cases": [
+        "is exactly the structuring actions and the status read",
+        "cannot be extended in place",
+        "accepts each command with its arguments",
+        "trims names and narration",
+        "defaults a validation step to expect present, as the panel does",
+        "carries out every command of the closed set",
+        "refuses a name outside the command set",
+        "refuses what is outside the command set and stays connected",
+        "reports the id back when the id itself was usable"
+      ]
+    },
+    {
+      "doc": "docs/api/control-channel.md",
+      "clause": "LC-8",
+      "tag": "check-exists",
+      "check-ref": "Each row of the refusal table, with the panel untouched, and the no-change successes are pinned by packages/extension/tests/unit/control-commands.test.js (npm run test:extension); the panel's view following each command, the stored step carrying no narration source, and the commands' effect on the stored model by packages/extension/tests/e2e/specs/control-channel.spec.js (npm run test:e2e). The e2e spec also asserts that a refused commit leaves capture running. Named residue: that a person's click on a commit or re-record control is ignored while a command runs, and that capture is not resumed for a recording a person left during a commit, are review-held against the panel module — the first on its shared commit flag, the second on the commit comparing the open recording with the one it started in; that a command and a click run the same panel function is review-held against the panel module, where the button handlers and the executor call the one shared function per action.",
+      "test-cases": [
+        "refuses a recording when no project is open",
+        "answers a pause of a paused recording without touching the panel",
+        "answers a resume of a capturing recording without touching the panel",
+        "refuses a commit with no captured actions without touching the panel",
+        "refuses every changing command while the panel is re-recording a step",
+        "still answers status while re-recording",
+        "commits with narration and claims no narration source",
+        "refuses every changing command while the panel is committing a step",
+        "runs the structuring actions and the panel follows each one"
+      ]
+    },
+    {
+      "doc": "docs/api/control-channel.md",
+      "clause": "LC-9",
+      "tag": "check-exists",
+      "check-ref": "The three meanings of ok: false are pinned at their sources — the refusals under LC-6, LC-7 and LC-8, and the two fixed texts for an action that did not complete here. One result per command with its id, the serial order, and the envelope an executor result cannot overwrite are pinned by packages/extension/tests/unit/control-channel.test.js; the fixed text sent for a failure in place of the failure's own by the same suite; the result fields — identifiers, names and counts — and the fixed text for a commit the panel could not make by packages/extension/tests/unit/control-commands.test.js (npm run test:extension); that no captured value appears in any frame of a live exchange by packages/extension/tests/e2e/specs/control-channel.spec.js (npm run test:e2e).",
+      "test-cases": [
+        "runs a valid command and answers with its id",
+        "runs commands one at a time, in arrival order",
+        "cannot have its envelope overwritten by an executor result",
+        "reports the open project and recording by id and name only",
+        "answers counts, never the captured actions themselves",
+        "runs the structuring actions and the panel follows each one",
+        "reports an executor failure in-band, without the failure's own text",
+        "answers a commit the panel could not make with a fixed text",
+        "drops the answer of a command that finishes after the session ended"
+      ]
+    },
+    {
+      "doc": "docs/api/control-channel.md",
+      "clause": "LC-10",
+      "tag": "check-exists",
+      "check-ref": "Each route is pinned: the Turn off control, the disconnect after pairing, the unanswered port's cap, and stale timers and sockets left inert by packages/extension/tests/unit/control-channel-host.test.js (npm run test:extension); the Turn off control, the disconnect, the pairing outcomes and the closed panel against a real browser by packages/extension/tests/e2e/specs/control-channel.spec.js (npm run test:e2e). Named residue: the notice texts are review-held.",
+      "test-cases": [
+        "turns off on request, closes the socket and runs nothing afterwards",
+        "turns off when the local process disconnects, without redialling",
+        "gives up and turns off after the stated number of attempts",
+        "ignores a retry timer that fires after it was turned off",
+        "Turn off closes the connection",
+        "the local process disconnecting turns the channel off",
+        "closing the panel ends the channel, and a new panel starts off"
+      ]
     }
   ]
 }
