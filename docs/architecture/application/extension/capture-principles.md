@@ -313,6 +313,10 @@ with a caveat):
   page's `window.close()`; a departure (core CP-18)
 - A click or right-click whose picked element is the body or the document
   element — not written; a departure (core CP-18)
+- A click on a `label` inside a closed shadow root — written twice, both
+  against the shadow host: the label's click and the click the browser sends
+  on to its control, since the closed root hides the label from the recorder;
+  a departure (core CP-18)
 - A captured key other than Tab while nothing is focused — not written; a
   departure (core CP-18)
 - A `type` on an input or textarea when a button or input marked

@@ -285,6 +285,12 @@ test.describe('Label Click', () => {
     <input id="box" type="checkbox"><label id="for-box" for="box">Box</label>
     <label id="wrap"><input id="inner" type="checkbox"> <span id="wrap-text">Wrapped</span></label>
     <button id="btn" type="button">Go</button><label id="for-btn" for="btn">Button</label>
+    <label id="role-wrap"><input id="role-box" type="checkbox"><span id="role-child" role="button">Role</span></label>
+    <div id="host"></div>
+    <script>
+      document.getElementById('host').attachShadow({ mode: 'open' }).innerHTML =
+        '<input id="shadow-box" type="checkbox"><label for="shadow-box">Shadow</label>';
+    </script>
   </body></html>`;
 
   test.beforeEach(async ({ testPage, serviceWorker }) => {
@@ -297,6 +303,8 @@ test.describe('Label Click', () => {
     await testPage.click('#for-box');
     await testPage.click('#wrap-text');
     await testPage.click('#for-btn');
+    await testPage.click('#role-child'); // a label holding an interactive child
+    await testPage.locator('#host').locator('label').click(); // a label in an open shadow root
     await testPage.click('#box'); // the control itself, still one click
     await waitForActionsToSettle(serviceWorker, testPage);
 
@@ -305,10 +313,14 @@ test.describe('Label Click', () => {
       ['click', '#for-box'],
       ['click', '#wrap'],
       ['click', '#for-btn'],
+      ['click', '#role-child'],
+      ['click', '#host'],
       ['click', '#box'],
     ]);
     expect(await testPage.isChecked('#box')).toBe(false); // ticked by the label, unticked directly
     expect(await testPage.isChecked('#inner')).toBe(true);
+    expect(await testPage.isChecked('#role-box')).toBe(true);
+    expect(await testPage.locator('#host').locator('input').isChecked()).toBe(true);
   });
 });
 

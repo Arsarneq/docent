@@ -582,14 +582,18 @@
         lastFileInputClickEl = el;
         lastFileInputClickTime = Date.now();
       }
-      // A label's activation sends a click on to its control in the same task:
-      // the person made one click, recorded as the label's (#670).
-      if (labelForwardedTo !== null && e.target === labelForwardedTo) {
+      // A label's activation sends a second click on to its control before the
+      // next task: the person made one click, recorded as the first (#670). The
+      // composed path finds a label in an open shadow root and one under an
+      // interactive child; a closed shadow root hides its label (ECP-12).
+      const path = e.composedPath();
+      if (labelForwardedTo !== null && path[0] === labelForwardedTo) {
         labelForwardedTo = null;
         return;
       }
-      if (el.tagName === 'LABEL' && el.control && !el.control.contains(e.target)) {
-        const control = el.control;
+      const label = path.find((n) => n.tagName === 'LABEL');
+      if (label?.control && !path.includes(label.control)) {
+        const control = label.control;
         labelForwardedTo = control;
         setTimeout(() => {
           if (labelForwardedTo === control) labelForwardedTo = null;
@@ -731,8 +735,8 @@
         return;
       }
 
-      // A checkbox or radio toggle is recorded by its click, which every way of
-      // toggling one fires on the control; its change carries no entered value (#654).
+      // A checkbox or radio toggle is recorded by the person's click, on the
+      // control or on its label; its change carries no entered value (#654).
       if (el.tagName === 'INPUT' && (el.type === 'checkbox' || el.type === 'radio')) return;
 
       if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') {
