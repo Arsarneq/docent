@@ -208,11 +208,12 @@ test.describe('Export Flow', () => {
     expect(exported.recordings[0].steps[0].actions).toHaveLength(1);
   });
 
-  // Regression: no issue — with two side panel pages open, a project created
+  // Regression: #657 — with two side panel pages open, a project created
   // in the second moved the service worker's worker-wide active project, and
   // the first panel's Export button then wrote that other project's content
   // into a file named after the project open in the first panel.
-  test('regression_noissue_export_button_exports_the_project_open_in_its_panel', async ({
+  // https://github.com/Arsarneq/docent/issues/657
+  test('regression_657_export_button_exports_the_project_open_in_its_panel', async ({
     panelPage,
     context,
     extensionId,
