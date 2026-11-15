@@ -678,15 +678,16 @@ half of the extension is documented in
 | `auto-sync-host.test.js` | The background sync host wired in the service worker: one shared cycle, run headless, with its state persisted for the panel. |
 | `build-size.test.js` | Size tripwires over the extension bundle, per type and in total. |
 | `capture-timing.test.js` | The capture-timing constants' validity and relative ordering, and the recent-user-action decision they drive. |
-| `control-channel-host.test.js` | The local control channel's host, run against the shipped module with a fake socket: off by default, one code per turn-on, redialling and its cap, and every route that turns the channel off. |
-| `control-channel.test.js` | The local control channel's pure core: the loopback address, the pairing code and proof, frame parsing, the closed command set and its argument bounds, and the session's pairing and command handling. |
-| `control-commands.test.js` | The mapping from a control-channel command to a panel action: the state each command needs, the refusals, and results that carry identifiers, names and counts only. |
+| `control-channel-host.test.js` | The local control channel's host, run against the shipped module with a fake socket: off by default, one code per turn-on, the export grant fixed at turn-on and the trace of each export, redialling and its cap, and every route that turns the channel off. |
+| `control-channel.test.js` | The local control channel's pure core: the loopback address, the pairing code and the labelled proof in each direction, the indicator's export line, frame parsing, the closed command set and its bounds, and the session's pairing and command handling. |
+| `control-commands.test.js` | The mapping from a control-channel command to a panel action: the state each command needs, the refusals, the export of the open project as the Export button builds it, and results that carry identifiers, names, counts and flags, an export only with the grant. |
 | `dispatch.test.js` | Settings round-trip, endpoint validation, payload fidelity, the authorization header, and the action-event subscription. |
 | `e2e-suite-locks.test.js` | The end-to-end guide's retry, attempt, trace, timeout and worker sentences held to the Playwright config, each key read as text and set exactly once. |
 | `frame-trust.test.js` | The per-frame trust predicate deciding whether an appended action may enter a recording. |
 | `naming.property.test.js` | Extension actions carry the platform-neutral naming and capture mode the extension schema contract states, each type one the composed extension schema declares. |
 | `navigation-logic.test.js` | The navigation and tab-creation capture decisions across transition types and timing states, and a static-source guard that the worker's listeners decide through the module. |
 | `panel.test.js` | The send gate in the panel, run against the shipped send-gate module: button state, recording selection and the confirmation summary; the cancel path is simulated. |
+| `project-export.test.js` | The panel's export build, run against the shipped module: the project open in the panel asked for by its id, the stamped document, and failures answered in-band. |
 | `recorder-logic.test.js` | The extracted content-script logic (selector derivation, locator measurement, element description, the scroll decision) and the recorder's scroll literals. |
 | `recorder-mirror-parity.test.js` | The recorder's two copies of the capture logic stay textually identical under the mechanical transformation. |
 | `recording-mode.test.js` | Recording-mode persistence through the Chrome adapter. |

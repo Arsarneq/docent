@@ -43,8 +43,9 @@ which owns the model keys in storage (the
 The side panel also hosts the opt-in
 [local control channel](../../../api/control-channel.md): one outward
 WebSocket to the loopback address, through which a paired local process
-triggers the panel's own structuring actions. It adds nothing to the surfaces
-this document specifies:
+triggers the panel's own structuring actions and, when a person allows it at
+turn-on, the build behind the panel's Export button. It adds nothing to the
+surfaces this document specifies:
 
 | Runtime surface      | What the channel adds                                             |
 | -------------------- | ----------------------------------------------------------------- |
@@ -290,6 +291,12 @@ The closed set of request types the panel sends, by group:
 | Recording control | `RECORDING_START`, `RECORDING_STOP`, `RECORDING_CLEAR`, `STORAGE_RESUME`                                                                                         |
 | Steps             | `STEP_COMMIT`, `STEP_DELETE`, `STEPS_REORDER`                                                                                                                    |
 | Import / export   | `PROJECT_IMPORT`, `PROJECT_EXPORT`                                                                                                                               |
+
+`PROJECT_EXPORT` names the project to export by its `project_id`: the panel
+sends the id of the project it has open, and the worker answers with that
+stored project, or `{ ok: false, error }` when it holds none by that id. It
+never reads the worker-wide active project, which follows whichever open panel
+last opened or created one.
 
 A successful response to one of the messages in the worker's data-event set —
 `STEP_COMMIT`, `RECORDING_STOP`, `PROJECT_CREATE`, `PROJECT_DELETE`,

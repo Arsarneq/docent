@@ -207,6 +207,39 @@ test.describe('Export Flow', () => {
     expect(exported.recordings[0].steps[0].narration).toBe('Click the login button');
     expect(exported.recordings[0].steps[0].actions).toHaveLength(1);
   });
+
+  // Regression: #657 — with two side panel pages open, a project created
+  // in the second moved the service worker's worker-wide active project, and
+  // the first panel's Export button then wrote that other project's content
+  // into a file named after the project open in the first panel.
+  // https://github.com/Arsarneq/docent/issues/657
+  test('regression_657_export_button_exports_the_project_open_in_its_panel', async ({
+    panelPage,
+    context,
+    extensionId,
+  }) => {
+    await panelPage.click('#btn-new-project');
+    await panelPage.fill('#new-project-name', 'Shown here');
+    await panelPage.click('#btn-new-project-create');
+    await panelPage.waitForSelector('#view-project:not(.hidden)', { timeout: 5000 });
+
+    const second = await context.newPage();
+    await second.goto(`chrome-extension://${extensionId}/sidepanel/index.html`);
+    await second.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
+    await second.click('#btn-new-project');
+    await second.fill('#new-project-name', 'Opened elsewhere');
+    await second.click('#btn-new-project-create');
+    await second.waitForSelector('#view-project:not(.hidden)', { timeout: 5000 });
+
+    const [download] = await Promise.all([
+      panelPage.waitForEvent('download'),
+      panelPage.click('#btn-export-project'),
+    ]);
+    const exported = JSON.parse(fs.readFileSync(await download.path(), 'utf-8'));
+    expect(download.suggestedFilename()).toMatch(/^Shown_here_\d+\.docent\.json$/);
+    expect(exported.project.name).toBe('Shown here');
+    await second.close();
+  });
 });
 
 // ─── Re-record Flow ───────────────────────────────────────────────────────────

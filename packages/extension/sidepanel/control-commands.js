@@ -4,8 +4,9 @@
  * A command that reaches this module has already passed the channel's pairing
  * and validation (control-channel.js). Each one is carried out through the
  * panel action a person's click runs, so the panel's own view and state follow
- * it, and the answer carries identifiers and counts only — never the captured
- * actions, the project model or any setting.
+ * it, and the answer carries identifiers, names, counts and flags — never the
+ * captured actions, the project model or any setting, save the export of the
+ * open project when the person allowed it at turn-on (control-channel LC-9).
  *
  * The panel is injected as a small set of functions, so the unit suite drives
  * this module as shipped.
@@ -14,6 +15,8 @@
  * Licensed under the GNU General Public License v3.0
  * See LICENSE in the project root for license information.
  */
+
+import { NO_OPEN_PROJECT } from './project-export.js';
 
 /**
  * @typedef {object} ControlPanel
@@ -28,14 +31,22 @@
  * @property {(on: boolean) => Promise<void>} setCapture - the Pause / Resume action
  * @property {(payload: object) => Promise<object>} commitStep - the Done this
  *   step action; resolves with the worker's response
+ * @property {() => Promise<{ok: boolean, project?: object, document?: object,
+ *   error?: string}>} exportProject - the build the Export button runs for the
+ *   open project (project-export.js), without its download or its dialog
  */
 
-const NO_PROJECT = { ok: false, error: 'No open project' };
+const NO_PROJECT = { ok: false, error: NO_OPEN_PROJECT };
 const NO_RECORDING = { ok: false, error: 'No open recording' };
 const RERECORDING = { ok: false, error: 'The panel is re-recording a step' };
 const COMMITTING = { ok: false, error: 'The panel is committing a step' };
 const NO_ACTIONS = { ok: false, error: 'No captured actions' };
 const NOT_COMMITTED = { ok: false, error: 'The step was not committed' };
+const EXPORT_NOT_ALLOWED = {
+  ok: false,
+  error: 'Export was not allowed when local control was turned on',
+};
+const NOT_EXPORTED = { ok: false, error: 'The project was not exported' };
 
 const projectIdAndName = (project) => ({ project_id: project.project_id, name: project.name });
 const recordingIdAndName = (recording) => ({
@@ -55,7 +66,7 @@ async function setCapture(panel, on) {
 const HANDLERS = new Map([
   [
     'status',
-    async (panel) => {
+    async (panel, _args, channel) => {
       const state = panel.getState();
       return {
         ok: true,
@@ -64,6 +75,7 @@ const HANDLERS = new Map([
         capturing: state.capturing,
         pending_actions: state.pendingCount,
         steps: state.stepCount,
+        export_allowed: channel.exportAllowed === true,
       };
     },
   ],
@@ -105,17 +117,36 @@ const HANDLERS = new Map([
       };
     },
   ],
+  [
+    'project.export',
+    async (panel, _args, channel) => {
+      if (channel.exportAllowed !== true) return EXPORT_NOT_ALLOWED;
+      if (!panel.getState().project) return NO_PROJECT;
+      // The document goes back in the result; the Export button's download and
+      // its alert() on failure stay with the click.
+      let built;
+      try {
+        built = await panel.exportProject();
+      } catch {
+        return NOT_EXPORTED;
+      }
+      if (!built?.ok) return NOT_EXPORTED;
+      return { ok: true, project: projectIdAndName(built.project), export: built.document };
+    },
+  ],
 ]);
 
 /**
  * Create the executor the control channel hands validated commands to.
  *
  * @param {ControlPanel} panel
- * @returns {(command: {id: string, name: string, args: object}) => Promise<object>}
- *   resolves with `{ ok: true, … }` or `{ ok: false, error }`
+ * @returns {(command: {id: string, name: string, args: object},
+ *   channel?: {exportAllowed?: boolean}) => Promise<object>} resolves with
+ *   `{ ok: true, … }` or `{ ok: false, error }`; `channel.exportAllowed` is
+ *   the person's export grant, and only `true` grants it
  */
 export function createControlExecutor(panel) {
-  return async function execute(command) {
+  return async function execute(command, channel = {}) {
     const handler = HANDLERS.get(command.name);
     if (!handler) return { ok: false, error: 'Unknown command' };
     // A re-record or a commit under way is a person's action in progress; only
@@ -125,6 +156,6 @@ export function createControlExecutor(panel) {
       if (state.rerecording) return RERECORDING;
       if (state.busy) return COMMITTING;
     }
-    return handler(panel, command.args);
+    return handler(panel, command.args, channel);
   };
 }

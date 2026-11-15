@@ -757,7 +757,10 @@ test.describe('SW Message: Step operations', () => {
 test.describe('SW Message: Import and Export', () => {
   test('PROJECT_EXPORT returns structured export data', async ({ serviceWorker, panelPage }) => {
     await resetState(serviceWorker);
-    await sendSWMessage(panelPage, { type: 'PROJECT_CREATE', name: 'ExportMe' });
+    const { project: created } = await sendSWMessage(panelPage, {
+      type: 'PROJECT_CREATE',
+      name: 'ExportMe',
+    });
     await sendSWMessage(panelPage, { type: 'RECORDING_CREATE', name: 'Rec' });
 
     await serviceWorker.evaluate(async () => {
@@ -772,9 +775,12 @@ test.describe('SW Message: Import and Export', () => {
       narration_source: 'typed',
     });
 
-    const result = await sendSWMessage(panelPage, { type: 'PROJECT_EXPORT' });
+    const result = await sendSWMessage(panelPage, {
+      type: 'PROJECT_EXPORT',
+      project_id: created.project_id,
+    });
     expect(result.ok).toBe(true);
-    // PROJECT_EXPORT returns the raw active project; the panel stamps + shapes
+    // PROJECT_EXPORT returns the raw project it names; the panel stamps + shapes
     // it into the .docent.json export via buildExport (where the schema is
     // available). The service worker no longer wraps it in `exportData`.
     expect(result.project.name).toBe('ExportMe');
@@ -782,14 +788,39 @@ test.describe('SW Message: Import and Export', () => {
     expect(result.project.recordings[0].steps).toHaveLength(1);
   });
 
-  test('PROJECT_EXPORT with no active project returns error', async ({
+  test('PROJECT_EXPORT returns the project it names, not the active one', async ({
     serviceWorker,
     panelPage,
   }) => {
     await resetState(serviceWorker);
-    const result = await sendSWMessage(panelPage, { type: 'PROJECT_EXPORT' });
-    expect(result.ok).toBe(false);
-    expect(result.error).toMatch(/No active project/);
+    const { project: named } = await sendSWMessage(panelPage, {
+      type: 'PROJECT_CREATE',
+      name: 'Named',
+    });
+    // Creating a second project makes it the worker-wide active one.
+    await sendSWMessage(panelPage, { type: 'PROJECT_CREATE', name: 'Active' });
+    const result = await sendSWMessage(panelPage, {
+      type: 'PROJECT_EXPORT',
+      project_id: named.project_id,
+    });
+    expect(result.ok).toBe(true);
+    expect(result.project.name).toBe('Named');
+  });
+
+  test('PROJECT_EXPORT of a project it does not hold returns error', async ({
+    serviceWorker,
+    panelPage,
+  }) => {
+    await resetState(serviceWorker);
+    await sendSWMessage(panelPage, { type: 'PROJECT_CREATE', name: 'Active' });
+    for (const message of [
+      { type: 'PROJECT_EXPORT', project_id: '019e0000-0000-7000-8000-000000000000' },
+      { type: 'PROJECT_EXPORT' },
+    ]) {
+      const result = await sendSWMessage(panelPage, message);
+      expect(result.ok).toBe(false);
+      expect(result.error).toMatch(/Project not found/);
+    }
   });
 
   test('PROJECT_IMPORT adds new project', async ({ serviceWorker, panelPage }) => {
@@ -1102,7 +1133,10 @@ test.describe('SW Message: Export includes metadata', () => {
     panelPage,
   }) => {
     await resetState(serviceWorker);
-    await sendSWMessage(panelPage, { type: 'PROJECT_CREATE', name: 'MetaExport' });
+    const { project: created } = await sendSWMessage(panelPage, {
+      type: 'PROJECT_CREATE',
+      name: 'MetaExport',
+    });
     await sendSWMessage(panelPage, {
       type: 'PROJECT_SET_METADATA',
       metadata: { ticket: 'T-1' },
@@ -1130,7 +1164,10 @@ test.describe('SW Message: Export includes metadata', () => {
       narration_source: 'typed',
     });
 
-    const result = await sendSWMessage(panelPage, { type: 'PROJECT_EXPORT' });
+    const result = await sendSWMessage(panelPage, {
+      type: 'PROJECT_EXPORT',
+      project_id: created.project_id,
+    });
     expect(result.ok).toBe(true);
     expect(result.project.metadata).toEqual({ ticket: 'T-1' });
     expect(result.project.recordings[0].metadata).toEqual({ browser: 'chrome' });
@@ -1195,7 +1232,10 @@ test.describe('SW Message: Full workflow integration', () => {
     });
 
     // Verify steps
-    const exportResult = await sendSWMessage(panelPage, { type: 'PROJECT_EXPORT' });
+    const exportResult = await sendSWMessage(panelPage, {
+      type: 'PROJECT_EXPORT',
+      project_id: project.project_id,
+    });
     expect(exportResult.project.recordings[0].steps).toHaveLength(2);
 
     // Stop recording
@@ -1214,8 +1254,11 @@ test.describe('SW Message: Full workflow integration', () => {
     // Delete a step
     await sendSWMessage(panelPage, { type: 'STEP_DELETE', logical_id: s1.logical_id });
 
-    // Export — PROJECT_EXPORT returns the raw active project
-    const finalExport = await sendSWMessage(panelPage, { type: 'PROJECT_EXPORT' });
+    // Export — PROJECT_EXPORT returns the raw project it names
+    const finalExport = await sendSWMessage(panelPage, {
+      type: 'PROJECT_EXPORT',
+      project_id: project.project_id,
+    });
     expect(finalExport.project.name).toBe('Lifecycle v2');
     expect(finalExport.project.recordings[0].name).toBe('Flow v2');
 

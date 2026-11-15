@@ -52,8 +52,8 @@
     },
     "extension/control-channel": {
       "code": [
-        "packages/extension/sidepanel/{control-channel,control-channel-host,control-commands}.js",
-        "packages/extension/tests/unit/{control-channel,control-channel-host,control-commands}.test.js",
+        "packages/extension/sidepanel/{control-channel,control-channel-host,control-commands,project-export}.js",
+        "packages/extension/tests/unit/{control-channel,control-channel-host,control-commands,project-export}.test.js",
         "packages/extension/tests/e2e/specs/control-channel.spec.js"
       ],
       "docs": ["docs/api/control-channel.md"]

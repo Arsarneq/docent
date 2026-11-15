@@ -268,24 +268,9 @@ async function handle(msg) {
     }
 
     case 'PROJECT_EXPORT': {
-      const project = getActiveProject();
-      if (!project) return { ok: false, error: 'No active project' };
-      const exportData = {
-        project: {
-          project_id: project.project_id,
-          name: project.name,
-          created_at: project.created_at,
-          ...(project.metadata && { metadata: project.metadata }),
-        },
-        recordings: project.recordings.map((r) => ({
-          recording_id: r.recording_id,
-          name: r.name,
-          created_at: r.created_at,
-          ...(r.metadata && { metadata: r.metadata }),
-          steps: r.steps,
-        })),
-      };
-      return { ok: true, exportData };
+      const project = projects.find((p) => p.project_id === msg.project_id);
+      if (!project) return { ok: false, error: 'Project not found' };
+      return { ok: true, project };
     }
 
     default:
@@ -755,29 +740,41 @@ describe('SERVICE WORKER: PROJECT_IMPORT', () => {
 describe('SERVICE WORKER: PROJECT_EXPORT', () => {
   beforeEach(reset);
 
-  it('exports active project with recordings and steps', async () => {
-    await handle({ type: 'PROJECT_CREATE', name: 'Export' });
+  it('returns the project named by its id, with recordings and steps', async () => {
+    const { project } = await handle({ type: 'PROJECT_CREATE', name: 'Export' });
     await handle({ type: 'RECORDING_CREATE', name: 'R' });
     pendingActions = [{ type: 'click', timestamp: 1 }];
     await handle({ type: 'STEP_COMMIT', narration: 'Step', narration_source: 'typed' });
 
-    const result = await handle({ type: 'PROJECT_EXPORT' });
+    const result = await handle({ type: 'PROJECT_EXPORT', project_id: project.project_id });
     assert.equal(result.ok, true);
-    assert.equal(result.exportData.project.name, 'Export');
-    assert.equal(result.exportData.recordings.length, 1);
-    assert.equal(result.exportData.recordings[0].steps.length, 1);
+    assert.equal(result.project.name, 'Export');
+    assert.equal(result.project.recordings.length, 1);
+    assert.equal(result.project.recordings[0].steps.length, 1);
   });
 
-  it('includes metadata in export when set', async () => {
-    await handle({ type: 'PROJECT_CREATE', name: 'Meta' });
+  it('returns the named project, not the worker-wide active one', async () => {
+    const { project: named } = await handle({ type: 'PROJECT_CREATE', name: 'Named' });
+    await handle({ type: 'PROJECT_CREATE', name: 'Active' });
+    const result = await handle({ type: 'PROJECT_EXPORT', project_id: named.project_id });
+    assert.equal(result.project.name, 'Named');
+  });
+
+  it('includes metadata in the returned project when set', async () => {
+    const { project } = await handle({ type: 'PROJECT_CREATE', name: 'Meta' });
     await handle({ type: 'PROJECT_SET_METADATA', metadata: { ticket: 'T-1' } });
-    const result = await handle({ type: 'PROJECT_EXPORT' });
-    assert.deepStrictEqual(result.exportData.project.metadata, { ticket: 'T-1' });
+    const result = await handle({ type: 'PROJECT_EXPORT', project_id: project.project_id });
+    assert.deepStrictEqual(result.project.metadata, { ticket: 'T-1' });
   });
 
-  it('returns error with no active project', async () => {
-    const result = await handle({ type: 'PROJECT_EXPORT' });
-    assert.equal(result.ok, false);
+  it('returns Project not found for an id it does not hold, or none', async () => {
+    await handle({ type: 'PROJECT_CREATE', name: 'Active' });
+    for (const message of [
+      { type: 'PROJECT_EXPORT', project_id: 'missing' },
+      { type: 'PROJECT_EXPORT' },
+    ]) {
+      assert.deepEqual(await handle(message), { ok: false, error: 'Project not found' });
+    }
   });
 });
 

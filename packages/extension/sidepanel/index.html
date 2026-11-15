@@ -112,6 +112,7 @@
       <span>
         <span id="control-channel-indicator-text"></span>
         <code id="control-channel-code" class="hidden"></code>
+        <span id="control-channel-export" class="hidden"></span>
       </span>
       <button id="btn-control-channel-off" class="btn btn--ghost btn--sm">Turn off</button>
     </div>
@@ -119,7 +120,8 @@
       <span class="settings-label">Local control</span>
       <p class="settings-hint">
         Lets a program on this computer create a project and a recording, pause and resume capture,
-        and commit steps. It is off until you turn it on, and it turns off when this panel closes.
+        and commit steps, and, if you allow it below, export the project open here. It is off until
+        you turn it on, and it turns off when this panel closes.
       </p>
       <label class="settings-label mt-12" for="control-channel-port">Port on this computer</label>
       <input
@@ -130,6 +132,12 @@
         aria-describedby="control-channel-error"
       />
       <p id="control-channel-error" class="settings-field-error hidden"></p>
+      <label class="toggle-row mt-12">
+        <input type="checkbox" id="control-channel-allow-export" autocomplete="off" />
+        <span class="toggle-label"
+          >Let the local program export the project open here, with its full step history</span
+        >
+      </label>
       <div class="form-actions">
         <button id="btn-control-channel-on" class="btn btn--primary btn--sm">Turn on</button>
       </div>

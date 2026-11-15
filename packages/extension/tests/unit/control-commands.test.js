@@ -11,8 +11,53 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { createControlExecutor } from '../../sidepanel/control-commands.js';
 import { CONTROL_COMMANDS } from '../../sidepanel/control-channel.js';
+import { buildOpenProjectExport } from '../../sidepanel/project-export.js';
+import { buildExport } from '../../shared/lib/export-project.js';
 
-function fakePanel(initial = {}) {
+/** A composed schema as far as the export stamp reads it. */
+const SCHEMA = {
+  $defs: {
+    docent_format: {
+      properties: { platform: { const: 'extension' }, schema_version: { const: '9.9.9' } },
+    },
+  },
+};
+
+/**
+ * A worker holding two stored projects, the second of them its worker-wide
+ * active project, answering PROJECT_EXPORT the way the service worker does: by
+ * the project id the message names.
+ */
+function fakeWorker() {
+  const projects = [
+    {
+      project_id: 'p1',
+      name: 'P',
+      created_at: 1,
+      recordings: [
+        {
+          recording_id: 'r1',
+          name: 'R',
+          created_at: 2,
+          steps: [{ logical_id: 'l1', step_number: 1, actions: [{ type: 'click', value: 's' }] }],
+        },
+      ],
+    },
+    { project_id: 'p2', name: 'Other', created_at: 3, recordings: [] },
+  ];
+  const messages = [];
+  return {
+    projects,
+    messages,
+    async send(message) {
+      messages.push(message);
+      const project = projects.find((p) => p.project_id === message.project_id);
+      return project ? { ok: true, project } : { ok: false, error: 'Project not found' };
+    },
+  };
+}
+
+function fakePanel(initial = {}, worker = fakeWorker()) {
   const calls = [];
   const state = {
     project: null,
@@ -59,11 +104,23 @@ function fakePanel(initial = {}) {
       state.pendingCount = 0;
       return { ok: true, step, activeSteps: [step] };
     },
+    // The panel's Export action, as shipped, over the panel's open project.
+    async exportProject() {
+      calls.push(['exportProject']);
+      return buildOpenProjectExport({
+        project: state.project,
+        send: (message) => worker.send(message),
+        loadSchema: async () => SCHEMA,
+      });
+    },
   };
   return panel;
 }
 
-const run = (panel, name, args = {}) => createControlExecutor(panel)({ id: '1', name, args });
+const run = (panel, name, args = {}, channel) =>
+  createControlExecutor(panel)({ id: '1', name, args }, channel);
+
+const GRANTED = { exportAllowed: true };
 
 const OPEN = {
   project: { project_id: 'p1', name: 'P' },
@@ -79,7 +136,20 @@ describe('createControlExecutor — status', () => {
       capturing: false,
       pending_actions: 0,
       steps: 0,
+      export_allowed: false,
     });
+  });
+
+  it('reports whether the person allowed export at turn-on', async () => {
+    assert.equal((await run(fakePanel(), 'status', {}, GRANTED)).export_allowed, true);
+    assert.equal(
+      (await run(fakePanel(), 'status', {}, { exportAllowed: false })).export_allowed,
+      false,
+    );
+    assert.equal(
+      (await run(fakePanel(), 'status', {}, { exportAllowed: 'yes' })).export_allowed,
+      false,
+    );
   });
 
   it('reports the open project and recording by id and name only', async () => {
@@ -97,6 +167,7 @@ describe('createControlExecutor — status', () => {
       capturing: true,
       pending_actions: 3,
       steps: 2,
+      export_allowed: false,
     });
     assert.deepEqual(panel.calls, []);
   });
@@ -219,6 +290,104 @@ describe('createControlExecutor — step commit', () => {
   });
 });
 
+describe('createControlExecutor — project export', () => {
+  it('refuses an export the person did not allow at turn-on, touching nothing', async () => {
+    for (const channel of [undefined, {}, { exportAllowed: false }, { exportAllowed: 'yes' }]) {
+      const worker = fakeWorker();
+      const panel = fakePanel(OPEN, worker);
+      assert.deepEqual(await run(panel, 'project.export', {}, channel), {
+        ok: false,
+        error: 'Export was not allowed when local control was turned on',
+      });
+      assert.deepEqual(panel.calls, []);
+      assert.deepEqual(worker.messages, []);
+    }
+  });
+
+  it('refuses an export when no project is open, touching nothing', async () => {
+    const worker = fakeWorker();
+    const panel = fakePanel({}, worker);
+    assert.deepEqual(await run(panel, 'project.export', {}, GRANTED), {
+      ok: false,
+      error: 'No open project',
+    });
+    assert.deepEqual(panel.calls, []);
+    assert.deepEqual(worker.messages, []);
+  });
+
+  it('exports the project open in this panel, as its Export button builds it', async () => {
+    // The worker's active project is another one; the panel has p1 open.
+    const worker = fakeWorker();
+    const panel = fakePanel({ project: { project_id: 'p1', name: 'P' } }, worker);
+    const result = await run(panel, 'project.export', {}, GRANTED);
+    assert.deepEqual(result, {
+      ok: true,
+      project: { project_id: 'p1', name: 'P' },
+      export: buildExport(worker.projects[0], SCHEMA),
+    });
+    assert.deepEqual(worker.messages, [{ type: 'PROJECT_EXPORT', project_id: 'p1' }]);
+  });
+
+  it('carries the full step history of the open project', async () => {
+    const worker = fakeWorker();
+    const panel = fakePanel({ project: { project_id: 'p1', name: 'P' } }, worker);
+    const result = await run(panel, 'project.export', {}, GRANTED);
+    assert.deepEqual(result.export.recordings[0].steps, worker.projects[0].recordings[0].steps);
+    assert.deepEqual(result.export.docent_format, {
+      platform: 'extension',
+      schema_version: '9.9.9',
+    });
+  });
+
+  it('answers an export the panel could not make with a fixed text, opening no dialog', async () => {
+    const dialogs = [];
+    const saved = { alert: globalThis.alert, confirm: globalThis.confirm };
+    globalThis.alert = (text) => dialogs.push(['alert', text]);
+    globalThis.confirm = (text) => {
+      dialogs.push(['confirm', text]);
+      return true;
+    };
+    try {
+      for (const failing of [
+        async () => ({ ok: false, error: 'storage detail /a/b' }),
+        async () => undefined,
+        async () => {
+          throw new Error('secret /home/someone');
+        },
+      ]) {
+        const worker = fakeWorker();
+        worker.send = failing;
+        const panel = fakePanel({ project: { project_id: 'p1', name: 'P' } }, worker);
+        assert.deepEqual(await run(panel, 'project.export', {}, GRANTED), {
+          ok: false,
+          error: 'The project was not exported',
+        });
+      }
+      // An open project the worker no longer holds.
+      const panel = fakePanel({ project: { project_id: 'gone', name: 'Gone' } });
+      assert.deepEqual(await run(panel, 'project.export', {}, GRANTED), {
+        ok: false,
+        error: 'The project was not exported',
+      });
+    } finally {
+      globalThis.alert = saved.alert;
+      globalThis.confirm = saved.confirm;
+    }
+    assert.deepEqual(dialogs, []);
+  });
+
+  it('answers a panel Export action that rejects with the same fixed text', async () => {
+    const panel = fakePanel({ project: { project_id: 'p1', name: 'P' } });
+    panel.exportProject = async () => {
+      throw new Error('secret /home/someone');
+    };
+    assert.deepEqual(await run(panel, 'project.export', {}, GRANTED), {
+      ok: false,
+      error: 'The project was not exported',
+    });
+  });
+});
+
 describe('createControlExecutor — bounds', () => {
   it('refuses every changing command while the panel is re-recording a step', async () => {
     for (const [name, args] of [
@@ -227,9 +396,10 @@ describe('createControlExecutor — bounds', () => {
       ['recording.pause', {}],
       ['recording.resume', {}],
       ['step.commit', { narration: 'n' }],
+      ['project.export', {}],
     ]) {
       const panel = fakePanel({ ...OPEN, capturing: true, pendingCount: 1, rerecording: true });
-      const result = await run(panel, name, args);
+      const result = await run(panel, name, args, GRANTED);
       assert.equal(result.ok, false, name);
       assert.match(result.error, /re-record/i);
       assert.deepEqual(panel.calls, [], name);
@@ -243,9 +413,10 @@ describe('createControlExecutor — bounds', () => {
       ['recording.pause', {}],
       ['recording.resume', {}],
       ['step.commit', { narration: 'n' }],
+      ['project.export', {}],
     ]) {
       const panel = fakePanel({ ...OPEN, capturing: true, pendingCount: 1, busy: true });
-      assert.deepEqual(await run(panel, name, args), {
+      assert.deepEqual(await run(panel, name, args, GRANTED), {
         ok: false,
         error: 'The panel is committing a step',
       });
@@ -268,8 +439,9 @@ describe('createControlExecutor — bounds', () => {
   it('carries out every command of the closed set', async () => {
     for (const name of CONTROL_COMMANDS) {
       const panel = fakePanel({ ...OPEN, pendingCount: 1 });
-      const result = await run(panel, name, { name: 'N', narration: 'n' });
+      const result = await run(panel, name, { name: 'N', narration: 'n' }, GRANTED);
       assert.notEqual(result.error, 'Unknown command', name);
+      assert.equal(result.ok, true, name);
     }
   });
 });

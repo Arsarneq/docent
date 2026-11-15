@@ -1249,8 +1249,11 @@ async function handle(msg) {
     }
 
     case 'PROJECT_EXPORT': {
-      const project = getActiveProject();
-      if (!project) return { ok: false, error: 'No active project' };
+      // The project the asking panel has open, named by its id: each open
+      // panel holds its own project, and the worker-wide active one follows
+      // whichever panel last opened or created one.
+      const project = projects.find((p) => p.project_id === msg.project_id);
+      if (!project) return { ok: false, error: 'Project not found' };
       // Return the raw project; the panel stamps + shapes it into the
       // `.docent.json` export via buildExport(), where the composed schema (the
       // source of the docent_format stamp) is available.

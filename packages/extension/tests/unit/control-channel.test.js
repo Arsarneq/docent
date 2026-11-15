@@ -23,6 +23,9 @@ import {
   formatPairingCode,
   generateNonce,
   computePairProof,
+  hmacSha256Hex,
+  PROOF_LABELS,
+  describeExportGrant,
   verifyPairProof,
   parseFrame,
   validateCommand,
@@ -81,6 +84,8 @@ describe('generatePairingCode', () => {
 
   it('produces a code of the stated length from the unambiguous alphabet', () => {
     const code = generatePairingCode((bytes) => crypto.getRandomValues(bytes));
+    // Sixteen characters of five bits each: 80 bits.
+    assert.equal(PAIRING_CODE_LENGTH, 16);
     assert.equal(code.length, PAIRING_CODE_LENGTH);
     assert.match(code, /^[0-9A-HJKMNP-TV-Z]+$/);
   });
@@ -98,8 +103,8 @@ describe('generatePairingCode', () => {
     assert.notEqual(a, b);
   });
 
-  it('formats a code in two groups for reading aloud', () => {
-    assert.equal(formatPairingCode('ABCD1234'), 'ABCD-1234');
+  it('formats a code in four groups of four for reading aloud', () => {
+    assert.equal(formatPairingCode('ABCD1234EFGH5678'), 'ABCD-1234-EFGH-5678');
   });
 });
 
@@ -114,35 +119,102 @@ describe('generateNonce', () => {
 
 // ─── Pair proof ───────────────────────────────────────────────────────────────
 
-describe('pair proof — HMAC-SHA256 of the nonce keyed by the code', () => {
+describe('pair proof — HMAC-SHA256 keyed by the code over a labelled nonce', () => {
+  const CODE = 'ABCD1234EFGH5678';
+
   it('matches a known vector', async () => {
     // RFC 4231 test case 2: key "Jefe", data "what do ya want for nothing?".
     assert.equal(
-      await computePairProof('Jefe', 'what do ya want for nothing?'),
+      await hmacSha256Hex('Jefe', 'what do ya want for nothing?'),
       '5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843',
     );
   });
 
+  it('labels each direction with its own exact prefix', async () => {
+    assert.deepEqual(PROOF_LABELS, { local: 'local:', panel: 'panel:' });
+    assert.equal(
+      await computePairProof(CODE, 'n1', 'local'),
+      await hmacSha256Hex(CODE, 'local:n1'),
+    );
+    assert.equal(
+      await computePairProof(CODE, 'n1', 'panel'),
+      await hmacSha256Hex(CODE, 'panel:n1'),
+    );
+  });
+
+  it('refuses to compute a proof for a direction it does not know', async () => {
+    await assert.rejects(computePairProof(CODE, 'n1', 'other'));
+    await assert.rejects(computePairProof(CODE, 'n1'));
+  });
+
+  it('matches the worked example of the specification, in both directions', async () => {
+    // For the code shown as 7K3M-Q9XZ-4HTR-WB2N: the local process's proof over
+    // the panel's nonce, and the panel's proof over the local process's nonce.
+    assert.equal(
+      await computePairProof('7K3MQ9XZ4HTRWB2N', '000102030405060708090a0b0c0d0e0f', 'local'),
+      'f7fa184f820aad37881d3c7050b7808799e6211b3b75f96e9ad28fe0dbf7538a',
+    );
+    assert.equal(
+      await computePairProof('7K3MQ9XZ4HTRWB2N', '0f0e0d0c0b0a09080706050403020100', 'panel'),
+      '0269c0d2e863e07f8a9d5b49f5dc1e4202251c885577e12e8687cdc82a58fcfb',
+    );
+  });
+
   it('verifies the proof a holder of the code computes', async () => {
-    const proof = await computePairProof('ABCD1234', 'nonce-1');
-    assert.equal(await verifyPairProof({ code: 'ABCD1234', nonce: 'nonce-1', proof }), true);
+    const proof = await computePairProof(CODE, 'nonce-1', 'local');
+    assert.equal(await verifyPairProof({ code: CODE, nonce: 'nonce-1', proof }), true);
+  });
+
+  it('never accepts a proof made for the other direction, even over the same nonce', async () => {
+    for (const nonce of ['nonce-1', '000102030405060708090a0b0c0d0e0f']) {
+      const panelProof = await computePairProof(CODE, nonce, 'panel');
+      assert.notEqual(panelProof, await computePairProof(CODE, nonce, 'local'));
+      assert.equal(await verifyPairProof({ code: CODE, nonce, proof: panelProof }), false);
+    }
   });
 
   it('refuses a proof made with another code', async () => {
-    const proof = await computePairProof('ABCD1235', 'nonce-1');
-    assert.equal(await verifyPairProof({ code: 'ABCD1234', nonce: 'nonce-1', proof }), false);
+    const proof = await computePairProof('ABCD1234EFGH5679', 'nonce-1', 'local');
+    assert.equal(await verifyPairProof({ code: CODE, nonce: 'nonce-1', proof }), false);
   });
 
   it('refuses a proof made for another nonce (no replay across connections)', async () => {
-    const proof = await computePairProof('ABCD1234', 'nonce-1');
-    assert.equal(await verifyPairProof({ code: 'ABCD1234', nonce: 'nonce-2', proof }), false);
+    const proof = await computePairProof(CODE, 'nonce-1', 'local');
+    assert.equal(await verifyPairProof({ code: CODE, nonce: 'nonce-2', proof }), false);
   });
 
   it('refuses the code itself, an upper-cased proof, and non-strings', async () => {
-    const proof = await computePairProof('ABCD1234', 'n');
-    for (const bad of ['ABCD1234', proof.toUpperCase(), proof.slice(1), '', null, 12, {}]) {
-      assert.equal(await verifyPairProof({ code: 'ABCD1234', nonce: 'n', proof: bad }), false);
+    const proof = await computePairProof(CODE, 'n', 'local');
+    for (const bad of [CODE, proof.toUpperCase(), proof.slice(1), '', null, 12, {}]) {
+      assert.equal(await verifyPairProof({ code: CODE, nonce: 'n', proof: bad }), false);
     }
+  });
+});
+
+describe('describeExportGrant — the indicator line on export', () => {
+  it('says nothing without the grant', () => {
+    assert.equal(describeExportGrant({ exportAllowed: false, exports: 0, lastExport: null }), '');
+  });
+
+  it('states the grant before any export', () => {
+    assert.equal(
+      describeExportGrant({ exportAllowed: true, exports: 0, lastExport: null }),
+      'Export is allowed for the project open here.',
+    );
+  });
+
+  it('names the last export and counts one export in the singular', () => {
+    assert.equal(
+      describeExportGrant({ exportAllowed: true, exports: 1, lastExport: 'Alpha' }),
+      'Export is allowed for the project open here. Exported "Alpha" (1 export so far).',
+    );
+  });
+
+  it('counts several exports in the plural', () => {
+    assert.equal(
+      describeExportGrant({ exportAllowed: true, exports: 3, lastExport: 'Beta' }),
+      'Export is allowed for the project open here. Exported "Beta" (3 exports so far).',
+    );
   });
 });
 
@@ -178,9 +250,10 @@ describe('parseFrame', () => {
 // ─── Commands ─────────────────────────────────────────────────────────────────
 
 describe('the command set is closed', () => {
-  it('is exactly the structuring actions and the status read', () => {
+  it('is exactly the structuring actions, the status read and the export', () => {
     assert.deepEqual([...CONTROL_COMMANDS].sort(), [
       'project.create',
+      'project.export',
       'recording.create',
       'recording.pause',
       'recording.resume',
@@ -212,6 +285,8 @@ describe('validateCommand', () => {
       [cmd('recording.create', { name: 'Happy path' }), { name: 'Happy path' }],
       [cmd('recording.pause'), {}],
       [cmd('recording.resume'), {}],
+      [cmd('project.export'), {}],
+      [cmd('project.export', {}), {}],
       [cmd('step.commit', { narration: 'Open the cart' }), { narration: 'Open the cart' }],
       [cmd('step.commit', { step_type: 'action' }), { step_type: 'action' }],
       [
@@ -260,6 +335,7 @@ describe('validateCommand', () => {
     ['string args', cmd('status', 'x')],
     ['null args', cmd('status', null)],
     ['args on a command that takes none', cmd('recording.pause', { force: true })],
+    ['a project id on an export', cmd('project.export', { project_id: 'p2' })],
     ['a missing name', cmd('project.create', {})],
     ['a blank name', cmd('project.create', { name: '   ' })],
     ['a non-string name', cmd('project.create', { name: 5 })],
@@ -301,7 +377,7 @@ describe('validateCommand', () => {
  * the close reasons, `executed` the commands that reached the executor, and
  * `timer` holds the pending pair timeout so a case can fire it by hand.
  */
-function harness({ code = 'ABCD1234', nonce = 'nonce-1', execute } = {}) {
+function harness({ code = 'ABCD1234EFGH5678', nonce = 'nonce-1', execute } = {}) {
   const sent = [];
   const closed = [];
   const executed = [];
@@ -331,12 +407,23 @@ function harness({ code = 'ABCD1234', nonce = 'nonce-1', execute } = {}) {
   return { session, sent, closed, executed, states, timer, code, nonce };
 }
 
+/** The nonce the local process sends in its pair frame in these cases. */
+const PEER_NONCE = 'f0e1d2c3b4a5968778695a4b3c2d1e0f';
+
+/** The pair frame a holder of the code sends to a harness's session. */
+async function pairFrame(h, extra = {}) {
+  return JSON.stringify({
+    type: 'pair',
+    proof: await computePairProof(h.code, h.nonce, 'local'),
+    nonce: PEER_NONCE,
+    ...extra,
+  });
+}
+
 async function paired(options) {
   const h = harness(options);
   h.session.open();
-  await h.session.receive(
-    JSON.stringify({ type: 'pair', proof: await computePairProof(h.code, h.nonce) }),
-  );
+  await h.session.receive(await pairFrame(h));
   return h;
 }
 
@@ -351,10 +438,15 @@ describe('createControlSession — pairing', () => {
     assert.equal(h.timer.ms, PAIR_TIMEOUT_MS);
   });
 
-  it('pairs on a correct proof and says so', async () => {
+  it('pairs on a correct proof and proves the code back over the peer nonce', async () => {
     const h = await paired();
     assert.equal(h.session.state, 'paired');
-    assert.deepEqual(h.sent.at(-1), { type: 'paired' });
+    // The panel's own proof lets the local process check that its peer holds
+    // the code too.
+    assert.deepEqual(h.sent.at(-1), {
+      type: 'paired',
+      proof: await computePairProof(h.code, PEER_NONCE, 'panel'),
+    });
     assert.deepEqual(h.states, ['awaiting-pair', 'paired']);
     assert.equal(h.timer.cleared, true);
     assert.deepEqual(h.closed, []);
@@ -363,13 +455,13 @@ describe('createControlSession — pairing', () => {
   it('closes on a wrong proof and never pairs afterwards — one attempt per code', async () => {
     const h = harness();
     h.session.open();
-    await h.session.receive(JSON.stringify({ type: 'pair', proof: 'f'.repeat(64) }));
+    await h.session.receive(
+      JSON.stringify({ type: 'pair', proof: 'f'.repeat(64), nonce: PEER_NONCE }),
+    );
     assert.equal(h.session.state, 'closed');
     assert.deepEqual(h.closed, ['pairing-failed']);
     // The right proof arriving later is ignored: the session is spent.
-    await h.session.receive(
-      JSON.stringify({ type: 'pair', proof: await computePairProof(h.code, h.nonce) }),
-    );
+    await h.session.receive(await pairFrame(h));
     assert.equal(h.session.state, 'closed');
     assert.equal(h.sent.length, 1);
   });
@@ -388,6 +480,7 @@ describe('createControlSession — pairing', () => {
     h.session.open();
     await h.session.receive('not json');
     assert.deepEqual(h.closed, ['pairing-failed']);
+    assert.equal(h.sent.length, 1);
   });
 
   it('closes when no proof arrives in time', () => {
@@ -396,27 +489,73 @@ describe('createControlSession — pairing', () => {
     h.timer.fn();
     assert.equal(h.session.state, 'closed');
     assert.deepEqual(h.closed, ['pairing-timeout']);
+    assert.equal(h.sent.length, 1);
   });
 
   it('refuses a pair frame with unknown keys', async () => {
     const h = harness();
     h.session.open();
+    await h.session.receive(await pairFrame(h, { extra: true }));
+    assert.deepEqual(h.closed, ['pairing-failed']);
+    assert.equal(h.sent.length, 1);
+  });
+
+  it('proves back with a proof that differs from the peer proof, even over an equal nonce', async () => {
+    const nonce = '000102030405060708090a0b0c0d0e0f';
+    const h = harness({ nonce });
+    h.session.open();
+    const peerProof = await computePairProof(h.code, nonce, 'local');
+    await h.session.receive(JSON.stringify({ type: 'pair', proof: peerProof, nonce }));
+    assert.equal(h.session.state, 'paired');
+    assert.notEqual(h.sent.at(-1).proof, peerProof);
+    assert.equal(h.sent.at(-1).proof, await computePairProof(h.code, nonce, 'panel'));
+  });
+
+  it('refuses the panel-direction proof as a pairing proof', async () => {
+    const h = harness();
+    h.session.open();
     await h.session.receive(
       JSON.stringify({
         type: 'pair',
-        proof: await computePairProof(h.code, h.nonce),
-        extra: true,
+        proof: await computePairProof(h.code, h.nonce, 'panel'),
+        nonce: PEER_NONCE,
       }),
     );
     assert.deepEqual(h.closed, ['pairing-failed']);
+    assert.equal(h.sent.length, 1);
   });
+
+  it('refuses a correct proof that comes without the peer nonce, proving nothing back', async () => {
+    const h = harness();
+    h.session.open();
+    await h.session.receive(
+      JSON.stringify({ type: 'pair', proof: await computePairProof(h.code, h.nonce, 'local') }),
+    );
+    assert.deepEqual(h.closed, ['pairing-failed']);
+    assert.equal(h.sent.length, 1);
+  });
+
+  for (const [label, nonce] of [
+    ['upper-case hex', PEER_NONCE.toUpperCase()],
+    ['too short', PEER_NONCE.slice(1)],
+    ['too long', `${PEER_NONCE}0`],
+    ['not hex', 'g'.repeat(32)],
+    ['not text', 12],
+    ['null', null],
+  ]) {
+    it(`refuses a peer nonce that is ${label}, proving nothing back`, async () => {
+      const h = harness();
+      h.session.open();
+      await h.session.receive(await pairFrame(h, { nonce }));
+      assert.deepEqual(h.closed, ['pairing-failed']);
+      assert.equal(h.sent.length, 1);
+    });
+  }
 
   it('answers a command sent right behind the proof, once paired', async () => {
     const h = harness();
     h.session.open();
-    const pairing = h.session.receive(
-      JSON.stringify({ type: 'pair', proof: await computePairProof(h.code, h.nonce) }),
-    );
+    const pairing = h.session.receive(await pairFrame(h));
     const command = h.session.receive(
       JSON.stringify({ type: 'command', id: 'a', command: 'status' }),
     );
@@ -432,7 +571,9 @@ describe('createControlSession — pairing', () => {
   it('runs nothing sent right behind a wrong proof', async () => {
     const h = harness();
     h.session.open();
-    const pairing = h.session.receive(JSON.stringify({ type: 'pair', proof: 'f'.repeat(64) }));
+    const pairing = h.session.receive(
+      JSON.stringify({ type: 'pair', proof: 'f'.repeat(64), nonce: PEER_NONCE }),
+    );
     const command = h.session.receive(
       JSON.stringify({ type: 'command', id: 'a', command: 'status' }),
     );
@@ -444,9 +585,7 @@ describe('createControlSession — pairing', () => {
 
   it('does not act on frames received before it is opened', async () => {
     const h = harness();
-    await h.session.receive(
-      JSON.stringify({ type: 'pair', proof: await computePairProof(h.code, h.nonce) }),
-    );
+    await h.session.receive(await pairFrame(h));
     assert.equal(h.session.state, 'idle');
     assert.deepEqual(h.sent, []);
   });
@@ -538,6 +677,17 @@ describe('createControlSession — commands', () => {
     });
     await h.session.receive(JSON.stringify({ type: 'command', id: 'a', command: 'status' }));
     assert.deepEqual(h.sent.at(-1), { type: 'result', id: 'a', ok: true, value: 1 });
+  });
+
+  it('sends a result larger than the inbound frame cap as one frame', async () => {
+    const big = 'x'.repeat(MAX_FRAME_CHARS * 4);
+    const h = await paired({ execute: async () => ({ ok: true, export: { big } }) });
+    const before = h.sent.length;
+    await h.session.receive(
+      JSON.stringify({ type: 'command', id: 'e', command: 'project.export' }),
+    );
+    assert.equal(h.sent.length, before + 1);
+    assert.deepEqual(h.sent.at(-1), { type: 'result', id: 'e', ok: true, export: { big } });
   });
 
   it('runs commands one at a time, in arrival order', async () => {

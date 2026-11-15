@@ -39,10 +39,11 @@ import {
   buildResolvedState,
   UI_ACTIONS,
 } from '../shared/sync-conflict-ui.js';
-import { buildExport } from '../shared/lib/export-project.js';
 import adapter from './adapter-chrome.js';
 import { createControlChannelHost } from './control-channel-host.js';
 import { createControlExecutor } from './control-commands.js';
+import { describeExportGrant } from './control-channel.js';
+import { buildOpenProjectExport, exportFileName } from './project-export.js';
 import {
   escapeHtml,
   renderProjectList as renderProjectListHtml,
@@ -566,25 +567,30 @@ async function deleteRecording(recording_id, name) {
   showView('project');
 }
 
-// Export project
+// Export project. The build — the project open in this panel, asked for by its
+// id and stamped — is shared with the control channel's export
+// (project-export.js); the download and the failure dialog are the click's.
+function buildExportOfOpenProject() {
+  return buildOpenProjectExport({
+    project: activeProject,
+    send,
+    loadSchema: () => adapter.loadSchema(),
+  });
+}
+
 btnExportProject.addEventListener('click', async () => {
-  const response = await send({ type: 'PROJECT_EXPORT' });
-  if (!response?.ok) {
-    alert(`Export failed: ${response?.error ?? 'unknown error'}`);
+  const built = await buildExportOfOpenProject();
+  if (!built.ok) {
+    alert(`Export failed: ${built.error}`);
     return;
   }
-  // Stamp the export with docent_format here in the panel, where the composed
-  // schema is available (the service worker doesn't load it). The schema is the
-  // single source of truth for the platform + version stamp.
-  const schema = await adapter.loadSchema();
-  const exportData = buildExport(response.project, schema);
-  const blob = new Blob([JSON.stringify(exportData, null, 2)], {
+  const blob = new Blob([JSON.stringify(built.document, null, 2)], {
     type: 'application/json',
   });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `${activeProject.name.replace(/\s+/g, '_')}_${Date.now()}.docent.json`;
+  a.download = exportFileName(built.project, Date.now());
   a.click();
   URL.revokeObjectURL(url);
 });
@@ -1955,7 +1961,8 @@ recordingMetadataList.addEventListener('change', async () => {
 
 // ─── Local control channel ────────────────────────────────────────────────────
 // An opt-in channel through which a program on this computer runs a closed set
-// of this panel's structuring actions. The rules — what may be dialled, the
+// of this panel's actions: its structuring actions and, when the person allows
+// it at turn-on, the export of the open project. The rules — what may be dialled, the
 // pairing, the command set — live in control-channel.js; the on/off switch
 // and the socket in control-channel-host.js; the command-to-action mapping in
 // control-commands.js. This section binds them to the panel: the actions above
@@ -1971,6 +1978,11 @@ const btnControlChannelOn = $('btn-control-channel-on');
 const controlChannelIndicator = $('control-channel-indicator');
 const controlChannelIndicatorText = $('control-channel-indicator-text');
 const controlChannelCode = $('control-channel-code');
+const controlChannelExport = $('control-channel-export');
+const controlChannelAllowExport = $('control-channel-allow-export');
+// The grant starts unticked on every load, whatever form state the browser
+// restores (control-channel LC-1).
+controlChannelAllowExport.checked = false;
 const btnControlChannelOff = $('btn-control-channel-off');
 
 const controlExecutor = createControlExecutor({
@@ -1996,6 +2008,7 @@ const controlExecutor = createControlExecutor({
   createRecording: holdingCommit(createRecordingNamed),
   setCapture: holdingCommit(setCapturing),
   commitStep: holdingCommit(submitStepCommit),
+  exportProject: buildExportOfOpenProject,
 });
 
 /**
@@ -2020,6 +2033,11 @@ function renderControlChannel(status) {
   controlChannelIndicator.classList.toggle('hidden', !on);
   btnControlChannelOn.disabled = on;
   controlChannelPort.disabled = on;
+  // The grant is fixed at turn-on and gone at turn-off (control-channel LC-1).
+  controlChannelAllowExport.disabled = on;
+  if (!on) controlChannelAllowExport.checked = false;
+  controlChannelExport.textContent = describeExportGrant(status);
+  controlChannelExport.classList.toggle('hidden', !(on && status.exportAllowed));
   if (status.state === 'connecting') {
     controlChannelIndicatorText.textContent = `Local control is on, waiting for a program on port ${status.port}. Pairing code: `;
   } else if (status.state === 'awaiting-pair') {
@@ -2052,7 +2070,9 @@ btnControlChannel.addEventListener('click', () =>
 );
 
 function turnControlChannelOn() {
-  const result = controlChannel.enable(controlChannelPort.value.trim());
+  const result = controlChannel.enable(controlChannelPort.value.trim(), {
+    allowExport: controlChannelAllowExport.checked,
+  });
   controlChannelError.textContent = result.ok ? '' : result.error;
   controlChannelError.classList.toggle('hidden', result.ok);
   if (result.ok) showControlChannelSetup(false);

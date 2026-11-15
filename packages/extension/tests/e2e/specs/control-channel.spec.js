@@ -3,13 +3,15 @@
  *
  * Drives the side panel's control channel in a real browser against a local
  * WebSocket server standing in for the local process: off by default, the
- * pairing, each command of the closed set and the panel following it, every
- * route by which the channel turns itself off, and the browser's own refusal of
- * a WebSocket to any host but the loopback literal.
+ * pairing in both directions, each command of the closed set and the panel
+ * following it, the export a person allows at turn-on and the indicator's trace
+ * of it, every route by which the channel turns itself off, and the browser's
+ * own refusal of a WebSocket to any host but the loopback literal.
  */
 
 import { test as base, expect, chromium } from '@playwright/test';
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { createHmac } from 'node:crypto';
 import { WebSocketServer } from 'ws';
@@ -30,10 +32,13 @@ function startLocalProcess() {
       socket,
       origin: request.headers.origin,
       frames: [],
+      // Every frame the panel sent on this connection, as text, in order.
+      log: [],
       frameWaiters: [],
       closed: new Promise((resolve) => socket.on('close', resolve)),
     };
     socket.on('message', (data) => {
+      connection.log.push(data.toString());
       const frame = JSON.parse(data.toString());
       const waiter = connection.frameWaiters.shift();
       if (waiter) waiter(frame);
@@ -76,9 +81,48 @@ async function command(connection, id, name, args) {
   return nextFrame(connection);
 }
 
-/** The proof a process holding the displayed code computes for a nonce. */
-function proofFor(displayedCode, nonce) {
-  return createHmac('sha256', displayedCode.replace('-', '')).update(nonce).digest('hex');
+/**
+ * The proof a holder of the displayed code computes for a nonce in one
+ * direction: `local:` for the local process's proof, `panel:` for the panel's.
+ */
+function proofFor(displayedCode, label, nonce) {
+  return createHmac('sha256', displayedCode.replaceAll('-', ''))
+    .update(`${label}${nonce}`)
+    .digest('hex');
+}
+
+/** The nonce this local process sends with its proof. */
+const LOCAL_NONCE = '5ca1ab1e00000000feedfacecafebeef';
+
+/** The pair frame of a process holding the displayed code. */
+function pairFrame(displayedCode, hello) {
+  return JSON.stringify({
+    type: 'pair',
+    proof: proofFor(displayedCode, 'local:', hello.nonce),
+    nonce: LOCAL_NONCE,
+  });
+}
+
+/** A value planted in a captured action, so a test can look for it in frames. */
+const CAPTURED = 'captured-value';
+
+/** Put one captured action in the pending buffer, as the recorder would. */
+async function captureOne(serviceWorker) {
+  await serviceWorker.evaluate(async (value) => {
+    await chrome.storage.local.set({
+      pendingActions: [{ type: 'click', timestamp: 1, element: { text: 'Cart' }, value }],
+      pendingCount: 1,
+    });
+  }, CAPTURED);
+}
+
+/** The panel's own Export button: click it and read the file it writes. */
+async function exportByButton(panelPage) {
+  const [download] = await Promise.all([
+    panelPage.waitForEvent('download'),
+    panelPage.click('#btn-export-project'),
+  ]);
+  return JSON.parse(fs.readFileSync(await download.path(), 'utf-8'));
 }
 
 const test = base.extend({
@@ -91,6 +135,7 @@ const test = base.extend({
         '--no-first-run',
         '--disable-default-apps',
       ],
+      acceptDownloads: true,
     });
     await use(context);
     await context.close();
@@ -120,22 +165,30 @@ const test = base.extend({
   },
 });
 
-/** Turn the channel on from the panel and return the displayed pairing code. */
-async function turnOn(panelPage, port) {
+/**
+ * Turn the channel on from the panel and return the displayed pairing code;
+ * `allowExport` ticks the export grant first.
+ */
+async function turnOn(panelPage, port, { allowExport = false } = {}) {
   await panelPage.click('#btn-control-channel');
   await panelPage.fill('#control-channel-port', String(port));
+  if (allowExport) await panelPage.check('#control-channel-allow-export');
   await panelPage.click('#btn-control-channel-on');
   await expect(panelPage.locator('#control-channel-indicator')).toBeVisible();
   return panelPage.locator('#control-channel-code').innerText();
 }
 
 /** Turn the channel on and pair, returning the paired connection. */
-async function pair(panelPage, localProcess) {
-  const code = await turnOn(panelPage, localProcess.port);
+async function pair(panelPage, localProcess, options) {
+  const code = await turnOn(panelPage, localProcess.port, options);
   const connection = await localProcess.nextConnection();
   const hello = await nextFrame(connection);
-  connection.socket.send(JSON.stringify({ type: 'pair', proof: proofFor(code, hello.nonce) }));
-  expect(await nextFrame(connection)).toEqual({ type: 'paired' });
+  connection.socket.send(pairFrame(code, hello));
+  // The panel proves the code back over this process's nonce.
+  expect(await nextFrame(connection)).toEqual({
+    type: 'paired',
+    proof: proofFor(code, 'panel:', LOCAL_NONCE),
+  });
   return { connection, code, hello };
 }
 
@@ -148,6 +201,19 @@ test.describe('Local control channel', () => {
     await expect(panelPage.locator('#control-channel-setup')).toBeHidden();
     await panelPage.waitForTimeout(500);
     expect(localProcess.connectionCount()).toBe(0);
+  });
+
+  test('the export box starts unticked whenever the panel page loads', async ({ panelPage }) => {
+    await panelPage.click('#btn-control-channel');
+    await panelPage.check('#control-channel-allow-export');
+    await panelPage.reload();
+    await panelPage.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
+    await panelPage.click('#btn-control-channel');
+    await expect(panelPage.locator('#control-channel-allow-export')).not.toBeChecked();
+    await expect(panelPage.locator('#control-channel-allow-export')).toHaveAttribute(
+      'autocomplete',
+      'off',
+    );
   });
 
   test('refuses a port that is not a plain number, without dialling', async ({
@@ -169,7 +235,7 @@ test.describe('Local control channel', () => {
     extensionId,
   }) => {
     const code = await turnOn(panelPage, localProcess.port);
-    expect(code).toMatch(/^[0-9A-Z]{4}-[0-9A-Z]{4}$/);
+    expect(code).toMatch(/^[0-9A-Z]{4}(-[0-9A-Z]{4}){3}$/);
 
     const connection = await localProcess.nextConnection();
     // The browser states where the connection comes from: the extension's own
@@ -180,8 +246,11 @@ test.describe('Local control channel', () => {
     expect(hello).toEqual({ type: 'hello', docent_control: 1, nonce: hello.nonce });
     expect(hello.nonce).toMatch(/^[0-9a-f]{32}$/);
 
-    connection.socket.send(JSON.stringify({ type: 'pair', proof: proofFor(code, hello.nonce) }));
-    expect(await nextFrame(connection)).toEqual({ type: 'paired' });
+    connection.socket.send(pairFrame(code, hello));
+    expect(await nextFrame(connection)).toEqual({
+      type: 'paired',
+      proof: proofFor(code, 'panel:', LOCAL_NONCE),
+    });
 
     await expect(panelPage.locator('#control-channel-indicator-text')).toContainText(
       'A local program is connected',
@@ -211,6 +280,7 @@ test.describe('Local control channel', () => {
       capturing: false,
       pending_actions: 0,
       steps: 0,
+      export_allowed: false,
     });
 
     // A recording needs an open project.
@@ -314,9 +384,9 @@ test.describe('Local control channel', () => {
     const code = await turnOn(panelPage, localProcess.port);
     const connection = await localProcess.nextConnection();
     const hello = await nextFrame(connection);
-    connection.socket.send(JSON.stringify({ type: 'pair', proof: proofFor(code, hello.nonce) }));
+    connection.socket.send(pairFrame(code, hello));
     connection.socket.send(JSON.stringify({ type: 'command', id: 's', command: 'status' }));
-    expect(await nextFrame(connection)).toEqual({ type: 'paired' });
+    expect((await nextFrame(connection)).type).toBe('paired');
     expect((await nextFrame(connection)).id).toBe('s');
   });
 
@@ -337,6 +407,14 @@ test.describe('Local control channel', () => {
       const answer = await command(connection, name, name, args);
       expect(answer).toEqual({ type: 'result', id: name, ok: false, error: 'Unknown command' });
     }
+
+    // The export is refused while the person has not allowed it.
+    expect(await command(connection, 'x', 'project.export')).toEqual({
+      type: 'result',
+      id: 'x',
+      ok: false,
+      error: 'Export was not allowed when local control was turned on',
+    });
 
     // A known command with a field or an argument outside its row runs nothing.
     connection.socket.send(
@@ -368,7 +446,9 @@ test.describe('Local control channel', () => {
     const connection = await localProcess.nextConnection();
     const hello = await nextFrame(connection);
 
-    connection.socket.send(JSON.stringify({ type: 'pair', proof: 'f'.repeat(64) }));
+    connection.socket.send(
+      JSON.stringify({ type: 'pair', proof: 'f'.repeat(64), nonce: LOCAL_NONCE }),
+    );
     await connection.closed;
 
     await expect(panelPage.locator('#control-channel-indicator')).toBeHidden();
@@ -412,10 +492,14 @@ test.describe('Local control channel', () => {
   });
 
   test('Turn off closes the connection', async ({ panelPage, localProcess }) => {
-    const { connection } = await pair(panelPage, localProcess);
+    const { connection } = await pair(panelPage, localProcess, { allowExport: true });
     await panelPage.click('#btn-control-channel-off');
     await connection.closed;
     await expect(panelPage.locator('#control-channel-indicator')).toBeHidden();
+    // The grant ends with the channel: the box is unticked and can be ticked again.
+    await panelPage.click('#btn-control-channel');
+    await expect(panelPage.locator('#control-channel-allow-export')).not.toBeChecked();
+    await expect(panelPage.locator('#control-channel-allow-export')).toBeEnabled();
     await panelPage.waitForTimeout(300);
     expect(localProcess.connectionCount()).toBe(0);
   });
@@ -457,6 +541,138 @@ test.describe('Local control channel', () => {
     await reopened.waitForTimeout(500);
     expect(localProcess.connectionCount()).toBe(0);
     await reopened.close();
+  });
+
+  test('without the grant, refuses an export and no frame carries a captured value', async ({
+    panelPage,
+    localProcess,
+    serviceWorker,
+  }) => {
+    const { connection } = await pair(panelPage, localProcess);
+    // The grant is not ticked by default, and the indicator states no export.
+    await expect(panelPage.locator('#control-channel-allow-export')).not.toBeChecked();
+    await expect(panelPage.locator('#control-channel-export')).toBeHidden();
+    expect((await command(connection, 's', 'status')).export_allowed).toBe(false);
+
+    await command(connection, 'p', 'project.create', { name: 'Private' });
+    await command(connection, 'r', 'recording.create', { name: 'Flow' });
+    await captureOne(serviceWorker);
+    await expect
+      .poll(async () => (await command(connection, 'q', 'status')).pending_actions)
+      .toBe(1);
+    expect((await command(connection, 'c', 'step.commit', { narration: 'n' })).ok).toBe(true);
+
+    expect(await command(connection, 'e', 'project.export')).toEqual({
+      type: 'result',
+      id: 'e',
+      ok: false,
+      error: 'Export was not allowed when local control was turned on',
+    });
+    expect(connection.log.some((text) => text.includes(CAPTURED))).toBe(false);
+    await expect(panelPage.locator('#control-channel-export')).toBeHidden();
+  });
+
+  test('with the grant, exports the project open in this panel, as its Export button builds it', async ({
+    panelPage,
+    localProcess,
+    serviceWorker,
+  }) => {
+    const { connection } = await pair(panelPage, localProcess, { allowExport: true });
+    // The grant is fixed while the channel is on, and the indicator shows it.
+    await expect(panelPage.locator('#control-channel-allow-export')).toBeDisabled();
+    await expect(panelPage.locator('#control-channel-export')).toContainText('Export is allowed');
+    expect((await command(connection, 's', 'status')).export_allowed).toBe(true);
+
+    // No project is open yet: refused, and the indicator counts nothing.
+    expect(await command(connection, 'e0', 'project.export')).toEqual({
+      type: 'result',
+      id: 'e0',
+      ok: false,
+      error: 'No open project',
+    });
+
+    await command(connection, 'p', 'project.create', { name: 'Checkout' });
+    await command(connection, 'r', 'recording.create', { name: 'Flow' });
+    await captureOne(serviceWorker);
+    await expect
+      .poll(async () => (await command(connection, 'q', 'status')).pending_actions)
+      .toBe(1);
+    expect((await command(connection, 'c', 'step.commit', { narration: 'Open it' })).ok).toBe(true);
+
+    const exported = await command(connection, 'e1', 'project.export');
+    expect(exported.ok).toBe(true);
+    expect(exported.project.name).toBe('Checkout');
+    await expect(panelPage.locator('#control-channel-export')).toContainText('"Checkout"');
+    await expect(panelPage.locator('#control-channel-export')).toContainText('1 export');
+
+    // The same document the panel's own Export button writes.
+    await panelPage.click('#bc-project');
+    await expect(panelPage.locator('#view-project')).toBeVisible();
+    expect(exported.export).toEqual(await exportByButton(panelPage));
+    expect(exported.export.recordings[0].steps[0].actions[0].value).toBe(CAPTURED);
+
+    expect((await command(connection, 'e2', 'project.export')).ok).toBe(true);
+    await expect(panelPage.locator('#control-channel-export')).toContainText('2 exports');
+
+    // Captured data crosses only in the export results.
+    const frames = connection.log.map((text) => JSON.parse(text));
+    const carrying = frames.filter((_, index) => connection.log[index].includes(CAPTURED));
+    expect(carrying.map((frame) => frame.id)).toEqual(['e1', 'e2']);
+  });
+
+  test('two panel pages with different projects open each export their own', async ({
+    panelPage,
+    localProcess,
+    context,
+    extensionId,
+  }) => {
+    const first = await pair(panelPage, localProcess, { allowExport: true });
+    await command(first.connection, 'p', 'project.create', { name: 'Alpha' });
+
+    const otherPage = await context.newPage();
+    await otherPage.goto(`chrome-extension://${extensionId}/sidepanel/index.html`);
+    await otherPage.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
+    const second = await pair(otherPage, localProcess, { allowExport: true });
+    // The second project becomes the service worker's worker-wide active one.
+    await command(second.connection, 'p', 'project.create', { name: 'Beta' });
+
+    const fromFirst = await command(first.connection, 'e', 'project.export');
+    const fromSecond = await command(second.connection, 'e', 'project.export');
+    expect(fromFirst.export.project.name).toBe('Alpha');
+    expect(fromSecond.export.project.name).toBe('Beta');
+    for (const [page, name] of [
+      [panelPage, 'Alpha'],
+      [otherPage, 'Beta'],
+    ]) {
+      await expect(page.locator('#control-channel-export')).toHaveText(
+        `Export is allowed for the project open here. Exported "${name}" (1 export so far).`,
+      );
+    }
+    await otherPage.close();
+  });
+
+  test('a project larger than the inbound frame cap crosses as one result frame', async ({
+    panelPage,
+    localProcess,
+    serviceWorker,
+  }) => {
+    const { connection } = await pair(panelPage, localProcess, { allowExport: true });
+    await command(connection, 'p', 'project.create', { name: 'Large' });
+    await command(connection, 'r', 'recording.create', { name: 'Flow' });
+    const narration = 'n'.repeat(9000);
+    for (let step = 1; step <= 3; step++) {
+      await captureOne(serviceWorker);
+      await expect
+        .poll(async () => (await command(connection, `q${step}`, 'status')).pending_actions)
+        .toBe(1);
+      expect((await command(connection, `c${step}`, 'step.commit', { narration })).ok).toBe(true);
+    }
+    const exported = await command(connection, 'e', 'project.export');
+    expect(connection.log.at(-1).length).toBeGreaterThan(16384 * 1.5);
+    expect(exported.ok).toBe(true);
+    expect(exported.export.recordings[0].steps).toHaveLength(3);
+    // The next answer is the next command's: the export was one frame.
+    expect((await command(connection, 'after', 'status')).id).toBe('after');
   });
 
   test('the browser refuses a panel WebSocket to any host but the loopback literal', async ({
