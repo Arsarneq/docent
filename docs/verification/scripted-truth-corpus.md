@@ -12,6 +12,21 @@ Nothing here replays a recording or resolves a locator. The corpus produces
 truth files — Docent ships no consumer, and the `corpus/` directory is a repository and
 CI artifact only (excluded from every release, like `reference-implementations/`).
 
+Where to look:
+
+| You want to                                                                   | Read                                                                                                                                                                |
+| ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Run the check, or produce a platform's envelopes                              | [Run surface](#run-surface)                                                                                                                                         |
+| Get the check green again after a capture change                              | [When a capture change turns the check red](#when-a-capture-change-turns-the-check-red)                                                                             |
+| Read a finding the comparator printed, or relax one comparison in one session | [Comparator and relaxations](#comparator-and-relaxations) and [Authoring a sidecar entry from a printed finding](#authoring-a-sidecar-entry-from-a-printed-finding) |
+| Find a file under `corpus/`                                                   | [Layout](#layout)                                                                                                                                                   |
+| Write or change a page or an input script                                     | [Page-authoring rules](#page-authoring-rules)                                                                                                                       |
+| Add or retire a session                                                       | [Adding or retiring a session](#adding-or-retiring-a-session)                                                                                                       |
+| Work on the desktop sessions                                                  | [Desktop truth sessions](#desktop-truth-sessions)                                                                                                                   |
+| Work on conformance vectors                                                   | [Conformance vectors](#conformance-vectors)                                                                                                                         |
+| Know what the corpus leaves out                                               | [Out of scripted reach](#out-of-scripted-reach-loud-exclusions) and [Known caveats](#known-caveats)                                                                 |
+| Know what counts as truth, and why CI stays green over a known gap            | [Truth doctrine](#truth-doctrine)                                                                                                                                   |
+
 Each rule this document makes in its own right carries a stable identifier
 (**STC-n**) so other documents, reviews, and checks can cite it precisely.
 Identifiers are never renumbered; a retired identifier stays reserved and is

@@ -16,6 +16,19 @@ by scope:
   workflows on your machine. This is the route when the workflow wiring
   itself — not just a gate's command — is what you are iterating on.
 
+Where to look:
+
+| You want to                                                  | Read                                                                                                                                                                                        |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Check a pull request body's docs disposition before you push | [Docs disposition format](#docs-disposition-format)                                                                                                                                         |
+| Check a pull request title                                   | [PR title](#pr-title)                                                                                                                                                                       |
+| See which docs govern a file                                 | [The area map's per-file explanation](#the-area-maps-per-file-explanation)                                                                                                                  |
+| Run one lint                                                 | [The lint table in CI gates](ci.md#the-lint-and-freshness-gates), which holds each command                                                                                                  |
+| Run a test suite                                             | [CONTRIBUTING § Running Tests](../../.github/CONTRIBUTING.md#running-tests)                                                                                                                 |
+| Run another single gate                                      | Its entry under [Running one gate directly](#running-one-gate-directly)                                                                                                                     |
+| Run a whole CI job in containers                             | [What can — and can't — run under `act`](#what-can--and-cant--run-under-act), then [Prerequisites](#prerequisites), [One-time config](#one-time-config) and [Running a job](#running-a-job) |
+| Rehearse a release                                           | [Simulating a release](#simulating-a-release-publish-workflows)                                                                                                                             |
+
 ## Running one gate directly
 
 For the gates inside the `lint` job (and the freshness and clippy gates),

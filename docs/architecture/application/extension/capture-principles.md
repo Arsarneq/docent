@@ -2,6 +2,18 @@
 
 Platform-specific details for the extension. See [core rules](../../../architecture/system/capture-principles.md).
 
+Where to look:
+
+| You want to know                                                                          | Read                                                                                      |
+| ----------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| Which DOM events the recorder listens for, and what each records                          | [Capture Surface](#capture-surface)                                                       |
+| What is left out inside that surface, or recorded differently                             | [Exceptions Within the Surface](#exceptions-within-the-surface)                           |
+| How tab, navigation and other browser-chrome actions are captured                         | [Browser Chrome Proxies](#browser-chrome-proxies)                                         |
+| How the recorder and the service worker split the work, and which frames may send actions | [Architecture](#architecture) and [Frame trust and readiness](#frame-trust-and-readiness) |
+| Why an event the page's own code fires is not recorded                                    | [Filtering Approach](#filtering-approach)                                                 |
+| Which values are masked, in fields and in URLs                                            | [Sensitive-value redaction](#sensitive-value-redaction)                                   |
+| What happens when storage runs low                                                        | [Storage pressure](#storage-pressure)                                                     |
+
 Each rule carries a stable identifier (**ECP-n**) so other documents, reviews,
 and checks can cite it precisely. Identifiers are never renumbered; a retired
 identifier stays reserved and is never reused. How each rule is verified — by
