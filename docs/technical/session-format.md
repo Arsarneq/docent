@@ -6,6 +6,16 @@ the authoritative source of truth for the format. This document is the
 companion prose that orients a reader in both schemas, with annotated
 examples.
 
+Where to look:
+
+| You want to                                        | Read                                                                                                                                                                    |
+| -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Read a recording                                   | [Overview](#overview), then the sections from [Format stamp](#format-stamp) through [Locator candidates](#locator-candidates-locators), which follow the file's nesting |
+| Validate a file, or find the schema for a platform | [Format stamp](#format-stamp), [JSON Schema files](#json-schema-files) and [Import acceptance](#import-acceptance)                                                      |
+| Know what can change between versions              | [Versioning](#versioning) and [Field stability](#field-stability)                                                                                                       |
+| Add a field                                        | [Adding a field](#adding-a-field)                                                                                                                                       |
+| Receive a recording over dispatch                  | [Dispatch payload structure](#dispatch-payload-structure)                                                                                                               |
+
 Each rule this document makes in its own right carries a stable identifier
 (**SF-n**) so other documents, reviews, and checks can cite it precisely.
 Identifiers are never renumbered; a retired identifier stays reserved and is

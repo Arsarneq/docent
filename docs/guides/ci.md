@@ -12,6 +12,20 @@ under [`.github/workflows/`](../../.github/workflows/) are the deciding
 mechanism throughout — where this prose and a workflow disagree, the
 workflow governs.
 
+Where to look:
+
+| You want to know                                  | Read                                                                                                                                                                                                                       |
+| ------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Which workflows exist and when each runs          | [The workflow inventory](#the-workflow-inventory)                                                                                                                                                                          |
+| Why a check on your pull request is red           | The gate's own entry: [the PR checks outside the test suite](#the-pr-checks-outside-the-test-suite), [the test suite](#the-test-suite-testyml), or its workflow's row in [the workflow inventory](#the-workflow-inventory) |
+| Which test jobs run for the files you changed     | [The `changes` paths filter](#the-changes-paths-filter) and [Path-filtered test jobs](#path-filtered-test-jobs)                                                                                                            |
+| What each lint holds and how to run it yourself   | [The lint and freshness gates](#the-lint-and-freshness-gates)                                                                                                                                                              |
+| Whether a red check blocks the merge              | [Required vs informational](#required-vs-informational)                                                                                                                                                                    |
+| What the Git hooks run before a commit and a push | [Local hooks](#local-hooks-lefthook)                                                                                                                                                                                       |
+| What runs on a schedule                           | [Scheduled runs](#scheduled-runs)                                                                                                                                                                                          |
+| What a new or changed workflow has to carry       | [Job bounds and caches](#job-bounds-and-caches) and [Action pinning and workflow security](#action-pinning-and-workflow-security)                                                                                          |
+| How to run a gate on your own machine             | [Running CI locally](local-ci.md)                                                                                                                                                                                          |
+
 Each rule this document makes in its own right carries a stable identifier
 (**CI-n**) so other documents, reviews,
 and checks can cite it precisely. Identifiers are never renumbered; a retired
@@ -107,18 +121,20 @@ verifies the `## Docs disposition` section carries exactly one
 such a doc may take a line of its own; none is owed) and that
 `## Change record` carries its structural markers. It checks **form only** —
 the reasons are read by reviewers, never judged by CI — and its red output
-enumerates the exact lines it expects. An
-`area-map.json` the check cannot resolve through is refused with the map's own
-verdict instead — the shape errors enumerated as found where the map read but
-its shape failed, and the one reason in their place where the text is not JSON
-or the file could not be read at all — and a
-[`clause-registry.json`](../clause-registry.json) it cannot read as the registry
-with the single-sentence verdict that file's own check states. Each stands in
-place of expected lines derived from a scope it cannot resolve. The two end on
-different codes, deliberately: the registry refusal takes the check's own exit
-code, which every command line loading the registry through the shared home
-shares, while the map refusal stays on the ordinary red path a body missing its
-lines takes.
+enumerates the exact lines it expects.
+
+Where the check cannot use a governance-data file, it refuses with that file's
+own verdict, which stands in place of expected lines derived from a scope it
+cannot resolve:
+
+| The check cannot use                                                                 | It prints                                                       | It ends on                                                                                              |
+| ------------------------------------------------------------------------------------ | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| [`area-map.json`](../../scripts/area-map.json): it read, but its shape failed        | The map's own verdict: the shape errors, enumerated as found    | The ordinary red path a body missing its lines takes                                                    |
+| `area-map.json`: its text is not JSON, or the file could not be read at all          | The map's own verdict: the one reason, in place of shape errors | The same red path                                                                                       |
+| [`clause-registry.json`](../clause-registry.json): it cannot be read as the registry | The single-sentence verdict that file's own check states        | The check's own exit code, which every command line loading the registry through the shared home shares |
+
+The two files end on different codes deliberately.
+
 Some diffs are admitted without the sections, each class by a stated test
 over stated inputs: the dependency-only class is decided from the diff alone,
 while the release pipeline's own regeneration PR is decided from the diff
@@ -724,30 +740,38 @@ every PR:
 
 ## Local hooks (lefthook)
 
-[`lefthook.yml`](../../lefthook.yml) installs two git hooks (via `lefthook
-install`, which the `lefthook` package's own install script runs on an
-install that places the `lefthook` package (a fresh clone's `npm install`, any
-`npm ci`) and skips when the `CI` environment variable is set to anything
-but empty, `0` or `false` — unless `LEFTHOOK` is set the same way — so CI
-runners carry no hooks; npm's install-script policy must allow that script,
-which the default does with a notice). The `commit-msg` hook strips
-AI-assistant co-author trailers
-([`strip-ai-coauthor.js`](../../scripts/strip-ai-coauthor.js)) — an
-unlinked assistant trailer registers a phantom contributor that cannot sign
-the CLA. The `pre-push` hook runs ESLint, Stylelint, the Prettier check,
-and the rustfmt check (over both Rust manifests: the desktop crate and the
-Win32 bindings generator) in parallel — a local mirror of the `lint` job's
-leading gates (rustfmt's own step sits later in that job). The mirror is close,
-not exact: the hook's Stylelint call runs only when a pushed file is a
-stylesheet and its rustfmt call only when one is a file rustfmt reads (a
-Rust source, a Cargo manifest or a `rustfmt.toml`), so a push without Rust
-changes needs no Rust toolchain. Both key on the files the checked-out
-branch would push. The hook's ESLint call
-enumerates the package source trees, the extension library, the extension and
-desktop test trees and the repository scripts, while CI's `lint:js` also covers
-`reference-implementations/` and `corpus/`, so a change confined to those
-trees can pass the hook and still red CI. For running the full CI jobs
-locally, see
+[`lefthook.yml`](../../lefthook.yml) installs two Git hooks:
+
+| Hook         | Runs                                                                                                       | Purpose                                                                                      |
+| ------------ | ---------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `commit-msg` | [`strip-ai-coauthor.js`](../../scripts/strip-ai-coauthor.js), which strips AI-assistant co-author trailers | An unlinked assistant trailer registers a phantom contributor that cannot sign the CLA       |
+| `pre-push`   | Four checks in parallel, listed below                                                                      | A local mirror of the `lint` job's leading gates (rustfmt's own step sits later in that job) |
+
+The mirror is close, not exact:
+
+| `pre-push` check                                                                                 | Runs when                                                                                                                                              | Where it differs from CI                                             |
+| ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------- |
+| ESLint                                                                                           | Every push                                                                                                                                             | It covers fewer trees than CI's `lint:js`, as stated below the table |
+| Stylelint                                                                                        | A pushed file is a stylesheet                                                                                                                          | CI runs it on every pull request                                     |
+| The Prettier check                                                                               | Every push                                                                                                                                             | Same command as CI (`prettier --check .`)                            |
+| The rustfmt check, over both Rust manifests (the desktop crate and the Win32 bindings generator) | A pushed file is one rustfmt reads: a Rust source, a Cargo manifest or a `rustfmt.toml`. A push without Rust changes therefore needs no Rust toolchain | CI runs it on every pull request                                     |
+
+Both "runs when" conditions key on the files the checked-out branch would push.
+
+The hook's ESLint call enumerates the package source trees, the extension
+library, the extension and desktop test trees and the repository scripts.
+CI's `lint:js` also covers `reference-implementations/` and `corpus/`, so a
+change confined to those trees can pass the hook and still red CI.
+
+The hooks are installed by `lefthook install`, which the `lefthook` package's
+own install script runs on an install that places the package (a fresh
+clone's `npm install`, any `npm ci`). That script skips when the `CI`
+environment variable is set to anything but empty, `0` or `false`, unless
+`LEFTHOOK` is set the same way, so CI runners carry no hooks. npm's
+install-script policy must allow the script, which the default does with a
+notice.
+
+For running the full CI jobs locally, see
 [Running CI locally](local-ci.md).
 
 ## Required vs informational
