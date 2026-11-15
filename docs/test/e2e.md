@@ -232,7 +232,9 @@ npm run test:e2e
 `npm run test:e2e` runs `npm test` in the suite directory. The suite launches a
 headed browser, since extensions do not load headless, so on a Linux machine
 without a display run it under `xvfb-run` (`xvfb-run npm run test:e2e`), as CI
-does.
+does. Some specs, the navigation and smoke specs among them, load public sites
+such as `https://example.com`, so the suite needs access to the public
+internet.
 
 ## Adding a test
 

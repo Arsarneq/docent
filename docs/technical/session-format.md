@@ -581,7 +581,7 @@ Machine-readable schemas for validation:
 ### Adding a field
 
 A new field is added in a source layer: the base when every platform records
-it, a family or leaf layer when it belongs to one. Four things travel with it
+it, a family or leaf layer when it belongs to one. Six things travel with it
 in the same change:
 
 - **Its version level.** A new optional field is a minor change and a new
@@ -601,6 +601,16 @@ in the same change:
   [`check-schema-echo.js`](../../scripts/check-schema-echo.js) lists the
   others as `UNHELD_FIELD_TABLES`. Tables in another shape (the action-type
   and strategy tables) are held by review alone.
+- **The corpus truths.** When a recorder starts writing the field, that
+  platform's scripted-truth corpus check goes red until the affected truth
+  files state it or, where a baseline entry quotes an affected action, until
+  the baseline is regenerated:
+  [when a capture change turns the check red](../verification/scripted-truth-corpus.md#when-a-capture-change-turns-the-check-red).
+- **Every platform that holds the fact.** Once the format has a field for a
+  fact, a platform that observes that fact about an action it records writes
+  it, save in the classes core CP-18 lists. A platform that does not write it
+  yet states the gap as a departure, in the field's row here or in its
+  capture document.
 
 ---
 
