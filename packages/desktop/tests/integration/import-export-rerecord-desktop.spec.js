@@ -244,6 +244,51 @@ test.describe('Desktop Re-record Flow', () => {
       expect(idsOf('B')).not.toContain(a1);
     });
   }
+
+  // What a re-record captured belongs to the step it re-records: leaving
+  // through a breadcrumb discards it, as Cancel does, so it never becomes the
+  // pending actions of another, existing recording opened next.
+  test('leaving a re-record through a breadcrumb discards what it captured', async ({ page }) => {
+    await openPanel(page, server);
+    await seedRecordedStep(page, {
+      project: 'P',
+      recording: 'A',
+      actions: [LOGIN_CLICK],
+      narration: 'a1',
+    });
+    await page.click('#bc-project');
+    await page.waitForSelector('#view-project:not(.hidden)');
+    await seedRecordedStep(page, {
+      project: null,
+      recording: 'B',
+      actions: [LOGIN_CLICK],
+      narration: 'b0',
+    });
+    await page.click('#bc-project');
+    await page.waitForSelector('#view-project:not(.hidden)');
+
+    const openRecordingNamed = (name) =>
+      page
+        .locator('#recording-list li', { hasText: name })
+        .locator('[data-action="open"]')
+        .first()
+        .click();
+
+    await openRecordingNamed('A');
+    await page.waitForSelector('#view-recording:not(.hidden)');
+    await page.locator('[data-action="edit"]').first().click();
+    await expect(page.locator('#rerecord-banner')).toBeVisible();
+    await fireCaptureActions(page, [{ ...LOGIN_CLICK, timestamp: Date.now() }]);
+    await expect(page.locator('#pending-action-count')).toHaveText('1');
+
+    await page.click('#bc-project');
+    await page.waitForSelector('#view-project:not(.hidden)');
+    await openRecordingNamed('B');
+    await page.waitForSelector('#view-recording:not(.hidden)');
+
+    await page.fill('#narration-input', 'b1');
+    await expect(page.locator('#btn-commit-step')).toBeDisabled();
+  });
 });
 
 // ─── Drag Reorder Flow ────────────────────────────────────────────────────────

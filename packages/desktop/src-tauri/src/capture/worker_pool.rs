@@ -1033,9 +1033,10 @@ const VK_PACKET: u32 = 0xE7;
 const UNIDENTIFIED_KEY: &str = "Unidentified";
 
 /// Name a keyboard event's key. A `VK_PACKET` keystroke is named by the
-/// character its code unit carries; a unit that is no character on its own (a
-/// surrogate half of a character outside the Basic Multilingual Plane, or a
-/// control character) is `Unidentified`. Every other code goes through
+/// character its code unit carries — a space by `Space`, the name a layout
+/// space key gets — and a unit that is no character on its own (a surrogate
+/// half of a character outside the Basic Multilingual Plane, or a control
+/// character) is `Unidentified`. Every other code goes through
 /// [`vk_to_key_name`].
 fn key_name(raw: &RawEvent) -> String {
     if raw.key_code != VK_PACKET {
@@ -1043,6 +1044,7 @@ fn key_name(raw: &RawEvent) -> String {
     }
     let unit = (raw.callback_params[0] & 0xFFFF) as u32;
     match char::from_u32(unit) {
+        Some(' ') => vk_to_key_name(0x20),
         Some(c) if !c.is_control() => c.to_string(),
         _ => UNIDENTIFIED_KEY.to_string(),
     }

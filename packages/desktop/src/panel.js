@@ -596,9 +596,10 @@ function showView(viewKey) {
   if (['projects', 'newProject', 'project', 'newRecording'].includes(viewKey)) {
     activeRecording = null;
     // A re-record belongs to the recording it was started in: leaving that
-    // recording ends it, as Cancel does, so the next recording's first commit
-    // can never take the earlier step's logical id.
-    endRerecord();
+    // recording cancels it, as Cancel does, so the next recording's first
+    // commit can never take the earlier step's logical id, nor the actions
+    // captured for it.
+    discardRerecord();
   }
   updateBreadcrumb(viewKey);
 }
@@ -1015,6 +1016,9 @@ btnResultBack.addEventListener('click', () => showView('project'));
 // ─── Recording view ───────────────────────────────────────────────────────────
 
 function enterRecordingView() {
+  // A second guard beside showView's: a re-record never carries into the
+  // recording being entered.
+  discardRerecord();
   recordingTitle.textContent = activeRecording.name;
   recordingTitle.title = 'Click to rename';
   recordingTitle.style.cursor = 'pointer';
@@ -1163,12 +1167,8 @@ async function commitStepSimple(logicalId) {
     clearLiveActionList();
     renderStepList();
 
-    // Clear re-record state if active
-    if (rerecordLogicalId) {
-      rerecordLogicalId = null;
-      rerecordBanner.classList.add('hidden');
-      previousRecordingView = null;
-    }
+    // The commit replaced the re-recorded step: the re-record is over.
+    endRerecord();
 
     if (wasRecording) {
       await invoke('start_capture', { pid: null });
@@ -1252,12 +1252,8 @@ async function commitStep(inputEl, source, logicalId) {
     clearLiveActionList();
     renderStepList();
 
-    // Clear re-record state if active
-    if (rerecordLogicalId) {
-      rerecordLogicalId = null;
-      rerecordBanner.classList.add('hidden');
-      previousRecordingView = null;
-    }
+    // The commit replaced the re-recorded step: the re-record is over.
+    endRerecord();
 
     if (wasRecording) {
       await invoke('start_capture', { pid: null });
@@ -1338,6 +1334,18 @@ function endRerecord() {
   previousRecordingView = null;
   rerecordBanner.classList.add('hidden');
   narrationInput.value = '';
+}
+
+/**
+ * Cancel a re-record without the Cancel button: end it and discard what it
+ * captured, which belongs to the step it targeted. A no-op when none is active.
+ */
+function discardRerecord() {
+  if (rerecordLogicalId === null) return;
+  endRerecord();
+  clearLiveActionList();
+  adapter.clearPendingActions();
+  pendingCount = 0;
 }
 
 btnRerecordCancel.addEventListener('click', async () => {

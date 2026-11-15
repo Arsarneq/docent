@@ -49,7 +49,8 @@ entering the recording again discards what accumulated in the meantime.
 
 Re-recording a step (the pencil icon) starts from an empty list. Cancelling a
 re-record does not restore the previous list — actions captured during the
-re-record stay pending.
+re-record stay pending. Leaving the recording through the breadcrumb ends a
+re-record the way Cancel does.
 
 ## Edit steps
 

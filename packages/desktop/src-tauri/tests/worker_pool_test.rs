@@ -2450,12 +2450,12 @@ fn regression_260_injected_keys_are_superseded_by_the_type() {
     let harness = WorkerTestHarness::new(backend);
 
     let t = now_ms();
-    for (i, unit) in "hi".encode_utf16().enumerate() {
+    for (i, unit) in "h i".encode_utf16().enumerate() {
         harness.send_event(packet_key(i as u64 + 1, t + i as u64, unit));
     }
     let mut value_change = make_raw_event(RawEventType::ValueChange, 1234);
-    value_change.sequence_id = 3;
-    value_change.timestamp = t + 2;
+    value_change.sequence_id = 4;
+    value_change.timestamp = t + 3;
     harness.send_event(value_change);
 
     // Past TYPE_DEBOUNCE_MS (500 ms), so the type flushes on the worker's tick.
@@ -2486,17 +2486,15 @@ fn regression_260_injected_keys_without_a_type_are_named_by_their_character() {
     let harness = WorkerTestHarness::new(backend);
 
     let t = now_ms();
-    for (i, unit) in "hé".encode_utf16().enumerate() {
+    for (i, unit) in "h é".encode_utf16().enumerate() {
         harness.send_event(packet_key(i as u64 + 1, t + i as u64, unit));
     }
 
     thread::sleep(Duration::from_millis(900));
     let events = harness.shutdown();
 
-    assert_eq!(
-        key_names_of(&events),
-        vec!["h".to_string(), "é".to_string()]
-    );
+    // A space carries the name a layout space key gets.
+    assert_eq!(key_names_of(&events), vec!["h", "Space", "é"]);
 }
 
 /// A code unit that is no character on its own — either half of a surrogate

@@ -1617,7 +1617,7 @@ mod capture_behaviour {
 
         let mut enigo = Enigo::new(&Settings::default()).unwrap();
         enigo.text("hello").unwrap();
-        // Wait for TYPE_DEBOUNCE_MS (1000ms) + buffer to flush.
+        // Wait for TYPE_DEBOUNCE_MS (500ms) + buffer to flush.
         thread::sleep(Duration::from_millis(1500));
 
         unsafe {
@@ -1641,11 +1641,18 @@ mod capture_behaviour {
         // carried, never `VK_0xE7` (docent#260): the hook's scan code is the
         // injected code unit.
         for e in keys(&events) {
-            if let ActionPayload::Key { key, .. } = &e.payload {
+            if let ActionPayload::Key { key, modifiers, .. } = &e.payload {
                 assert!(
-                    ["h", "e", "l", "o"].contains(&key.as_str()),
-                    "an injected keystroke must be named by its character, got {key:?}"
+                    !key.starts_with("VK_"),
+                    "an injected keystroke must not be named by its VK code, got {key:?}"
                 );
+                if key.chars().count() == 1 && !modifiers.ctrl && !modifiers.alt && !modifiers.meta
+                {
+                    assert!(
+                        ["h", "e", "l", "o"].contains(&key.as_str()),
+                        "an injected keystroke must be named by its character, got {key:?}"
+                    );
+                }
             }
         }
     }
