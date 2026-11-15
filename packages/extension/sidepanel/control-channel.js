@@ -3,10 +3,10 @@
  *
  * The side panel can open one outward WebSocket to a process on the same
  * machine, through which that process issues a closed set of the panel's own
- * structuring actions. This module holds every decision of that channel that
- * needs no platform: which address may be dialled, how a pairing code is made
- * and proven, which frames and commands are well-formed, and the session that
- * refuses everything until the peer has proven it holds the code.
+ * actions. This module holds every decision of that channel that needs no
+ * platform: which address may be dialled, how a pairing code is made and proven
+ * in both directions, which frames and commands are well-formed, and the
+ * session that refuses everything until the peer has proven it holds the code.
  *
  * Kept free of the panel's DOM and of chrome.* for unit testability (the
  * pure-logic discipline lib/frame-trust.js names): plain data in
@@ -31,7 +31,11 @@ export const CONTROL_HOST = '127.0.0.1';
 export const MIN_PORT = 1024;
 export const MAX_PORT = 65535;
 
-/** Largest frame, in UTF-16 code units, the channel reads. */
+/**
+ * Largest frame, in UTF-16 code units, the channel reads. It bounds received
+ * frames only: a result the panel sends is one frame whatever its length
+ * (control-channel LC-6).
+ */
 export const MAX_FRAME_CHARS = 16384;
 
 /** Longest project or recording name a command may carry. */
@@ -46,8 +50,15 @@ export const MAX_ID_CHARS = 64;
 /** How long the peer has to prove the code before the session closes. */
 export const PAIR_TIMEOUT_MS = 10000;
 
-/** Characters in a pairing code. */
-export const PAIRING_CODE_LENGTH = 8;
+/**
+ * Characters in a pairing code: sixteen of five bits each, 80 bits, so a proof
+ * seen on the wire does not let anyone find the code by trying codes
+ * (control-channel LC-4).
+ */
+export const PAIRING_CODE_LENGTH = 16;
+
+/** Characters per group when a code is shown. */
+const CODE_GROUP_LENGTH = 4;
 
 // Crockford's base-32 alphabet: no I, L, O or U, so a code read from the
 // screen and typed elsewhere has no look-alike characters. Thirty-two symbols
@@ -75,8 +86,9 @@ class ClosedSet extends Set {
 }
 
 /**
- * The closed command set: the panel's structuring actions and one read.
- * Deleting, renaming, exporting, sending, syncing and settings are not on it.
+ * The closed command set: the panel's structuring actions, one read, and the
+ * export a person allows at turn-on (control-channel LC-7). Deleting,
+ * renaming, importing, sending, syncing and settings are not on it.
  */
 export const CONTROL_COMMANDS = new ClosedSet([
   'status',
@@ -85,6 +97,7 @@ export const CONTROL_COMMANDS = new ClosedSet([
   'recording.pause',
   'recording.resume',
   'step.commit',
+  'project.export',
 ]);
 
 // ─── Address ──────────────────────────────────────────────────────────────────
@@ -126,15 +139,38 @@ export function generatePairingCode(fillRandom) {
 }
 
 /**
- * Format a pairing code for display, in two groups.
+ * Format a pairing code for display, in groups of four separated by hyphens.
+ * The hyphens are display only and are not part of the code.
  *
  * @param {string} code
  * @returns {string}
  */
 export function formatPairingCode(code) {
-  const half = Math.ceil(code.length / 2);
-  return `${code.slice(0, half)}-${code.slice(half)}`;
+  const groups = [];
+  for (let i = 0; i < code.length; i += CODE_GROUP_LENGTH) {
+    groups.push(code.slice(i, i + CODE_GROUP_LENGTH));
+  }
+  return groups.join('-');
 }
+
+/**
+ * The indicator's line on the export grant and each export made under it
+ * (control-channel LC-2): empty without the grant, the grant alone before the
+ * first export, then the project last exported and the running count.
+ *
+ * @param {{exportAllowed: boolean, exports: number, lastExport: string|null}} status
+ * @returns {string}
+ */
+export function describeExportGrant(status) {
+  if (!status.exportAllowed) return '';
+  const allowed = 'Export is allowed for the project open here.';
+  if (status.exports === 0) return allowed;
+  const count = status.exports === 1 ? '1 export' : `${status.exports} exports`;
+  return `${allowed} Exported "${status.lastExport}" (${count} so far).`;
+}
+
+/** The form of a nonce, the panel's and the local process's alike. */
+const NONCE_PATTERN = /^[0-9a-f]{32}$/;
 
 /**
  * Generate the per-connection nonce the peer's proof is bound to.
@@ -157,30 +193,52 @@ function toHex(bytes) {
 // ─── Pair proof ───────────────────────────────────────────────────────────────
 
 /**
- * Compute the proof a holder of the pairing code sends: HMAC-SHA256 over the
- * connection's nonce, keyed by the code (both as UTF-8), in lowercase hex. The
- * code itself never crosses the connection, and a proof is good for one nonce
- * only.
+ * The label each direction's proof is computed over, ahead of the nonce, so a
+ * proof made for one direction is never the proof of the other
+ * (control-channel LC-4).
+ */
+export const PROOF_LABELS = Object.freeze({ local: 'local:', panel: 'panel:' });
+
+/**
+ * HMAC-SHA256 of a message keyed by a key, both as UTF-8, in lowercase hex.
  *
- * @param {string} code - the pairing code as generated (no separator)
- * @param {string} nonce
+ * @param {string} key
+ * @param {string} message
  * @returns {Promise<string>}
  */
-export async function computePairProof(code, nonce) {
+export async function hmacSha256Hex(key, message) {
   const encoder = new TextEncoder();
-  const key = await crypto.subtle.importKey(
+  const cryptoKey = await crypto.subtle.importKey(
     'raw',
-    encoder.encode(code),
+    encoder.encode(key),
     { name: 'HMAC', hash: 'SHA-256' },
     false,
     ['sign'],
   );
-  const mac = await crypto.subtle.sign('HMAC', key, encoder.encode(nonce));
+  const mac = await crypto.subtle.sign('HMAC', cryptoKey, encoder.encode(message));
   return toHex(new Uint8Array(mac));
 }
 
 /**
- * Check a peer's proof against the code and nonce of this connection. The
+ * Compute a holder of the pairing code's proof in one direction: HMAC-SHA256
+ * keyed by the code over the direction's label and the other side's nonce.
+ * The local process proves over the panel's nonce (`local`), the panel over
+ * the local process's (`panel`). The code itself never crosses the
+ * connection, and a proof is good for one nonce and one direction only.
+ *
+ * @param {string} code - the pairing code as generated (no separators)
+ * @param {string} nonce - the other side's nonce
+ * @param {'local'|'panel'} side - whose proof this is
+ * @returns {Promise<string>}
+ */
+export async function computePairProof(code, nonce, side) {
+  if (!Object.hasOwn(PROOF_LABELS, side)) throw new TypeError('Unknown proof direction');
+  return hmacSha256Hex(code, `${PROOF_LABELS[side]}${nonce}`);
+}
+
+/**
+ * Check the local process's proof against the code and this connection's
+ * nonce. The
  * comparison reads every character whatever the first difference, so the time
  * it takes says nothing about how much of a guess was right.
  *
@@ -192,7 +250,7 @@ export async function computePairProof(code, nonce) {
  */
 export async function verifyPairProof({ code, nonce, proof }) {
   if (typeof proof !== 'string') return false;
-  const expected = await computePairProof(code, nonce);
+  const expected = await computePairProof(code, nonce, 'local');
   if (proof.length !== expected.length) return false;
   let difference = 0;
   for (let i = 0; i < expected.length; i++) {
@@ -295,6 +353,7 @@ const ARGUMENT_READERS = new Map([
   ['recording.pause', readNoArgs],
   ['recording.resume', readNoArgs],
   ['step.commit', readCommitArgs],
+  ['project.export', readNoArgs],
 ]);
 
 /**
@@ -346,7 +405,8 @@ export function validateCommand(message) {
  *   once, with `pairing-failed`, `pairing-timeout` or the reason given to `end`
  * @param {(command: {id: string, name: string, args: object}) => Promise<object>}
  *   params.execute - carries out a validated command and resolves with
- *   `{ ok: true, … }` or `{ ok: false, error }`
+ *   `{ ok: true, … }` or `{ ok: false, error }`; its result is sent as one
+ *   frame, however long
  * @param {(state: string) => void} [params.onState] - told when the session
  *   enters `awaiting-pair` and `paired`; its end is reported through `close`
  * @param {(fn: () => void, ms: number) => unknown} [params.setTimer]
@@ -393,13 +453,21 @@ export function createControlSession({
   }
 
   // The first frame is the one attempt, whatever it holds: it either pairs the
-  // session or closes it, so this never runs twice.
+  // session or closes it, so this never runs twice. Exactly three fields: the
+  // peer's proof over this connection's nonce and the peer's own nonce, which
+  // the panel proves the code over in return — only once the peer has proven
+  // it, so a peer without the code gets nothing to test guesses against.
   async function receivePair(data) {
     const parsed = parseFrame(data);
+    const message = parsed.ok ? parsed.message : null;
     const wellFormed =
-      parsed.ok && parsed.message.type === 'pair' && hasOnlyKeys(parsed.message, ['type', 'proof']);
-    const proven =
-      wellFormed && (await verifyPairProof({ code, nonce, proof: parsed.message.proof }));
+      message !== null &&
+      message.type === 'pair' &&
+      hasOnlyKeys(message, ['type', 'proof', 'nonce']) &&
+      typeof message.nonce === 'string' &&
+      NONCE_PATTERN.test(message.nonce);
+    const proven = wellFormed && (await verifyPairProof({ code, nonce, proof: message.proof }));
+    const answer = proven ? await computePairProof(code, message.nonce, 'panel') : null;
     if (state !== 'awaiting-pair') return;
     if (!proven) {
       end('pairing-failed');
@@ -408,7 +476,7 @@ export function createControlSession({
     if (pairTimer !== null) clearTimer(pairTimer);
     pairTimer = null;
     enter('paired');
-    sendMessage({ type: 'paired' });
+    sendMessage({ type: 'paired', proof: answer });
   }
 
   async function runCommand(data) {

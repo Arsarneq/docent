@@ -1217,22 +1217,38 @@
       "doc": "docs/api/control-channel.md",
       "clause": "LC-1",
       "tag": "check-exists",
-      "check-ref": "The off-by-default start and the end with the panel are pinned in a real browser by packages/extension/tests/e2e/specs/control-channel.spec.js (npm run test:e2e): an open panel dials nothing until Turn on is used, and after the panel closes a new panel starts off with no channel key in chrome.storage.local or chrome.storage.session; the host's own starting state is pinned by packages/extension/tests/unit/control-channel-host.test.js (npm run test:extension). Named residue: that the panel sends the service worker no message about the channel is review-held against the panel module — the extension-surface check (npm run lint:extension-surface) holds the panel's literal sends to the documented protocol, which states no channel type.",
+      "check-ref": "The off-by-default start and the end with the panel are pinned in a real browser by packages/extension/tests/e2e/specs/control-channel.spec.js (npm run test:e2e): an open panel dials nothing until Turn on is used, and after the panel closes a new panel starts off with no channel key in chrome.storage.local or chrome.storage.session; the export checkbox starting unticked after a page load, disabled while the channel is on, and unticked and enabled again after Turn off by the same spec; the host's own starting state, the export grant taken only at turn-on, held unchanged while on and dropped at turn-off, by packages/extension/tests/unit/control-channel-host.test.js (npm run test:extension). Named residue: that the panel sends the service worker no message about the channel is review-held against the panel module — the extension-surface check (npm run lint:extension-surface) holds the panel's literal sends to the documented protocol, which states no channel type.",
       "test-cases": [
         "is off until turned on: an open panel dials nothing",
         "closing the panel ends the channel, and a new panel starts off",
-        "starts off, with no socket and no code"
+        "starts off, with no socket and no code",
+        "is off unless given at turn-on, and is gone when the channel turns off",
+        "stays as given while the channel is on",
+        "accepts only true as a grant",
+        "without the grant, refuses an export and no frame carries a captured value",
+        "the export box starts unticked whenever the panel page loads",
+        "Turn off closes the connection"
       ]
     },
     {
       "doc": "docs/api/control-channel.md",
       "clause": "LC-2",
       "tag": "check-exists",
-      "check-ref": "The indicator is asserted on the projects view at turn-on (with the pairing code) and on the settings, project and recording views of a paired panel, and its Turn off control on the recording view and, used, on the projects view, by packages/extension/tests/e2e/specs/control-channel.spec.js (npm run test:e2e).",
+      "check-ref": "The indicator is asserted on the projects view at turn-on (with the pairing code) and on the settings, project and recording views of a paired panel, and its Turn off control on the recording view and, used, on the projects view, by packages/extension/tests/e2e/specs/control-channel.spec.js (npm run test:e2e); the same spec asserts the export line — absent without the grant, stating the grant with it, then the last exported project's name and the running count — and its full text in each of two panels exporting their own projects. The line's wording — empty without the grant, the grant alone, the singular and the plural count — is pinned by the describeExportGrant describe of packages/extension/tests/unit/control-channel.test.js; the host's trace of each export, counted only for an export carried out and published before its result is sent, by packages/extension/tests/unit/control-channel-host.test.js (npm run test:extension).",
       "test-cases": [
         "pairs with the displayed code and shows the indicator on every view",
         "runs the structuring actions and the panel follows each one",
-        "Turn off closes the connection"
+        "Turn off closes the connection",
+        "with the grant, exports the project open in this panel, as its Export button builds it",
+        "two panel pages with different projects open each export their own",
+        "shows each export: the project name and a running count",
+        "shows the export before its result is sent",
+        "counts no refused export and no other command",
+        "forgets the grant and the export count when the channel turns off",
+        "says nothing without the grant",
+        "states the grant before any export",
+        "names the last export and counts one export in the singular",
+        "counts several exports in the plural"
       ]
     },
     {
@@ -1254,7 +1270,7 @@
       "doc": "docs/api/control-channel.md",
       "clause": "LC-4",
       "tag": "check-exists",
-      "check-ref": "The code's length and alphabet, the nonce's form, the greeting's exact fields and the proof against a fixed vector are pinned by packages/extension/tests/unit/control-channel.test.js; a new code per turn-on, a new nonce per connection and the code leaving the display on pairing by packages/extension/tests/unit/control-channel-host.test.js (npm run test:extension). packages/extension/tests/e2e/specs/control-channel.spec.js pairs a real local server from the code the panel displays (npm run test:e2e). Named residue: the strength of the random source is the browser's; the suites pin that every character is drawn from the injected source.",
+      "check-ref": "The code's length and alphabet, its display in four groups, the nonce's form, the greeting's exact fields, the HMAC against a fixed vector, each direction's exact label, a proof for one direction never accepted for the other (equal nonces included), both rows of the specification's worked example, and the paired frame's proof over the local process's nonce are pinned by packages/extension/tests/unit/control-channel.test.js; a new code per turn-on, a new nonce per connection, the panel's proof back and the code leaving the display on pairing by packages/extension/tests/unit/control-channel-host.test.js (npm run test:extension). packages/extension/tests/e2e/specs/control-channel.spec.js pairs a real local server from the code the panel displays and checks the panel's proof over that server's nonce (npm run test:e2e). Named residue: the strength of the random source is the browser's, and the local process's own draw of its nonce is that process's; the suites pin that every character of the panel's is drawn from the injected source.",
       "test-cases": [
         "produces a code of the stated length from the unambiguous alphabet",
         "draws every character from the random source",
@@ -1263,14 +1279,21 @@
         "greets with the protocol version and the nonce, and nothing else",
         "makes a new code every time it is turned on",
         "uses a new nonce for every connection",
-        "pairs on a correct proof and stops showing the code"
+        "pairs on a correct proof and stops showing the code",
+        "matches the worked example of the specification, in both directions",
+        "pairs on a correct proof and proves the code back over the peer nonce",
+        "pairs with the displayed code and shows the indicator on every view",
+        "labels each direction with its own exact prefix",
+        "never accepts a proof made for the other direction, even over the same nonce",
+        "proves back with a proof that differs from the peer proof, even over an equal nonce",
+        "refuses the panel-direction proof as a pairing proof"
       ]
     },
     {
       "doc": "docs/api/control-channel.md",
       "clause": "LC-5",
       "tag": "check-exists",
-      "check-ref": "Each outcome of the table is pinned: the wrong proof, the pair frame with a further field, the command as first frame, the unparseable first frame and the timeout by the session's pairing describe in packages/extension/tests/unit/control-channel.test.js; the connection ending before pairing, and the code being discarded with the channel off, by packages/extension/tests/unit/control-channel-host.test.js (npm run test:extension); the wrong proof and the early command against a real browser by packages/extension/tests/e2e/specs/control-channel.spec.js (npm run test:e2e), which also asserts that the early command created nothing. Frames behind the pair frame: answered after a correct proof and discarded after a wrong one, pinned by the session's pairing describe and, for the correct proof, against a real browser.",
+      "check-ref": "Each outcome of the table is pinned: the wrong proof, the pair frame without a nonce of the stated form (missing, upper-case, short, long, not hex, not text), the pair frame with a further field, the command as first frame, the unparseable first frame and the timeout by the session's pairing describe in packages/extension/tests/unit/control-channel.test.js, each asserting that the panel sent no proof of its own; the connection ending before pairing, and the code being discarded with the channel off, by packages/extension/tests/unit/control-channel-host.test.js (npm run test:extension); the wrong proof and the early command against a real browser by packages/extension/tests/e2e/specs/control-channel.spec.js (npm run test:e2e), which also asserts that the early command created nothing. Frames behind the pair frame: answered after a correct proof and discarded after a wrong one, pinned by the session's pairing describe and, for the correct proof, against a real browser.",
       "test-cases": [
         "closes on a wrong proof and never pairs afterwards — one attempt per code",
         "closes when the first frame is a command — nothing runs before pairing",
@@ -1283,27 +1306,30 @@
         "refuses a pair frame with unknown keys",
         "answers a command sent right behind the proof, once paired",
         "runs nothing sent right behind a wrong proof",
-        "answers a command sent right behind the proof"
+        "answers a command sent right behind the proof",
+        "refuses a correct proof that comes without the peer nonce, proving nothing back"
       ]
     },
     {
       "doc": "docs/api/control-channel.md",
       "clause": "LC-6",
       "tag": "check-exists",
-      "check-ref": "The frame rule is pinned by the parseFrame describe of packages/extension/tests/unit/control-channel.test.js — an object accepted; a binary message, an oversized text, malformed JSON and an array, a string, a number, a boolean and null as JSON values refused, as generated cases — and the null-id answer on a connection that stays open and paired by the session's commands describe there (npm run test:extension).",
+      "check-ref": "The frame rule is pinned by the parseFrame describe of packages/extension/tests/unit/control-channel.test.js — an object accepted; a binary message, an oversized text, malformed JSON and an array, a string, a number, a boolean and null as JSON values refused, as generated cases — the null-id answer on a connection that stays open and paired by the session's commands describe there, and a result longer than the received-frame bound sent as one frame by the same describe (npm run test:extension); an export result over the bound crossing as one frame to a real local server by packages/extension/tests/e2e/specs/control-channel.spec.js (npm run test:e2e).",
       "test-cases": [
         "accepts a JSON object",
         "answers an unparseable frame with a null id",
-        "answers an oversized frame as too large"
+        "answers an oversized frame as too large",
+        "sends a result larger than the inbound frame cap as one frame",
+        "a project larger than the inbound frame cap crosses as one result frame"
       ]
     },
     {
       "doc": "docs/api/control-channel.md",
       "clause": "LC-7",
       "tag": "check-exists",
-      "check-ref": "The set's exact membership and its closure against in-place extension, each command's accepted arguments, the trimming, and the refusal of every other field, argument and name (generated cases in the validateCommand describe) are pinned by packages/extension/tests/unit/control-channel.test.js; that the executor carries out exactly the set by packages/extension/tests/unit/control-commands.test.js (npm run test:extension); the refusal of delete, export and settings command names, of an unknown field and of an unknown argument on a live channel by packages/extension/tests/e2e/specs/control-channel.spec.js (npm run test:e2e). The null id for an unusable id is pinned by the 'reports the id back when the id itself was usable' case. Named residue: the table's 'What the panel does' column is held under LC-8.",
+      "check-ref": "The set's exact membership and its closure against in-place extension, each command's accepted arguments, the trimming, and the refusal of every other field, argument and name (generated cases in the validateCommand describe) are pinned by packages/extension/tests/unit/control-channel.test.js; that the executor carries out exactly the set by packages/extension/tests/unit/control-commands.test.js (npm run test:extension); the refusal of delete and settings command names and of a panel message type, the refusal of project.export while the person has not allowed export, and of an unknown field and an unknown argument on a live channel by packages/extension/tests/e2e/specs/control-channel.spec.js (npm run test:e2e). The null id for an unusable id is pinned by the 'reports the id back when the id itself was usable' case. Named residue: the table's 'What the panel does' column is held under LC-8.",
       "test-cases": [
-        "is exactly the structuring actions and the status read",
+        "is exactly the structuring actions, the status read and the export",
         "cannot be extended in place",
         "accepts each command with its arguments",
         "trims names and narration",
@@ -1311,14 +1337,15 @@
         "carries out every command of the closed set",
         "refuses a name outside the command set",
         "refuses what is outside the command set and stays connected",
-        "reports the id back when the id itself was usable"
+        "reports the id back when the id itself was usable",
+        "refuses an export the person did not allow at turn-on, touching nothing"
       ]
     },
     {
       "doc": "docs/api/control-channel.md",
       "clause": "LC-8",
       "tag": "check-exists",
-      "check-ref": "Each row of the refusal table, with the panel untouched, and the no-change successes are pinned by packages/extension/tests/unit/control-commands.test.js (npm run test:extension); the panel's view following each command, the stored step carrying no narration source, and the commands' effect on the stored model by packages/extension/tests/e2e/specs/control-channel.spec.js (npm run test:e2e). The e2e spec also asserts that a refused commit leaves capture running. Named residue: that a person's click on a commit or re-record control is ignored while a command runs, and that capture is not resumed for a recording a person left during a commit, are review-held against the panel module — the first on its shared commit flag, the second on the commit comparing the open recording with the one it started in; that a command and a click run the same panel function is review-held against the panel module, where the button handlers and the executor call the one shared function per action.",
+      "check-ref": "Each row of the refusal table, with the panel untouched, and the no-change successes are pinned by packages/extension/tests/unit/control-commands.test.js (npm run test:extension), the export's two refusals among them and the export among the commands refused while re-recording and while committing; that the export result is the document the shared build makes for the open project, asked of the worker by that project's id, and that a failed export opens no dialog by the same suite and by packages/extension/tests/unit/project-export.test.js; the panel's view following each command, the stored step carrying no narration source, the commands' effect on the stored model, and the export equal to the file the panel's Export button writes by packages/extension/tests/e2e/specs/control-channel.spec.js (npm run test:e2e). The e2e spec also asserts that a refused commit leaves capture running. Named residue: that a person's click on a commit or re-record control is ignored while a command runs, and that capture is not resumed for a recording a person left during a commit, are review-held against the panel module — the first on its shared commit flag, the second on the commit comparing the open recording with the one it started in; that a command and a click run the same panel function is review-held against the panel module, where the button handlers and the executor call the one shared function per action, the export build included.",
       "test-cases": [
         "refuses a recording when no project is open",
         "answers a pause of a paused recording without touching the panel",
@@ -1328,14 +1355,19 @@
         "still answers status while re-recording",
         "commits with narration and claims no narration source",
         "refuses every changing command while the panel is committing a step",
-        "runs the structuring actions and the panel follows each one"
+        "runs the structuring actions and the panel follows each one",
+        "refuses an export when no project is open, touching nothing",
+        "exports the project open in this panel, as its Export button builds it",
+        "answers an export the panel could not make with a fixed text, opening no dialog",
+        "asks the worker for the open project by its id and builds the stamped export",
+        "with the grant, exports the project open in this panel, as its Export button builds it"
       ]
     },
     {
       "doc": "docs/api/control-channel.md",
       "clause": "LC-9",
       "tag": "check-exists",
-      "check-ref": "The three meanings of ok: false are pinned at their sources — the refusals under LC-6, LC-7 and LC-8, and the two fixed texts for an action that did not complete here. One result per command with its id, the serial order, and the envelope an executor result cannot overwrite are pinned by packages/extension/tests/unit/control-channel.test.js; the fixed text sent for a failure in place of the failure's own by the same suite; the result fields — identifiers, names and counts — and the fixed text for a commit the panel could not make by packages/extension/tests/unit/control-commands.test.js (npm run test:extension); that no captured value appears in any frame of a live exchange by packages/extension/tests/e2e/specs/control-channel.spec.js (npm run test:e2e).",
+      "check-ref": "The three meanings of ok: false are pinned at their sources — the refusals under LC-6, LC-7 and LC-8, and the three fixed texts for an action that did not complete here. One result per command with its id, the serial order, and the envelope an executor result cannot overwrite are pinned by packages/extension/tests/unit/control-channel.test.js; the fixed text sent for a failure in place of the failure's own by the same suite; the result fields — identifiers, names, counts, the export_allowed flag and the export document — and the fixed texts for a commit and an export the panel could not make by packages/extension/tests/unit/control-commands.test.js (npm run test:extension); that frames other than an export result carry no captured value, and that an export result appears only with the grant, in a live exchange by packages/extension/tests/e2e/specs/control-channel.spec.js (npm run test:e2e).",
       "test-cases": [
         "runs a valid command and answers with its id",
         "runs commands one at a time, in arrival order",
@@ -1345,7 +1377,11 @@
         "runs the structuring actions and the panel follows each one",
         "reports an executor failure in-band, without the failure's own text",
         "answers a commit the panel could not make with a fixed text",
-        "drops the answer of a command that finishes after the session ended"
+        "drops the answer of a command that finishes after the session ended",
+        "reports whether the person allowed export at turn-on",
+        "carries the full step history of the open project",
+        "without the grant, refuses an export and no frame carries a captured value",
+        "with the grant, exports the project open in this panel, as its Export button builds it"
       ]
     },
     {

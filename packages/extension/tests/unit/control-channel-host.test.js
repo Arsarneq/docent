@@ -56,6 +56,7 @@ function harness({ execute } = {}) {
   const changes = [];
   const timers = [];
   const executed = [];
+  const grants = [];
   let seed = 0;
   const host = createControlChannelHost({
     createSocket: (url) => {
@@ -67,8 +68,9 @@ function harness({ execute } = {}) {
     fillRandom: (bytes) => bytes.fill(++seed),
     execute:
       execute ??
-      (async (command) => {
+      (async (command, channel) => {
         executed.push(command);
+        grants.push(channel);
         return { ok: true };
       }),
     onChange: (status) => changes.push(status),
@@ -78,26 +80,52 @@ function harness({ execute } = {}) {
     },
     clearTimer: () => {},
   });
-  const rawCode = () => host.status.code.replace('-', '');
-  return { host, sockets, changes, timers, executed, rawCode };
+  const rawCode = () => host.status.code.replaceAll('-', '');
+  return { host, sockets, changes, timers, executed, grants, rawCode };
 }
 
+/** The nonce the local process sends in its pair frame in these cases. */
+const PEER_NONCE = '00112233445566778899aabbccddeeff';
+
 /** Enable, accept the connection and complete the pairing. */
-async function pairedHarness(options) {
+async function pairedHarness(options = {}) {
   const h = harness(options);
-  h.host.enable(8765);
+  h.host.enable(8765, options.enable);
   const code = h.rawCode();
   const socket = h.sockets[0];
   socket.accept();
   const { nonce } = socket.sent[0];
-  await socket.deliver({ type: 'pair', proof: await computePairProof(code, nonce) });
+  await socket.deliver({
+    type: 'pair',
+    proof: await computePairProof(code, nonce, 'local'),
+    nonce: PEER_NONCE,
+  });
   return { ...h, socket, code };
+}
+
+/** An executor that exports the named projects in turn and runs nothing else. */
+function exportingExecutor(names) {
+  let next = 0;
+  return async (command) => {
+    if (command.name !== 'project.export') return { ok: true };
+    const name = names[next++];
+    if (name === null) return { ok: false, error: 'The project was not exported' };
+    return { ok: true, project: { project_id: `p-${name}`, name }, export: { name } };
+  };
 }
 
 describe('createControlChannelHost — off by default', () => {
   it('starts off, with no socket and no code', () => {
     const h = harness();
-    assert.deepEqual(h.host.status, { state: 'off', port: null, code: null, notice: null });
+    assert.deepEqual(h.host.status, {
+      state: 'off',
+      port: null,
+      code: null,
+      notice: null,
+      exportAllowed: false,
+      exports: 0,
+      lastExport: null,
+    });
     assert.equal(h.sockets.length, 0);
   });
 
@@ -119,7 +147,7 @@ describe('createControlChannelHost — turning on', () => {
     assert.equal(h.sockets[0].url, 'ws://127.0.0.1:8765');
     assert.equal(h.host.status.state, 'connecting');
     assert.equal(h.host.status.port, 8765);
-    assert.match(h.host.status.code, /^[0-9A-Z]{4}-[0-9A-Z]{4}$/);
+    assert.match(h.host.status.code, /^[0-9A-Z]{4}(-[0-9A-Z]{4}){3}$/);
     assert.deepEqual(h.changes.at(-1), h.host.status);
   });
 
@@ -218,7 +246,10 @@ describe('createControlChannelHost — pairing', () => {
     const h = await pairedHarness();
     assert.equal(h.host.status.state, 'paired');
     assert.equal(h.host.status.code, null);
-    assert.deepEqual(h.socket.sent.at(-1), { type: 'paired' });
+    assert.deepEqual(h.socket.sent.at(-1), {
+      type: 'paired',
+      proof: await computePairProof(h.code, PEER_NONCE, 'panel'),
+    });
   });
 
   it('turns off on a wrong proof, closing the socket and spending the code', async () => {
@@ -254,6 +285,104 @@ describe('createControlChannelHost — pairing', () => {
     await h.sockets[0].deliver({ type: 'command', id: '1', command: 'status' });
     assert.deepEqual(h.executed, []);
     assert.equal(h.host.status.state, 'off');
+  });
+});
+
+describe('createControlChannelHost — the export grant', () => {
+  it('is off unless given at turn-on, and is gone when the channel turns off', () => {
+    const h = harness();
+    h.host.enable(8765);
+    assert.equal(h.host.status.exportAllowed, false);
+    h.host.disable();
+    h.host.enable(8765, { allowExport: true });
+    assert.equal(h.host.status.exportAllowed, true);
+    assert.deepEqual(h.changes.at(-1), h.host.status);
+    h.host.disable();
+    assert.equal(h.host.status.exportAllowed, false);
+    h.host.enable(8765);
+    assert.equal(h.host.status.exportAllowed, false);
+  });
+
+  it('stays as given while the channel is on', () => {
+    const h = harness();
+    h.host.enable(8765, { allowExport: true });
+    assert.equal(h.host.enable(8765, { allowExport: false }).ok, false);
+    assert.equal(h.host.status.exportAllowed, true);
+    const off = harness();
+    off.host.enable(8765);
+    assert.equal(off.host.enable(8765, { allowExport: true }).ok, false);
+    assert.equal(off.host.status.exportAllowed, false);
+  });
+
+  it('accepts only true as a grant', () => {
+    for (const value of ['yes', 1, {}, null, undefined]) {
+      const h = harness();
+      h.host.enable(8765, { allowExport: value });
+      assert.equal(h.host.status.exportAllowed, false, String(value));
+    }
+  });
+
+  it('hands the grant to the executor with every command', async () => {
+    for (const allowExport of [false, true]) {
+      const h = await pairedHarness({ enable: { allowExport } });
+      await h.socket.deliver({ type: 'command', id: 'a', command: 'status' });
+      await h.socket.deliver({ type: 'command', id: 'b', command: 'project.export' });
+      assert.deepEqual(h.grants, [{ exportAllowed: allowExport }, { exportAllowed: allowExport }]);
+    }
+  });
+
+  it('shows each export: the project name and a running count', async () => {
+    const h = await pairedHarness({
+      enable: { allowExport: true },
+      execute: exportingExecutor(['Alpha', 'Beta']),
+    });
+    assert.equal(h.host.status.exports, 0);
+    await h.socket.deliver({ type: 'command', id: 'a', command: 'project.export' });
+    assert.equal(h.host.status.exports, 1);
+    assert.equal(h.host.status.lastExport, 'Alpha');
+    assert.deepEqual(h.changes.at(-1), h.host.status);
+    await h.socket.deliver({ type: 'command', id: 'b', command: 'project.export' });
+    assert.equal(h.host.status.exports, 2);
+    assert.equal(h.host.status.lastExport, 'Beta');
+    assert.equal(h.socket.sent.at(-1).export.name, 'Beta');
+  });
+
+  it('shows the export before its result is sent', async () => {
+    const h = await pairedHarness({
+      enable: { allowExport: true },
+      execute: exportingExecutor(['Alpha']),
+    });
+    const shownWhenSent = [];
+    const send = h.socket.send.bind(h.socket);
+    h.socket.send = (text) => {
+      shownWhenSent.push(h.host.status.exports);
+      send(text);
+    };
+    await h.socket.deliver({ type: 'command', id: 'a', command: 'project.export' });
+    assert.deepEqual(shownWhenSent, [1]);
+  });
+
+  it('counts no refused export and no other command', async () => {
+    const h = await pairedHarness({
+      enable: { allowExport: true },
+      execute: exportingExecutor([null]),
+    });
+    await h.socket.deliver({ type: 'command', id: 'a', command: 'project.export' });
+    await h.socket.deliver({ type: 'command', id: 'b', command: 'status' });
+    assert.equal(h.host.status.exports, 0);
+    assert.equal(h.host.status.lastExport, null);
+  });
+
+  it('forgets the grant and the export count when the channel turns off', async () => {
+    const h = await pairedHarness({
+      enable: { allowExport: true },
+      execute: exportingExecutor(['Alpha']),
+    });
+    await h.socket.deliver({ type: 'command', id: 'a', command: 'project.export' });
+    h.host.disable();
+    assert.equal(h.host.status.exportAllowed, false);
+    assert.equal(h.host.status.exports, 0);
+    assert.equal(h.host.status.lastExport, null);
   });
 });
 

@@ -112,8 +112,8 @@ plug into is OS-agnostic, so its document sits one level up, at
   URL policy, retries, and delivery semantics.
 - [Local Control Channel](api/control-channel.md) — the opt-in loopback
   channel through which a local process runs the Chrome extension's
-  structuring actions: the address, the pairing, the closed command set, and
-  the threat model.
+  structuring actions and, when a person allows it, exports the open project:
+  the address, the pairing, the closed command set, and the threat model.
 
 `api/` holds wire/transport protocols; the `.docent.json` format's orientation
 prose lives under `technical/`, and the schemas themselves — the format's

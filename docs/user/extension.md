@@ -257,17 +257,30 @@ is always an explicit choice — a conflict never resolves to one on its own.
 
 Local control lets a program on your own computer run the panel for you: it
 can create a project, create a recording, pause and resume capture, and commit
-a step. It cannot delete, rename, export, send, sync, or change a setting. It
-is off until you turn it on, and it turns off when you close the panel.
+a step, and, only if you allow it when you turn local control on, export the
+project open in the panel. It cannot delete, rename, import, send, sync, or
+change a setting. It is off until you turn it on, and it turns off when you
+close the panel.
 
 1. Note the port the program that will drive Docent listens on. The program
    can be started before or after the next step.
-2. In the panel header, open **Local control**, enter the port, and choose
-   **Turn on**. A banner appears on every view, saying local control is on and
-   showing a pairing code.
+2. In the panel header, open **Local control** and enter the port. To let the
+   program export, tick **Let the local program export the project open here,
+   with its full step history**; the box starts unticked. Then choose **Turn
+   on**. A banner appears on every view, saying local control is on and
+   showing a pairing code: sixteen letters and digits in four groups of four,
+   such as `7K3M-Q9XZ-4HTR-WB2N`. The hyphens only make it easier to read.
 3. Give the pairing code to the program. Once it has paired, the code
    disappears from the banner.
 4. Choose **Turn off** in the banner to end it.
+
+The export choice holds until local control turns off; to change it, turn
+local control off and on again. While export is allowed, the banner says so,
+and after each export it names the project exported and counts the exports so
+far. An export holds the whole project open in the panel — every recording,
+with its full step history, deleted steps included — the same file the
+**Export** button writes. Whichever project you open while export is allowed
+is the one the program can export.
 
 While a program drives the panel, the panel moves by itself: a new project
 opens, a new recording starts, a committed step joins the list. Creating a
