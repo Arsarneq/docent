@@ -19,4 +19,12 @@ pre-push:
     lint-format:
       run: npx prettier --check .
     rust-fmt:
+      # What rustfmt reads: Rust sources, the edition in a Cargo manifest and
+      # a rustfmt.toml. A push without any of them has nothing for it to
+      # check, and a machine set up for the extension alone has no Rust
+      # toolchain to run it with. CI runs rustfmt on every pull request.
+      glob:
+        - '*.rs'
+        - '*Cargo.toml'
+        - '*rustfmt.toml'
       run: cargo fmt --manifest-path packages/desktop/src-tauri/Cargo.toml --check && cargo fmt --manifest-path packages/desktop/src-tauri/tools/bindgen/Cargo.toml --check

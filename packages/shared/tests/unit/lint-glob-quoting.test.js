@@ -4,7 +4,8 @@
  * single-quoted, each glob double-quoted and resolving to files; the quoting
  * rule stops at the lefthook hooks (`lefthook.yml` says why), while the
  * pre-push ESLint call is held to `lint:js`'s tree set less the trees the CI
- * guide names as CI's alone, and every tracked JavaScript file under
+ * guide names as CI's alone, the pre-push rustfmt call to the files rustfmt reads, and
+ * every tracked JavaScript file under
  * `packages/` is held to `lint:js`'s trees or the configuration's ignores.
  *
  * Regression: `npm run lint:md` and `npm run lint:css` were unusable on Windows.
@@ -121,6 +122,30 @@ describe('lint script quoting is cross-platform (Windows cmd.exe delivery)', () 
     const [, arg] = windowsCmdArgv('t "a/**"');
     assert.equal(arg.value, 'a/**');
     assert.equal(arg.bareGlob, false);
+  });
+
+  it('the pre-push rustfmt call runs only when a pushed file is one rustfmt reads', () => {
+    // rustfmt reads Rust sources, the edition in a Cargo manifest and a
+    // rustfmt.toml. A contributor working on the extension has no Rust
+    // toolchain to run it with: without a glob the command runs, and fails,
+    // on every push from such a machine.
+    const command = readFileSync(path.join(ROOT, 'lefthook.yml'), 'utf8').match(
+      /^ {4}rust-fmt:\n((?: {6}.*\n)+)/m,
+    );
+    assert.ok(command, 'lefthook.yml: no pre-push rust-fmt command was found');
+    const glob = command[1].match(/^ {6}glob:\n((?: {8}- .*\n)+)/m);
+    assert.ok(glob, 'the pre-push rust-fmt command in lefthook.yml must carry a glob list');
+    assert.deepEqual(
+      glob[1].match(/'[^']+'/g),
+      ["'*.rs'", "'*Cargo.toml'", "'*rustfmt.toml'"],
+      'the rust-fmt glob must name the files rustfmt reads: Rust sources, Cargo manifests ' +
+        'and rustfmt.toml',
+    );
+    assert.match(
+      command[1],
+      /^ {6}run: cargo fmt /m,
+      'the rust-fmt command must still run cargo fmt',
+    );
   });
 
   it("the pre-push ESLint call reaches every lint:js tree except the ones the CI guide names as CI's alone", () => {

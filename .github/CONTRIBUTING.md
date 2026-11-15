@@ -21,6 +21,57 @@ Thank you for wanting to contribute. Docent is open source under GPL-3.0.
    the issue `bug`) or [Feature request](ISSUE_TEMPLATE/feature_request.yml)
    (labels it `enhancement`) — so the report has the details we need.
 
+## Your First Pull Request
+
+The short path from a fresh clone to an open pull request. Each step links to
+the section that states it in full.
+
+1. **Set up.** Follow [Development Setup](#development-setup) for your
+   platform. `npm install` at the repository root also installs the
+   [git hooks](#git-hooks).
+
+2. **Change the code and its tests together.** New code lands with tests
+   ([Running Tests](#running-tests)), and a bug fix carries a
+   [regression test](#regression-tests).
+
+3. **Run the checks before you push.**
+
+   ```bash
+   npm run dev:desktop   # sync the shared code and build the desktop bundle
+   npm run lint          # the linters and the docs-governance checks
+   npm run format        # fix what the formatting check at the end of lint reports
+   npm run test:unit     # the shared, desktop and extension unit suites
+   ```
+
+   Add the suite for the layer you touched; [Running Tests](#running-tests)
+   lists them, with the one-time install two of them need. The pre-push hook
+   is a narrower local mirror of CI's leading lint gates, so a push that goes
+   through is not yet a green CI run
+   ([Local hooks](../docs/guides/ci.md#local-hooks-lefthook)).
+
+4. **Check whether your change brings follow-on work.** These are the cases a
+   first contribution most often meets:
+
+   | If you                            | Then also                                                                                                                                                                                                                                                                                                                 |
+   | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+   | change what a platform captures   | run that platform's corpus loop. `npm run corpus:check` (desktop: `npm run corpus:check:desktop`) stays red until the truth files or the baseline say what the recorder now records: [when a capture change turns the check red](../docs/verification/scripted-truth-corpus.md#when-a-capture-change-turns-the-check-red) |
+   | add a `.docent.json` field        | follow [Adding a field](../docs/technical/session-format.md#adding-a-field)                                                                                                                                                                                                                                               |
+   | add, rename or remove a test file | update its row in the suite's document under [`docs/test/`](../docs/test/README.md), which `npm run lint:test-inventory` holds to the tree                                                                                                                                                                                |
+   | rename or remove a test case      | update any `test-cases` entry in [`docs/clause-registry.json`](../docs/clause-registry.json) that names it, which `npm run lint:clause-registry` holds to the test files                                                                                                                                                  |
+   | add a code file or a doc          | give it a home in the area map ([Extending the Docs Governance](#extending-the-docs-governance))                                                                                                                                                                                                                          |
+
+5. **Open the pull request.** The title goes in GitHub's title field, written
+   as a Conventional Commit, and the body is the template GitHub loads
+   ([Pull Request Guidelines](#pull-request-guidelines)). The template's last
+   two sections are checked by CI
+   ([Docs Disposition and Change Record](#docs-disposition-and-change-record));
+   run that check on your draft body first with
+   [the local recipe](../docs/guides/local-ci.md#docs-disposition-format). Its
+   red output lists the lines it expects. The title has
+   [a local check](../docs/guides/local-ci.md#pr-title) too.
+
+6. **Sign the CLA** when the bot asks ([Before You Start](#before-you-start)).
+
 ## Security Issues and Fixes
 
 **Do not use public issues or pull requests for security vulnerabilities** — not
@@ -178,6 +229,10 @@ npm run test:desktop:rust  # desktop Rust tests (cargo)
 npm run test:shared        # shared module unit tests
 ```
 
+`npm run test:unit` reads two build outputs: the synced shared code and the
+desktop frontend bundle. Run `npm run dev:desktop` first, which produces both;
+on a fresh clone the suite is red until it has run.
+
 `npm run test:integration` and `npm run test:e2e` need a one-time harness install
 first: [the integration suite's steps](../docs/test/integration/desktop.md#running-the-suite)
 and [the end-to-end suite's steps](../docs/test/e2e.md#running-the-suite).
@@ -285,6 +340,8 @@ this repository tracks — code in any language, and prose.
   the format. How each type maps to a version bump is in
   [PUBLISHING § Choosing the release version](PUBLISHING.md#choosing-the-release-version).
   (GitHub's auto-generated `Revert "…"` title must be renamed to `revert: …`.)
+  The title is typed into GitHub's title field; the template's body carries no
+  title line.
 - **Fill in the [PR template](PULL_REQUEST_TEMPLATE.md)** — it loads automatically
   when you open a PR. Complete every section (write "None." where a section does
   not apply, e.g. Behaviour/Breaking Changes).
@@ -332,8 +389,10 @@ check can find.
 **`## Docs disposition`** — one line for each doc that governs the code you
 changed. The check derives that set from [`scripts/area-map.json`](../scripts/area-map.json)
 (which maps the repository's code to its governing docs), and its red output
-lists the exact lines it expects, so you never have to guess. Each line is one
-of:
+lists the exact lines it expects, so you never have to guess. To see that
+output before you open the PR, run the check on a draft body with
+[the local recipe](../docs/guides/local-ci.md#docs-disposition-format). Each
+line is one of:
 
 ```text
 updated: docs/<path> — <what changed>
@@ -465,7 +524,8 @@ is the one home of that list. What each kind of change keeps green:
   cites — a `.js` or `.mjs` file, where a case is the title a bare `it`/`test`
   call states (a member call's title, `it.skip` or `it.only` or another object's
   own `it`, declares none), or a `.rs` one, where it is the name an `fn`
-  declares — held by the same lint.
+  declares — held by the same lint. Renaming or removing a test case a row
+  names therefore means editing that row's entry in the same change.
   `lint:clause-registry` holds the doc markers and the registry rows in
   one-to-one agreement. Such a document also states the canonical preamble
   verbatim — the identifier, verification, RFC 2119, keyword-placement, and

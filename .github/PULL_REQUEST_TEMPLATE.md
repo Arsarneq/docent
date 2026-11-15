@@ -1,4 +1,5 @@
-<!-- PR title: use Conventional Commits — `type(scope): summary` (e.g. `feat(extension): add export`).
+<!-- PR title: it goes in GitHub's title field above, not in this body. Use
+Conventional Commits — `type(scope): summary` (e.g. `feat(extension): add export`).
 We squash-merge, so the title becomes the commit on `main` and drives release versioning.
 A CI check enforces it; see .github/CONTRIBUTING.md ("Pull Request Guidelines"). -->
 
@@ -22,7 +23,12 @@ A CI check enforces it; see .github/CONTRIBUTING.md ("Pull Request Guidelines").
 
 ## Breaking Changes
 
-<!-- Does this change the .docent.json schema (add/remove/rename fields) or the dispatch payload structure? If no, write "None." -->
+<!-- Does this change the .docent.json schema in a way its versioning rule classes as
+major (docs/technical/session-format.md, SF-2 states the levels; a removed or renamed
+field and a new required field are two examples), or change the dispatch payload
+structure? Describe what breaks and for whom. A change that rule classes as minor,
+such as a new optional field, is not breaking: name it under Approach. If nothing
+breaks, write "None." -->
 
 ## Docs disposition
 

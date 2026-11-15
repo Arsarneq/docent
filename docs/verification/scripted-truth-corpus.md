@@ -47,7 +47,7 @@ identifiers reflect minting order and can appear out of numeric sequence.
   `npm run corpus:check` and `corpus:check:desktop`: a NEW diff is a capture
   regression; a VANISHED diff
   means a fix landed — both fail CI until the baseline is deliberately
-  regenerated (the comparator's `--write-baseline` flag) and reviewed. The
+  regenerated (the comparator's `--write-baseline <path>` flag) and reviewed. The
   comparator's `--strict` and `--lint-strict` flags exist and are wired per
   platform into that platform's gate command above: `--strict` once that
   platform's known-diffs baseline empties, `--lint-strict` once additionally
@@ -141,6 +141,37 @@ vectors with the shared unit suite, with no producer involved — locally via
 `npm run test:shared`, and in CI's `unit-tests` job, which runs on every push
 to `main` and on each pull request whose change filters fire, taking the same
 suite under coverage (`npm run test:coverage`, which includes its files).
+
+### When a capture change turns the check red
+
+A change to what a platform records shows up in this loop first: the
+platform's check (`npm run corpus:check` for the extension,
+`npm run corpus:check:desktop` for the desktop) compares each produced envelope
+with its committed truth and goes red on every difference the baseline does
+not already hold, and on every baseline entry that no longer occurs (STC-3).
+Which fix
+applies depends on which side is right:
+
+- **The recorder is right and the truth is behind** (a new field, a corrected
+  value). Edit each affected `corpus/sessions/<id>/truth.docent.json` to state
+  what a faithful capture now records, derived from the session's script as
+  STC-1 requires. A committed conformance vector carrying the changed facts is
+  produced again, reviewed and committed the same way
+  ([Emission](#emission-produced-then-reviewed-and-committed)).
+- **The truth is right and the recorder falls short**, and the gap stays open
+  for now. With the produced envelopes in `corpus/out/`, regenerate the
+  platform's baseline, review the result (STC-3), and name the issue that
+  tracks the gap in the session's `knownDiffIssues` in `corpus/manifest.json`
+  (STC-1):
+
+  ```bash
+  node scripts/corpus-compare.js --platform extension \
+    --write-baseline corpus/known-diffs.extension.json
+  ```
+
+  The desktop baseline takes `--platform desktop-windows` and
+  `corpus/known-diffs.desktop-windows.json`. The same command records a diff
+  that vanished because a fix landed.
 
 ## Comparator and relaxations
 
