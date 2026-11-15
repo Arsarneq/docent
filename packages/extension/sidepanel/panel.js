@@ -335,6 +335,7 @@ function updateBreadcrumb(viewKey) {
 bcProjects.addEventListener('click', async () => {
   await send({ type: 'RECORDING_STOP' });
   isRecording = false;
+  endRerecord();
   activeProject = null;
   activeRecording = null;
   updateRecordingUI();
@@ -344,6 +345,7 @@ bcProjects.addEventListener('click', async () => {
 bcProject.addEventListener('click', async () => {
   await send({ type: 'RECORDING_STOP' });
   isRecording = false;
+  endRerecord();
   activeRecording = null;
   updateRecordingUI();
   const { project } = await send({ type: 'PROJECT_GET' });
@@ -698,6 +700,8 @@ btnResultBack.addEventListener('click', () => showView('project'));
 // ─── Recording view ───────────────────────────────────────────────────────────
 
 function enterRecordingView() {
+  // A re-record belongs to the recording it was started in (#666).
+  endRerecord();
   recordingTitle.textContent = activeRecording.name;
   recordingTitle.title = 'Click to rename';
   recordingTitle.style.cursor = 'pointer';
@@ -974,18 +978,28 @@ async function openRerecord(step) {
   updateCommitButton();
 }
 
-btnRerecordCancel.addEventListener('click', async () => {
+/**
+ * End a re-record without committing it: the logical id it would have reused
+ * is dropped, the banner hidden and the narration field and live list reset.
+ * Cancel uses it, and so does every way out of the recording view (#666), so a
+ * re-record never carries over into another recording.
+ */
+function endRerecord() {
   rerecordLogicalId = null;
+  previousRecordingView = null;
   rerecordBanner.classList.add('hidden');
   narrationInput.value = '';
   clearLiveActionList();
+}
 
+btnRerecordCancel.addEventListener('click', async () => {
   // Restore recording state to what it was before entering re-record
-  if (!previousRecordingView) {
+  const wasRecordingBefore = previousRecordingView;
+  endRerecord();
+  if (!wasRecordingBefore) {
     await send({ type: 'RECORDING_STOP' });
     isRecording = false;
   }
-  previousRecordingView = null;
   updateRecordingUI();
   updateCommitButton();
 });
