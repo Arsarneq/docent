@@ -134,6 +134,19 @@ The marker set, the admitted classes with their admission tests, and how to
 write the sections:
 [CONTRIBUTING § Docs Disposition and Change Record](../../.github/CONTRIBUTING.md#docs-disposition-and-change-record).
 
+#### How the check reads a body
+
+The check reads each section the way CommonMark parses the body:
+
+| In the body                                                                                                    | The check reads                                                                                      |
+| -------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| A line in a Markdown code block: copied with its fence around it, or indented four spaces where a block starts | An example, which records nothing                                                                    |
+| A line inside a `<details>` block written without a blank line after its opener, or inside a `<pre>` element   | A line of the section, since those are HTML the body carries rather than code blocks                 |
+| Everything from an `<!--` to its `-->`, even when the opener is shown inside an example                        | Nothing, which is why the template's own notes are inert                                             |
+| An unclosed fence                                                                                              | Code to the end of whatever holds it: at a body's top level, the rest of the body, headings included |
+| An unclosed comment                                                                                            | Nothing in the rest of the body, so the sections below it are no longer sections the check can find  |
+| Any other line the section shows                                                                               | A line of the section                                                                                |
+
 ### PR title
 
 [`pr-title.yml`](../../.github/workflows/pr-title.yml) runs

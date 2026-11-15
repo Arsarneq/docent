@@ -464,10 +464,11 @@ describe('isDependencyOnlyPackageJsonDiff — structural and field-aware', () =>
 
 describe('the exemption declaration — welded to its doctrine home', () => {
   /**
-   * CONTRIBUTING's exemption paragraph, scoped to its own extent (the anchor
-   * sentence through the next blank line) — the same scope both welds use, so
-   * a declaration that loses a term cannot stay green off the same token
-   * elsewhere in the file.
+   * CONTRIBUTING's exemption paragraph together with the class tables it
+   * introduces, scoped to their own extent (the anchor sentence through the
+   * sentence that closes the tables) — the same
+   * scope both welds use, so a declaration that loses a term cannot stay
+   * green off the same token elsewhere in the file.
    */
   const exemptionParagraph = () => {
     const contributing = repoFile('.github/CONTRIBUTING.md');
@@ -475,8 +476,14 @@ describe('the exemption declaration — welded to its doctrine home', () => {
     const start = contributing.indexOf(anchor);
     assert.notEqual(start, -1, `CONTRIBUTING.md must carry the "${anchor}" exemption paragraph`);
     const rest = contributing.slice(start);
-    const end = rest.indexOf('\n\n');
-    return end === -1 ? rest : rest.slice(0, end);
+    const closer = 'Every other change carries the sections.';
+    const end = rest.indexOf(closer);
+    assert.notEqual(
+      end,
+      -1,
+      `CONTRIBUTING.md's exemption paragraph must close its class tables with "${closer}"`,
+    );
+    return rest.slice(0, end);
   };
 
   it('cites the release-output surface’s one home rather than restating its members', () => {
