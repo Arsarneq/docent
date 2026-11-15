@@ -26,9 +26,10 @@ user's work depends on across a suspension is persisted —
 governs what may live in worker memory instead.
 
 - **`chrome.storage.local`** holds the project/recording model and the
-  active ids, the pending capture buffer, the capture-state keys the worker
-  persists (the recording flag, the last user-action timestamp and the last
-  tab navigation), the dispatch and sync settings, the theme and recording-mode
+  active ids, the pending capture buffer, the capture-state keys (the
+  recording flag and the last tab navigation, which the worker writes, and
+  the last user-action timestamp, which the content recorder writes), the
+  dispatch and sync settings, the theme and recording-mode
   preferences, the published storage-pressure state, and the durable sync
   reconcile state. The complete key inventory — each key's contents, its writers, and
   the keys that double as change signals — is
