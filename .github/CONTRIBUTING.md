@@ -62,7 +62,7 @@ the section that states it in full.
    | add a `.docent.json` field        | follow [Adding a field](../docs/technical/session-format.md#adding-a-field)                                                                                                                                                                                                                                                                   |
    | add, rename or remove a test file | update its row in the suite's document under [`docs/test/`](../docs/test/README.md), which `npm run lint:test-inventory` holds to the tree                                                                                                                                                                                                    |
    | rename or remove a test case      | update any `test-cases` entry in [`docs/clause-registry.json`](../docs/clause-registry.json) that names it, which `npm run lint:clause-registry` holds to the test files                                                                                                                                                                      |
-   | add a code file or a doc          | give it a home in the area map ([what each kind of change keeps green](#what-each-kind-of-change-keeps-green))                                                                                                                                                                                                                                |
+   | add a code file or a doc          | give it a home in the area map ([what each kind of change keeps green](../docs/guides/docs-governance.md#what-each-kind-of-change-keeps-green))                                                                                                                                                                                               |
 
 5. **Open the pull request.** The title goes in GitHub's title field, written
    as a Conventional Commit, and the body is the template GitHub loads
@@ -465,7 +465,7 @@ A PR whose changed files are the governance data itself — the
 [area map](../scripts/area-map.json), alone or together with the
 [clause registry](../docs/clause-registry.json) — records, in place of the
 per-doc lines, one line judging the edit against the goals in
-[Extending the Docs Governance](#extending-the-docs-governance):
+[Extending the docs governance](../docs/guides/docs-governance.md#goals):
 
 ```text
 governance-data-only: <why the documented governance goals survive this edit>
@@ -483,154 +483,11 @@ review-calibration signal, never a per-PR verdict
 
 ## Extending the Docs Governance
 
-Every change to this governance — the map, the registry, the lints, or the
-doc set they bind — must preserve what the machinery exists to deliver:
+A change that touches the binding between code and docs, or that writes a doc, follows [Extending the docs governance](../docs/guides/docs-governance.md). That guide holds:
 
-- **Complete** — every tracked file resolves to an explicit governance
-  decision: a governing doc set (possibly empty, where declared) or a
-  recorded, justified exception; every doc stays reachable (or is an
-  allowlisted non-doctrine asset), and every clause stays registered.
-  Nothing falls out of governance silently.
-- **Usable** — the docs serve human readers first: positive descriptions,
-  precise citable clauses, and per-area charters in the
-  [documentation map](../docs/README.md); each passage takes
-  the form that fits what it holds
-  ([Writing docs](#writing-docs-pick-the-form-before-the-sentence)).
-- **Minimal context per area** — working in one area should require reading
-  that area's docs and no more; a change that drags unrelated docs onto a
-  file's governing set is a defect, not a convenience.
-- **No drift** — the binding stays committed, linted data: which docs a
-  change primes surfaces mechanically, and whether the change diverged from
-  them is a recorded human judgment — never left to memory.
-
-A change that would drop real governance rather than trim excess is out of
-scope for a cleanup — raise it as its own PR or issue, where the trade-off
-is stated.
-
-### What each kind of change keeps green
-
-The governance binding is kept true by the governance lints in CI's `lint` job. Each is
-inventoried, with its local command, in
-[the lint table](../docs/guides/ci.md#the-lint-and-freshness-gates), which
-is the one home of that list. In short:
-
-| When you          | You                                                                                                                        | Held by                                                                  |
-| ----------------- | -------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| Add or move a doc | Link it from the documentation map and give it a home in the area map                                                      | `lint:links`, `lint:reachability`, `lint:area-map`                       |
-| Add a code file   | Make it resolve to an area of the area map, in the same PR                                                                 | `lint:area-map`                                                          |
-| Mint a clause     | Mark it with a stable id, give it a registry row, state the preamble, and keep the paths its row cites governed by its doc | `lint:clause-registry`, `lint:clause-preamble`, `lint:clause-governance` |
-
-The detail for each:
-
-- **Adding or moving a doc:** link it from the
-  [documentation map](../docs/README.md) — every relative link must resolve
-  (`lint:links`) and every tracked Markdown file must be reachable by
-  following links from the root README (`lint:reachability`) — and give it a
-  home in [`scripts/area-map.json`](../scripts/area-map.json): an area's doc
-  set, the repo-wide list, or a justified exception (`lint:area-map`).
-- **Adding a code file:** it must resolve to an area of the same map — matched
-  by an area's code patterns, naming a governing doc with a
-  `// see docs/<path>.md` comment, or listed as a justified exception —
-  or `lint:area-map` fails on it; extend the map in the same PR that adds the
-  file. A file whose governing docs differ from what its areas supply declares
-  them with a `declared-governance` entry, which overrides governance without
-  granting coverage; a declaration may name an area's whole doc set with an
-  `area:<name>` reference instead of repeating its docs. In a tree the map
-  lists under `governance-partitions`, every file declares its governance with
-  a `declared-governance` entry — including one whose declared set is exactly
-  what its areas supply, which is the honest statement there and stays green.
-  The map's own `description` field states the complete resolution rules.
-- **Minting clauses:** a doc that states its rules as identified clauses
-  keeps each of these true.
-  - **The marker.** Each clause carries a stable bolded id (e.g. `**SC-2.**`);
-    ids are never renumbered, and a retired id stays reserved.
-  - **The registry row.** Every clause takes a row in
-    [`docs/clause-registry.json`](../docs/clause-registry.json) recording how
-    it is verified — by a named existing check, an intended check, or a
-    justified judgment. `lint:clause-registry` holds the doc markers and the
-    registry rows in one-to-one agreement.
-  - **The row's citations.** Every citation a row's `check-ref` or
-    `justification` carries must resolve, or be refused as a citation that
-    cannot identify what it names; the gate's own register of the surfaces it
-    resolves citations against is held to the tracked tree on every run
-    ([`scripts/check-clause-registry.js`](../scripts/check-clause-registry.js)
-    is that register's one home), so a stale entry reds there rather than in a
-    row.
-  - **The row's test cases.** A row may also name the test cases that pin its
-    clause, in an opt-in field whose every entry must name a case DECLARED by
-    one of the anchor-bearing files that row's `check-ref` cites, held by the
-    same lint. Renaming or removing a test case a row names therefore means
-    editing that row's entry in the same change. What declares a case:
-
-    | File            | A case is                                                                                                                            |
-    | --------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
-    | `.js` or `.mjs` | The title a bare `it`/`test` call states (a member call's title, `it.skip` or `it.only` or another object's own `it`, declares none) |
-    | `.rs`           | The name an `fn` declares                                                                                                            |
-
-  - **The preamble.** Such a document also states the canonical preamble
-    verbatim — the identifier, verification, RFC 2119, keyword-placement, and
-    clause-scope rules, with the prefix token and registry link computed for
-    it; a document that restates rules other artifacts own opens with the
-    registered qualifier instead, which the check accepts only from a document
-    registered for it. A lowercase `must`, `should`, or `may` inside a clause's
-    scope is either uppercased as the clause's own requirement or takes an
-    allowlist entry recording why it states none. The canonical text, the
-    qualifier's registrations with the reason each document takes it, and that
-    allowlist live in
-    [`scripts/check-clause-preamble.js`](../scripts/check-clause-preamble.js),
-    which `lint:clause-preamble` holds those documents to; any clause-bearing
-    document's preamble —
-    [Capture Principles](../docs/architecture/system/capture-principles.md)
-    for one — shows the text as a reader meets it.
-  - **Meaning and justification.** A clause's meaning lives in the doctrine
-    text; a row's justification states how compliance is verified and why no
-    check decides it, never the clause's meaning.
-  - **Lists.** A list inside a clause's scope — bulleted, numbered, a table's
-    rows, or an inline series of three or more members of one set — states
-    whether it is closed.
-    - A closed list says so in the words that close it, so extending it is an
-      edit to the list itself or to the artifact it points at. The words are
-      one of:
-      - an exactness word (`exactly`, `complete`, `closed`, `no other`);
-      - a count (`three scope filters`, `one of two`);
-      - the definition the clause itself states;
-      - a pointer to the clause or artifact that closes it exactly.
-    - An open list says that it illustrates and names what decides membership
-      instead
-      (`the listed classes illustrate it and do not close it; the shared detection decides`).
-    - A field list in a protocol or format clause states what the
-      specification defines; whether a peer may add fields is what the
-      specification's tolerance statement decides, where it has one.
-    - A numbered procedure, whose steps are the procedure, and a list or table
-      keyed by platform, which covers each shipped platform, carry their
-      closure by form.
-  - **Governed paths.** Every repository path a row cites — the code that
-    implements or guards the clause — must in turn be governed by the clause's
-    own doc under the area map, so a change to that code cannot drift from the
-    doctrine it stands on without priming the doc; `lint:clause-governance`
-    holds that edge, with deliberately-open couplings recorded as a justified
-    allowlist in the check. A cited governing doc is governed by itself alone,
-    as it takes its own disposition line only.
-
-### Writing docs: pick the form before the sentence
-
-Prose is one form among several, and rarely the best one for structured
-content. Before writing a passage, name what it holds and take the form that
-fits:
-
-| The passage holds                        | Write it as                           |
-| ---------------------------------------- | ------------------------------------- |
-| The same attributes across several items | A table                               |
-| Steps in order                           | A numbered list                       |
-| A flow, a lifecycle, or who calls whom   | A Mermaid diagram (GitHub renders it) |
-| A quantity, or a rule with a formula     | The formula                           |
-| A command, or the shape of a file        | A code block                          |
-| A reason, a trade-off, or a single item  | Prose                                 |
-
-A sentence that carries three or more parallel facts is a table or a list
-waiting to be written. Clause text keeps its identifier and its RFC 2119
-wording whatever form surrounds it, and a table or list inside a clause's scope
-still states whether it is closed (Minting clauses, above).
+- the [goals](../docs/guides/docs-governance.md#goals) every such change preserves, which are also what a governance-data line is judged against;
+- [what each kind of change keeps green](../docs/guides/docs-governance.md#what-each-kind-of-change-keeps-green): adding or moving a doc, adding a code file, minting a clause;
+- [how to pick a passage's form](../docs/guides/docs-governance.md#writing-docs-pick-the-form-before-the-sentence) when writing docs.
 
 ## Regression Tests
 
