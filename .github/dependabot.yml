@@ -1,11 +1,12 @@
 version: 2
 # Each entry groups its minor and patch version updates into one pull request
-# per directory. Security updates are not grouped (applies-to: version-updates),
+# per directory, except the bindings generator's, whose only dependency is the
+# windows-bindgen pin. Security updates are not grouped (applies-to: version-updates),
 # so each advisory still opens its own pull request as soon as a fix is
 # published, and a major version update arrives on its own pull request.
 # Dependabot reads a 0.x version as major.minor.patch, so a 0.x line change counts
-# as minor and joins its group; the windows-core and windows-bindgen pins are
-# excluded from their groups so a line bump of either keeps its own pull request
+# as minor and joins its group; the windows-core pin is excluded from its group,
+# so a line bump of either pin keeps its own pull request
 # (the freshness gate below holds it red until both pins move together).
 updates:
   - package-ecosystem: 'npm'
@@ -95,16 +96,6 @@ updates:
     labels:
       - 'dependencies'
       - 'desktop-windows'
-    groups:
-      cargo-bindgen:
-        applies-to: version-updates
-        patterns:
-          - '*'
-        exclude-patterns:
-          - 'windows-bindgen'
-        update-types:
-          - 'minor'
-          - 'patch'
 
   - package-ecosystem: 'github-actions'
     directory: '/'
