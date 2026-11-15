@@ -58,7 +58,7 @@ the section that states it in full.
    | add a `.docent.json` field        | follow [Adding a field](../docs/technical/session-format.md#adding-a-field)                                                                                                                                                                                                                                               |
    | add, rename or remove a test file | update its row in the suite's document under [`docs/test/`](../docs/test/README.md), which `npm run lint:test-inventory` holds to the tree                                                                                                                                                                                |
    | rename or remove a test case      | update any `test-cases` entry in [`docs/clause-registry.json`](../docs/clause-registry.json) that names it, which `npm run lint:clause-registry` holds to the test files                                                                                                                                                  |
-   | add a code file or a doc          | give it a home in the area map ([Extending the Docs Governance](#extending-the-docs-governance))                                                                                                                                                                                                                          |
+   | add a code file or a doc          | give it a home in the area map ([what each kind of change keeps green](#what-each-kind-of-change-keeps-green))                                                                                                                                                                                                            |
 
 5. **Open the pull request.** The title goes in GitHub's title field, written
    as a Conventional Commit, and the body is the template GitHub loads
@@ -267,9 +267,9 @@ coverage is measured and sliced is in
 
 ### Single-source logic
 
-Pure-logic extraction and mirrored copies are JavaScript's own, and
-name the JavaScript surfaces they govern; cite-the-owner binds every surface
-this repository tracks — code in any language, and prose.
+Pure-logic extraction and mirrored copies bind JavaScript only, and each entry
+below names the surfaces it governs. Cite-the-owner binds every surface this
+repository tracks: code in any language, and prose.
 
 - **Pure-logic extraction.** Logic that needs unit testing without a live
   platform is extracted into a pure module — plain data in and out, no
@@ -372,19 +372,18 @@ own statement; `npm run check:licenses` runs the npm allowlist locally.
 Every PR body carries two further sections; the template scaffolds them, and the
 `Docs disposition format` check verifies their form (form only — what you write in
 them is read by reviewers, never judged by CI). It reads each section the way
-CommonMark parses your body: a Markdown code block is an example — a line copied
-with its fence around it, or one indented four spaces where a block starts,
-records nothing — while every other line the section shows is a line the check
-reads, one inside a `<details>` block written without a blank line after its
-opener, or inside a `<pre>` element, included, since those are HTML the body
-carries rather than code blocks. So write each section's lines flush left. Nothing
-from an `<!--` to its `-->` reaches the check — a comment opener hides everything
-to its closer even when it is shown inside an example — which is why the
-template's own notes are inert; write your lines below them. Close what you open,
-too: an unclosed fence runs on to the end of whatever holds it — at a body's top
-level, the rest of the body, headings included — and an unclosed comment swallows
-the rest of the body outright, so the sections below are no longer sections the
-check can find.
+CommonMark parses your body, so three habits keep every line you write a line
+the check reads:
+
+- Write each line flush left, below the template's notes.
+- Keep your lines out of code blocks and HTML comments: a line inside either
+  records nothing.
+- Close every code fence and every `<!--` you open: an unclosed comment, or an
+  unclosed fence at the body's top level, runs to the end of the body and hides
+  the sections below it from the check.
+
+[How the check reads a body](../docs/guides/ci.md#how-the-check-reads-a-body)
+states the exact rules.
 
 **`## Docs disposition`** — one line for each doc that governs the code you
 changed. The check derives that set from [`scripts/area-map.json`](../scripts/area-map.json)
@@ -422,21 +421,31 @@ held to the cadence that clause states by the shared unit suite
 
 Dependency-only PRs skip both sections, and so does the release pipeline's own
 regeneration PR. Each admitted class states its admission test and the inputs
-that decide it. Decided from the diff alone: lockfiles; `package.json` changes
-whose parsed sides differ at most in the dependency-resolution fields
-(`dependencies`, `devDependencies`, `peerDependencies`, `optionalDependencies`,
-`overrides` — compared structurally, so nested `overrides` entries qualify and
-formatting-only differences count as no change, while `scripts`, `engines`, or
-any other field keeps the sections); `Cargo.toml` changes whose changed lines
-all sit inside the dependency sections Cargo defines for them, the per-crate
-table form included; and same-action pin bumps. Decided from the diff together
-with a head branch the checks derive from the pull request's own head branch and
-head repository — under a GitHub Actions run, a branch opened on this repository
-and nothing otherwise; run by hand, the branch you supply: a PR on the release
-pipeline's automation branch whose every changed file belongs to the
-release-output surface enumerated in
-[`scripts/check-no-release-outputs.js`](../scripts/check-no-release-outputs.js),
-which is that surface's one home. Every other change carries the sections. A
+that decide it:
+
+| Class              | Decided from                         | Admission test                                                                                                                                                                                                                                      |
+| ------------------ | ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Dependency-only    | The diff alone                       | Every changed file passes one of the four file tests below                                                                                                                                                                                          |
+| Release automation | The diff together with a head branch | The PR is on the release pipeline's automation branch, and every changed file belongs to the release-output surface enumerated in [`scripts/check-no-release-outputs.js`](../scripts/check-no-release-outputs.js), which is that surface's one home |
+
+The checks derive the head branch from the pull request's own head branch and
+head repository: under a GitHub Actions run, a branch opened on this repository
+and nothing otherwise; run by hand, the branch you supply.
+
+The four file tests of the dependency-only class:
+
+| Changed file    | Passes when                                                                                                                                                     |
+| --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A lockfile      | Always                                                                                                                                                          |
+| `package.json`  | Its parsed sides differ at most in the dependency-resolution fields: `dependencies`, `devDependencies`, `peerDependencies`, `optionalDependencies`, `overrides` |
+| `Cargo.toml`    | Its changed lines all sit inside the dependency sections Cargo defines for them, the per-crate table form included                                              |
+| A workflow file | Its change is a same-action pin bump                                                                                                                            |
+
+The `package.json` comparison is structural, so nested `overrides` entries
+qualify and formatting-only differences count as no change, while `scripts`,
+`engines`, or any other field keeps the sections.
+
+Every other change carries the sections. A
 line that parses but says nothing is a review problem, not a CI pass: write the
 reason you actually relied on.
 
@@ -472,7 +481,9 @@ doc set they bind — must preserve what the machinery exists to deliver:
   Nothing falls out of governance silently.
 - **Usable** — the docs serve human readers first: positive descriptions,
   precise citable clauses, and per-area charters in the
-  [documentation map](../docs/README.md).
+  [documentation map](../docs/README.md); each passage takes
+  the form that fits what it holds
+  ([Writing docs](#writing-docs-pick-the-form-before-the-sentence)).
 - **Minimal context per area** — working in one area should require reading
   that area's docs and no more; a change that drags unrelated docs onto a
   file's governing set is a defect, not a convenience.
@@ -484,10 +495,20 @@ A change that would drop real governance rather than trim excess is out of
 scope for a cleanup — raise it as its own PR or issue, where the trade-off
 is stated.
 
-The binding is kept true by the governance lints in CI's `lint` job — each
+### What each kind of change keeps green
+
+The governance binding is kept true by the governance lints in CI's `lint` job. Each is
 inventoried, with its local command, in
 [the lint table](../docs/guides/ci.md#the-lint-and-freshness-gates), which
-is the one home of that list. What each kind of change keeps green:
+is the one home of that list. In short:
+
+| When you          | You                                                                                                                        | Held by                                                                  |
+| ----------------- | -------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| Add or move a doc | Link it from the documentation map and give it a home in the area map                                                      | `lint:links`, `lint:reachability`, `lint:area-map`                       |
+| Add a code file   | Make it resolve to an area of the area map, in the same PR                                                                 | `lint:area-map`                                                          |
+| Mint a clause     | Mark it with a stable id, give it a registry row, state the preamble, and keep the paths its row cites governed by its doc | `lint:clause-registry`, `lint:clause-preamble`, `lint:clause-governance` |
+
+The detail for each:
 
 - **Adding or moving a doc:** link it from the
   [documentation map](../docs/README.md) — every relative link must resolve
@@ -507,61 +528,96 @@ is the one home of that list. What each kind of change keeps green:
   a `declared-governance` entry — including one whose declared set is exactly
   what its areas supply, which is the honest statement there and stays green.
   The map's own `description` field states the complete resolution rules.
-- **Minting clauses:** a doc that states its rules as identified clauses marks
-  each one with a stable bolded id (e.g. `**SC-2.**`); ids are never
-  renumbered, and a retired id stays reserved. Every clause takes a row in
-  [`docs/clause-registry.json`](../docs/clause-registry.json) recording how it
-  is verified — by a named existing check, an intended check, or a justified
-  judgment — and every citation a row's `check-ref` or `justification` carries
-  must resolve, or be refused as a citation that cannot identify what it names;
-  the gate's own register of the surfaces it resolves citations against is held
-  to the tracked tree on every run
-  ([`scripts/check-clause-registry.js`](../scripts/check-clause-registry.js) is
-  that register's one home), so a stale entry reds there rather than in a row. A
-  row may also name the
-  test cases that pin its clause, in an opt-in field whose every entry must name
-  a case DECLARED by one of the anchor-bearing files that row's `check-ref`
-  cites — a `.js` or `.mjs` file, where a case is the title a bare `it`/`test`
-  call states (a member call's title, `it.skip` or `it.only` or another object's
-  own `it`, declares none), or a `.rs` one, where it is the name an `fn`
-  declares — held by the same lint. Renaming or removing a test case a row
-  names therefore means editing that row's entry in the same change.
-  `lint:clause-registry` holds the doc markers and the registry rows in
-  one-to-one agreement. Such a document also states the canonical preamble
-  verbatim — the identifier, verification, RFC 2119, keyword-placement, and
-  clause-scope rules, with the prefix token and registry link computed for it;
-  a document that restates rules other artifacts own opens with the registered
-  qualifier instead, which the check accepts only from a document registered
-  for it. A lowercase `must`, `should`, or `may` inside a clause's scope is
-  either uppercased as the clause's own requirement or takes an allowlist entry
-  recording why it states none. The canonical text, the qualifier's
-  registrations with the reason each document takes it, and that allowlist live
-  in [`scripts/check-clause-preamble.js`](../scripts/check-clause-preamble.js),
-  which `lint:clause-preamble` holds those documents to; any clause-bearing
-  document's preamble — [Capture Principles](../docs/architecture/system/capture-principles.md)
-  for one — shows the text as a reader meets it. A clause's meaning lives in
-  the doctrine text; a row's justification states how compliance is verified
-  and why no check decides it, never the clause's meaning. A list inside a
-  clause's scope — bulleted, numbered, a table's rows, or an inline series of
-  three or more members of one set — states whether it is closed. A closed
-  list says so in the words that close it: an exactness word (`exactly`,
-  `complete`, `closed`, `no other`), a count (`three scope filters`,
-  `one of two`), the definition the clause itself states, or a pointer to the
-  clause or artifact that closes it exactly, so extending it is an edit to the
-  list itself or to the artifact it points at. An open list says that it
-  illustrates and names what decides membership instead
-  (`the listed classes illustrate it and do not close it; the shared detection decides`).
-  A field list in a protocol or format clause states what the specification
-  defines; whether a
-  peer may add fields is what the specification's tolerance statement decides,
-  where it has one. A numbered procedure, whose steps are the procedure, and a
-  list or table keyed by platform, which covers each shipped platform, carry
-  their closure by form. Every repository path
-  a row cites — the code that implements or guards the clause — must in turn be
-  governed by the clause's own doc under the area map, so a change to that code
-  cannot drift from the doctrine it stands on without priming the doc;
-  `lint:clause-governance` holds that edge, with deliberately-open couplings
-  recorded as a justified allowlist in the check.
+- **Minting clauses:** a doc that states its rules as identified clauses
+  keeps each of these true.
+  - **The marker.** Each clause carries a stable bolded id (e.g. `**SC-2.**`);
+    ids are never renumbered, and a retired id stays reserved.
+  - **The registry row.** Every clause takes a row in
+    [`docs/clause-registry.json`](../docs/clause-registry.json) recording how
+    it is verified — by a named existing check, an intended check, or a
+    justified judgment. `lint:clause-registry` holds the doc markers and the
+    registry rows in one-to-one agreement.
+  - **The row's citations.** Every citation a row's `check-ref` or
+    `justification` carries must resolve, or be refused as a citation that
+    cannot identify what it names; the gate's own register of the surfaces it
+    resolves citations against is held to the tracked tree on every run
+    ([`scripts/check-clause-registry.js`](../scripts/check-clause-registry.js)
+    is that register's one home), so a stale entry reds there rather than in a
+    row.
+  - **The row's test cases.** A row may also name the test cases that pin its
+    clause, in an opt-in field whose every entry must name a case DECLARED by
+    one of the anchor-bearing files that row's `check-ref` cites, held by the
+    same lint. Renaming or removing a test case a row names therefore means
+    editing that row's entry in the same change. What declares a case:
+
+    | File            | A case is                                                                                                                            |
+    | --------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+    | `.js` or `.mjs` | The title a bare `it`/`test` call states (a member call's title, `it.skip` or `it.only` or another object's own `it`, declares none) |
+    | `.rs`           | The name an `fn` declares                                                                                                            |
+
+  - **The preamble.** Such a document also states the canonical preamble
+    verbatim — the identifier, verification, RFC 2119, keyword-placement, and
+    clause-scope rules, with the prefix token and registry link computed for
+    it; a document that restates rules other artifacts own opens with the
+    registered qualifier instead, which the check accepts only from a document
+    registered for it. A lowercase `must`, `should`, or `may` inside a clause's
+    scope is either uppercased as the clause's own requirement or takes an
+    allowlist entry recording why it states none. The canonical text, the
+    qualifier's registrations with the reason each document takes it, and that
+    allowlist live in
+    [`scripts/check-clause-preamble.js`](../scripts/check-clause-preamble.js),
+    which `lint:clause-preamble` holds those documents to; any clause-bearing
+    document's preamble —
+    [Capture Principles](../docs/architecture/system/capture-principles.md)
+    for one — shows the text as a reader meets it.
+  - **Meaning and justification.** A clause's meaning lives in the doctrine
+    text; a row's justification states how compliance is verified and why no
+    check decides it, never the clause's meaning.
+  - **Lists.** A list inside a clause's scope — bulleted, numbered, a table's
+    rows, or an inline series of three or more members of one set — states
+    whether it is closed.
+    - A closed list says so in the words that close it, so extending it is an
+      edit to the list itself or to the artifact it points at. The words are
+      one of:
+      - an exactness word (`exactly`, `complete`, `closed`, `no other`);
+      - a count (`three scope filters`, `one of two`);
+      - the definition the clause itself states;
+      - a pointer to the clause or artifact that closes it exactly.
+    - An open list says that it illustrates and names what decides membership
+      instead
+      (`the listed classes illustrate it and do not close it; the shared detection decides`).
+    - A field list in a protocol or format clause states what the
+      specification defines; whether a peer may add fields is what the
+      specification's tolerance statement decides, where it has one.
+    - A numbered procedure, whose steps are the procedure, and a list or table
+      keyed by platform, which covers each shipped platform, carry their
+      closure by form.
+  - **Governed paths.** Every repository path a row cites — the code that
+    implements or guards the clause — must in turn be governed by the clause's
+    own doc under the area map, so a change to that code cannot drift from the
+    doctrine it stands on without priming the doc; `lint:clause-governance`
+    holds that edge, with deliberately-open couplings recorded as a justified
+    allowlist in the check.
+
+### Writing docs: pick the form before the sentence
+
+Prose is one form among several, and rarely the best one for structured
+content. Before writing a passage, name what it holds and take the form that
+fits:
+
+| The passage holds                        | Write it as                           |
+| ---------------------------------------- | ------------------------------------- |
+| The same attributes across several items | A table                               |
+| Steps in order                           | A numbered list                       |
+| A flow, a lifecycle, or who calls whom   | A Mermaid diagram (GitHub renders it) |
+| A quantity, or a rule with a formula     | The formula                           |
+| A command, or the shape of a file        | A code block                          |
+| A reason, a trade-off, or a single item  | Prose                                 |
+
+A sentence that carries three or more parallel facts is a table or a list
+waiting to be written. Clause text keeps its identifier and its RFC 2119
+wording whatever form surrounds it, and a table or list inside a clause's scope
+still states whether it is closed (Minting clauses, above).
 
 ## Regression Tests
 
