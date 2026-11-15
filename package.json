@@ -84,18 +84,18 @@
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@stryker-mutator/core": "^10.0.0",
-    "@tauri-apps/api": "^2.12.3",
+    "@tauri-apps/api": "^2.12.4",
     "ajv": "^8.20.0",
     "ajv-formats": "^3.0.1",
     "c8": "^12.0.0",
     "esbuild": "^0.28.2",
-    "eslint": "^10.12.0",
+    "eslint": "^10.13.0",
     "eslint-config-prettier": "^10.1.8",
     "fast-check": "^4.10.2",
     "js-yaml": "^4.2.0",
     "lefthook": "^2.2.2",
     "license-checker-rseidelsohn": "5.0.1",
-    "markdownlint-cli2": "^0.23.3",
+    "markdownlint-cli2": "^0.24.1",
     "prettier": "^3.9.10",
     "remark-cli": "^12.0.1",
     "remark-parse": "^11.0.0",
@@ -103,6 +103,6 @@
     "stylelint": "^17.16.0",
     "stylelint-config-standard": "^40.0.0",
     "unified": "^11.0.5",
-    "unist-util-visit": "^5.1.0"
+    "unist-util-visit": "^5.2.0"
   }
 }

@@ -1,4 +1,8 @@
 version: 2
+# Each entry groups its minor and patch version updates into one pull request
+# per directory. Security updates are not grouped (applies-to: version-updates),
+# so each advisory still opens its own pull request as soon as a fix is
+# published, and a major version update arrives on its own pull request.
 updates:
   - package-ecosystem: 'npm'
     directory: '/'
@@ -7,6 +11,14 @@ updates:
     open-pull-requests-limit: 5
     labels:
       - 'dependencies'
+    groups:
+      npm-root:
+        applies-to: version-updates
+        patterns:
+          - '*'
+        update-types:
+          - 'minor'
+          - 'patch'
 
   - package-ecosystem: 'npm'
     directory: '/packages/extension/tests/e2e'
@@ -16,6 +28,14 @@ updates:
     labels:
       - 'dependencies'
       - 'test'
+    groups:
+      npm-e2e:
+        applies-to: version-updates
+        patterns:
+          - '*'
+        update-types:
+          - 'minor'
+          - 'patch'
 
   - package-ecosystem: 'npm'
     directory: '/packages/desktop/tests/integration'
@@ -26,6 +46,14 @@ updates:
       - 'dependencies'
       - 'test'
       - 'desktop-windows'
+    groups:
+      npm-integration:
+        applies-to: version-updates
+        patterns:
+          - '*'
+        update-types:
+          - 'minor'
+          - 'patch'
 
   - package-ecosystem: 'cargo'
     directory: '/packages/desktop/src-tauri'
@@ -35,6 +63,14 @@ updates:
     labels:
       - 'dependencies'
       - 'desktop-windows'
+    groups:
+      cargo-src-tauri:
+        applies-to: version-updates
+        patterns:
+          - '*'
+        update-types:
+          - 'minor'
+          - 'patch'
 
   # The Win32 bindings generator: a crate of its own with its own lockfile. The
   # lint job's Win32 bindings freshness gate holds this pin and the desktop
@@ -53,6 +89,14 @@ updates:
     labels:
       - 'dependencies'
       - 'desktop-windows'
+    groups:
+      cargo-bindgen:
+        applies-to: version-updates
+        patterns:
+          - '*'
+        update-types:
+          - 'minor'
+          - 'patch'
 
   - package-ecosystem: 'github-actions'
     directory: '/'
@@ -61,3 +105,11 @@ updates:
     open-pull-requests-limit: 3
     labels:
       - 'dependencies'
+    groups:
+      actions-root:
+        applies-to: version-updates
+        patterns:
+          - '*'
+        update-types:
+          - 'minor'
+          - 'patch'
