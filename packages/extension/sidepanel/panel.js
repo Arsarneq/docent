@@ -705,8 +705,6 @@ function enterRecordingView() {
   recordingTitle.textContent = activeRecording.name;
   recordingTitle.title = 'Click to rename';
   recordingTitle.style.cursor = 'pointer';
-  narrationInput.value = '';
-  clearLiveActionList();
   // Read actual pendingCount via adapter rather than assuming 0
   adapter.getPendingCount().then((count) => {
     pendingCount = count;
@@ -981,8 +979,8 @@ async function openRerecord(step) {
 /**
  * End a re-record without committing it: the logical id it would have reused
  * is dropped, the banner hidden and the narration field and live list reset.
- * Cancel uses it, and so does every way out of the recording view (#666), so a
- * re-record never carries over into another recording.
+ * Cancel uses it, and so do the breadcrumbs and every entry into a recording
+ * (#666), so a re-record never carries over into another recording.
  */
 function endRerecord() {
   rerecordLogicalId = null;
