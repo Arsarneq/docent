@@ -41,7 +41,7 @@ import {
 } from '../shared/sync-conflict-ui.js';
 import adapter from './adapter-chrome.js';
 import { createControlChannelHost } from './control-channel-host.js';
-import { createControlExecutor } from './control-commands.js';
+import { createControlExecutor, STORAGE_NOTICES, storageNotice } from './control-commands.js';
 import { describeExportGrant } from './control-channel.js';
 import { buildOpenProjectExport, exportFileName } from './project-export.js';
 import {
@@ -280,25 +280,31 @@ function clearLiveActionList() {
 // ─── Storage-quota warning (#127) ──────────────────────────────────────────────
 // The service worker pauses capture and publishes a pressure band when
 // chrome.storage.local nears its quota; the panel surfaces a non-blocking banner.
-// It reflects live state — it clears itself once the user frees space.
+// It reflects live state — it clears itself once the user frees space. The
+// banner shown is the one for the state's notice code, the code the local
+// control channel's status reports (control-commands.js).
+const STORAGE_QUOTA_TEXT = {
+  [STORAGE_NOTICES.full]:
+    'Storage is full — capture stopped. Export or delete a project to free space.',
+  [STORAGE_NOTICES.paused]:
+    'Storage is almost full — capture paused. Export or delete a project to free space.',
+  [STORAGE_NOTICES.stillRecording]:
+    'Storage is almost full — still recording. Export or delete a project to free space.',
+};
+let storageQuota = null; // the state last received, for the channel's status
 function renderStorageQuota(state) {
+  storageQuota = state ?? null;
   if (!storageQuotaBanner) return;
-  const band = state?.band ?? 'ok';
-  if (band === 'ok') {
+  const notice = storageNotice(state);
+  if (notice === null) {
     storageQuotaBanner.classList.add('hidden');
     return;
   }
-  const paused = state?.paused === true;
-  storageQuotaBanner.classList.toggle('exceeded', band === 'exceeded');
-  storageQuotaBannerText.textContent =
-    band === 'exceeded'
-      ? 'Storage is full — capture stopped. Export or delete a project to free space.'
-      : paused
-        ? 'Storage is almost full — capture paused. Export or delete a project to free space.'
-        : 'Storage is almost full — still recording. Export or delete a project to free space.';
+  storageQuotaBanner.classList.toggle('exceeded', notice === STORAGE_NOTICES.full);
+  storageQuotaBannerText.textContent = STORAGE_QUOTA_TEXT[notice];
   // Offer the override only while auto-paused at the soft warning — the user can
   // choose to keep recording (#127). A hard `exceeded` can't be overridden.
-  btnStorageQuotaResume?.classList.toggle('hidden', !(band === 'warn' && paused));
+  btnStorageQuotaResume?.classList.toggle('hidden', notice !== STORAGE_NOTICES.paused);
   storageQuotaBanner.classList.remove('hidden');
 }
 btnStorageQuotaResume?.addEventListener('click', () => send({ type: 'STORAGE_RESUME' }));
@@ -1994,6 +2000,7 @@ const controlExecutor = createControlExecutor({
     stepCount: activeRecording ? activeSteps.length : 0,
     rerecording: rerecordLogicalId !== null,
     busy: commitInProgress,
+    storageQuota,
   }),
   createProject: holdingCommit(async (name) => {
     // Leave an open recording the way the Projects breadcrumb does.
