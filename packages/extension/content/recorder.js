@@ -584,7 +584,7 @@
       }
       // A label's activation sends a second click on to its control before the
       // next task: the person made one click, recorded as the first (#670). The
-      // composed path finds a label in an open shadow root and one under an
+      // composed path finds a label in an open shadow root and one holding an
       // interactive child; a closed shadow root hides its label (ECP-12).
       const path = e.composedPath();
       if (labelForwardedTo !== null && path[0] === labelForwardedTo) {
