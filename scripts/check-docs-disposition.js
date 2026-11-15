@@ -5,7 +5,8 @@
  * Every change is governed by docs (scripts/area-map.json maps code to them),
  * and the PR body must carry one explicit line per governing doc saying what
  * happened to it — one of the two per-doc forms UPDATED_LINE_TEMPLATE and
- * UNAFFECTED_LINE_TEMPLATE spell out below. That line answers for every rule
+ * UNAFFECTED_LINE_TEMPLATE spell out below. A changed file that is itself a
+ * governing doc owes its own line alone. That line answers for every rule
  * the doc carries. When a governing doc states its rules as registered clauses
  * (docs/clause-registry.json), a clause tagged judgment-only may additionally
  * take a line of its own, anchored by the clause id, in the form
@@ -436,9 +437,10 @@ export function isGovernanceDataDiff(files) {
 
 /**
  * Pure core: the docs in disposition scope for a set of changed files.
- * Scope = the union of the resolved areas' doc sets, plus any repo-wide doc
- * that is itself edited (repo-wide docs inside an area's doc set already enter
- * via that area).
+ * Scope = for each changed file that is itself a governing doc (a member of
+ * an area's doc set, or a repo-wide doc), that doc alone; for every other
+ * changed file, the doc set it resolves to. An edited doc is judged on
+ * itself: its siblings enter when code of their area changes.
  * @param {object} opts
  * @param {string[]} opts.files changed file paths
  * @param {any} opts.map parsed area-map.json
@@ -450,9 +452,11 @@ export function docsInScope({ files, map, readFile }) {
   const compiled = compileMap(map);
   const docs = new Set();
   for (const f of files) {
-    const r = resolveFile(f, compiled, readFile(f));
-    for (const d of r.docs) docs.add(d);
-    if (r.repoWide && !compiled.docSets.has(f)) docs.add(f);
+    if (compiled.docSets.has(f) || compiled.repoWideDocs.has(f)) {
+      docs.add(f);
+      continue;
+    }
+    for (const d of resolveFile(f, compiled, readFile(f)).docs) docs.add(d);
   }
   return [...docs].sort();
 }

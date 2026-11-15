@@ -23,10 +23,14 @@
  *     reads and reports — is red too: the exception is doing nothing and must
  *     be removed, so the allowlist cannot rot into a silent blanket.
  *
- * Governance here is exactly `resolveFile(path).docs` (area membership,
- * declared-governance, and `// see` pointers) — repo-wide docs are NOT credited,
+ * For a cited file that is not itself a governing doc, governance here is
+ * exactly `resolveFile(path).docs` (area membership, declared-governance, and
+ * `// see` pointers) — repo-wide docs are NOT credited,
  * because a repo-wide doc takes a disposition line only when itself edited, so it
- * does not couple a cited file to the clause's doc on a normal diff.
+ * does not couple a cited file to the clause's doc on a normal diff. A cited
+ * file that is itself a governing doc (a member of an area's doc set, or a
+ * repo-wide doc) is governed by itself alone, for the same reason: edited, it
+ * takes its own disposition line and none for the other docs of its areas.
  *
  * This checks the governance edge only — whether a cited file *should* implement
  * or guard the clause, and whether a justification is adequate, is judged in
@@ -134,7 +138,7 @@ export const CITED_PATH_RE = /(?:[A-Za-z0-9_\-.*{},]+\/)*[A-Za-z0-9_\-.*{},]+\.[
  * answers for the whole set the token names, the files it names today and the
  * ones the tree grows under it later alike. Every entry
  * carries the recorded reason it is not an edge this check should force closed.
- * Three adjudicated classes (2026-07-17):
+ * Four classes (the first three adjudicated 2026-07-17):
  *   1. Verification scripts (`sufficiency-lint.js`, `corpus-compare.js`) that
  *      implement or preserve a clause's contract. Their OWN governing docs
  *      restate the contract with clause cites, and the registry rows couple
@@ -149,13 +153,18 @@ export const CITED_PATH_RE = /(?:[A-Za-z0-9_\-.*{},]+\/)*[A-Za-z0-9_\-.*{},]+\.[
  *      citation names shared machinery it reads through, or — when the clause's
  *      doc is repo-wide — the repo-wide "line only when itself edited" rule
  *      plus the end-to-end checks.
- *   3. The format-authority echo surfaces whose area-supplied governance
- *      does not already include the format doc (the other registered
- *      surfaces resolve to it and need no entry). The echo itself is held
+ *   3. The format-authority echo surfaces whose credited governance (what
+ *      their areas supply or, for a governing doc, the doc itself) does not
+ *      include the format doc (the other registered surfaces are credited
+ *      with it and need no entry). The echo itself is held
  *      by the schema-echo check, which reads each of them, so what stays
  *      open here is only the governance edge, for the reason each entry
  *      states: a repo-wide doc, which this check does not credit as
- *      governance, or a doc whose areas supply other governing docs.
+ *      governance, a governing doc, which is governed by itself alone, or a
+ *      file whose areas supply other governing docs.
+ *   4. A cited governing doc outside class 3. Edited, it takes its own
+ *      disposition line alone, so it couples to no other doc; each entry's
+ *      reason names the check that holds the coupling the citation records.
  */
 export const ALLOWLIST = new Map([
   // Class 1 — verification scripts (declined coupling; maintainer's open call).
@@ -228,6 +237,13 @@ export const ALLOWLIST = new Map([
     'SC-3\tscripts/check-test-inventory.js',
     'the shared tokenizer scripts/check-adapter-surface.js reads each adapter through, cited for where that reading is stated; that check imports from it only shared readers — the tokenizer and the object-literal walk, the set-diff and surface guards and the report block, the fence model and the path normalizer its enumeration leg reads the seam document through, and the tracked-file population reader its adapter derivation runs over — so the verification stays with the adapter check, held by the shared-core doc that governs it',
   ],
+  // Class 4 — a cited governing doc outside class 3. Edited, it takes its own
+  // disposition line alone; the entry's reason names the check that holds the
+  // coupling.
+  [
+    'DSH-1\tdocs/test/integration/desktop.md',
+    'the integration suite’s document is cited as the home of the mock serviced-command leg; the command-surface check the same row names verifies the contract, and an edit to the suite’s document takes its own disposition line, not the shell doc’s',
+  ],
   // Class 3 — format-authority echo surfaces. Each echoes the session-format
   // ordering clause and is held by the schema-echo check; what stays open is
   // only the governance edge, for the reason each entry states.
@@ -240,8 +256,16 @@ export const ALLOWLIST = new Map([
     'the root README echoes the session-format ordering clause, and the schema-echo check holds that echo; the edge stays open because a repo-wide doc is not credited as governance, and the README takes a disposition line only when itself edited',
   ],
   [
+    'SF-1\tdocs/api/dispatch.md',
+    'the dispatch protocol defers the payload it wraps to the schemas, echoing the ordering clause; the schema-echo check holds that echo, and an edit to the protocol doc takes that doc’s own disposition line, not the format doc’s',
+  ],
+  [
+    'SF-1\tdocs/requirements/replay-sufficiency.md',
+    'the sufficiency principle echoes the ordering clause; the schema-echo check holds that echo, and an edit to the principle takes its own disposition line, not the format doc’s',
+  ],
+  [
     'SF-1\tdocs/api/sync-protocol.md',
-    'the sync protocol defers the step structure to the schemas, echoing the ordering clause; the schema-echo check holds that echo, and the protocol doc is governed by the areas that own the protocol rather than by the format doc it defers to',
+    'the sync protocol defers the step structure to the schemas, echoing the ordering clause; the schema-echo check holds that echo, and an edit to the protocol doc takes that doc’s own disposition line, not the format doc’s',
   ],
   [
     'SF-1\treference-implementations/sync-server/README.md',
@@ -346,6 +370,10 @@ export function auditClauseGovernance({ registry, map, files, readFile, allowlis
     return contentCache.get(p);
   };
 
+  // A cited file that is itself a governing doc owes, when edited, its own
+  // disposition line alone — so it couples to itself and to no sibling.
+  const isGoverningDoc = (p) => compiled.docSets.has(p) || compiled.repoWideDocs.has(p);
+
   let citations = 0;
   let exempted = 0;
   const newMisses = [];
@@ -361,7 +389,9 @@ export function auditClauseGovernance({ registry, map, files, readFile, allowlis
       citations++;
       const uncovered = [];
       for (const path of citation.paths) {
-        const governing = new Set(resolveFile(path, compiled, contentOf(path)).docs);
+        const governing = isGoverningDoc(path)
+          ? new Set([path])
+          : new Set(resolveFile(path, compiled, contentOf(path)).docs);
         if (!governing.has(row.doc)) uncovered.push(path);
       }
       if (!uncovered.length) continue;

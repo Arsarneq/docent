@@ -386,7 +386,11 @@ the check reads:
 states the exact rules.
 
 **`## Docs disposition`** — one line for each doc that governs the code you
-changed. The check derives that set from [`scripts/area-map.json`](../scripts/area-map.json)
+changed, and one for each governing doc you edited (a doc in an area's doc set,
+or a repo-wide doc). A governing doc you edit owes its own line only, because
+the edit is judged on that doc's text: the other docs of its areas are owed
+when code of those areas changes.
+The check derives that set from [`scripts/area-map.json`](../scripts/area-map.json)
 (which maps the repository's code to its governing docs), and its red output
 lists the exact lines it expects, so you never have to guess. To see that
 output before you open the PR, run the check on a draft body with
@@ -597,7 +601,8 @@ The detail for each:
     own doc under the area map, so a change to that code cannot drift from the
     doctrine it stands on without priming the doc; `lint:clause-governance`
     holds that edge, with deliberately-open couplings recorded as a justified
-    allowlist in the check.
+    allowlist in the check. A cited governing doc is governed by itself alone,
+    as it takes its own disposition line only.
 
 ### Writing docs: pick the form before the sentence
 

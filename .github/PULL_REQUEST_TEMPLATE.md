@@ -32,7 +32,8 @@ breaks, write "None." -->
 
 ## Docs disposition
 
-<!-- One line per doc that governs the code you changed — the "Docs disposition format"
+<!-- One line per doc that governs the code you changed, and per governing doc
+you edited (a doc in an area's doc set, or a repo-wide doc) — the "Docs disposition format"
 check derives the set from scripts/area-map.json and its red output lists the exact
 lines it expects. Write your lines flush left, since four spaces of indent where
 a block starts make a line an example. Each is one of:

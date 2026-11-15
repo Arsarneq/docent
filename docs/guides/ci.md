@@ -98,7 +98,8 @@ red tests (see
 [`docs-disposition.yml`](../../.github/workflows/docs-disposition.yml) runs
 [`check-docs-disposition.js`](../../scripts/check-docs-disposition.js) on
 every PR open/edit/reopen/synchronize — editing the PR body re-runs it. The
-check derives the set of docs governing the changed code from
+check derives the set of docs governing the changed code, together with each
+governing doc the change itself edits (which owes its own line alone), from
 [`area-map.json`](../../scripts/area-map.json) and the `judgment-only`
 clause list from [`clause-registry.json`](../clause-registry.json), then
 verifies the `## Docs disposition` section carries exactly one
