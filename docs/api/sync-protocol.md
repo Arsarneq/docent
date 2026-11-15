@@ -5,6 +5,16 @@ synchronization of projects and recordings between Docent clients and a remote
 server. This document is the formal specification — it contains everything a
 backend developer needs to implement a compatible sync server.
 
+Where to look:
+
+| You are                                            | Read                                                                                                                                                                                                                                                                                                                                                  |
+| -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Building a sync server                             | [Endpoints](#endpoints) and [Payload Shapes](#payload-shapes), which make a server complete, with [Response Codes](#response-codes) and [Implementation Notes](#implementation-notes) beside them; [Authentication](#authentication) and [Server scope and CORS](#server-scope-and-cors) bind a server only where the opening rule below says they do |
+| Offering a conditional write on your server        | [Optional conditional write](#optional-conditional-write)                                                                                                                                                                                                                                                                                             |
+| Learning how a Docent client runs a sync cycle     | [Overview](#overview), then [Sync Behavior](#sync-behavior); this is context for a server builder, not a server obligation                                                                                                                                                                                                                            |
+| Reading the recordings a sync server holds         | [Server scope and CORS](#server-scope-and-cors): read the server's storage, not these endpoints                                                                                                                                                                                                                                                       |
+| Weighing what two clients writing at once can lose | [Known limitation: the last-write-wins window](#known-limitation-the-last-write-wins-window)                                                                                                                                                                                                                                                          |
+
 Each rule carries a stable identifier (**SP-n**) so other documents, reviews,
 and checks can cite it precisely. Identifiers are never renumbered; a retired
 identifier stays reserved and is never reused. How each rule is verified — by

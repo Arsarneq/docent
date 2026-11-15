@@ -12,6 +12,20 @@ under [`.github/workflows/`](../../.github/workflows/) are the deciding
 mechanism throughout — where this prose and a workflow disagree, the
 workflow governs.
 
+Where to look:
+
+| You want to know                                  | Read                                                                                                                                                                                                                       |
+| ------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Which workflows exist and when each runs          | [The workflow inventory](#the-workflow-inventory)                                                                                                                                                                          |
+| Why a check on your pull request is red           | The gate's own entry: [the PR checks outside the test suite](#the-pr-checks-outside-the-test-suite), [the test suite](#the-test-suite-testyml), or its workflow's row in [the workflow inventory](#the-workflow-inventory) |
+| Which test jobs run for the files you changed     | [The `changes` paths filter](#the-changes-paths-filter) and [Path-filtered test jobs](#path-filtered-test-jobs)                                                                                                            |
+| What each lint holds and how to run it yourself   | [The lint and freshness gates](#the-lint-and-freshness-gates)                                                                                                                                                              |
+| Whether a red check blocks the merge              | [Required vs informational](#required-vs-informational)                                                                                                                                                                    |
+| What the Git hooks run before a commit and a push | [Local hooks](#local-hooks-lefthook)                                                                                                                                                                                       |
+| What runs on a schedule                           | [Scheduled runs](#scheduled-runs)                                                                                                                                                                                          |
+| What a new or changed workflow has to carry       | [Job bounds and caches](#job-bounds-and-caches) and [Action pinning and workflow security](#action-pinning-and-workflow-security)                                                                                          |
+| How to run a gate on your own machine             | [Running CI locally](local-ci.md)                                                                                                                                                                                          |
+
 Each rule this document makes in its own right carries a stable identifier
 (**CI-n**) so other documents, reviews,
 and checks can cite it precisely. Identifiers are never renumbered; a retired

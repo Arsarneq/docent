@@ -8,6 +8,16 @@ and composed schemas — and, for the machinery and size-budget suites, against
 the committed tree and the built artifacts themselves — with no browser, no
 Tauri backend, and no network involved.
 
+Where to look:
+
+| You want to                                                | Go to                                                                                                                                                                                                                     |
+| ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Find what a test file covers                               | Its tree's table: [Shared modules](#shared-modules), [Desktop application](#desktop-application) or [Chrome extension](#chrome-extension)                                                                                 |
+| Add, rename or remove a test file                          | The same table: keep the file's one-line row there in step. `npm run lint:test-inventory` holds each table to its directory, and the paragraph just before [Shared modules](#shared-modules) states the shape a row takes |
+| Run a suite                                                | [CONTRIBUTING § Running Tests](../../.github/CONTRIBUTING.md#running-tests)                                                                                                                                               |
+| Know whether a suite runs the shipped code or a copy of it | The paragraph right after this table, and [CONTRIBUTING § Single-source logic](../../.github/CONTRIBUTING.md#single-source-logic)                                                                                         |
+| See how this layer sits beneath the others                 | [The test pyramid](strategy/test-pyramid.md)                                                                                                                                                                              |
+
 Where a suite does not run the shipped code it describes — a content script and
 a panel that awaits at the top level cannot be imported under the runner, nor
 can a module-private function — the suite drives an extracted module, a copy of
