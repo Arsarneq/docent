@@ -9,7 +9,12 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { createControlExecutor } from '../../sidepanel/control-commands.js';
+import {
+  createControlExecutor,
+  NOTICES,
+  STORAGE_NOTICES,
+  storageNotice,
+} from '../../sidepanel/control-commands.js';
 import { CONTROL_COMMANDS } from '../../sidepanel/control-channel.js';
 import { buildOpenProjectExport } from '../../sidepanel/project-export.js';
 import { buildExport } from '../../shared/lib/export-project.js';
@@ -67,6 +72,7 @@ function fakePanel(initial = {}, worker = fakeWorker()) {
     stepCount: 0,
     rerecording: false,
     busy: false,
+    storageQuota: null,
     ...initial,
   };
   const panel = {
@@ -137,6 +143,7 @@ describe('createControlExecutor — status', () => {
       pending_actions: 0,
       steps: 0,
       export_allowed: false,
+      notices: [],
     });
   });
 
@@ -168,8 +175,108 @@ describe('createControlExecutor — status', () => {
       pending_actions: 3,
       steps: 2,
       export_allowed: false,
+      notices: [],
     });
     assert.deepEqual(panel.calls, []);
+  });
+
+  it('reports each storage pressure state as its notice code', async () => {
+    const notices = async (storageQuota) =>
+      (await run(fakePanel({ storageQuota }), 'status')).notices;
+    assert.deepEqual(await notices({ band: 'exceeded', paused: true }), [
+      'storage_full_capture_stopped',
+    ]);
+    assert.deepEqual(await notices({ band: 'warn', paused: true }), [
+      'storage_almost_full_capture_paused',
+    ]);
+    assert.deepEqual(await notices({ band: 'warn', paused: false, override: true }), [
+      'storage_almost_full_still_recording',
+    ]);
+    assert.deepEqual(await notices({ band: 'ok', paused: false }), []);
+    assert.deepEqual(await notices(null), []);
+  });
+
+  it('reports a re-record under way as its notice code, and only the code', async () => {
+    const panel = fakePanel({ ...OPEN, rerecording: true });
+    const result = await run(panel, 'status');
+    // The one command answered while a person re-records a step.
+    assert.equal(result.ok, true);
+    assert.deepEqual(result.notices, ['rerecording_step']);
+    assert.deepEqual(await run(fakePanel({ ...OPEN, rerecording: false }), 'status'), {
+      ...result,
+      notices: [],
+    });
+    assert.deepEqual(panel.calls, []);
+  });
+
+  it('lists a storage notice and the re-record notice together, in the fixed order', async () => {
+    for (const [storageQuota, code] of [
+      [{ band: 'exceeded', paused: true }, 'storage_full_capture_stopped'],
+      [{ band: 'warn', paused: true }, 'storage_almost_full_capture_paused'],
+      [{ band: 'warn', paused: false }, 'storage_almost_full_still_recording'],
+    ]) {
+      const panel = fakePanel({ ...OPEN, rerecording: true, storageQuota });
+      assert.deepEqual((await run(panel, 'status')).notices, [code, 'rerecording_step']);
+    }
+    const neither = fakePanel({ ...OPEN, rerecording: false, storageQuota: { band: 'ok' } });
+    assert.deepEqual((await run(neither, 'status')).notices, []);
+  });
+
+  it('answers notices as a fresh list, codes of the closed set only', async () => {
+    const panel = fakePanel({ storageQuota: { band: 'warn', paused: true } });
+    const first = await run(panel, 'status');
+    first.notices.push('tampered');
+    const second = await run(panel, 'status');
+    assert.deepEqual(second.notices, ['storage_almost_full_capture_paused']);
+    for (const code of second.notices) assert.ok(NOTICES.includes(code));
+  });
+});
+
+describe('notices — the closed set', () => {
+  it('is exactly the storage pressure states, then the re-record, in a fixed order', () => {
+    assert.deepEqual(NOTICES, [
+      'storage_full_capture_stopped',
+      'storage_almost_full_capture_paused',
+      'storage_almost_full_still_recording',
+      'rerecording_step',
+    ]);
+  });
+
+  it('names the storage codes the panel renders its banner from, as members of the set', () => {
+    assert.ok(Object.isFrozen(STORAGE_NOTICES));
+    assert.deepEqual(STORAGE_NOTICES, {
+      full: 'storage_full_capture_stopped',
+      paused: 'storage_almost_full_capture_paused',
+      stillRecording: 'storage_almost_full_still_recording',
+    });
+    assert.deepEqual(Object.values(STORAGE_NOTICES), NOTICES.slice(0, 3));
+  });
+
+  it('the notice set cannot be extended in place', () => {
+    assert.ok(Object.isFrozen(NOTICES));
+    assert.throws(() => NOTICES.push('extra'));
+  });
+
+  it('maps each storage pressure state to its notice code', () => {
+    const cases = [
+      [{ band: 'exceeded', paused: true }, 'storage_full_capture_stopped'],
+      // The hard wall is the same state whatever the pause flag says.
+      [{ band: 'exceeded', paused: false }, 'storage_full_capture_stopped'],
+      [{ band: 'warn', paused: true }, 'storage_almost_full_capture_paused'],
+      [{ band: 'warn', paused: false }, 'storage_almost_full_still_recording'],
+      // Only `true` is a pause.
+      [{ band: 'warn', paused: 'yes' }, 'storage_almost_full_still_recording'],
+      [{ band: 'ok', paused: false }, null],
+      [{ band: 'ok', paused: true }, null],
+      [{}, null],
+      [null, null],
+      [undefined, null],
+      // A band outside the classifier's three is no pressure state and no notice.
+      [{ band: 'unknown', paused: true }, null],
+    ];
+    for (const [state, code] of cases) {
+      assert.equal(storageNotice(state), code, JSON.stringify(state));
+    }
   });
 });
 

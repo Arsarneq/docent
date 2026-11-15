@@ -4,13 +4,16 @@
  *
  * Docent versions two things independently per platform:
  *   - the APP version — the git tag (extension-v* / desktop-v*), written into
- *     manifest.json / tauri.conf.json by the publish workflow. This is the
- *     maintainer's semantic choice, and the thing this script suggests.
+ *     manifest.json / tauri.conf.json inside the publish run only, after the
+ *     version PR is opened, and never committed back: the committed files carry
+ *     the SCHEMA version the version PR writes (update-version-table.js). This
+ *     is the maintainer's semantic choice, and the thing this script suggests.
  *   - the SCHEMA version — schemas/<platform>.delta.json, classified and bumped
  *     mechanically by the release pipeline (see auto-version-schemas.js). This
  *     script only READS it, as one input to the app-version floor.
  *
- * The suggested tag = the last released app version bumped by the HIGHER of:
+ * The suggested tag = the last released app version (resolveReleaseBase: the
+ * latest final tag, or the app file when no tag is found) bumped by the HIGHER of:
  *   - the schema change level since the last release (plan()), and
  *   - the conventional-commit level of commits touching the platform since its
  *     last release tag (feat -> minor, fix/perf -> patch, ! / BREAKING -> major).
@@ -63,8 +66,65 @@ function readJson(path) {
   return JSON.parse(readFileSync(join(ROOT, path), 'utf8'));
 }
 
-function git(args) {
-  return execFileSync('git', args, { cwd: ROOT, encoding: 'utf8' });
+// Output cap for one git call. The log of subjects and bodies since the last
+// tag outgrows Node's 1 MiB default (`spawnSync git ENOBUFS`); 64 MiB matches
+// scripts/check-npm-advisories.js, which raises it for the same reason.
+const GIT_MAX_BUFFER = 64 * 1024 * 1024;
+
+function git(args, cwd = ROOT) {
+  return execFileSync('git', args, { cwd, encoding: 'utf8', maxBuffer: GIT_MAX_BUFFER });
+}
+
+/**
+ * Semver precedence of two final `X.Y.Z` versions: negative when `a` is lower,
+ * positive when higher, 0 when equal. Components compare numerically.
+ */
+export function compareVersions(a, b) {
+  const pa = a.split('.').map(Number);
+  const pb = b.split('.').map(Number);
+  for (let i = 0; i < 3; i++) if (pa[i] !== pb[i]) return pa[i] - pb[i];
+  return 0;
+}
+
+/**
+ * The version the bump is applied to: the last final release. That is the
+ * latest final tag's version whenever one exists; with no tag found, the app
+ * file's. The committed app file carries the schema version
+ * (the version PR writes it, and the tag's version reaches only the release
+ * build — update-version-table.js, .github/PUBLISHING.md), so it lags the tag
+ * whenever the app version is ahead of the schema version, and the file alone
+ * would suggest a tag that already exists. A file ahead of the tag means the
+ * schema version is ahead of the last app tag, a newer tag is not fetched
+ * locally, or the file was edited by hand. App and schema versions are
+ * independent, so the tag stays the base and the file only earns a note.
+ * Pure, so it is unit-testable.
+ *
+ * @param {{ fileVersion: string, fileLabel: string, tag: string|null, tagVersion: string|null }} input
+ * @returns {{ version: string, source: 'tag'|'file', note: string|null }} the base, which
+ *   input it came from, and a plain-language note when the two disagree
+ */
+export function resolveReleaseBase({ fileVersion, fileLabel, tag, tagVersion }) {
+  if (!tag) return { version: fileVersion, source: 'file', note: null };
+  const cmp = compareVersions(tagVersion, fileVersion);
+  if (cmp === 0) return { version: tagVersion, source: 'tag', note: null };
+  if (cmp > 0) {
+    return {
+      version: tagVersion,
+      source: 'tag',
+      note:
+        `${fileLabel} reads ${fileVersion}, behind ${tag}: the committed file carries ` +
+        "the schema version, and the tag's version is written only into the release build. " +
+        'Measured from the tag.',
+    };
+  }
+  return {
+    version: tagVersion,
+    source: 'tag',
+    note:
+      `${fileLabel} reads ${fileVersion}, ahead of ${tag}: the committed file carries ` +
+      'the schema version; that is the schema version ahead of the last app tag, a newer ' +
+      'tag not fetched (run `git fetch --tags`), or a hand edit. Measured from the tag.',
+  };
 }
 
 /**
@@ -136,10 +196,45 @@ export function parseCommitRecords(raw) {
   return { total: records.length, level, notable, unrecognized };
 }
 
-/** Commits touching `paths` since `tag`, with the aggregate bump level. */
-function commitsSince(tag, paths) {
+/**
+ * Commits touching `paths` since `tag`, with the aggregate bump level.
+ * `cwd` is the repository to read (the Docent checkout by default).
+ */
+export function commitsSince(tag, paths, cwd = ROOT) {
   // Records separated by RS (0x1e); subject/body by US (0x1f) — newline-safe.
-  return parseCommitRecords(git(['log', `${tag}..HEAD`, '--format=%s%x1f%b%x1e', '--', ...paths]));
+  return parseCommitRecords(
+    git(['log', `${tag}..HEAD`, '--format=%s%x1f%b%x1e', '--', ...paths], cwd),
+  );
+}
+
+/**
+ * One platform's suggestion from its inputs: the app file's version, the latest
+ * final tag (or null), and the schema and commit bump levels. Pure — run() reads
+ * git and the files and prints; this decides — so the whole per-platform
+ * decision is unit-testable.
+ *
+ * @param {{ tagPrefix: string, fileVersion: string, fileLabel: string, tag: string|null, schemaLevel: string, commitLevel: string }} input
+ * @returns {{ base: { version: string, source: 'tag'|'file', note: string|null }, level: string, suggestedTag: string|null, driver: string }}
+ *   the release base, the bump level, the suggested tag (null when no bump is
+ *   indicated) and what drove the level
+ */
+export function suggestRelease({
+  tagPrefix,
+  fileVersion,
+  fileLabel,
+  tag,
+  schemaLevel,
+  commitLevel,
+}) {
+  const tagVersion = tag ? tag.slice(tagPrefix.length) : null;
+  const base = resolveReleaseBase({ fileVersion, fileLabel, tag, tagVersion });
+  const level = higher(schemaLevel, commitLevel);
+  return {
+    base,
+    level,
+    suggestedTag: level === 'none' ? null : `${tagPrefix}${bumpVersion(base.version, level)}`,
+    driver: describeDriver(schemaLevel, commitLevel, level),
+  };
 }
 
 function describeDriver(schemaLevel, commitLevel, finalLevel) {
@@ -166,21 +261,26 @@ function run() {
 
   for (const [platform, cfg] of Object.entries(PLATFORM_RELEASE)) {
     const schema = schemaPlan[platform] || { level: 'none', reasons: [], releasedVersion: null };
-    const lastAppVersion = readJson(cfg.appVersionFile).version;
     const tag = latestTag(cfg.tagPrefix);
+    const schemaLevel = schema.level;
+    const commits = tag ? commitsSince(tag, cfg.commitPaths) : null;
+    const sug = suggestRelease({
+      tagPrefix: cfg.tagPrefix,
+      fileVersion: readJson(cfg.appVersionFile).version,
+      fileLabel: cfg.appVersionFile,
+      tag,
+      schemaLevel,
+      commitLevel: commits ? commits.level : 'none',
+    });
 
     console.log(platform);
     console.log('-'.repeat(platform.length));
-    console.log(`  last released : ${lastAppVersion}  (${cfg.appVersionFile})`);
-    if (tag) {
-      const tagVersion = tag.slice(cfg.tagPrefix.length);
-      if (tagVersion !== lastAppVersion) {
-        console.log(`  ⚠ latest tag ${tag} (${tagVersion}) != app file — unreleased local bump?`);
-      }
-    }
+    console.log(
+      `  last released : ${sug.base.version}  (${sug.base.source === 'tag' ? tag : cfg.appVersionFile})`,
+    );
+    if (sug.base.note) console.log(`  note          : ${sug.base.note}`);
 
     // Schema signal (FYI; auto-bumped by the release pipeline).
-    const schemaLevel = schema.level;
     const schemaDesc = schema.releasedVersion
       ? `${schemaLevel}  (schema ${schema.releasedVersion} -> ${schema.requiredVersion})`
       : `${schemaLevel}  (first release / no dist yet)`;
@@ -190,14 +290,12 @@ function run() {
     if (reasons.length > 4) console.log(`      ... and ${reasons.length - 4} more`);
 
     // Commit signal.
-    let commitLevel = 'none';
-    if (!tag) {
+    if (!commits) {
       console.log(
         '  commits       : tag not found locally — run `git fetch --tags` (schema-only suggestion)',
       );
     } else {
-      const { total, level, notable, unrecognized } = commitsSince(tag, cfg.commitPaths);
-      commitLevel = level;
+      const { total, level, notable, unrecognized } = commits;
       console.log(
         `  commits       : ${total} since ${tag} touching ${cfg.commitPaths.join(', ')} -> ${level}`,
       );
@@ -210,26 +308,20 @@ function run() {
         );
     }
 
-    const finalLevel = higher(schemaLevel, commitLevel);
-    const suggested = bumpVersion(lastAppVersion, finalLevel);
-    const driver = describeDriver(schemaLevel, commitLevel, finalLevel);
-
-    if (finalLevel === 'none') {
+    if (sug.suggestedTag === null) {
       console.log(
-        `\n  -> no bump indicated — ${lastAppVersion} unchanged (is a release warranted?)\n`,
+        `\n  -> no bump indicated — ${sug.base.version} unchanged (is a release warranted?)\n`,
       );
     } else {
-      console.log(
-        `\n  -> suggested tag: ${cfg.tagPrefix}${suggested}   (${finalLevel}: ${driver})\n`,
-      );
+      console.log(`\n  -> suggested tag: ${sug.suggestedTag}   (${sug.level}: ${sug.driver})\n`);
     }
 
     rows.push({
       platform,
-      last: lastAppVersion,
-      suggestedTag: finalLevel === 'none' ? '—' : `${cfg.tagPrefix}${suggested}`,
-      level: finalLevel,
-      driver,
+      last: sug.base.version,
+      suggestedTag: sug.suggestedTag ?? '—',
+      level: sug.level,
+      driver: sug.driver,
     });
   }
 

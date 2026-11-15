@@ -1327,7 +1327,7 @@
       "doc": "docs/api/control-channel.md",
       "clause": "LC-7",
       "tag": "check-exists",
-      "check-ref": "The set's exact membership and its closure against in-place extension, each command's accepted arguments, the trimming, and the refusal of every other field, argument and name (generated cases in the validateCommand describe) are pinned by packages/extension/tests/unit/control-channel.test.js; that the executor carries out exactly the set by packages/extension/tests/unit/control-commands.test.js (npm run test:extension); the refusal of delete and settings command names and of a panel message type, the refusal of project.export while the person has not allowed export, and of an unknown field and an unknown argument on a live channel by packages/extension/tests/e2e/specs/control-channel.spec.js (npm run test:e2e). The null id for an unusable id is pinned by the 'reports the id back when the id itself was usable' case. Named residue: the table's 'What the panel does' column is held under LC-8.",
+      "check-ref": "The set's exact membership and its closure against in-place extension, each command's accepted arguments, the trimming, and the refusal of every other field, argument and name (generated cases in the validateCommand describe) are pinned by packages/extension/tests/unit/control-channel.test.js; that the executor carries out exactly the set by packages/extension/tests/unit/control-commands.test.js (npm run test:extension); the refusal of delete and settings command names and of a panel message type, the refusal of project.export while the person has not allowed export, and of an unknown field and an unknown argument on a live channel by packages/extension/tests/e2e/specs/control-channel.spec.js (npm run test:e2e). The null id for an unusable id is pinned by the 'reports the id back when the id itself was usable' case. Named residue: the table's 'What the panel does' column is held under LC-8, and its 'Result fields on success' column under LC-9.",
       "test-cases": [
         "is exactly the structuring actions, the status read and the export",
         "cannot be extended in place",
@@ -1345,7 +1345,7 @@
       "doc": "docs/api/control-channel.md",
       "clause": "LC-8",
       "tag": "check-exists",
-      "check-ref": "Each row of the refusal table, with the panel untouched, and the no-change successes are pinned by packages/extension/tests/unit/control-commands.test.js (npm run test:extension), the export's two refusals among them and the export among the commands refused while re-recording and while committing; that the export result is the document the shared build makes for the open project, asked of the worker by that project's id, and that a failed export opens no dialog by the same suite and by packages/extension/tests/unit/project-export.test.js; the panel's view following each command, the stored step carrying no narration source, the commands' effect on the stored model, and the export equal to the file the panel's Export button writes by packages/extension/tests/e2e/specs/control-channel.spec.js (npm run test:e2e). The e2e spec also asserts that a refused commit leaves capture running. Named residue: that a person's click on a commit or re-record control is ignored while a command runs, and that capture is not resumed for a recording a person left during a commit, are review-held against the panel module — the first on its shared commit flag, the second on the commit comparing the open recording with the one it started in; that a command and a click run the same panel function is review-held against the panel module, where the button handlers and the executor call the one shared function per action, the export build included.",
+      "check-ref": "Each row of the refusal table, with the panel untouched, and the no-change successes are pinned by packages/extension/tests/unit/control-commands.test.js (npm run test:extension), the export's two refusals among them and the export among the commands refused while re-recording and while committing; that the export result is the document the shared build makes for the open project, asked of the worker by that project's id, and that a failed export opens no dialog by the same suite and by packages/extension/tests/unit/project-export.test.js; the panel's view following each command, the stored step carrying no narration source, the commands' effect on the stored model, and the export equal to the file the panel's Export button writes by packages/extension/tests/e2e/specs/control-channel.spec.js (npm run test:e2e). The e2e spec also asserts that a refused commit leaves capture running, and that status is still answered while a person re-records a step and reports it as the rerecording_step notice. Named residue: that a person's click on a commit or re-record control is ignored while a command runs, and that capture is not resumed for a recording a person left during a commit, are review-held against the panel module — the first on its shared commit flag, the second on the commit comparing the open recording with the one it started in; that a command and a click run the same panel function is review-held against the panel module, where the button handlers and the executor call the one shared function per action, the export build included.",
       "test-cases": [
         "refuses a recording when no project is open",
         "answers a pause of a paused recording without touching the panel",
@@ -1361,14 +1361,15 @@
         "answers an export the panel could not make with a fixed text, opening no dialog",
         "asks the worker for the open project by its id and builds the stamped export",
         "with the grant, exports the project open in this panel, as its Export button builds it",
-        "answers each failure of the build in-band and opens no dialog"
+        "answers each failure of the build in-band and opens no dialog",
+        "status reports a re-record under way as a notice code until it ends"
       ]
     },
     {
       "doc": "docs/api/control-channel.md",
       "clause": "LC-9",
       "tag": "check-exists",
-      "check-ref": "The three meanings of ok: false are pinned at their sources — the refusals under LC-6, LC-7 and LC-8, and the three fixed texts for an action that did not complete here. One result per command with its id, the serial order, and the envelope an executor result cannot overwrite are pinned by packages/extension/tests/unit/control-channel.test.js; the fixed text sent for a failure in place of the failure's own by the same suite; the result fields — identifiers, names, counts, the export_allowed flag and the export document — and the fixed texts for a commit and an export the panel could not make by packages/extension/tests/unit/control-commands.test.js (npm run test:extension); that frames other than an export result carry no captured value, and that an export result appears only with the grant, in a live exchange by packages/extension/tests/e2e/specs/control-channel.spec.js (npm run test:e2e).",
+      "check-ref": "The three meanings of ok: false are pinned at their sources — the refusals under LC-6, LC-7 and LC-8, and the three fixed texts for an action that did not complete here. One result per command with its id, the serial order, and the envelope an executor result cannot overwrite are pinned by packages/extension/tests/unit/control-channel.test.js; the fixed text sent for a failure in place of the failure's own by the same suite; the result fields — identifiers, names, counts, the export_allowed flag, the notices list and the export document — the closed set of notice codes in its order, the storage pressure state and the re-record state each code stands for, the two together, and the fixed texts for a commit and an export the panel could not make by packages/extension/tests/unit/control-commands.test.js (npm run test:extension); that frames other than an export result carry no captured value, that an export result appears only with the grant, and that status reports the storage pressure states and a re-record under way as notice codes, in a live exchange by packages/extension/tests/e2e/specs/control-channel.spec.js (npm run test:e2e).",
       "test-cases": [
         "runs a valid command and answers with its id",
         "runs commands one at a time, in arrival order",
@@ -1382,7 +1383,16 @@
         "reports whether the person allowed export at turn-on",
         "carries the full step history of the open project",
         "without the grant, refuses an export and no frame carries a captured value",
-        "with the grant, exports the project open in this panel, as its Export button builds it"
+        "with the grant, exports the project open in this panel, as its Export button builds it",
+        "reports each storage pressure state as its notice code",
+        "is exactly the storage pressure states, then the re-record, in a fixed order",
+        "names the storage codes the panel renders its banner from, as members of the set",
+        "the notice set cannot be extended in place",
+        "maps each storage pressure state to its notice code",
+        "status reports each storage pressure state the banner shows as a notice code",
+        "reports a re-record under way as its notice code, and only the code",
+        "lists a storage notice and the re-record notice together, in the fixed order",
+        "status reports a re-record under way as a notice code until it ends"
       ]
     },
     {
