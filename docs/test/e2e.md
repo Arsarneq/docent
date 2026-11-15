@@ -18,6 +18,16 @@ Everything lives under `packages/extension/tests/e2e/`:
   run under its own configs (see
   [Runs sharing this tree](#runs-sharing-this-tree)).
 
+Where to look:
+
+| You want to                                            | Read                                                                                                                                 |
+| ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------ |
+| Run the suite                                          | [Running the suite](#running-the-suite)                                                                                              |
+| Add a test                                             | [Adding a test](#adding-a-test), with [The shape of a capture test](#the-shape-of-a-capture-test) for the steps a capture test takes |
+| Find which file covers a behavior                      | [What the suite covers](#what-the-suite-covers)                                                                                      |
+| Understand a wait, a retry or a timeout in the harness | [Harness contract](#harness-contract)                                                                                                |
+| Run the corpus or the conformance-vector producer      | [Runs sharing this tree](#runs-sharing-this-tree)                                                                                    |
+
 ## The shape of a capture test
 
 1. Launch a headed Chromium **persistent context** with the extension loaded
