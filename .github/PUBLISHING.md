@@ -64,12 +64,14 @@ The Chrome Web Store rejects a publish (HTTP 400) until every requested permissi
 
 ## Choosing the release version
 
-Each platform carries two **independent** version numbers: the **app version** — the git tag (`extension-vX.Y.Z` / `desktop-vX.Y.Z`), written into `manifest.json` / `tauri.conf.json` by the publish workflow — and the **schema version** (`schemas/<platform>.delta.json`, bumped mechanically at release by [`auto-version-schemas.js`](../scripts/auto-version-schemas.js)). They can legitimately diverge: a UI-only release bumps the app, not the schema.
+Each platform carries two **independent** version numbers: the **app version** — the git tag (`extension-vX.Y.Z` / `desktop-vX.Y.Z`), written into `manifest.json` / `tauri.conf.json` by the publish workflow for the release build only — and the **schema version** (`schemas/<platform>.delta.json`, bumped mechanically at release by [`auto-version-schemas.js`](../scripts/auto-version-schemas.js)). They can legitimately diverge: a UI-only release bumps the app, not the schema.
 
 The tag is your call, but the **next-release-version helper** suggests it for each platform from the schema diff since the last release **plus** the conventional commits since that platform's last tag:
 
 - **Locally:** `npm run version:next`
 - **On GitHub:** dispatch the **Next release version** workflow ([`next-release-version.yml`](workflows/next-release-version.yml)) on `main` from the Actions tab — the suggestion appears on the run's summary page.
+
+The bump is applied to the **last final release**: the latest final `extension-v*` / `desktop-v*` tag. The committed `manifest.json` / `tauri.conf.json` do not record it: the version PR writes each one's schema version, and the publish run writes the tag's version into the release build only, after that PR is opened, so the files lag the tag whenever the app version is ahead of the schema version. The helper reads the tag and notes the lag. App and schema versions are independent, so where a file is ahead of the tag (its schema version ahead of the last app tag, a newer tag not fetched locally, or a hand edit) the helper still measures from the tag and notes the difference. With no final tag found, it measures from the file.
 
 It follows [semantic versioning](https://semver.org/): a breaking change (`!` / `BREAKING CHANGE`) → **major**, a feature (`feat`) → **minor**, a fix (`fix` / `perf`) → **patch**, and a bump zeroes the lower-precedence components. The other recognized types (`chore`, `ci`, `docs`, `test`, `refactor`, `style`, `build`, `revert`) **do not bump** the version on their own — a `!` / `BREAKING CHANGE` still forces **major**, whatever the type. The suggestion is a **floor** — bump higher if the release carries breaking _behaviour_ the tooling can't classify from the diff or commit messages. (Pre-release tags like `X.Y.Z-rc.N` are skipped — the suggestion is always the next **final** version, measured from the last final release; build-metadata `+build` tags aren't handled.)
 

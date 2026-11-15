@@ -289,6 +289,12 @@ recording or a project drops captured actions that are not yet committed, as
 it does when you do it yourself. A command sent while you
 re-record a step or commit one is refused, and the program is told why.
 
+A program can also ask the panel where it stands, and that question is always
+answered, also while you re-record a step: the open project and
+recording, whether capture is on, how many actions and steps there are,
+whether export is allowed, which storage warning, if any, the panel shows,
+and whether you are re-recording a step.
+
 A pairing code works once. Local control turns itself off, and tells you why,
 when pairing fails, when the program disconnects, or when no program has
 answered on the port after 150 tries (about five minutes when nothing listens

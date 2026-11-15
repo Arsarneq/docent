@@ -4,9 +4,12 @@
  * A command that reaches this module has already passed the channel's pairing
  * and validation (control-channel.js). Each one is carried out through the
  * panel action a person's click runs, so the panel's own view and state follow
- * it, and the answer carries identifiers, names, counts and flags — never the
- * captured actions, the project model or any setting, save the export of the
- * open project when the person allowed it at turn-on (control-channel LC-9).
+ * it, and the answer carries identifiers, names, counts, flags and notice
+ * codes — never the captured actions, the project model or any setting, save
+ * the export of the open project when the person allowed it at turn-on
+ * (control-channel LC-9). The panel's storage banner renders from the same
+ * storage codes (STORAGE_NOTICES), so a code and the banner that shows its
+ * state cannot drift apart.
  *
  * The panel is injected as a small set of functions, so the unit suite drives
  * this module as shipped.
@@ -22,8 +25,9 @@ import { NO_OPEN_PROJECT } from './project-export.js';
  * @typedef {object} ControlPanel
  * @property {() => {project: object|null, recording: object|null,
  *   capturing: boolean, pendingCount: number, stepCount: number,
- *   rerecording: boolean, busy: boolean}} getState - the panel's current view
- *   state; `busy` while a step commit is under way
+ *   rerecording: boolean, busy: boolean, storageQuota: object|null}} getState -
+ *   the panel's current view state; `busy` while a step commit is under way;
+ *   `storageQuota` the storage-pressure state the panel last received
  * @property {(name: string) => Promise<object>} createProject - the New project
  *   action; resolves with the created project
  * @property {(name: string) => Promise<object>} createRecording - the New
@@ -47,6 +51,57 @@ const EXPORT_NOT_ALLOWED = {
   error: 'Export was not allowed when local control was turned on',
 };
 const NOT_EXPORTED = { ok: false, error: 'The project was not exported' };
+
+/**
+ * The notice codes of the three storage pressure states, which the panel's
+ * storage banner shows on every view and renders from.
+ */
+export const STORAGE_NOTICES = Object.freeze({
+  full: 'storage_full_capture_stopped',
+  paused: 'storage_almost_full_capture_paused',
+  stillRecording: 'storage_almost_full_still_recording',
+});
+const RERECORDING_STEP = 'rerecording_step';
+
+/**
+ * The closed set of notice codes `status` reports, in the fixed order a
+ * result lists them (control-channel LC-9). Each stands for a panel state: the
+ * three storage pressure states, then a re-record under way.
+ */
+export const NOTICES = Object.freeze([
+  STORAGE_NOTICES.full,
+  STORAGE_NOTICES.paused,
+  STORAGE_NOTICES.stillRecording,
+  RERECORDING_STEP,
+]);
+
+/**
+ * The notice code for a storage pressure state, or `null` when the state is
+ * none of the three. A pure function of the state the service worker
+ * publishes (extension capture ECP-11): the `exceeded` band is full, the
+ * `warn` band is almost full, paused or still recording, and any other band
+ * is no pressure state.
+ *
+ * @param {{band?: string, paused?: boolean}|null|undefined} quota
+ * @returns {string|null}
+ */
+export function storageNotice(quota) {
+  if (quota?.band === 'exceeded') return STORAGE_NOTICES.full;
+  if (quota?.band === 'warn')
+    return quota.paused === true ? STORAGE_NOTICES.paused : STORAGE_NOTICES.stillRecording;
+  return null;
+}
+
+/**
+ * The notices that hold in a panel state, as a new list in NOTICES order. The
+ * re-record notice reads the state that refuses every command but `status`
+ * (control-channel LC-8), and carries none of the step's narration.
+ */
+function noticesOf(state) {
+  const held = new Set([storageNotice(state.storageQuota)]);
+  if (state.rerecording === true) held.add(RERECORDING_STEP);
+  return NOTICES.filter((code) => held.has(code));
+}
 
 const projectIdAndName = (project) => ({ project_id: project.project_id, name: project.name });
 const recordingIdAndName = (recording) => ({
@@ -76,6 +131,7 @@ const HANDLERS = new Map([
         pending_actions: state.pendingCount,
         steps: state.stepCount,
         export_allowed: channel.exportAllowed === true,
+        notices: noticesOf(state),
       };
     },
   ],

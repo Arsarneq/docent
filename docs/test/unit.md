@@ -157,7 +157,7 @@ machinery under `scripts/`.
 | `lock-unlock-round-trip.property.test.js` | Closing a lock makes the recording eligible again on the very next cycle. |
 | `locked-recording-exclusion.property.test.js` | A locked recording is excluded from the inbound merge while every other Unit in the same cycle still reconciles. |
 | `locked-recording-push-preservation.property.test.js` | A locked recording stays in the outbound payload at its agreed-or-pulled version, never at its un-reconciled local edits. |
-| `next-release-version.test.js` | The commit-to-semver bump classifier and the increment arithmetic it relies on. |
+| `next-release-version.test.js` | The commit-to-semver bump classifier and the increment arithmetic it relies on, the release base the bump is applied to (the latest final tag, or the app file when no tag is found), the per-platform suggestion built on it, and the read of a git log larger than the default child-process buffer. |
 | `no-baseline-no-one-sided-change.property.test.js` | With no recorded baseline, classification never attributes a change to one side. |
 | `no-discard-no-overwrite.property.test.js` | A cycle discards nothing and overwrites nothing without a resolution. |
 | `no-permanent-loss.property.test.js` | Across cycles interleaved with resolutions, no committed local step record is ever permanently lost. |
@@ -680,7 +680,7 @@ half of the extension is documented in
 | `capture-timing.test.js` | The capture-timing constants' validity and relative ordering, and the recent-user-action decision they drive. |
 | `control-channel-host.test.js` | The local control channel's host, run against the shipped module with a fake socket: off by default, one code per turn-on, the export grant fixed at turn-on and the trace of each export, redialling and its cap, and every route that turns the channel off. |
 | `control-channel.test.js` | The local control channel's pure core: the loopback address, the pairing code and the labelled proof in each direction, the indicator's export line, frame parsing, the closed command set and its bounds, and the session's pairing and command handling. |
-| `control-commands.test.js` | The mapping from a control-channel command to a panel action: the state each command needs, the refusals, the export of the open project as the Export button builds it, and results that carry identifiers, names, counts and flags, an export only with the grant. |
+| `control-commands.test.js` | The mapping from a control-channel command to a panel action: the state each command needs, the refusals, the export of the open project as the Export button builds it, the storage and re-record notice codes, and results of identifiers, names, counts, flags and codes, an export only with the grant. |
 | `dispatch.test.js` | Settings round-trip, endpoint validation, payload fidelity, the authorization header, and the action-event subscription. |
 | `e2e-suite-locks.test.js` | The end-to-end guide's retry, attempt, trace, timeout and worker sentences held to the Playwright config, each key read as text and set exactly once. |
 | `frame-trust.test.js` | The per-frame trust predicate deciding whether an appended action may enter a recording. |

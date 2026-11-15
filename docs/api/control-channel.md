@@ -240,15 +240,15 @@ carries the frame's `id` when that `id` is itself valid, and `null` otherwise.
 Names and narration are trimmed of surrounding whitespace before the length
 bounds apply.
 
-| Command            | Arguments                                                                                                                                                                  | What the panel does                                                        | Result fields on success                                                          |
-| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
-| `status`           | None                                                                                                                                                                       | Nothing — a read of the panel's state                                      | `project`, `recording`, `capturing`, `pending_actions`, `steps`, `export_allowed` |
-| `project.create`   | `name`: 1 to 200 characters                                                                                                                                                | Creates the project and opens it, stopping capture for an open recording   | `project`                                                                         |
-| `recording.create` | `name`: 1 to 200 characters                                                                                                                                                | Creates the recording in the open project and starts capture               | `recording`                                                                       |
-| `recording.pause`  | None                                                                                                                                                                       | Pauses capture for the open recording                                      | `capturing`                                                                       |
-| `recording.resume` | None                                                                                                                                                                       | Resumes capture for the open recording                                     | `capturing`                                                                       |
-| `step.commit`      | Either `narration`: 1 to 10000 characters, or `step_type`: `action` or `validation`, with `expect`: `present` or `absent` on a `validation` alone (`present` when omitted) | Commits the captured actions as a step, as the panel's Done this step does | `step`, `steps`                                                                   |
-| `project.export`   | None                                                                                                                                                                       | Builds the export of the open project, as the panel's Export button does   | `project`, `export`                                                               |
+| Command            | Arguments                                                                                                                                                                  | What the panel does                                                        | Result fields on success                                                                     |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `status`           | None                                                                                                                                                                       | Nothing — a read of the panel's state                                      | `project`, `recording`, `capturing`, `pending_actions`, `steps`, `export_allowed`, `notices` |
+| `project.create`   | `name`: 1 to 200 characters                                                                                                                                                | Creates the project and opens it, stopping capture for an open recording   | `project`                                                                                    |
+| `recording.create` | `name`: 1 to 200 characters                                                                                                                                                | Creates the recording in the open project and starts capture               | `recording`                                                                                  |
+| `recording.pause`  | None                                                                                                                                                                       | Pauses capture for the open recording                                      | `capturing`                                                                                  |
+| `recording.resume` | None                                                                                                                                                                       | Resumes capture for the open recording                                     | `capturing`                                                                                  |
+| `step.commit`      | Either `narration`: 1 to 10000 characters, or `step_type`: `action` or `validation`, with `expect`: `present` or `absent` on a `validation` alone (`present` when omitted) | Commits the captured actions as a step, as the panel's Done this step does | `step`, `steps`                                                                              |
+| `project.export`   | None                                                                                                                                                                       | Builds the export of the open project, as the panel's Export button does   | `project`, `export`                                                                          |
 
 `project.export` is carried out only when the person allowed export at
 turn-on ([LC-1](#turning-the-channel-on)). Every other action the side panel
@@ -267,15 +267,15 @@ the panel's state cannot carry out is refused: it is answered with `ok: false`,
 sends the service worker nothing and changes nothing. The refusals are these —
 the list is closed:
 
-| Command                                              | Refused when                                                   |
-| ---------------------------------------------------- | -------------------------------------------------------------- |
-| `recording.create`                                   | No project is open                                             |
-| `recording.pause`, `recording.resume`, `step.commit` | No recording is open                                           |
-| `step.commit`                                        | No actions are captured since the last step                    |
-| `project.export`                                     | The person did not allow export at turn-on                     |
-| `project.export`                                     | No project is open                                             |
-| Every command but `status`                           | A person is re-recording a step in the panel                   |
-| Every command but `status`                           | A step commit a person started in the panel is still under way |
+| Command                                              | Refused when                                                                                                             |
+| ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `recording.create`                                   | No project is open                                                                                                       |
+| `recording.pause`, `recording.resume`, `step.commit` | No recording is open                                                                                                     |
+| `step.commit`                                        | No actions are captured since the last step                                                                              |
+| `project.export`                                     | The person did not allow export at turn-on                                                                               |
+| `project.export`                                     | No project is open                                                                                                       |
+| Every command but `status`                           | A person is re-recording a step in the panel, which `status` reports as the notice `rerecording_step` ([LC-9](#results)) |
+| Every command but `status`                           | A step commit a person started in the panel is still under way                                                           |
 
 A pause of a paused recording and a resume of a capturing one succeed and
 change nothing. A step committed through the channel with `narration` states no
@@ -301,23 +301,44 @@ result frame carrying the command's `id`:
 The panel runs commands one at a time, in the order their frames arrive, and
 sends each result before it starts the next command; a local process is free
 to send its next command without waiting. A result carries identifiers, names,
-counts and flags, a fixed `error` text when `ok` is `false`, and, on an export
-the person allowed, the export document, and nothing else — the fields below
-are the complete set — so the captured actions and the project model cross
-the channel only inside an export a person allowed, and the extension's
-settings never do:
+counts, flags, the panel's own notice codes, a fixed `error` text when `ok` is
+`false`, and, on an export the person allowed, the export document, and
+nothing else — the fields below are the complete set — so the captured actions
+and the project model cross the channel only inside an export a person
+allowed, and the extension's settings never do:
 
-| Field             | Value                                                                                                              |
-| ----------------- | ------------------------------------------------------------------------------------------------------------------ |
-| `project`         | `{ project_id, name }` of the open project, or `null`                                                              |
-| `recording`       | `{ recording_id, name }` of the open recording, or `null`                                                          |
-| `capturing`       | Whether capture is running; `false` with no open recording                                                         |
-| `pending_actions` | The number of actions captured since the last step                                                                 |
-| `steps`           | The number of steps in the open recording; `0` with none open                                                      |
-| `step`            | `{ logical_id, step_number, actions }` of the committed step, `actions` a count                                    |
-| `export_allowed`  | Whether the person allowed export at turn-on                                                                       |
-| `export`          | The export document the Export button builds for the open project, its full step history included                  |
-| `error`           | One of the panel's own fixed texts, written for a person to read; a local process decides on `ok`, not on the text |
+| Field             | Value                                                                                                                                                                    |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `project`         | `{ project_id, name }` of the open project, or `null`                                                                                                                    |
+| `recording`       | `{ recording_id, name }` of the open recording, or `null`                                                                                                                |
+| `capturing`       | Whether capture is on for the open recording, as the panel last set it; storage pressure does not change it and is reported in `notices`; `false` with no open recording |
+| `pending_actions` | The number of actions captured since the last step                                                                                                                       |
+| `steps`           | The number of steps in the open recording; `0` with none open                                                                                                            |
+| `step`            | `{ logical_id, step_number, actions }` of the committed step, `actions` a count                                                                                          |
+| `export_allowed`  | Whether the person allowed export at turn-on                                                                                                                             |
+| `notices`         | The codes of the panel states that hold, from the closed set below, in that set's order; an empty list when none holds                                                   |
+| `export`          | The export document the Export button builds for the open project, its full step history included                                                                        |
+| `error`           | One of the panel's own fixed texts, written for a person to read; a local process decides on `ok`, not on the text                                                       |
+
+A notice code stands for one of these states of the panel: the three
+storage pressure states, which the panel's storage banner shows on every view,
+and a re-record under way, which the panel shows as a banner in the recording
+view. A code carries no text of its own; the wording a person reads is the
+panel's. The set of codes is closed. At most one of the three storage codes
+holds at a time, and `rerecording_step` holds independently of them, so a
+result lists at most two codes:
+
+| Notice code                           | The panel state it stands for                                                                                        |
+| ------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `storage_full_capture_stopped`        | Storage is full and capture is stopped                                                                               |
+| `storage_almost_full_capture_paused`  | Storage is almost full and capture is paused, with the panel's control to keep recording                             |
+| `storage_almost_full_still_recording` | Storage is almost full and capture is not paused, because the person chose to keep recording                         |
+| `rerecording_step`                    | A person is re-recording a step: the state in which every command but `status` is refused ([LC-8](#the-command-set)) |
+
+While storage stops or pauses capture, actions performed are not captured
+([extension capture ECP-11](../architecture/application/extension/capture-principles.md#storage-pressure));
+`capturing` does not change with them, so a storage notice is what tells a
+local process that storage holds capture back.
 
 `ok: false` has three meanings, told apart by where the answer comes from, and
 `status` reports where the panel stands after any of them — the list is closed:
