@@ -44,7 +44,11 @@ the section that states it in full.
    ```
 
    Add the suite for the layer you touched; [Running Tests](#running-tests)
-   lists them, with the one-time install two of them need. The pre-push hook
+   lists them, with the one-time install two of them need. CI picks further
+   suites from the paths a diff touches: a schema change, for one, also runs
+   the end-to-end, desktop integration, desktop Rust and reference-server jobs
+   ([Path-filtered test jobs](../docs/guides/ci.md#path-filtered-test-jobs)).
+   The pre-push hook
    is a narrower local mirror of CI's leading lint gates, so a push that goes
    through is not yet a green CI run
    ([Local hooks](../docs/guides/ci.md#local-hooks-lefthook)).
@@ -52,13 +56,13 @@ the section that states it in full.
 4. **Check whether your change brings follow-on work.** These are the cases a
    first contribution most often meets:
 
-   | If you                            | Then also                                                                                                                                                                                                                                                                                                                 |
-   | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-   | change what a platform captures   | run that platform's corpus loop. `npm run corpus:check` (desktop: `npm run corpus:check:desktop`) stays red until the truth files or the baseline say what the recorder now records: [when a capture change turns the check red](../docs/verification/scripted-truth-corpus.md#when-a-capture-change-turns-the-check-red) |
-   | add a `.docent.json` field        | follow [Adding a field](../docs/technical/session-format.md#adding-a-field)                                                                                                                                                                                                                                               |
-   | add, rename or remove a test file | update its row in the suite's document under [`docs/test/`](../docs/test/README.md), which `npm run lint:test-inventory` holds to the tree                                                                                                                                                                                |
-   | rename or remove a test case      | update any `test-cases` entry in [`docs/clause-registry.json`](../docs/clause-registry.json) that names it, which `npm run lint:clause-registry` holds to the test files                                                                                                                                                  |
-   | add a code file or a doc          | give it a home in the area map ([what each kind of change keeps green](#what-each-kind-of-change-keeps-green))                                                                                                                                                                                                            |
+   | If you                            | Then also                                                                                                                                                                                                                                                                                                                                     |
+   | --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+   | change what a platform captures   | run that platform's corpus loop ([Run surface](../docs/verification/scripted-truth-corpus.md#run-surface)). The check stays red until the truth files or the baseline say what the recorder now records: [when a capture change turns the check red](../docs/verification/scripted-truth-corpus.md#when-a-capture-change-turns-the-check-red) |
+   | add a `.docent.json` field        | follow [Adding a field](../docs/technical/session-format.md#adding-a-field)                                                                                                                                                                                                                                                                   |
+   | add, rename or remove a test file | update its row in the suite's document under [`docs/test/`](../docs/test/README.md), which `npm run lint:test-inventory` holds to the tree                                                                                                                                                                                                    |
+   | rename or remove a test case      | update any `test-cases` entry in [`docs/clause-registry.json`](../docs/clause-registry.json) that names it, which `npm run lint:clause-registry` holds to the test files                                                                                                                                                                      |
+   | add a code file or a doc          | give it a home in the area map ([what each kind of change keeps green](#what-each-kind-of-change-keeps-green))                                                                                                                                                                                                                                |
 
 5. **Open the pull request.** The title goes in GitHub's title field, written
    as a Conventional Commit, and the body is the template GitHub loads
@@ -385,12 +389,16 @@ the check reads:
 [How the check reads a body](../docs/guides/ci.md#how-the-check-reads-a-body)
 states the exact rules.
 
-**`## Docs disposition`** — one line for each doc that governs the code you
-changed, and one for each governing doc you edited (a doc in an area's doc set,
-or a repo-wide doc). A governing doc you edit owes its own line only, because
-the edit is judged on that doc's text: the other docs of its areas are owed
-when code of those areas changes.
-The check derives that set from [`scripts/area-map.json`](../scripts/area-map.json)
+**`## Docs disposition`** — one line per doc, for two kinds of doc:
+
+- each doc that governs code you changed, as the area map resolves it for
+  that code;
+- each governing doc you edited yourself (a doc in an area's doc set, or a
+  repo-wide doc). It owes its own line and no other: the edit is judged on
+  that doc's text, so editing a doc does not bring in the other docs of its
+  areas.
+
+The check derives these docs from [`scripts/area-map.json`](../scripts/area-map.json)
 (which maps the repository's code to its governing docs), and its red output
 lists the exact lines it expects, so you never have to guess. To see that
 output before you open the PR, run the check on a draft body with
