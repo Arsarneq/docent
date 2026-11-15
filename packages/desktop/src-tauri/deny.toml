@@ -34,23 +34,11 @@ unmaintained = "workspace"
 # advisory stopped matching upstream while glib is still 0.18.5 — and a dead entry
 # only produces warnings. Removed; if it ever matches again the gate errors loudly
 # and the historical rationale is in git history for re-parking.)
-ignore = [
-  # RUSTSEC-2026-0194 (quadratic run time checking duplicate attributes in a start
-  # tag) and RUSTSEC-2026-0195 (unbounded namespace-declaration allocation in
-  # NsReader) — both quick-xml parser DoS issues, both fixed only in >= 0.41.0.
-  #
-  # Verified context (2026-07): quick-xml is pulled ONLY transitively via plist
-  # (plist 1.9.0 pins quick-xml ^0.39; `cargo update -p quick-xml` tops out at
-  # 0.39.4 and `cargo update -p plist` finds nothing newer), under tauri /
-  # tauri-utils — no non-breaking fix path exists until plist releases against
-  # quick-xml >= 0.41 and tauri picks it up. The path parses Tauri's own
-  # Apple-platform property lists during config/bundling, never attacker-controlled
-  # XML in the shipped Windows binary, and both advisories are resource-exhaustion
-  # (CPU/memory) DoS, not corruption. Remove both entries when the plist/tauri
-  # chain resolves quick-xml >= 0.41.
-  "RUSTSEC-2026-0194",
-  "RUSTSEC-2026-0195",
-]
+#
+# (RUSTSEC-2026-0194 and RUSTSEC-2026-0195, the quick-xml parser DoS pair reached
+# through plist under tauri-utils, were parked here until 2026-11: plist 1.10
+# resolves quick-xml 0.42, past the 0.41 fix, so both entries were removed.)
+ignore = []
 
 [licenses]
 version = 2
