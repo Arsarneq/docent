@@ -254,7 +254,7 @@ internet.
   [What the suite covers](#what-the-suite-covers) states; the suite tables
   under that heading are the listing to update here. What a new file, and the
   clause rows that pin it, must additionally satisfy is stated in
-  [CONTRIBUTING § Extending the Docs Governance](../../.github/CONTRIBUTING.md#extending-the-docs-governance).
+  [Extending the docs governance](../guides/docs-governance.md#what-each-kind-of-change-keeps-green).
 - Write for four attempts: fresh context per attempt, no reliance on prior
   state, and waits keyed to observable signals (readiness, settle) rather than
   durations. A deadline-bounded poll a helper or spec writes itself is built

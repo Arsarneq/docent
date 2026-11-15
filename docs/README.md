@@ -155,7 +155,7 @@ behaves as designed. Neither implies the other.
   badges, and capture-side surprises, each routing to the document that owns
   the behaviour.
 
-### Guides — the project's CI: what it enforces, and how to run it locally
+### Guides — the project's CI and its docs governance
 
 - [CI gates](guides/ci.md) — what CI enforces on a pull request, on `main`, and
   on a schedule: each workflow's gate, the action SHA-pinning policy, and the
@@ -164,6 +164,10 @@ behaves as designed. Neither implies the other.
   machine: per-gate direct commands, whole jobs in containers with
   [`act`](https://github.com/nektos/act), and the Windows boundary two desktop
   jobs cannot cross.
+- [Extending the docs governance](guides/docs-governance.md) — the goals a
+  change to the area map, the clause registry or the governance lints
+  preserves, what adding a doc, adding a code file or minting a clause keeps
+  green, and how to pick a passage's form when writing docs.
 
 ## Reference implementations
 
