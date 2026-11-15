@@ -375,6 +375,17 @@ describe('createControlExecutor — project export', () => {
     }
     assert.deepEqual(dialogs, []);
   });
+
+  it('answers a panel Export action that rejects with the same fixed text', async () => {
+    const panel = fakePanel({ project: { project_id: 'p1', name: 'P' } });
+    panel.exportProject = async () => {
+      throw new Error('secret /home/someone');
+    };
+    assert.deepEqual(await run(panel, 'project.export', {}, GRANTED), {
+      ok: false,
+      error: 'The project was not exported',
+    });
+  });
 });
 
 describe('createControlExecutor — bounds', () => {
