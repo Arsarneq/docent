@@ -71,8 +71,11 @@ Two entries live outside the table's closure:
   `windows-bindgen` bump whose output differs needs the regeneration pushed
   onto the bot's branch; a bump that changes neither passes as it is), and the
   `github-actions` ecosystem (its pinning role is
-  [below](#every-action-is-pinned-to-a-commit-sha)). The shared unit suite
-  holds its npm entries to the audited roots.
+  [below](#every-action-is-pinned-to-a-commit-sha)). Each entry groups its
+  minor and patch version updates into one PR; security updates are not
+  grouped, so each advisory opens its own PR when its fix is published, and a
+  major version update arrives on its own PR. The shared unit suite holds its
+  npm entries to the audited roots.
 
 The three release workflows (`publish.yml`, `publish-desktop.yml`,
 `next-release-version.yml`) are named here only for closure: their modes
