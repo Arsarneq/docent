@@ -281,6 +281,7 @@ test.describe('Local control channel', () => {
       pending_actions: 0,
       steps: 0,
       export_allowed: false,
+      notices: [],
     });
 
     // A recording needs an open project.
@@ -388,6 +389,102 @@ test.describe('Local control channel', () => {
     connection.socket.send(JSON.stringify({ type: 'command', id: 's', command: 'status' }));
     expect((await nextFrame(connection)).type).toBe('paired');
     expect((await nextFrame(connection)).id).toBe('s');
+  });
+
+  test('status reports each storage pressure state the banner shows as a notice code', async ({
+    panelPage,
+    localProcess,
+    serviceWorker,
+  }) => {
+    const readQuota = () =>
+      serviceWorker.evaluate(
+        async () => (await chrome.storage.local.get('docentStorageQuota')).docentStorageQuota,
+      );
+    // The worker publishes its first reading on start; wait for it, so the
+    // states written below are not overwritten by it.
+    await expect.poll(async () => (await readQuota())?.band).toBe('ok');
+    const { connection } = await pair(panelPage, localProcess);
+    expect((await command(connection, 's0', 'status')).notices).toEqual([]);
+
+    // The pressure state as the worker publishes it, as the storage-quota
+    // suite drives the banner.
+    const writeQuota = (state) =>
+      serviceWorker.evaluate((s) => chrome.storage.local.set({ docentStorageQuota: s }), state);
+    const banner = panelPage.locator('#storage-quota-banner');
+    const bannerText = panelPage.locator('#storage-quota-banner-text');
+    const states = [
+      [
+        { band: 'warn', paused: true, override: false },
+        'storage_almost_full_capture_paused',
+        'paused',
+      ],
+      [
+        { band: 'warn', paused: false, override: true },
+        'storage_almost_full_still_recording',
+        'still recording',
+      ],
+      [
+        { band: 'exceeded', paused: true, override: false },
+        'storage_full_capture_stopped',
+        'capture stopped',
+      ],
+    ];
+    let n = 0;
+    for (const [state, code, text] of states) {
+      await writeQuota({ ...state, bytesInUse: 9e6 });
+      await expect(bannerText).toContainText(text);
+      await expect(banner).toBeVisible();
+      await expect
+        .poll(async () => (await command(connection, `s${++n}`, 'status')).notices)
+        .toEqual([code]);
+    }
+
+    await writeQuota({ band: 'ok', paused: false, override: false, bytesInUse: 1000 });
+    await expect(banner).toBeHidden();
+    expect((await command(connection, 'ok', 'status')).notices).toEqual([]);
+  });
+
+  test('status reports a re-record under way as a notice code until it ends', async ({
+    panelPage,
+    localProcess,
+    serviceWorker,
+  }) => {
+    const { connection } = await pair(panelPage, localProcess);
+    await command(connection, 'p', 'project.create', { name: 'Edits' });
+    await command(connection, 'r', 'recording.create', { name: 'Flow' });
+    await captureOne(serviceWorker);
+    await expect
+      .poll(async () => (await command(connection, 'q', 'status')).pending_actions)
+      .toBe(1);
+    expect((await command(connection, 'c', 'step.commit', { narration: 'First' })).ok).toBe(true);
+    expect((await command(connection, 's0', 'status')).notices).toEqual([]);
+
+    // A person starts re-recording the step; status is still answered, and
+    // carries the code but not the banner's text.
+    const banner = panelPage.locator('#rerecord-banner');
+    await panelPage.locator('[data-action="edit"]').first().click();
+    await expect(banner).toBeVisible();
+    const during = await command(connection, 's1', 'status');
+    expect(during.ok).toBe(true);
+    expect(during.notices).toEqual(['rerecording_step']);
+    expect(JSON.stringify(during)).not.toContain('First');
+    expect((await command(connection, 'x', 'recording.pause')).ok).toBe(false);
+
+    // Cancelled: the code is gone.
+    await panelPage.click('#btn-rerecord-cancel');
+    await expect(banner).toBeHidden();
+    expect((await command(connection, 's2', 'status')).notices).toEqual([]);
+
+    // Re-recorded and committed in the panel: the code is gone too.
+    await panelPage.locator('[data-action="edit"]').first().click();
+    await expect(banner).toBeVisible();
+    expect((await command(connection, 's3', 'status')).notices).toEqual(['rerecording_step']);
+    await captureOne(serviceWorker);
+    await expect(panelPage.locator('#btn-commit-step')).toBeEnabled();
+    await panelPage.fill('#narration-input', 'Second');
+    await panelPage.click('#btn-commit-step');
+    await expect(banner).toBeHidden();
+    expect((await command(connection, 's4', 'status')).notices).toEqual([]);
   });
 
   test('refuses what is outside the command set and stays connected', async ({
