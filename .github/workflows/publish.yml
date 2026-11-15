@@ -145,7 +145,7 @@ jobs:
       - name: Create PR for schema version + published schema update if changed
         if: steps.mode.outputs.value == 'final' && steps.table-diff.outputs.changed == 'true'
         id: version-pr
-        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8
+        uses: peter-evans/create-pull-request@15733dbdfeedb4f7fdb73d13c6f5ac83b710fab8 # v8
         with:
           token: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
           base: main
