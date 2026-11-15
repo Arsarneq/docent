@@ -1,8 +1,9 @@
 /**
  * check-docs-disposition.test.js — Unit tests for the PR-body section format
  * check (scripts/check-docs-disposition.js) that gates CI. Every PR carries a
- * "## Docs disposition" section (one line per governing doc, plus one per
- * judgment-only clause) and a "## Change record"; these tests prove the red
+ * "## Docs disposition" section (one line per governing doc, which answers for
+ * the doc's clauses too; a judgment-only clause may take a line of its own) and
+ * a "## Change record"; these tests prove the red
  * paths fire (missing/unexpected/duplicate/malformed lines, missing sections
  * and markers), that the shipped PR template's HTML comments are inert in both
  * directions, and that each declared class is exactly as narrow as documented:
@@ -60,10 +61,10 @@ import {
   UPDATED_LINE_TEMPLATE,
   UNAFFECTED_LINE_TEMPLATE,
   CLAUSE_LINE_TEMPLATE,
+  CLAUSE_SCOPE_NOTE,
   CLAUSE_EXAMPLE_ANCHOR,
   updatedLine,
   unaffectedLine,
-  clauseLine,
   FORM_ANCHOR,
   MUTATION_CADENCE,
   MUTATION_LINE,
@@ -71,6 +72,7 @@ import {
   isExemptDiff,
   docsInScope,
   expectedDispositionLines,
+  acceptedClauseLines,
   parseDispositionSection,
   parseGovernanceSection,
   stripHtmlComments,
@@ -638,8 +640,8 @@ describe('the per-doc grammar — its forms welded to the surfaces that show the
   });
 
   it('the clause example stands on a clause the registry carries as judgment-only', () => {
-    // The example is a line the check would actually expect: a doc in scope
-    // takes a clause line only for a clause the registry tags judgment-only. An
+    // The example is a line the check would actually accept: a doc in scope
+    // admits a clause line only for a clause the registry tags judgment-only. An
     // anchor that is retired, renamed, or retagged to a checked clause would
     // teach a line the check reports as out of scope, so the anchor is held to
     // the registry rather than to its own spelling.
@@ -655,7 +657,7 @@ describe('the per-doc grammar — its forms welded to the surfaces that show the
     assert.equal(
       rows[0].tag,
       'judgment-only',
-      `${doc} §${clause} must stay tagged judgment-only — the example teaches a line the check expects only for such a clause`,
+      `${doc} §${clause} must stay tagged judgment-only — the example teaches a line the check accepts only for such a clause`,
     );
   });
 
@@ -725,20 +727,63 @@ describe('the per-doc grammar — the red output rendered from the same forms', 
     );
   });
 
-  it('the missing-line red offers the clause form for a clause entry it names', () => {
-    // A clause line's placeholder asks about the rule, not the document, so the
-    // red for a missing clause entry renders the clause form rather than the
-    // per-doc one it would otherwise share a verb with.
-    const r = redFor(
-      [],
-      [{ doc: 'README.md', clause: 'AL-1', tag: 'judgment-only', justification: 'x' }],
+  it('a doc line answers for the doc’s judgment-only clauses — no clause line is owed', () => {
+    // The doc line already states that the diff cannot violate the doc, which
+    // covers each rule the doc carries, so the run is green on the doc line
+    // alone and the red for a missing doc line names the doc and no clause.
+    const clauses = [
+      { doc: 'README.md', clause: 'AL-1', tag: 'judgment-only', justification: 'x' },
+    ];
+    const green = redFor(['unaffected: README.md — wording only'], clauses);
+    assert.equal(
+      green.status,
+      0,
+      `expected green, got exit ${green.status}.\nstderr: ${green.stderr}`,
     );
-    assert.equal(r.status, 1, `expected a red, got exit ${r.status}.\nstderr: ${r.stderr}`);
+    const red = redFor([], clauses);
+    assert.equal(red.status, 1, `expected a red, got exit ${red.status}.\nstderr: ${red.stderr}`);
     assert.ok(
-      r.stderr.includes(
-        `${updatedLine('README.md §AL-1')}   OR   ${clauseLine('README.md §AL-1')}`,
-      ),
-      `the missing-line red must render the clause form for a clause entry.\nstderr: ${r.stderr}`,
+      !red.stderr.includes('§AL-1'),
+      `the missing-line red must not demand a clause line.\nstderr: ${red.stderr}`,
+    );
+  });
+
+  it('a judgment-only clause may still take a line of its own, and a checked clause may not', () => {
+    // A clause that needs its own reason keeps a place to state it; a clause a
+    // named check guards has no judgment to record, so its line is out of scope.
+    const clauses = [
+      { doc: 'README.md', clause: 'AL-1', tag: 'judgment-only', justification: 'x' },
+      { doc: 'README.md', clause: 'AL-2', tag: 'check-exists', 'check-ref': 'scripts/x.js' },
+    ];
+    const own = redFor(
+      ['unaffected: README.md — wording only', 'unaffected: README.md §AL-1 — its own reason'],
+      clauses,
+    );
+    assert.equal(own.status, 0, `expected green, got exit ${own.status}.\nstderr: ${own.stderr}`);
+    const checked = redFor(
+      ['unaffected: README.md — wording only', 'unaffected: README.md §AL-2 — guarded'],
+      clauses,
+    );
+    assert.equal(
+      checked.status,
+      1,
+      `expected a red, got exit ${checked.status}.\nstderr: ${checked.stderr}`,
+    );
+    assert.ok(
+      checked.stderr.includes('README.md §AL-2'),
+      `the out-of-scope red must name the checked clause.\nstderr: ${checked.stderr}`,
+    );
+    assert.ok(
+      checked.stderr.includes(CLAUSE_SCOPE_NOTE),
+      `the out-of-scope red must say which clauses admit a line.\nstderr: ${checked.stderr}`,
+    );
+    const docOnly = redFor([
+      'unaffected: README.md — wording only',
+      'unaffected: docs/other.md — not governed here',
+    ]);
+    assert.ok(
+      !docOnly.stderr.includes(CLAUSE_SCOPE_NOTE),
+      `a red naming no clause line carries no clause note.\nstderr: ${docOnly.stderr}`,
     );
   });
 
@@ -828,10 +873,7 @@ describe('the per-doc grammar — the red output rendered from the same forms', 
       .filter((line) => line.includes('   OR   '))
       .map((line) => line.split('   OR   ')[0]);
     const mutation = perDocPrinted.find((line) => line.startsWith('mutation:'));
-    const expected = expectedDispositionLines({
-      docs: ['README.md'],
-      registry: JSON.parse(registryFixture(clauses)),
-    });
+    const expected = expectedDispositionLines({ docs: ['README.md'] });
     assert.equal(
       pasted.length,
       expected.length,
@@ -2138,16 +2180,24 @@ describe('docsInScope', () => {
 });
 
 describe('expectedDispositionLines', () => {
-  it('emits one doc-level line plus one per judgment-only clause', () => {
+  it('emits one doc-level line per doc and none per clause', () => {
+    assert.deepEqual(expectedDispositionLines({ docs: ['docs/alpha.md', 'docs/tooling.md'] }), [
+      { doc: 'docs/alpha.md', clause: null },
+      { doc: 'docs/tooling.md', clause: null },
+    ]);
+  });
+});
+
+describe('acceptedClauseLines', () => {
+  it('admits one line per judgment-only clause of an in-scope doc, and no other clause', () => {
     assert.deepEqual(
-      expectedDispositionLines({ docs: ['docs/alpha.md', 'docs/tooling.md'], registry: REGISTRY }),
+      acceptedClauseLines({ docs: ['docs/alpha.md', 'docs/tooling.md'], registry: REGISTRY }),
       [
-        { doc: 'docs/alpha.md', clause: null },
         { doc: 'docs/alpha.md', clause: 'AL-1' },
         { doc: 'docs/alpha.md', clause: 'AL-3' },
-        { doc: 'docs/tooling.md', clause: null },
       ],
     );
+    assert.deepEqual(acceptedClauseLines({ docs: ['docs/tooling.md'], registry: REGISTRY }), []);
   });
 });
 
@@ -2972,13 +3022,14 @@ describe('extractSection', () => {
 describe('auditBody', () => {
   const expected = [
     { doc: 'docs/alpha.md', clause: null },
-    { doc: 'docs/alpha.md', clause: 'AL-1' },
+    { doc: 'docs/beta.md', clause: null },
   ];
+  const accepted = [{ doc: 'docs/alpha.md', clause: 'AL-1' }];
   const goodBody = [
     '## Docs disposition',
     '',
     'unaffected: docs/alpha.md — no capture change',
-    'unaffected: docs/alpha.md §AL-1 — comment-only',
+    'unaffected: docs/beta.md — comment-only',
     '',
     '## Change record',
     '',
@@ -3002,7 +3053,7 @@ describe('auditBody', () => {
       '',
       '```text',
       'unaffected: docs/alpha.md — no capture change',
-      'unaffected: docs/alpha.md §AL-1 — comment-only',
+      'unaffected: docs/beta.md — comment-only',
       '```',
       '',
       '## Change record',
@@ -3013,7 +3064,7 @@ describe('auditBody', () => {
     ].join('\n');
     const r = auditBody({ body: fencedBody, expected });
     assert.deepEqual(r.missingSections, []);
-    assert.deepEqual(r.missing, ['docs/alpha.md', 'docs/alpha.md §AL-1']);
+    assert.deepEqual(r.missing, ['docs/alpha.md', 'docs/beta.md']);
     assert.deepEqual(r.malformed, []);
     assert.deepEqual(r.unexpected, []);
     assert.deepEqual(r.changeRecordProblems, []);
@@ -3033,7 +3084,7 @@ describe('auditBody', () => {
       '```',
       '</details>',
       '',
-      'unaffected: docs/alpha.md §AL-1 — comment-only',
+      'unaffected: docs/beta.md — comment-only',
       '',
       '## Change record',
       '',
@@ -3062,7 +3113,7 @@ describe('auditBody', () => {
         '## Docs disposition',
         `${indent}updated: docs/alpha.md — the reason for the edit`,
         '',
-        'unaffected: docs/alpha.md §AL-1 — comment-only',
+        'unaffected: docs/beta.md — comment-only',
         '',
         '## Change record',
         '',
@@ -3086,7 +3137,7 @@ describe('auditBody', () => {
       '## Docs disposition',
       '',
       'unaffected: docs/alpha.md — no capture change',
-      'unaffected: docs/alpha.md §AL-1 — comment-only',
+      'unaffected: docs/beta.md — comment-only',
       '',
       '## Change record',
       '',
@@ -3110,10 +3161,27 @@ describe('auditBody', () => {
 
   it('reports a missing expected line by its exact anchor', () => {
     const r = auditBody({
-      body: goodBody.replace(/unaffected: docs\/alpha\.md §AL-1.*\n/, ''),
+      body: goodBody.replace(/unaffected: docs\/beta\.md.*\n/, ''),
       expected,
     });
-    assert.deepEqual(r.missing, ['docs/alpha.md §AL-1']);
+    assert.deepEqual(r.missing, ['docs/beta.md']);
+  });
+
+  it('admits a line for an accepted clause, never owes one, and reports any other clause line as out of scope', () => {
+    const withClause = goodBody.replace(
+      '## Change record',
+      'unaffected: docs/alpha.md §AL-1 — its own reason\n\n## Change record',
+    );
+    assert.deepEqual(Object.values(auditBody({ body: withClause, expected, accepted })).flat(), []);
+    assert.deepEqual(Object.values(auditBody({ body: goodBody, expected, accepted })).flat(), []);
+    assert.deepEqual(auditBody({ body: withClause, expected }).unexpected, ['docs/alpha.md §AL-1']);
+    const twice = withClause.replace(
+      '## Change record',
+      'unaffected: docs/alpha.md §AL-1 — again\n\n## Change record',
+    );
+    assert.deepEqual(auditBody({ body: twice, expected, accepted }).duplicates, [
+      'docs/alpha.md §AL-1',
+    ]);
   });
 
   it('reports out-of-scope and duplicate lines', () => {
@@ -3129,7 +3197,7 @@ describe('auditBody', () => {
   it('reports both sections when the body has neither', () => {
     const r = auditBody({ body: 'just a description', expected });
     assert.deepEqual(r.missingSections, ['## Docs disposition', '## Change record']);
-    assert.deepEqual(r.missing, ['docs/alpha.md', 'docs/alpha.md §AL-1']);
+    assert.deepEqual(r.missing, ['docs/alpha.md', 'docs/beta.md']);
   });
 
   it('reports missing change-record markers', () => {
@@ -3144,12 +3212,12 @@ describe('auditBody', () => {
   });
 
   it('ignores disposition lines and markers hidden inside HTML comments — both directions', () => {
-    // A clause line present only inside a comment must NOT count as present…
+    // A line present only inside a comment must NOT count as present…
     const hidden = goodBody.replace(
-      'unaffected: docs/alpha.md §AL-1 — comment-only',
-      '<!-- unaffected: docs/alpha.md §AL-1 — invisible in the rendered PR -->',
+      'unaffected: docs/beta.md — comment-only',
+      '<!-- unaffected: docs/beta.md — invisible in the rendered PR -->',
     );
-    assert.deepEqual(auditBody({ body: hidden, expected }).missing, ['docs/alpha.md §AL-1']);
+    assert.deepEqual(auditBody({ body: hidden, expected }).missing, ['docs/beta.md']);
 
     // …and markers that exist only in the template's comment must not satisfy.
     const emptyRecord = goodBody.replace(
@@ -3173,7 +3241,7 @@ describe('auditBody', () => {
     const template = repoFile('.github/PULL_REQUEST_TEMPLATE.md');
     const r = auditBody({ body: template, expected });
     assert.deepEqual(r.unexpected, []); // nothing inside comments leaks in
-    assert.deepEqual(r.missing, ['docs/alpha.md', 'docs/alpha.md §AL-1']);
+    assert.deepEqual(r.missing, ['docs/alpha.md', 'docs/beta.md']);
     assert.equal(r.changeRecordProblems.length, 3);
   });
 });

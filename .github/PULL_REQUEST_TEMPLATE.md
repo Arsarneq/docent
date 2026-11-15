@@ -34,8 +34,9 @@ a block starts make a line an example. Each is one of:
 updated: docs/<path> — <what changed>
 unaffected: docs/<path> — <why this diff cannot violate it>
 
-Docs whose rules carry clause ids also take one line per clause tagged judgment-only
-in docs/clause-registry.json, e.g.:
+A doc's line answers for every rule the doc carries. Where one clause tagged
+judgment-only in docs/clause-registry.json needs a reason of its own, it may take
+its own line, e.g.:
 
 unaffected: docs/architecture/system/capture-principles.md §CP-3 — <why this diff cannot violate this rule>
 
