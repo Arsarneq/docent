@@ -174,7 +174,7 @@ the suite runs in the `desktop-integration-tests` job on Linux.
   [What the suite covers](#what-the-suite-covers) in the same change that adds
   it; what it and its clause rows
   must additionally satisfy is in
-  [CONTRIBUTING § Extending the Docs Governance](../../../.github/CONTRIBUTING.md#extending-the-docs-governance).
+  [Extending the docs governance](../../guides/docs-governance.md#what-each-kind-of-change-keeps-green).
 
 ## Configuration and coverage
 

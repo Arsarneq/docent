@@ -244,6 +244,13 @@
         ".github/PUBLISHING.md",
         ".github/CONTRIBUTING.md"
       ]
+    },
+    "ci/docs-governance": {
+      "code": [
+        "scripts/check-{area-map,clause-registry,clause-governance,clause-preamble,doc-reachability}.js",
+        "scripts/area-map.json"
+      ],
+      "docs": ["docs/guides/docs-governance.md"]
     }
   },
   "unassigned": [
@@ -543,9 +550,10 @@
     },
     {
       "path": "scripts/check-test-inventory.js",
-      "reason": "The test-inventory lint and the shared doc-scan primitives (fence model, clause-section slice, table parse, list/token readers) the surface checks verify their clauses through — it owes the ci/release area's whole doc set as a unit; beyond that set, an edit here changes what the gate holds the registered suite inventories, coverage lists, and mutation kill sets to (the suite docs, the coverage doc, and the mutation doc, whose mutate-scope table this gate holds to the cargo-mutants config), and what the surface checks' clauses are checked against (the clause docs; the desktop suite doc is doubly coupled — its mock serviced-command leg runs on this file's list reader, a coupling DSH-1's registry row records as held by the check itself). Those same token primitives also serve the clause-registry check, which resolves a row's named test cases against the declarators a cited JavaScript file states, so an edit to them changes what that gate holds a registry row's test-case field to. The same scanning rules render the offset-preserving blanked view the extension unit suite's absence guards read their sources through, so what this file leaves visible in that view is what those guards can still find. A clause citation into this file naming a doc this declaration already carries — the runtime and application-shell docs among them — rides the declaration; the rest are recorded, reasoned exceptions at the clause-governance check.",
+      "reason": "The test-inventory lint and the shared doc-scan primitives (fence model, clause-section slice, table parse, list/token readers) the surface checks verify their clauses through — it owes the ci/release area's whole doc set as a unit; beyond that set, an edit here changes what the gate holds the registered suite inventories, coverage lists, and mutation kill sets to (the suite docs, the coverage doc, and the mutation doc, whose mutate-scope table this gate holds to the cargo-mutants config), and what the surface checks' clauses are checked against (the clause docs; the desktop suite doc is doubly coupled — its mock serviced-command leg runs on this file's list reader, a coupling DSH-1's registry row records as held by the check itself). Those same token primitives also serve the clause-registry check, which resolves a row's named test cases against the declarators a cited JavaScript file states, so an edit to them changes what that gate holds a registry row's test-case field to. The same scanning rules render the offset-preserving blanked view the extension unit suite's absence guards read their sources through, so what this file leaves visible in that view is what those guards can still find. A clause citation into this file naming a doc this declaration already carries — the runtime and application-shell docs among them — rides the declaration; the rest are recorded, reasoned exceptions at the clause-governance check. The docs-governance guide states that declarator shape in its test-case table, so this file owes the guide beside the rest.",
       "governed-by": [
         "area:ci/release",
+        "area:ci/docs-governance",
         "docs/test/strategy/coverage.md",
         "docs/test/strategy/mutation.md",
         "docs/test/e2e.md",
@@ -602,13 +610,21 @@
     },
     {
       "path": "scripts/check-clause-governance.js",
-      "reason": "The clause-citation governance lint — it owes the ci/release area's whole doc set as a unit, and it is the home of the shared citation shape the schema-echo check reads the SF-1 register/row closure through, so an edit here changes what that clause is checked against and the format doc governs it beside that set.",
-      "governed-by": ["area:ci/release", "docs/technical/session-format.md"]
+      "reason": "The clause-citation governance lint — it owes the ci/release area's whole doc set as a unit and the docs-governance guide that states the governed-paths rule it holds, and it is the home of the shared citation shape the schema-echo check reads the SF-1 register/row closure through, so an edit here changes what that clause is checked against and the format doc governs it beside those.",
+      "governed-by": [
+        "area:ci/release",
+        "area:ci/docs-governance",
+        "docs/technical/session-format.md"
+      ]
     },
     {
       "path": "scripts/check-clause-registry.js",
-      "reason": "The clause-registry parity check — it owes the ci/release area's whole doc set as a unit, and it is the home of the shared split-and-edge shape every reader of a row's citations applies, the schema-echo check included, so an edit here changes how the SF-1 register/row closure is read and the format doc governs it beside that set.",
-      "governed-by": ["area:ci/release", "docs/technical/session-format.md"]
+      "reason": "The clause-registry parity check — it owes the ci/release area's whole doc set as a unit and the docs-governance guide that states the registry-row rules it holds, and it is the home of the shared split-and-edge shape every reader of a row's citations applies, the schema-echo check included, so an edit here changes how the SF-1 register/row closure is read and the format doc governs it beside those.",
+      "governed-by": [
+        "area:ci/release",
+        "area:ci/docs-governance",
+        "docs/technical/session-format.md"
+      ]
     },
     {
       "path": "scripts/check-no-release-outputs.js",
