@@ -340,10 +340,11 @@ updated: docs/<path> — <what changed>
 unaffected: docs/<path> — <why this diff cannot violate it>
 ```
 
-Where a doc states its rules as identified clauses, each clause tagged
-`judgment-only` in [`docs/clause-registry.json`](../docs/clause-registry.json)
-takes one additional line, anchored by its clause id (clauses guarded by a
-named check need no line of their own):
+Where a doc states its rules as identified clauses, the doc's line answers for
+all of them. A clause tagged `judgment-only` in
+[`docs/clause-registry.json`](../docs/clause-registry.json) may take a line of
+its own, anchored by its clause id, where it needs a reason of its own. None is
+owed, and only a `judgment-only` clause takes one:
 
 ```text
 unaffected: docs/architecture/system/capture-principles.md §CP-3 — <why this diff cannot violate this rule>

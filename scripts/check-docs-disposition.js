@@ -5,13 +5,15 @@
  * Every change is governed by docs (scripts/area-map.json maps code to them),
  * and the PR body must carry one explicit line per governing doc saying what
  * happened to it — one of the two per-doc forms UPDATED_LINE_TEMPLATE and
- * UNAFFECTED_LINE_TEMPLATE spell out below. When a governing doc states its
- * rules as registered clauses (docs/clause-registry.json), each clause tagged
- * judgment-only additionally takes its own line, anchored by the clause id, in
- * the form CLAUSE_LINE_TEMPLATE spells out beside them.
+ * UNAFFECTED_LINE_TEMPLATE spell out below. That line answers for every rule
+ * the doc carries. When a governing doc states its rules as registered clauses
+ * (docs/clause-registry.json), a clause tagged judgment-only may additionally
+ * take a line of its own, anchored by the clause id, in the form
+ * CLAUSE_LINE_TEMPLATE spells out beside them — admitted where one clause
+ * needs its own reason, never owed.
  *
- * (Clauses guarded by named checks need no per-clause line — the checks
- * themselves guard those.) The `## Change record` section must be present and
+ * (Only a judgment-only clause of a doc in scope admits a line: every other
+ * clause of such a doc is answered for by that doc's line.) The `## Change record` section must be present and
  * carry its structural markers (`Intent:`, `Outside knowledge:`, `mutation:`)
  * each at the start of a line. HTML comments are stripped before any parsing,
  * so the PR template's guidance comments neither satisfy nor break the check;
@@ -24,9 +26,10 @@
  * as one written with LF; the section text `extractSection` hands back is the
  * body's own, line endings included.
  *
- * This checks FORM ONLY — that every expected line exists, anchors a doc or
- * clause actually in scope, and picks exactly one of updated/unaffected. It
- * never judges whether a reason is adequate; that stays with review.
+ * This checks FORM ONLY — that every expected line exists, that every line
+ * anchors a doc or clause actually in scope, and that each picks exactly one of
+ * updated/unaffected. It never judges whether a reason is adequate; that stays
+ * with review.
  *
  * Declared classes (not author-based), each with its admission test and the
  * inputs that decide it:
@@ -455,23 +458,38 @@ export function docsInScope({ files, map, readFile }) {
 }
 
 /**
- * Pure core: the exact disposition lines a PR must carry.
+ * Pure core: the exact disposition lines a PR must carry — one per doc in
+ * scope. The doc's line answers for every rule the doc carries, so no clause
+ * takes a line here; the clause lines a PR may add are
+ * {@link acceptedClauseLines}.
+ * @param {object} opts
+ * @param {string[]} opts.docs in-scope doc paths
+ * @returns {{ doc: string, clause: null }[]} one entry per expected line
+ */
+export function expectedDispositionLines({ docs }) {
+  return docs.map((doc) => ({ doc, clause: null }));
+}
+
+/**
+ * Pure core: the clause-anchored lines a PR may carry beside its doc lines —
+ * one per clause the registry tags judgment-only, for each doc in scope. None
+ * is owed: the doc's own line answers for every rule the doc carries. A clause
+ * under any other tag admits no line.
  * @param {object} opts
  * @param {string[]} opts.docs in-scope doc paths
  * @param {any} opts.registry parsed clause-registry.json
- * @returns {{ doc: string, clause: string | null }[]} one entry per expected line
+ * @returns {{ doc: string, clause: string }[]} one entry per admitted line
  */
-export function expectedDispositionLines({ docs, registry }) {
-  const expected = [];
+export function acceptedClauseLines({ docs, registry }) {
+  const accepted = [];
   for (const doc of docs) {
-    expected.push({ doc, clause: null });
     for (const row of registry.clauses ?? []) {
       if (row.doc === doc && row.tag === 'judgment-only') {
-        expected.push({ doc, clause: row.clause });
+        accepted.push({ doc, clause: row.clause });
       }
     }
   }
-  return expected;
+  return accepted;
 }
 
 /**
@@ -495,7 +513,7 @@ export const DOC_PLACEHOLDER = 'docs/<path>';
 
 /**
  * The anchor the clause-anchored example stands on — a real registered clause,
- * so the line a contributor copies is one the check would actually expect for
+ * so the line a contributor copies is one the check would actually accept for
  * that doc. One example, so the surfaces cannot teach two.
  */
 export const CLAUSE_EXAMPLE_ANCHOR = 'docs/architecture/system/capture-principles.md §CP-3';
@@ -520,13 +538,22 @@ export const unaffectedLine = (anchor) =>
   `unaffected: ${anchor} — <why this diff cannot violate it>`;
 
 /**
- * The clause-anchored form, whose placeholder asks about the rule rather than
- * the document.
+ * The clause-anchored form a judgment-only clause may take beside its doc's
+ * line, whose placeholder asks about the rule rather than the document.
  * @param {string} anchor
  * @returns {string}
  */
 export const clauseLine = (anchor) =>
   `unaffected: ${anchor} — <why this diff cannot violate this rule>`;
+
+/**
+ * What the out-of-scope red adds when a line it names is clause-anchored: which
+ * clauses admit a line, since the area map decides only which docs are in scope.
+ */
+export const CLAUSE_SCOPE_NOTE =
+  `A clause-anchored line is in scope only for a clause ${REGISTRY_PATH} tags\n` +
+  `  judgment-only, in a doc that is itself in scope; any other clause of such a doc is\n` +
+  `  answered for by that doc's line.`;
 
 /** Those forms as the contributor-facing surfaces show them. */
 export const UPDATED_LINE_TEMPLATE = updatedLine(DOC_PLACEHOLDER);
@@ -676,7 +703,10 @@ function describeExpected({ doc, clause }) {
  * marker shown inside a code block, fenced or indented, is illustration.
  * @param {object} opts
  * @param {string} opts.body the PR description
- * @param {{ doc: string, clause: string | null }[]} opts.expected
+ * @param {{ doc: string, clause: string | null }[]} opts.expected the lines the
+ *   body owes
+ * @param {{ doc: string, clause: string | null }[]} [opts.accepted] the lines
+ *   the body may carry beside them; a line that is neither is out of scope
  * @param {boolean} [opts.governanceData] true when the diff is in the
  *   governance-data-only class, whose section carries the single marker line
  *   in place of the per-doc lines (callers pass an empty `expected` with it);
@@ -685,7 +715,7 @@ function describeExpected({ doc, clause }) {
  *             malformed: string[], duplicates: string[], governanceProblems: string[],
  *             changeRecordProblems: string[] }}
  */
-export function auditBody({ body, expected, governanceData = false }) {
+export function auditBody({ body, expected, accepted = [], governanceData = false }) {
   const result = {
     missingSections: [],
     missing: [],
@@ -727,9 +757,9 @@ export function auditBody({ body, expected, governanceData = false }) {
     for (const e of expected) {
       if (!seen.has(key(e))) result.missing.push(describeExpected(e));
     }
-    const expectedKeys = new Set(expected.map(key));
+    const inScopeKeys = new Set([...expected, ...accepted].map(key));
     for (const l of lines) {
-      if (!expectedKeys.has(key(l))) result.unexpected.push(describeExpected(l));
+      if (!inScopeKeys.has(key(l))) result.unexpected.push(describeExpected(l));
     }
   }
 
@@ -791,6 +821,7 @@ function run() {
   const governanceData = isGovernanceDataDiff(files);
   let docs = [];
   let expected = [];
+  let accepted = [];
   if (!governanceData) {
     // The map is read through its own check's loader and the registry through
     // the shared governance-data home, so one that cannot be read as its own
@@ -822,9 +853,10 @@ function run() {
       // stack trace, and never an expected-line list derived from nothing.
       refuseOnShapeError(err);
     }
-    expected = expectedDispositionLines({ docs, registry });
+    expected = expectedDispositionLines({ docs });
+    accepted = acceptedClauseLines({ docs, registry });
   }
-  const r = auditBody({ body, expected, governanceData });
+  const r = auditBody({ body, expected, accepted, governanceData });
 
   const problems = [];
   if (r.missingSections.length) {
@@ -838,13 +870,7 @@ function run() {
         `"${DISPOSITION_HEADING}" section needs one line at the left margin — an indented line\n` +
         `where a block starts is an example, just as a fenced one is — for each of these, whose\n` +
         `two forms are printed either side of the "OR"; paste the one that fits:\n\n` +
-        r.missing
-          .map((d) =>
-            d.includes('§')
-              ? `${updatedLine(d)}   OR   ${clauseLine(d)}`
-              : `${updatedLine(d)}   OR   ${unaffectedLine(d)}`,
-          )
-          .join('\n'),
+        r.missing.map((d) => `${updatedLine(d)}   OR   ${unaffectedLine(d)}`).join('\n'),
     );
   }
   if (r.unexpected.length) {
@@ -857,7 +883,8 @@ function run() {
             `  line where a block starts is an example, just as a fenced one is:\n\n` +
             `${GOVERNANCE_LINE_TEMPLATE}`
           : `\n  Scope is derived from the changed files via ${MAP_PATH}; remove lines that are not in scope\n` +
-            `  (and write paths bare — a path that only differs by backticks parses as a different doc).`),
+            `  (and write paths bare — a path that only differs by backticks parses as a different doc).` +
+            (r.unexpected.some((d) => d.includes('§')) ? `\n  ${CLAUSE_SCOPE_NOTE}` : '')),
     );
   }
   if (r.governanceProblems.length) {

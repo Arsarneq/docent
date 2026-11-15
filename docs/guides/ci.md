@@ -102,10 +102,11 @@ check derives the set of docs governing the changed code from
 [`area-map.json`](../../scripts/area-map.json) and the `judgment-only`
 clause list from [`clause-registry.json`](../clause-registry.json), then
 verifies the `## Docs disposition` section carries exactly one
-`updated:`/`unaffected:` line per governing doc (plus one per
-`judgment-only` clause) and that `## Change record` carries its structural
-markers. It checks **form only** — the reasons are read by reviewers, never
-judged by CI — and its red output enumerates the exact lines it expects. An
+`updated:`/`unaffected:` line per governing doc (a `judgment-only` clause of
+such a doc may take a line of its own; none is owed) and that
+`## Change record` carries its structural markers. It checks **form only** —
+the reasons are read by reviewers, never judged by CI — and its red output
+enumerates the exact lines it expects. An
 `area-map.json` the check cannot resolve through is refused with the map's own
 verdict instead — the shape errors enumerated as found where the map read but
 its shape failed, and the one reason in their place where the text is not JSON
