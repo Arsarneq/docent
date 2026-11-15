@@ -107,19 +107,7 @@ export const npmRootOf = (entry) => entry.root ?? DEFAULT_NPM_ROOT;
  * reason it is waved through and the last day it holds; a stale or expired
  * entry reds, so the list states what is waved through today and nothing else.
  */
-export const IGNORED_ADVISORIES = [
-  {
-    id: 'GHSA-vfj7-8cjw-p6xm',
-    package: 'braces',
-    reason:
-      'No patched release is published: the vulnerable range (<= 3.0.3) covers braces 3.0.3, the ' +
-      'latest version. braces is reached only through development tooling, and no available ' +
-      'remedy clears it: the fixes npm audit offers are semver-major downgrades of stylelint, ' +
-      'stylelint-config-standard and remark-cli, and the update it offers for markdownlint-cli2 ' +
-      'addresses another advisory while keeping micromatch 4.0.8, which depends on braces.',
-    until: '2026-11-03',
-  },
-];
+export const IGNORED_ADVISORIES = [];
 
 /** The fields every list entry carries, each a non-empty string. */
 const ENTRY_FIELDS = ['id', 'package', 'reason', 'until'];
