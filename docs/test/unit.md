@@ -592,7 +592,8 @@ machinery under `scripts/`.
 
 - none single-quoted, each glob double-quoted and resolving to files;
 - the pre-push hook's ESLint call reaches every tree `lint:js` does except the ones the CI guide
-  names as CI's alone, and every tracked JavaScript file under `packages/` is reached by `lint:js`
+  names as CI's alone, its rustfmt call runs only when a pushed file is one rustfmt reads, and every
+  tracked JavaScript file under `packages/` is reached by `lint:js`
   or ignored by the configuration.
 
 ### `vector-meta-schema.test.js`

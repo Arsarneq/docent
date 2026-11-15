@@ -725,7 +725,10 @@ and the rustfmt check (over both Rust manifests: the desktop crate and the
 Win32 bindings generator) in parallel — a local mirror of the `lint` job's
 leading gates (rustfmt's own step sits later in that job). The mirror is close,
 not exact: the hook's Stylelint call runs only when a pushed file is a
-stylesheet, and the hook's ESLint call
+stylesheet and its rustfmt call only when one is a file rustfmt reads (a
+Rust source, a Cargo manifest or a `rustfmt.toml`), so a push without Rust
+changes needs no Rust toolchain. Both key on the files the checked-out
+branch would push. The hook's ESLint call
 enumerates the package source trees, the extension library, the extension and
 desktop test trees and the repository scripts, while CI's `lint:js` also covers
 `reference-implementations/` and `corpus/`, so a change confined to those
