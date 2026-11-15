@@ -163,6 +163,7 @@ jobs:
               - '.github/workflows/pin-history.yml'
               - '.github/workflows/scorecard.yml'
               - 'README.md'
+              - 'docs/api/control-channel.md'
               - 'docs/api/dispatch.md'
               - 'docs/api/sync-protocol.md'
               - 'docs/architecture/application/desktop/windows/application-shell.md'

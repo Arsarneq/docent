@@ -252,3 +252,34 @@ version, the recording's step history keeps the committed steps of both (a
 replaced step's earlier versions stay reachable through its History view);
 keeping a deleted side removes the recording or project. Accepting a deletion
 is always an explicit choice — a conflict never resolves to one on its own.
+
+## Local control
+
+Local control lets a program on your own computer run the panel for you: it
+can create a project, create a recording, pause and resume capture, and commit
+a step. It cannot delete, rename, export, send, sync, or change a setting. It
+is off until you turn it on, and it turns off when you close the panel.
+
+1. Note the port the program that will drive Docent listens on. The program
+   can be started before or after the next step.
+2. In the panel header, open **Local control**, enter the port, and choose
+   **Turn on**. A banner appears on every view, saying local control is on and
+   showing a pairing code.
+3. Give the pairing code to the program. Once it has paired, the code
+   disappears from the banner.
+4. Choose **Turn off** in the banner to end it.
+
+While a program drives the panel, the panel moves by itself: a new project
+opens, a new recording starts, a committed step joins the list. Creating a
+recording or a project drops captured actions that are not yet committed, as
+it does when you do it yourself. A command sent while you
+re-record a step or commit one is refused, and the program is told why.
+
+A pairing code works once. Local control turns itself off, and tells you why,
+when pairing fails, when the program disconnects, or when no program has
+answered on the port after 150 tries (about five minutes when nothing listens
+there); turn it on again to get a new
+code. The panel only ever connects to your own computer (`127.0.0.1`).
+
+The protocol a program speaks is specified in the
+[Local Control Channel](../api/control-channel.md) document.

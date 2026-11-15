@@ -92,6 +92,22 @@
  *     `shared/sync-client.js` with the push-scope comments and the exported
  *     envelope projection that holds the pull and push halves together; no new
  *     dependency.
+ *   - Raised to 715KB for the local control channel: measured 709,975 B
+ *     (`node_modules` inside the checkout); margin 22,185 B; growth since
+ *     669,175 B (the header's recorded size): `sidepanel/control-channel.js`
+ *     +17,639 B (new), `sidepanel/control-channel-host.js` +6,217 B (new),
+ *     `sidepanel/control-commands.js` +5,022 B (new), `sidepanel/panel.js`
+ *     +4,797 B (+5,400 B in this change, −603 B before it),
+ *     `sidepanel/send-gate.js` +3,608 B (new), `lib/navigation-logic.js`
+ *     +2,946 B, `shared/sync-types.js` +588 B, `shared/lib/http-transport.js`
+ *     +294 B, `content/recorder.js` +178 B, `lib/capture-timing.js` +86 B,
+ *     `shared/conflict-resolution.js` −863 B, `shared/sync-client.js` −638 B,
+ *     `background/service-worker.js` −355 B, others +1,281 B. Deliberate: the
+ *     three control-channel modules are the opt-in loopback channel (pairing
+ *     and frame validation, the socket host, the command-to-action mapping)
+ *     with the contract-bearing comments that state its bounds, and the panel
+ *     grew by its binding; the rest landed earlier inside the previous budget;
+ *     no new dependency.
  *
  * Requires `npm run sync-shared` to have been run first.
  */
@@ -142,7 +158,7 @@ function formatSize(bytes) {
 
 const extensionExcludes = ['node_modules', 'tests', '.git', 'coverage'];
 
-const JS_BUDGET_KB = 674;
+const JS_BUDGET_KB = 715;
 
 /** The headroom rule's figures for a measured size: the next budget and its margin. */
 function nextBudget(bytes) {

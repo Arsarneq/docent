@@ -172,7 +172,8 @@ Desktop"), a header logo the desktop shell carries, and the column each
 platform's panel driver places a row's attention badges in — and in
 the controls each platform's
 deliberate differences add outside the fragment (the desktop's target-application
-selector and self-capture toggle, the extension's storage-pressure banner),
+selector and self-capture toggle, the extension's storage-pressure banner
+and local control),
 which the
 [index of deliberate differences](../../design/ui_ux/shared-interaction-model.md#the-deliberate-platform-differences)
 lists, and in the content-security policy each shell's head declares (the
