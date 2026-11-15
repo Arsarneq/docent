@@ -95,8 +95,12 @@ describe('buildOpenProjectExport', () => {
 });
 
 describe('buildOpenProjectExport — no dialog', () => {
-  it('opens no dialog on any failure of the build', async () => {
-    const saved = { alert: globalThis.alert, confirm: globalThis.confirm };
+  it('answers each failure of the build in-band and opens no dialog', async () => {
+    const saved = {
+      alert: globalThis.alert,
+      confirm: globalThis.confirm,
+      prompt: globalThis.prompt,
+    };
     const opened = [];
     globalThis.alert = (text) => {
       opened.push(['alert', text]);
@@ -105,6 +109,10 @@ describe('buildOpenProjectExport — no dialog', () => {
     globalThis.confirm = (text) => {
       opened.push(['confirm', text]);
       throw new Error('confirm opened');
+    };
+    globalThis.prompt = (text) => {
+      opened.push(['prompt', text]);
+      throw new Error('prompt opened');
     };
     try {
       const failures = [
@@ -116,6 +124,13 @@ describe('buildOpenProjectExport — no dialog', () => {
         },
         { project: OPEN, send: worker(() => undefined).send, loadSchema: async () => SCHEMA },
         { project: OPEN, send: worker().send, loadSchema: async () => ({}) },
+        {
+          project: OPEN,
+          send: async () => {
+            throw new Error('the worker is gone');
+          },
+          loadSchema: async () => SCHEMA,
+        },
       ];
       for (const params of failures) {
         const result = await buildOpenProjectExport(params);
@@ -125,6 +140,7 @@ describe('buildOpenProjectExport — no dialog', () => {
     } finally {
       globalThis.alert = saved.alert;
       globalThis.confirm = saved.confirm;
+      globalThis.prompt = saved.prompt;
     }
     assert.deepEqual(opened, []);
   });

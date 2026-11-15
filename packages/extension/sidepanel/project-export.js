@@ -37,7 +37,12 @@ export const NO_OPEN_PROJECT = 'No open project';
  */
 export async function buildOpenProjectExport({ project, send, loadSchema }) {
   if (!project) return { ok: false, error: NO_OPEN_PROJECT };
-  const response = await send({ type: 'PROJECT_EXPORT', project_id: project.project_id });
+  let response;
+  try {
+    response = await send({ type: 'PROJECT_EXPORT', project_id: project.project_id });
+  } catch {
+    return { ok: false, error: 'The service worker did not answer' };
+  }
   if (!response?.ok) return { ok: false, error: response?.error ?? 'unknown error' };
   try {
     // Stamped here in the panel, where the composed schema is available (the
