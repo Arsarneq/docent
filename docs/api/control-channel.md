@@ -51,11 +51,11 @@ sequenceDiagram
         Local->>Panel: command (id, name, args)
         Panel->>Panel: The panel action a click runs
         Panel->>Local: result (id, ok, …)
-    end
-    opt Export allowed at turn-on
-        Local->>Panel: command project.export
-        Panel-->>Person: Indicator: project name, export count
-        Panel->>Local: result (export document)
+        opt project.export, with export allowed at turn-on
+            Local->>Panel: command project.export
+            Panel-->>Person: Indicator: project name, export count
+            Panel->>Local: result (export document)
+        end
     end
 ```
 
@@ -85,7 +85,8 @@ checkbox, unticked when the panel opens and again each time the channel turns
 off, by which the person allows export ([LC-7](#the-command-set)); the grant is fixed when the channel
 turns on, stays as given while it is on, and ends when it turns off. Its whole
 state — whether it is on, the port, the pairing code, the connection, the
-export grant and the count of exports — lives in the memory of the side panel
+export grant, the count of exports and the name of the project last exported —
+lives in the memory of the side panel
 page and nowhere else: the extension writes no
 storage key for it and sends the service worker no message about it. The
 channel therefore ends when the panel closes, and a panel opened afterwards
@@ -110,8 +111,13 @@ plain decimal whole number from 1024 to 65535. The side panel page's content
 security policy names `ws://127.0.0.1:*` as its only WebSocket source, so the
 browser itself refuses a WebSocket from the panel to any other host.
 
-The local process listens on that port and accepts the connection. The
-browser states the connection's origin in the WebSocket handshake as
+The local process MUST listen on the address the panel dials — `127.0.0.1`
+on that port — itself and alone: not on a wildcard address, not on another
+loopback address, and not on a port another process can also bind. The
+pairing proves that each end holds the code; the frames that follow are bound
+to the pairing by this connection alone, so a local process that holds the
+address and port itself is the one end the panel's frames reach. It accepts
+the connection. The browser states the connection's origin in the WebSocket handshake as
 `chrome-extension://<extension id>`, a value no web page's connection carries; a
 local process that wants to accept the extension alone compares it.
 
@@ -352,18 +358,18 @@ further until a person turns the channel on again, which makes a new code:
 The channel adds a way into the extension, so its design is stated against who
 could try to use it.
 
-| Who                                                               | What they could try                                                                    | What stops it                                                                                                                                                                                                                       |
-| ----------------------------------------------------------------- | -------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| A web page, a recorded one included                               | Send commands, or read the exchange                                                    | The connection is opened by the side panel page to a local port; no page script holds it, and nothing listens in the browser                                                                                                        |
-| Another computer on the network                                   | Stand in for the local process                                                         | The address is the loopback literal, enforced by the panel's code and by the browser's policy (LC-3)                                                                                                                                |
-| Another process on this computer that takes the port              | Receive the connection and send commands                                               | It has no pairing code, and its one attempt turns the channel off (LC-5)                                                                                                                                                            |
-| The same, guessing the code                                       | Guess a proof                                                                          | One attempt against 32^16 codes, a new code per turn-on, a new nonce per connection (LC-4, LC-5)                                                                                                                                    |
-| The same, holding the connection open                             | Keep the code on screen while it does nothing                                          | A dial that does not connect is dropped after 10 seconds and a connected peer has 10 seconds to pair (LC-3, LC-5)                                                                                                                   |
-| A process that connects to the local process in the panel's place | Pass its own results off as the panel's                                                | It cannot make the panel's proof over the local process's nonce without the code, and the panel sends that proof only after the local process has proven the code (LC-4, LC-5)                                                      |
-| A paired local process                                            | Take captured data, send data, change settings, or delete a project, recording or step | The command set is closed and holds no send, setting or delete (LC-7); captured data crosses only in an export the person allowed at turn-on, of the project open in the panel, and the indicator shows each one (LC-1, LC-2, LC-9) |
-| Anything, while nobody asked for the channel                      | Use it unnoticed                                                                       | It is off until a person turns it on, shows an indicator while on, and ends with the panel (LC-1, LC-2)                                                                                                                             |
+| Who                                                               | What they could try                                                                    | What stops it                                                                                                                                                                                                                                                |
+| ----------------------------------------------------------------- | -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| A web page, a recorded one included                               | Send commands, or read the exchange                                                    | The connection is opened by the side panel page to a local port; no page script holds it, and nothing listens in the browser                                                                                                                                 |
+| Another computer on the network                                   | Stand in for the local process                                                         | The address is the loopback literal, enforced by the panel's code and by the browser's policy (LC-3)                                                                                                                                                         |
+| Another process on this computer that takes the port              | Receive the connection and send commands                                               | The local process holds `127.0.0.1` on the port itself and alone (LC-3); a process that takes the port anyway has no pairing code, and its one attempt turns the channel off (LC-5)                                                                          |
+| The same, guessing the code                                       | Guess a proof                                                                          | One attempt against 32^16 codes, a new code per turn-on, a new nonce per connection (LC-4, LC-5)                                                                                                                                                             |
+| The same, holding the connection open                             | Keep the code on screen while it does nothing                                          | A dial that does not connect is dropped after 10 seconds and a connected peer has 10 seconds to pair (LC-3, LC-5)                                                                                                                                            |
+| A process that connects to the local process in the panel's place | Pass its own results off as the panel's                                                | It cannot make the panel's proof over the local process's nonce without the code, the panel sends that proof only after the local process has proven the code (LC-4, LC-5), and the local process takes one connection on the address it holds itself (LC-3) |
+| A paired local process                                            | Take captured data, send data, change settings, or delete a project, recording or step | The command set is closed and holds no send, setting or delete (LC-7); captured data crosses only in an export the person allowed at turn-on, of the project open in the panel, and the indicator shows each one (LC-1, LC-2, LC-9)                          |
+| Anything, while nobody asked for the channel                      | Use it unnoticed                                                                       | It is off until a person turns it on, shows an indicator while on, and ends with the panel (LC-1, LC-2)                                                                                                                                                      |
 
-The channel does not defend against three things, by its nature — the list is
+The channel does not defend against four things, by its nature — the list is
 closed:
 
 - A process that can read the screen or the side panel's memory can read the
@@ -376,6 +382,10 @@ closed:
     a project;
   - with the export allowed, take the project open in the panel — whichever
     project the person opens while the grant holds.
+- A process the connection passes through, between the panel and a local
+  process that does not hold `127.0.0.1` on the port itself (LC-3), sees and
+  can alter the frames after pairing: the pairing proves that each end holds
+  the code, and the frames that follow rest on the connection.
 - The grant governs the channel alone: a process running as the same user can
   read the browser profile's stored projects from disk without it, so the grant
   is a person's consent and a narrowing of what the channel hands out, not a

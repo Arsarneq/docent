@@ -1255,7 +1255,7 @@
       "doc": "docs/api/control-channel.md",
       "clause": "LC-3",
       "tag": "check-exists",
-      "check-ref": "The address form and the port bounds are pinned by the controlUrl describe of packages/extension/tests/unit/control-channel.test.js (npm run test:extension); the policy's one WebSocket source by packages/shared/tests/unit/security.test.js over the shipped panel shell (npm run test:shared); the browser's refusal of another host by packages/extension/tests/e2e/specs/control-channel.spec.js (npm run test:e2e), which dials ws://localhost from the panel page and observes the policy violation, and does the same for a wss: URL to another host; the redial interval, the 10-second connect bound and the cap by packages/extension/tests/unit/control-channel-host.test.js.",
+      "check-ref": "The address form and the port bounds are pinned by the controlUrl describe of packages/extension/tests/unit/control-channel.test.js (npm run test:extension); the policy's one WebSocket source by packages/shared/tests/unit/security.test.js over the shipped panel shell (npm run test:shared); the browser's refusal of another host by packages/extension/tests/e2e/specs/control-channel.spec.js (npm run test:e2e), which dials ws://localhost from the panel page and observes the policy violation, and does the same for a wss: URL to another host; the redial interval, the 10-second connect bound and the cap by packages/extension/tests/unit/control-channel-host.test.js. Named residue: that the local process listens on 127.0.0.1 on the port itself and alone is that process's duty; no suite of this repository runs a local process of its own, so it is review-held against each local process.",
       "test-cases": [
         "builds a ws URL on 127.0.0.1 for a valid port",
         "accepts the bounds of the unprivileged range",
@@ -1360,7 +1360,8 @@
         "exports the project open in this panel, as its Export button builds it",
         "answers an export the panel could not make with a fixed text, opening no dialog",
         "asks the worker for the open project by its id and builds the stamped export",
-        "with the grant, exports the project open in this panel, as its Export button builds it"
+        "with the grant, exports the project open in this panel, as its Export button builds it",
+        "opens no dialog on any failure of the build"
       ]
     },
     {

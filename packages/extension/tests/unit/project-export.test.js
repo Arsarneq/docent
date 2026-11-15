@@ -94,6 +94,42 @@ describe('buildOpenProjectExport', () => {
   });
 });
 
+describe('buildOpenProjectExport — no dialog', () => {
+  it('opens no dialog on any failure of the build', async () => {
+    const saved = { alert: globalThis.alert, confirm: globalThis.confirm };
+    const opened = [];
+    globalThis.alert = (text) => {
+      opened.push(['alert', text]);
+      throw new Error('alert opened');
+    };
+    globalThis.confirm = (text) => {
+      opened.push(['confirm', text]);
+      throw new Error('confirm opened');
+    };
+    try {
+      const failures = [
+        { project: null, send: worker().send, loadSchema: async () => SCHEMA },
+        {
+          project: OPEN,
+          send: worker({ ok: false, error: 'Project not found' }).send,
+          loadSchema: async () => SCHEMA,
+        },
+        { project: OPEN, send: worker(() => undefined).send, loadSchema: async () => SCHEMA },
+        { project: OPEN, send: worker().send, loadSchema: async () => ({}) },
+      ];
+      for (const params of failures) {
+        const result = await buildOpenProjectExport(params);
+        assert.equal(result.ok, false);
+        assert.equal(typeof result.error, 'string');
+      }
+    } finally {
+      globalThis.alert = saved.alert;
+      globalThis.confirm = saved.confirm;
+    }
+    assert.deepEqual(opened, []);
+  });
+});
+
 describe('exportFileName', () => {
   it('names the file after the exported project, then the time', () => {
     assert.equal(

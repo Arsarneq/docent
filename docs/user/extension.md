@@ -274,8 +274,9 @@ close the panel.
    disappears from the banner.
 4. Choose **Turn off** in the banner to end it.
 
-The export choice holds until local control turns off; to change it, turn
-local control off and on again. While export is allowed, the banner says so,
+The export choice holds until local control turns off, and the box is unticked
+again every time local control turns off, so allowing export is a choice you
+make at each turn-on; to change it, turn local control off and on again. While export is allowed, the banner says so,
 and after each export it names the project exported and counts the exports so
 far. An export holds the whole project open in the panel — every recording,
 with its full step history, deleted steps included — the same file the
