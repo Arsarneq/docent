@@ -568,6 +568,30 @@ Machine-readable schemas for validation:
 - [`schemas/dist/desktop-windows.schema.json`](../../schemas/dist/desktop-windows.schema.json) — Windows desktop
 - [`schemas/shared.schema.json`](../../schemas/shared.schema.json) — Shared definitions (not used directly for validation)
 
+### Adding a field
+
+A new field is added in a source layer: the base when every platform records
+it, a family or leaf layer when it belongs to one. Four things travel with it
+in the same change:
+
+- **Its version level.** A new optional field is a minor change and a new
+  required field a major one; [Versioning](#versioning) states the levels, and
+  the release tooling applies them.
+- **Base wording names no platform.** The definitions under the base's `$defs`
+  stay free of platform and technology words; the word list is held by
+  [`schema-composition.test.js`](../../packages/shared/tests/unit/schema-composition.test.js),
+  which fails the shared unit suite on a base definition that uses one.
+  Platform-specific wording goes in the family or leaf layer.
+- **Its place in the field taxonomy.** Whether the replay-sufficiency guarantee
+  stands on the field is classified in
+  [Replay Sufficiency — Field Taxonomy](../requirements/replay-sufficiency.md#field-taxonomy--normative-vs-informative);
+  a new field enters as informative unless that taxonomy says otherwise.
+- **Its row in this document's field tables.** `npm run lint:schema-echo`
+  holds some of the `Field`-headed tables to the composed schemas, and
+  [`check-schema-echo.js`](../../scripts/check-schema-echo.js) lists the
+  others as `UNHELD_FIELD_TABLES`. Tables in another shape (the action-type
+  and strategy tables) are held by review alone.
+
 ---
 
 ## Import acceptance
