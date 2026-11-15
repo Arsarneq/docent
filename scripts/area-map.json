@@ -642,13 +642,28 @@
     },
     {
       "path": "packages/extension/content/recorder-logic.js",
-      "reason": "the extension recorder logic derives the element descriptions and locator candidates that become .docent.json fields, so it owes the session-format doc on top of its capture-area governance; declared single-source (its governing set stated here as its covering areas' whole doc sets plus that one doc) so the pointer to the format doc does not resolve at area granularity and drag the format-contract area's other docs onto it — the amplification the sync re-cut terminated on the shared chokepoints. The per-platform schemas remain authoritative for field semantics.",
-      "governed-by": ["area:extension/capture", "docs/technical/session-format.md"]
+      "reason": "the extension recorder logic derives the element descriptions and locator candidates that become .docent.json fields. Its governing set is stated here doc by doc and is narrower than its area's: the two capture doctrines and the locator procedure own what it derives and the scroll-capture decision it makes, the session-format doc owns the fields that carry it, and the shared-core doc owns the rule that behavior the shared layer defines is not reimplemented on one platform. It is a pure module with no messaging and no storage access, so the area's other docs state nothing it implements: the extension runtime, the persistence doc, the sync protocol, the manifest's permission surface and the two user guides. An edit to the block mirrored into recorder.js changes that file too, which owes its own set. A new duty adds the doc that states it. The per-platform schemas remain authoritative for field semantics.",
+      "governed-by": [
+        "docs/architecture/application/extension/capture-principles.md",
+        "docs/architecture/system/capture-principles.md",
+        "docs/technical/locator-resolution.md",
+        "docs/technical/session-format.md",
+        "docs/architecture/system/shared-core.md"
+      ]
     },
     {
       "path": "packages/extension/content/recorder.js",
-      "reason": "the extension content recorder captures user actions into the .docent.json action stream, so it owes the session-format doc on top of its capture-area governance; declared single-source (its governing set stated here as its covering areas' whole doc sets plus that one doc) so the pointer to the format doc does not resolve at area granularity and drag the format-contract area's other docs onto it — the amplification the sync re-cut terminated on the shared chokepoints. The per-platform schemas remain authoritative for field semantics.",
-      "governed-by": ["area:extension/capture", "docs/technical/session-format.md"]
+      "reason": "the extension content recorder captures user actions into the .docent.json action stream. Its governing set is stated here doc by doc and is narrower than its area's: the two capture doctrines and the locator procedure own what it records, the session-format doc owns the fields that carry it, the extension runtime owns the message protocol and the storage keys the content script uses, the persistence doc owns the stored capture state those keys hold, the shared-core doc owns the rule that behavior the shared layer defines is not reimplemented on one platform, and the extension user guide states that capture goes on while the side panel is closed, which holds because this file takes its on-off state from storage and sends each action to the service worker. The area's other docs state nothing this file implements: the sync protocol, the manifest's permission surface (which the service worker's injection and the extension's storage use need) and the troubleshooting guide. A new duty adds the doc that states it. The per-platform schemas remain authoritative for field semantics.",
+      "governed-by": [
+        "docs/architecture/application/extension/capture-principles.md",
+        "docs/architecture/system/capture-principles.md",
+        "docs/technical/locator-resolution.md",
+        "docs/technical/session-format.md",
+        "docs/architecture/application/extension/runtime.md",
+        "docs/architecture/system/persistence.md",
+        "docs/architecture/system/shared-core.md",
+        "docs/user/extension.md"
+      ]
     },
     {
       "path": "packages/extension/lib/capture-timing.js",
