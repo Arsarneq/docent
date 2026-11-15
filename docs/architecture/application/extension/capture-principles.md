@@ -129,7 +129,8 @@ the capture phase, for exactly these DOM events:
   be attributed to the element the user moved to
 - `click` — activation of the clicked element or its nearest interactive
   ancestor (the set the recorder tests is stated in the session-format
-  document's action table; core CP-18)
+  document's action table; core CP-18); a click on a `label` is the label's,
+  and the click the browser sends on to the labelled control is part of it
 - `contextmenu` — the right-click, its element picked as for `click`
 - `keydown` — the keys in the captured keyboard set
 - `change` — a committed value: a `select` choice, an `input`/`textarea` entry,

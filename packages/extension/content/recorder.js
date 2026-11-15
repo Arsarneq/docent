@@ -537,6 +537,8 @@
   let lastFileInputClickTime = 0;
   let lastMousedownTime = 0;
   let lastMousedownEl = null;
+  // The control a label click's activation is about to click (#670).
+  let labelForwardedTo = null;
 
   // Track mousedown for blur-caused change suppression.
   // When clicking a different element, the sequence is:
@@ -579,6 +581,19 @@
       if (el.tagName === 'INPUT' && el.type === 'file') {
         lastFileInputClickEl = el;
         lastFileInputClickTime = Date.now();
+      }
+      // A label's activation sends a click on to its control in the same task:
+      // the person made one click, recorded as the label's (#670).
+      if (labelForwardedTo !== null && e.target === labelForwardedTo) {
+        labelForwardedTo = null;
+        return;
+      }
+      if (el.tagName === 'LABEL' && el.control && !el.control.contains(e.target)) {
+        const control = el.control;
+        labelForwardedTo = control;
+        setTimeout(() => {
+          if (labelForwardedTo === control) labelForwardedTo = null;
+        }, 0);
       }
       appendAction({
         type: 'click',

@@ -275,6 +275,43 @@ test.describe('Checkbox and Radio', () => {
   });
 });
 
+// Regression: #670 — a click on a label was recorded twice: the label's click,
+// then the click the browser sends on to the labelled control, so a replay
+// toggled a checkbox twice. The label's click is the one the person made.
+// https://github.com/Arsarneq/docent/issues/670
+test.describe('Label Click', () => {
+  const PAGE_HTML = /* html */ `<!DOCTYPE html>
+  <html><body>
+    <input id="box" type="checkbox"><label id="for-box" for="box">Box</label>
+    <label id="wrap"><input id="inner" type="checkbox"> <span id="wrap-text">Wrapped</span></label>
+    <button id="btn" type="button">Go</button><label id="for-btn" for="btn">Button</label>
+  </body></html>`;
+
+  test.beforeEach(async ({ testPage, serviceWorker }) => {
+    await setTestContent(testPage, PAGE_HTML);
+    await testPage.waitForTimeout(200);
+    await clearPendingActions(serviceWorker);
+  });
+
+  test('regression_670_a_label_click_records_one_click', async ({ testPage, serviceWorker }) => {
+    await testPage.click('#for-box');
+    await testPage.click('#wrap-text');
+    await testPage.click('#for-btn');
+    await testPage.click('#box'); // the control itself, still one click
+    await waitForActionsToSettle(serviceWorker, testPage);
+
+    const actions = await getPendingActions(serviceWorker);
+    expect(actions.map((a) => [a.type, a.element?.selector])).toEqual([
+      ['click', '#for-box'],
+      ['click', '#wrap'],
+      ['click', '#for-btn'],
+      ['click', '#box'],
+    ]);
+    expect(await testPage.isChecked('#box')).toBe(false); // ticked by the label, unticked directly
+    expect(await testPage.isChecked('#inner')).toBe(true);
+  });
+});
+
 test.describe('Password Masking', () => {
   const PAGE_HTML = /* html */ `<!DOCTYPE html>
   <html><body>
