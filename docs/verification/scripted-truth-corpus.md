@@ -104,7 +104,8 @@ the relaxation contract: STC-5 and STC-21; baseline mechanics: STC-3).
 Local loops:
 
 - **Extension:** `npm run corpus:produce:extension`, then
-  `npm run corpus:check`. Vectors: `npm run vectors:produce:extension` runs
+  `npm run corpus:check`. The producer runs on the end-to-end harness and
+  needs [its one-time install](../test/e2e.md#running-the-suite). Vectors: `npm run vectors:produce:extension` runs
   the vectors config, and `npm run vectors:check` chains it with the hygiene
   locks.
 - **Desktop (a Windows machine):** the Rust producer
@@ -172,6 +173,13 @@ applies depends on which side is right:
   The desktop baseline takes `--platform desktop-windows` and
   `corpus/known-diffs.desktop-windows.json`. The same command records a diff
   that vanished because a fix landed.
+
+A third red needs neither judgment. A baseline entry for an extra or a
+missing action quotes the start of that action, with its keys sorted, so a
+field that sorts into the quoted part changes the entry: the old one vanishes
+and the same gap appears as new. The gap itself is unchanged; regenerate the
+baseline with the command above and review that the quoted action is all that
+differs.
 
 ## Comparator and relaxations
 
