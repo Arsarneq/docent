@@ -6,14 +6,27 @@
  * The classifier is a release-version FLOOR, so its bias matches the schema
  * classifier's: only changes that clearly affect the public surface bump the
  * version; everything else is `none`. Breaking changes escalate to major.
+ *
+ * Also covered: version comparison, the release base the bump is applied to
+ * (the last final release — the latest final tag, or the app file when no tag
+ * is found), the per-platform suggestion built on it, and the git-log read over
+ * a history whose output exceeds Node's default buffer.
  */
 
-import { describe, it } from 'node:test';
+import { describe, it, after } from 'node:test';
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import {
   classifyCommit,
   parseCommitRecords,
   higher,
+  compareVersions,
+  resolveReleaseBase,
+  suggestRelease,
+  commitsSince,
 } from '../../../../scripts/next-release-version.js';
 import { bumpVersion } from '../../../../scripts/auto-version-schemas.js';
 
@@ -140,5 +153,174 @@ describe('parseCommitRecords — git-log record parsing + aggregate floor', () =
     assert.equal(r.total, 3);
     assert.equal(r.level, 'none');
     assert.equal(r.unrecognized, 2);
+  });
+});
+
+describe('compareVersions — semver precedence of final X.Y.Z versions', () => {
+  it('orders by major, then minor, then patch (numerically, not lexically)', () => {
+    assert.ok(compareVersions('3.1.0', '3.0.0') > 0);
+    assert.ok(compareVersions('2.0.0', '10.0.0') < 0);
+    assert.ok(compareVersions('1.10.0', '1.9.9') > 0);
+    assert.ok(compareVersions('1.0.10', '1.0.9') > 0);
+    assert.equal(compareVersions('2.1.0', '2.1.0'), 0);
+  });
+});
+
+describe('resolveReleaseBase — the version the bump is applied to', () => {
+  const file = 'packages/extension/manifest.json';
+
+  it('tag and file agree -> that version, no note', () => {
+    const r = resolveReleaseBase({
+      fileVersion: '3.1.0',
+      fileLabel: file,
+      tag: 'extension-v3.1.0',
+      tagVersion: '3.1.0',
+    });
+    assert.deepEqual(r, { version: '3.1.0', source: 'tag', note: null });
+  });
+
+  it('no final tag found -> the file version, no note (the commit line reports the missing tag)', () => {
+    const r = resolveReleaseBase({
+      fileVersion: '3.0.0',
+      fileLabel: file,
+      tag: null,
+      tagVersion: null,
+    });
+    assert.deepEqual(r, { version: '3.0.0', source: 'file', note: null });
+  });
+
+  it('app file behind the tag -> the tag version, with a note naming why the file lags', () => {
+    const r = resolveReleaseBase({
+      fileVersion: '3.0.0',
+      fileLabel: file,
+      tag: 'extension-v3.1.0',
+      tagVersion: '3.1.0',
+    });
+    assert.equal(r.version, '3.1.0');
+    assert.equal(r.source, 'tag');
+    assert.match(r.note, /manifest\.json reads 3\.0\.0, behind extension-v3\.1\.0/);
+    assert.match(r.note, /carries the schema version/);
+  });
+
+  it('app file ahead of the latest final tag -> still the tag version, with a note naming the causes', () => {
+    const r = resolveReleaseBase({
+      fileVersion: '2.2.0',
+      fileLabel: file,
+      tag: 'desktop-v2.1.0',
+      tagVersion: '2.1.0',
+    });
+    // App and schema versions are independent: a final tag, when one exists, is the base.
+    assert.equal(r.version, '2.1.0');
+    assert.equal(r.source, 'tag');
+    assert.match(r.note, /reads 2\.2\.0, ahead of desktop-v2\.1\.0/);
+    assert.match(r.note, /schema version ahead of the last app tag/);
+    assert.match(r.note, /git fetch --tags/);
+    assert.match(r.note, /Measured from the tag\.$/);
+  });
+});
+
+describe('suggestRelease — the per-platform suggestion run() prints', () => {
+  const ext = { tagPrefix: 'extension-v', fileLabel: 'packages/extension/manifest.json' };
+
+  // Regression: #667 — the base was read from the app file, which carries the
+  // schema version and so lags the last final tag, and the helper suggested a
+  // tag that already existed.
+  // https://github.com/Arsarneq/docent/issues/667
+  it('regression_667_suggests_the_tag_after_the_last_final_tag_when_app_file_lags', () => {
+    const s = suggestRelease({
+      ...ext,
+      fileVersion: '3.0.0',
+      tag: 'extension-v3.1.0',
+      schemaLevel: 'minor',
+      commitLevel: 'minor',
+    });
+    assert.equal(s.suggestedTag, 'extension-v3.2.0');
+    assert.equal(s.base.version, '3.1.0');
+    assert.equal(s.level, 'minor');
+    assert.equal(s.driver, 'schema + commits (minor)');
+  });
+
+  it('no bump indicated -> no suggested tag, base unchanged', () => {
+    const s = suggestRelease({
+      ...ext,
+      fileVersion: '3.1.0',
+      tag: 'extension-v3.1.0',
+      schemaLevel: 'none',
+      commitLevel: 'none',
+    });
+    assert.equal(s.suggestedTag, null);
+    assert.equal(s.base.version, '3.1.0');
+    assert.equal(s.driver, 'no version-affecting changes detected');
+  });
+
+  it('no tag found -> measured from the file, the schema diff drives', () => {
+    const s = suggestRelease({
+      ...ext,
+      fileVersion: '3.0.0',
+      tag: null,
+      schemaLevel: 'patch',
+      commitLevel: 'none',
+    });
+    assert.equal(s.base.source, 'file');
+    assert.equal(s.suggestedTag, 'extension-v3.0.1');
+    assert.equal(s.driver, 'schema diff (patch)');
+  });
+});
+
+describe('commitsSince — reads the git log of a real repository', () => {
+  const dirs = [];
+  after(() => {
+    for (const d of dirs) rmSync(d, { recursive: true, force: true });
+  });
+
+  /** A throwaway repository with deterministic, unsigned commits. */
+  function repo() {
+    const dir = mkdtempSync(join(tmpdir(), 'next-release-version-'));
+    dirs.push(dir);
+    const git = (...args) =>
+      execFileSync(
+        'git',
+        [
+          '-c',
+          'user.name=t',
+          '-c',
+          'user.email=t@example.invalid',
+          '-c',
+          'commit.gpgsign=false',
+          '-c',
+          'tag.gpgsign=false',
+          ...args,
+        ],
+        { cwd: dir, encoding: 'utf8' },
+      );
+    git('init', '-q');
+    return { dir, git };
+  }
+
+  function commit(r, name, message) {
+    writeFileSync(join(r.dir, name), name);
+    const msgFile = join(r.dir, '.msg');
+    writeFileSync(msgFile, message);
+    r.git('add', name);
+    r.git('commit', '-q', '-F', msgFile);
+  }
+
+  // Regression: #665 — the log since the last tag exceeded the child-process
+  // default output buffer (1 MiB) and the helper died with `spawnSync git ENOBUFS`.
+  // https://github.com/Arsarneq/docent/issues/665
+  it('regression_665_git_log_over_one_mebibyte_is_read_whole', () => {
+    const r = repo();
+    commit(r, 'a', 'chore: base');
+    r.git('tag', 'x-v1.0.0');
+    const body = 'x'.repeat(1024 * 1024 + 4096); // one commit body alone exceeds 1 MiB
+    commit(r, 'b', `feat: big\n\n${body}\n`);
+    commit(r, 'c', 'fix: small\n');
+    const res = commitsSince('x-v1.0.0', ['.'], r.dir);
+    assert.equal(res.total, 2);
+    assert.equal(res.level, 'minor');
+    assert.deepEqual(
+      res.notable.map((n) => n.subject),
+      ['fix: small', 'feat: big'],
+    );
   });
 });
