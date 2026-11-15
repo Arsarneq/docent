@@ -1,5 +1,6 @@
 # Checks the FORM of the two structured PR-body sections — "## Docs disposition"
-# (one line per doc governing the changed code, per scripts/area-map.json; a
+# (one line per doc governing the changed code and per governing doc the change
+# edits, per scripts/area-map.json; a
 # judgment-only clause per docs/clause-registry.json may take its own) and
 # "## Change record". Form only: it verifies the expected lines exist and parse;
 # the judgments written in them are read by reviewers, never by this check.

@@ -2150,11 +2150,36 @@ describe('docsInScope', () => {
     ]);
   });
 
-  it('routes a repo-wide doc that sits in a doc set through its areas (no self-duplication)', () => {
-    assert.deepEqual(docsInScope({ files: ['docs/hub.md'], map: MAP, readFile: noContent }), [
+  it('an edited doc of an area’s doc set owes its own line and none for its siblings', () => {
+    // The siblings are owed when code of their area changes; an edit to one
+    // doc is judged on that doc.
+    assert.deepEqual(docsInScope({ files: ['docs/alpha.md'], map: MAP, readFile: noContent }), [
       'docs/alpha.md',
+    ]);
+  });
+
+  it('an edited repo-wide doc that sits in a doc set owes its own line once', () => {
+    assert.deepEqual(docsInScope({ files: ['docs/hub.md'], map: MAP, readFile: noContent }), [
       'docs/hub.md',
     ]);
+  });
+
+  it('an edited doc beside changed code of its area adds nothing to that area’s doc set', () => {
+    assert.deepEqual(
+      docsInScope({
+        files: ['docs/alpha.md', 'packages/alpha/x.js'],
+        map: MAP,
+        readFile: noContent,
+      }),
+      ['docs/alpha.md', 'docs/hub.md'],
+    );
+  });
+
+  it('an edited doc beside changed code of another area keeps its own line', () => {
+    assert.deepEqual(
+      docsInScope({ files: ['docs/alpha.md', 'scripts/x.js'], map: MAP, readFile: noContent }),
+      ['docs/alpha.md', 'docs/tooling.md'],
+    );
   });
 
   it('resolves via a pointer comment when file content names a governing doc', () => {

@@ -205,6 +205,28 @@ describe('auditClauseGovernance', () => {
     assert.deepEqual(r.newMisses, ['RW-1 (docs/repowide.md) -> packages/alpha/x.js']);
   });
 
+  it('does NOT credit a sibling doc of the same doc set — a cited doc couples to itself alone', () => {
+    // An edited doc takes its own disposition line and none for the other docs
+    // of its areas, so sharing a doc set primes nothing.
+    const map = makeMap({
+      areas: {
+        alpha: { code: ['packages/alpha/**'], docs: ['docs/alpha.md', 'docs/tooling.md'] },
+      },
+    });
+    const r = audit({
+      clauses: [{ doc: 'docs/alpha.md', clause: 'AL-1', 'check-ref': 'see docs/tooling.md' }],
+      map,
+    });
+    assert.deepEqual(r.newMisses, ['AL-1 (docs/alpha.md) -> docs/tooling.md']);
+  });
+
+  it('credits a clause citing its own doc', () => {
+    const r = audit({
+      clauses: [{ doc: 'docs/alpha.md', clause: 'AL-1', 'check-ref': 'see docs/alpha.md' }],
+    });
+    assert.deepEqual(r.newMisses, []);
+  });
+
   it('honours an allowlisted coupling (no miss) and marks it hit', () => {
     const r = audit({
       clauses: [{ doc: 'docs/tooling.md', clause: 'TL-1', 'check-ref': 'see packages/alpha/x.js' }],

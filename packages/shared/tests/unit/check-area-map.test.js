@@ -985,6 +985,23 @@ describe('explainFile — what the map says about one file', () => {
     assert.doesNotMatch(text, /owes a "declared-governance" entry/);
   });
 
+  it('says a doc of an area’s doc set enters its own edit’s scope alone', () => {
+    // The docs the mode names for such a file are what code of its areas owes;
+    // an edit to the doc itself owes its own line and none for the others.
+    const text = explainFile({ file: 'docs/alpha.md', compiled: compiled(), tracked: true });
+    assert.match(text, /governing docs: docs\/alpha\.md/);
+    assert.match(
+      text,
+      /doc of a doc set: yes — editing it puts it alone in its own disposition scope/,
+    );
+    const code = explainFile({
+      file: 'packages/alpha/index.js',
+      compiled: compiled(),
+      tracked: true,
+    });
+    assert.match(code, /doc of a doc set: no/);
+  });
+
   it('qualifies a repo-wide doc instead of reporting it as governed by nothing', () => {
     // README.md sits in no area's doc set, so its own governing set is empty —
     // an unqualified "none" would read as ungoverned, when what the map states
@@ -993,7 +1010,7 @@ describe('explainFile — what the map says about one file', () => {
     assert.doesNotMatch(text, /^ {2}governing docs: none$/m);
     assert.match(text, /governing docs: none \(and it is itself a repo-wide doc — below\)/);
     assert.match(text, /repo-wide doc: yes — a repo-wide doc governs every area/);
-    assert.match(text, /puts it in its own disposition scope/);
+    assert.match(text, /puts it alone in its own disposition scope/);
   });
 
   it('reports repo-wide and exception membership, and the pointers a file names', () => {

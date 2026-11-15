@@ -92,7 +92,7 @@ skips with a warning instead of validating anything.
 answers for one file instead of auditing the whole map: which areas own it,
 which docs govern it, the partitioned tree that claims it, whether a
 declaration answers for it and what that declaration expands to, whether it is
-a repo-wide doc or a justified exception, and the doc pointers its own content
+a doc of an area's doc set, a repo-wide doc or a justified exception, and the doc pointers its own content
 names. The plain run tabled with the `lint` gates
 ([CI gates § The lint and freshness gates](ci.md#the-lint-and-freshness-gates))
 is the audit; the per-file mode takes the path:
@@ -102,12 +102,13 @@ node scripts/check-area-map.js --explain scripts/check-area-map.js
 ```
 
 It resolves against the tracked tree, so a path git does not carry is reported
-as untracked rather than resolved. For a file that is not itself a repo-wide
+as untracked rather than resolved. For a file that is not itself a governing
 doc, the docs it names are the ones that file's `## Docs disposition` lines
 will be held to
-([CONTRIBUTING § Docs Disposition and Change Record](../../.github/CONTRIBUTING.md#docs-disposition-and-change-record));
-a repo-wide doc, as the mode's own output says, governs every area and enters
-its own edit's scope.
+([CONTRIBUTING § Docs Disposition and Change Record](../../.github/CONTRIBUTING.md#docs-disposition-and-change-record)).
+A governing doc, one in an area's doc set or a repo-wide doc, enters its own
+edit's scope alone, as the mode's own output says: the docs the mode names for
+it are what code of its areas owes.
 
 ### PR title
 

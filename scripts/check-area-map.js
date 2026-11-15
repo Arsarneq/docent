@@ -669,7 +669,9 @@ export function recordDeadEntry(site, result) {
 
 /**
  * Resolve one file: the areas that own it (for coverage) and the docs that
- * govern it (for disposition). This is the single implementation of the
+ * govern it (for disposition; a file that is itself a governing doc takes
+ * only its own line when edited, which the disposition check applies on top
+ * of this resolution). This is the single implementation of the
  * resolution rule — code patterns, doc-set membership, and (from `content`,
  * when given) `// see docs/<path>.md` pointers, which add every area whose doc
  * set contains the target.
@@ -805,9 +807,14 @@ export function explainFile({ file, compiled, tracked, content = null }) {
     lines.push(`  declared by: no entry — the docs above are what its areas supply`);
   }
   lines.push(
+    `  doc of a doc set: ${
+      compiled.docSets.has(file)
+        ? 'yes — editing it puts it alone in its own disposition scope; the docs above are what code of its areas owes'
+        : 'no'
+    }`,
     `  repo-wide doc: ${
       r.repoWide
-        ? 'yes — a repo-wide doc governs every area, and editing it puts it in its own disposition scope'
+        ? 'yes — a repo-wide doc governs every area, and editing it puts it alone in its own disposition scope'
         : 'no'
     }`,
     `  unassigned exception: ${r.unassigned ? 'yes' : 'no'}`,

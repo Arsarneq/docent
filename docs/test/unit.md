@@ -239,8 +239,8 @@ machinery under `scripts/`.
 
 - a cited path owes the clause's own doc and a cited pattern owes it for every file it names,
   reported one finding per pattern, with a recorded exception keyed by the citation token, so one
-  granted to a pattern answers for the whole set that token names, and the shared tokenizer's own
-  citations held from both sides
+  granted to a pattern answers for the whole set that token names, a cited governing doc owing
+  itself alone, and the shared tokenizer's own citations held from both sides
 - recorded where the clause's doc sits outside its declared governance, reported stale where it sits
   inside.
 
