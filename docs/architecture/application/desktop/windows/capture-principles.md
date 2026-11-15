@@ -237,8 +237,9 @@ control like Calculator), the keys are emitted individually. A keystroke
 injected as Unicode (`VK_PACKET`, the path of IME results, remote-desktop
 stacks, software keyboards and automation) is printable input whatever it
 carries: the hook passes on its scan code, which is the injected UTF-16 code
-unit, and the worker names the key by that character, so the same text is
-never recorded twice.
+unit, and the worker names the key by that character (a space as `Space`,
+and a unit that is no character on its own as `Unidentified`), so the same
+text is never recorded twice.
 
 Timing constants and correlation windows live in `src/capture/timing.rs`.
 

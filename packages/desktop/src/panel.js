@@ -619,12 +619,24 @@ function updateBreadcrumb(viewKey) {
 
 // ─── Breadcrumb navigation ────────────────────────────────────────────────────
 
+/**
+ * Stop capture on a way out of the recording view. While a re-record is
+ * active the stop waits for what it drains (DCP-2: those actions arrive apart
+ * from the stop's result), so the discard that follows also discards them.
+ */
+async function stopCaptureToLeave() {
+  if (!isRecording) return;
+  if (rerecordLogicalId !== null) {
+    await stopWithCompleteness();
+  } else {
+    await invoke('stop_capture');
+  }
+  isRecording = false;
+}
+
 bcProjects.addEventListener('click', async () => {
   const wasRecordingOpen = activeRecording !== null;
-  if (isRecording) {
-    await invoke('stop_capture');
-    isRecording = false;
-  }
+  await stopCaptureToLeave();
   activeProject = null;
   activeRecording = null;
   updateRecordingUI();
@@ -634,10 +646,7 @@ bcProjects.addEventListener('click', async () => {
 
 bcProject.addEventListener('click', async () => {
   const wasRecordingOpen = activeRecording !== null;
-  if (isRecording) {
-    await invoke('stop_capture');
-    isRecording = false;
-  }
+  await stopCaptureToLeave();
   activeRecording = null;
   updateRecordingUI();
   renderProjectDetail();
@@ -872,10 +881,7 @@ function openRecording(recording_id) {
 
 async function deleteRecording(recording_id, name) {
   if (!confirm(`Delete recording "${name}"? This cannot be undone.`)) return;
-  if (isRecording) {
-    await invoke('stop_capture');
-    isRecording = false;
-  }
+  await stopCaptureToLeave();
   activeProject.recordings = activeProject.recordings.filter(
     (r) => r.recording_id !== recording_id,
   );

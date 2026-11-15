@@ -1636,10 +1636,10 @@ mod capture_behaviour {
 
         // enigo.text() injects Unicode keystrokes (VK_PACKET). No count is
         // asserted (focus on a headless runner may not reach this window, see
-        // printable_keys_are_captured_when_no_type_event_arrives), but any
-        // such keystroke that is captured is named by the character it
-        // carried, never `VK_0xE7` (docent#260): the hook's scan code is the
-        // injected code unit.
+        // printable_keys_are_captured_when_no_type_event_arrives), but no
+        // captured key is named by a VK code such as `VK_0xE7` (docent#260),
+        // and each single-character one is a character of "hello": the hook's
+        // scan code is the injected code unit.
         for e in keys(&events) {
             if let ActionPayload::Key { key, modifiers, .. } = &e.payload {
                 assert!(
