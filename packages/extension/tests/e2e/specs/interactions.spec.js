@@ -233,6 +233,48 @@ test.describe('Contenteditable', () => {
   });
 });
 
+// Regression: #654 — a checkbox or radio click was recorded twice: the click,
+// then a `type` whose value was the control's `value` attribute ("on"), not
+// its checked state. Every way a person toggles one fires a click on the
+// control, so the click is the record.
+// https://github.com/Arsarneq/docent/issues/654
+test.describe('Checkbox and Radio', () => {
+  const PAGE_HTML = /* html */ `<!DOCTYPE html>
+  <html><body>
+    <input id="box" type="checkbox">
+    <input id="r1" type="radio" name="r" value="a">
+    <input id="r2" type="radio" name="r" value="b">
+  </body></html>`;
+
+  test.beforeEach(async ({ testPage, serviceWorker }) => {
+    await setTestContent(testPage, PAGE_HTML);
+    await testPage.waitForTimeout(200);
+    await clearPendingActions(serviceWorker);
+  });
+
+  test('regression_654_checkbox_and_radio_toggles_record_the_click_only', async ({
+    testPage,
+    serviceWorker,
+  }) => {
+    await testPage.click('#box'); // tick
+    await testPage.click('#box'); // untick
+    await testPage.keyboard.press('Space'); // tick from the keyboard
+    await testPage.click('#r1');
+    await testPage.keyboard.press('ArrowRight'); // moves the choice to r2
+    await waitForActionsToSettle(serviceWorker, testPage);
+
+    const actions = await getPendingActions(serviceWorker);
+    expect(actions.map((a) => [a.type, a.element?.selector])).toEqual([
+      ['click', '#box'],
+      ['click', '#box'],
+      ['click', '#box'],
+      ['click', '#r1'],
+      ['key', '#r1'], // the arrow key is captured as a key of its own
+      ['click', '#r2'],
+    ]);
+  });
+});
+
 test.describe('Password Masking', () => {
   const PAGE_HTML = /* html */ `<!DOCTYPE html>
   <html><body>

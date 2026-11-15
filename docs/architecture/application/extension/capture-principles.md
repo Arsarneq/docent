@@ -133,7 +133,8 @@ the capture phase, for exactly these DOM events:
 - `contextmenu` — the right-click, its element picked as for `click`
 - `keydown` — the keys in the captured keyboard set
 - `change` — a committed value: a `select` choice, an `input`/`textarea` entry,
-  and a file chosen through the OS dialog
+  and a file chosen through the OS dialog; a checkbox or radio toggle is
+  recorded by its `click`, so its `change` writes nothing
 - `focusin` — a focus move, recorded only when it follows a Tab key press
 - `dragstart` — the start of a drag, which names the drag source
 - `dragover` — the target tracking the browser requires before a drop can fire

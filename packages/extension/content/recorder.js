@@ -716,6 +716,10 @@
         return;
       }
 
+      // A checkbox or radio toggle is recorded by its click, which every way of
+      // toggling one fires on the control; its change carries no entered value (#654).
+      if (el.tagName === 'INPUT' && (el.type === 'checkbox' || el.type === 'radio')) return;
+
       if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') {
         // Suppress change events caused by blur from clicking a submit button within the same form.
         // When the user clicks submit, the input blurs and fires change. But the user's
