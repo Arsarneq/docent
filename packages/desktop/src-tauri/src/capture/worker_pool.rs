@@ -118,6 +118,15 @@ pub struct RawEvent {
     /// while the window is still alive. If `None`, the worker performs
     /// its own query.
     pub pre_captured_element: Option<super::ElementDescription>,
+    /// The focus epoch when the Input_Thread dispatched this event: a count of
+    /// the focus and foreground changes it had seen by then (see
+    /// [`AccessibilityBackend::focus_epoch`]). Two events with the same epoch
+    /// were dispatched with no focus change between them; a worker that
+    /// describes "the focused element" later compares this with the epoch at
+    /// that moment to know whether focus is still where the event happened.
+    /// Assigned by the Input_Thread at dispatch; `0` where the platform does
+    /// not count focus changes.
+    pub focus_epoch: u64,
 }
 
 // ---------------------------------------------------------------------------
@@ -903,6 +912,23 @@ pub trait AccessibilityBackend: Send + 'static {
     /// Query the currently focused element.
     fn focused_element(&self) -> Option<ElementDescription>;
 
+    /// The current focus epoch: how many focus and foreground changes the
+    /// Input_Thread has seen so far. An event carries the epoch of its
+    /// dispatch in [`RawEvent::focus_epoch`]; while the two are equal, no
+    /// focus change has been seen since the event. A platform that does not
+    /// count focus changes returns `0` always.
+    fn focus_epoch(&self) -> u64 {
+        0
+    }
+
+    /// Whether `window_handle`'s top-level window is the foreground window
+    /// right now. The focused element belongs to the foreground window, so an
+    /// event's window that is no longer in front (closed, or left for another
+    /// window) is not where the focused element is.
+    fn is_foreground_window(&self, _window_handle: i64) -> bool {
+        true
+    }
+
     /// Get the window title for a window handle.
     fn window_title(&self, window_handle: i64) -> String;
 
@@ -1125,6 +1151,34 @@ fn is_modifier_only_key(key: &str) -> bool {
 /// keystroke (it carries text, whatever its name), with no Ctrl/Alt/Meta held.
 fn is_printable_key(raw: &RawEvent, key: &str) -> bool {
     carries_text(raw, key) && !raw.modifiers.0 && !raw.modifiers.2 && !raw.modifiers.3
+}
+
+/// Whether a keydown can move the focus by itself: every key but the plain
+/// typing keys. Tab, Enter, Escape, the arrows, a shortcut or a key this table
+/// does not know may leave another element focused; a letter, a digit, the
+/// space bar, punctuation and the numeric keypad type into the focused one
+/// (AltGr, which is Ctrl+Alt, included), and Shift, Control, Alt and the lock
+/// keys do nothing alone. The Input_Thread starts a new focus epoch after a
+/// key that can move the focus, so the next key is described afresh even when
+/// the program reports no focus change. Called on the keyboard hook: no
+/// allocation, no lock.
+pub fn key_may_move_focus(key_code: u32, modifiers: (bool, bool, bool, bool)) -> bool {
+    let (ctrl, _shift, alt, meta) = modifiers;
+    match key_code {
+        // Shift, Control, Alt (generic and left/right), CapsLock, NumLock,
+        // ScrollLock.
+        0x10..=0x12 | 0xA0..=0xA5 | 0x14 | 0x90 | 0x91 => false,
+        // Space, digits, letters, numeric keypad, punctuation, VK_PACKET.
+        0x20
+        | 0x30..=0x39
+        | 0x41..=0x5A
+        | 0x60..=0x6F
+        | 0xBA..=0xC0
+        | 0xDB..=0xDF
+        | 0xE2
+        | VK_PACKET => meta || ctrl != alt,
+        _ => true,
+    }
 }
 
 /// Whether a keystroke carries text by its name alone: a single-character key
@@ -1359,6 +1413,9 @@ struct WorkerState {
     last_focus_selector: String,
     last_value_map: HashMap<String, String>,
     last_drag_element: Option<ElementDescription>,
+    /// The element last described for a keystroke or value change while focus
+    /// was known not to have moved since that event (see [`TypingFocus`]).
+    typing_focus: Option<TypingFocus>,
 }
 
 impl WorkerState {
@@ -1367,8 +1424,65 @@ impl WorkerState {
             last_focus_selector: String::new(),
             last_value_map: HashMap::new(),
             last_drag_element: None,
+            typing_focus: None,
         }
     }
+}
+
+/// The focused element of one window under one focus epoch.
+///
+/// A keystroke or value change is described by asking for the focused element
+/// when a worker gets to it, which can be after focus has moved on. The
+/// Input_Thread stamps every event with the focus epoch of its dispatch, so
+/// events with equal epochs in one window share their focused element: once
+/// one of them is described while the epoch still stands, the description
+/// holds for the others whenever they are processed.
+struct TypingFocus {
+    context_id: Option<i64>,
+    epoch: u64,
+    element: ElementDescription,
+}
+
+/// The element remembered for `raw`'s window and focus epoch, if any. Epoch
+/// `0` (a platform that does not count focus changes) remembers nothing.
+fn remembered_focus<'a>(
+    typing_focus: &'a Option<TypingFocus>,
+    raw: &RawEvent,
+    context_id: Option<i64>,
+) -> Option<&'a ElementDescription> {
+    typing_focus
+        .as_ref()
+        .filter(|f| {
+            raw.focus_epoch != 0 && f.epoch == raw.focus_epoch && f.context_id == context_id
+        })
+        .map(|f| &f.element)
+}
+
+/// Describe the focused element for a keystroke or value change of
+/// `raw.window_handle`, now.
+///
+/// `None` when that window is not in front any more (it closed, or the person
+/// left it): the focused element is then some other window's. Otherwise the
+/// element, and whether focus is known not to have moved since the event was
+/// dispatched (its epoch still stands, before and after the query). With
+/// `false` the element is the window's focused element now, which may be
+/// another one than the event's.
+fn describe_focused_for<B: AccessibilityBackend>(
+    raw: &RawEvent,
+    backend: &B,
+) -> Option<(ElementDescription, bool)> {
+    let epoch_before = backend.focus_epoch();
+    if !backend.is_foreground_window(raw.window_handle) {
+        return None;
+    }
+    let element = backend.focused_element()?;
+    let epoch_after = backend.focus_epoch();
+    if !backend.is_foreground_window(raw.window_handle) {
+        return None;
+    }
+    let focus_stands =
+        raw.focus_epoch != 0 && epoch_before == raw.focus_epoch && epoch_after == raw.focus_epoch;
+    Some((element, focus_stands))
 }
 
 // ---------------------------------------------------------------------------
@@ -1443,20 +1557,24 @@ fn process_raw_event<B: AccessibilityBackend>(
             );
         }
         RawEventType::ValueChange => {
-            handle_value_change(
+            let described = handle_value_change(
                 raw,
                 backend,
                 action_sender,
                 context_id,
                 pending,
-                &mut state.last_value_map,
+                state,
                 window_rect.clone(),
             );
             // A value change arrived — pending keys will be superseded by the
-            // type event when it flushes. Clear them now.
-            let mut buffers = lock_buffers(pending);
-            buffers.pending_keys.clear();
-            buffers.pending_keys_last_timestamp = 0;
+            // type event when it flushes. Clear them now. A value change whose
+            // element could not be described supersedes nothing: the keys are
+            // then the only record of the typing.
+            if described {
+                let mut buffers = lock_buffers(pending);
+                buffers.pending_keys.clear();
+                buffers.pending_keys_last_timestamp = 0;
+            }
         }
         RawEventType::Selection => {
             handle_selection(raw, backend, action_sender, context_id, window_rect.clone());
@@ -1468,7 +1586,7 @@ fn process_raw_event<B: AccessibilityBackend>(
                 action_sender,
                 context_id,
                 pending,
-                &mut state.last_value_map,
+                state,
                 window_rect.clone(),
             );
         }
@@ -1726,14 +1844,28 @@ fn handle_value_change<B: AccessibilityBackend>(
     action_sender: &mpsc::Sender<ActionEvent>,
     context_id: Option<i64>,
     pending: &SharedPendingBuffers,
-    last_value_map: &mut HashMap<String, String>,
+    state: &mut WorkerState,
     window_rect: Option<WindowRect>,
-) {
-    // Backend (UIA) call happens BEFORE taking the buffer lock.
-    let mut element = match backend.focused_element() {
-        Some(el) => el,
-        None => return,
+) -> bool {
+    // Backend (UIA) call happens BEFORE taking the buffer lock. The value is
+    // read from the focused element now, so that element has to be the one
+    // the value change belongs to: in the event's window, and either under
+    // the event's own focus or the very element remembered for that focus.
+    let Some((mut element, focus_stands)) = describe_focused_for(raw, backend) else {
+        return false;
     };
+    if focus_stands {
+        state.typing_focus = Some(TypingFocus {
+            context_id,
+            epoch: raw.focus_epoch,
+            element: element.clone(),
+        });
+    } else if remembered_focus(&state.typing_focus, raw, context_id)
+        .is_some_and(|known| known.selector != element.selector)
+    {
+        return false;
+    }
+    let last_value_map = &mut state.last_value_map;
     // The first value-change describes the element; that element (and the
     // matching timestamp) is what the coalesced type action exports.
     stamp_described_after(&mut element, raw.timestamp);
@@ -1750,7 +1882,7 @@ fn handle_value_change<B: AccessibilityBackend>(
     let value_key = last_value_key(context_id, &element.selector);
     if let Some(last_val) = last_value_map.get(&value_key) {
         if *last_val == value {
-            return;
+            return true;
         }
     }
     last_value_map.insert(value_key, value.clone());
@@ -1767,6 +1899,7 @@ fn handle_value_change<B: AccessibilityBackend>(
         context_id,
         window_rect,
     );
+    true
 }
 
 /// The key an element's last recorded value is kept under: its selector within
@@ -1918,7 +2051,7 @@ fn handle_keyboard<B: AccessibilityBackend>(
     action_sender: &mpsc::Sender<ActionEvent>,
     context_id: Option<i64>,
     pending: &SharedPendingBuffers,
-    last_value_map: &mut HashMap<String, String>,
+    state: &mut WorkerState,
     window_rect: Option<WindowRect>,
 ) {
     let key = key_name(raw);
@@ -1931,20 +2064,49 @@ fn handle_keyboard<B: AccessibilityBackend>(
 
     // Backend (UIA) call happens BEFORE taking the buffer lock — never hold
     // the lock across a platform call (see PendingBuffers locking discipline).
-    let mut element = backend.focused_element().unwrap_or_else(|| {
-        let title = backend.window_title(raw.window_handle);
-        ElementDescription {
-            tag: "Unknown".to_string(),
-            id: None,
-            name: Some(title),
-            role: None,
-            element_type: None,
-            text: None,
-            selector: String::new(),
-            ..Default::default()
+    //
+    // The key belongs to the element that had focus when it was pressed. An
+    // element already described under the key's own focus epoch is that
+    // element, whatever is focused by now. Otherwise the focused element is
+    // asked for, and taken only while the key's window is still in front; a
+    // key whose window closed or was left names no element rather than
+    // whatever has focus at this moment.
+    let element = match remembered_focus(&state.typing_focus, raw, context_id) {
+        Some(known) => {
+            let mut element = known.clone();
+            // Described before this key was processed.
+            element.described_after_ms = Some(0);
+            element
         }
-    });
-    stamp_described_after(&mut element, raw.timestamp);
+        None => match describe_focused_for(raw, backend) {
+            Some((mut element, focus_stands)) => {
+                stamp_described_after(&mut element, raw.timestamp);
+                if focus_stands {
+                    state.typing_focus = Some(TypingFocus {
+                        context_id,
+                        epoch: raw.focus_epoch,
+                        element: element.clone(),
+                    });
+                }
+                element
+            }
+            None => {
+                let mut element = ElementDescription {
+                    tag: "Unknown".to_string(),
+                    id: None,
+                    name: Some(backend.window_title(raw.window_handle)),
+                    role: None,
+                    element_type: None,
+                    text: None,
+                    selector: String::new(),
+                    ..Default::default()
+                };
+                stamp_described_after(&mut element, raw.timestamp);
+                element
+            }
+        },
+    };
+    let last_value_map = &mut state.last_value_map;
 
     // Typing into a password field is its masked type, never a key: a key is
     // named by the character it carries, and a buffered key is written as
@@ -2465,6 +2627,7 @@ mod tests {
             scroll_delta: 0.0,
             callback_params: [0; 4],
             pre_captured_element: None,
+            focus_epoch: 0,
         };
 
         pool.dispatch(key()); // worker 0 takes the typing role and wedges
@@ -2689,6 +2852,7 @@ mod tests {
             scroll_delta: 0.0,
             callback_params: [0; 4],
             pre_captured_element: None,
+            focus_epoch: 0,
         }
     }
 
@@ -2707,6 +2871,7 @@ mod tests {
             scroll_delta: 0.0,
             callback_params: [0; 4],
             pre_captured_element: None,
+            focus_epoch: 0,
         }
     }
 

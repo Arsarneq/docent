@@ -314,6 +314,8 @@ element describes the container the point fell in, not a specific control: it is
 the window-level description DCP-3 states — the window or generic pane the point
 resolved to, its `name` that container's name — or, when nothing resolved, a
 description whose `name` is the text of the action's attributed window (DCP-14).
+
+A keystroke and a value change belong to the element that had focus when they happened, and a worker describes them later, by which time focus can have moved on. The input thread therefore counts focus changes (every focus or foreground event of any window, every mouse-down, every key that can move the focus) and stamps each event with the count at its dispatch. A keystroke is recorded on the element described under its own count, however late it is processed; such a key carries `described_after_ms` `0`. When no element was described under its count and the count has moved on, the focused element is taken only while the keystroke's window is still the foreground window; otherwise the `key` names no element (tag `Unknown`, empty selector) instead of whatever has focus by then. A value change whose window is no longer the foreground window, or whose focused element is not the one described under its count, writes no `type`, and the buffered keys it would have superseded (DCP-9) are kept as the record of the typing. One case stays as it was: the first keystroke under a count, described after focus moved to another element of the same window, names that element.
 Of the fields an accessibility-described desktop element can carry,
 the ones it never carries are exactly the locators, the provider facts
 (`position_in_set`, `size_of_set`, `level`, `framework_id`) and the describe

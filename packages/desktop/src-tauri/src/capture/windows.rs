@@ -1290,7 +1290,22 @@ fn input_thread_main(
 
 /// Assign a sequence ID and dispatch a `RawEvent` to the bridge thread.
 /// Called from hook callbacks on the Input_Thread.
+/// The focus epoch: a count of the focus and foreground changes the
+/// Input_Thread has seen, plus the mouse-downs and focus-moving keys it has
+/// dispatched (each may move the focus without the program reporting it).
+/// Every raw event is stamped with the epoch of its dispatch, and a worker
+/// reads the current one when it describes the focused element for a
+/// keystroke or value change (`AccessibilityBackend::focus_epoch`). Starts at
+/// 1; 0 means "not counted". Process-wide, so the workers read it directly.
+static FOCUS_EPOCH: AtomicU64 = AtomicU64::new(1);
+
+/// Start a new focus epoch. One atomic add: safe on the hooks.
+fn focus_epoch_advance() {
+    FOCUS_EPOCH.fetch_add(1, Ordering::SeqCst);
+}
+
 fn input_dispatch_raw_event(mut event: RawEvent) {
+    event.focus_epoch = FOCUS_EPOCH.load(Ordering::SeqCst);
     // Assign monotonic sequence ID.
     let seq_id = INPUT_SEQUENCE_COUNTER.with(|c| {
         c.borrow()
@@ -1502,6 +1517,13 @@ unsafe extern "system" fn input_win_event_proc(
         return;
     }
 
+    // Count every focus and foreground change, before any filter below: a
+    // change into an excluded or background window still means the focused
+    // element is no longer the one earlier keystrokes went to.
+    if event == EVENT_OBJECT_FOCUS as u32 || event == EVENT_SYSTEM_FOREGROUND as u32 {
+        focus_epoch_advance();
+    }
+
     let mut process_id: u32 = 0;
     GetWindowThreadProcessId(hwnd, Some(&mut process_id));
     let excluded = input_get_excluded_pid();
@@ -1562,6 +1584,7 @@ unsafe extern "system" fn input_win_event_proc(
                 scroll_delta: 0.0,
                 callback_params: [id_object as i64, id_child as i64, 0, 0],
                 pre_captured_element: None,
+                focus_epoch: 0,
             });
         }
 
@@ -1601,6 +1624,7 @@ unsafe extern "system" fn input_win_event_proc(
                 scroll_delta: 0.0,
                 callback_params: [id_object as i64, id_child as i64, 0, 0],
                 pre_captured_element: None,
+                focus_epoch: 0,
             });
             // Track this window so we only emit context_close for it.
             INPUT_OPENED_WINDOWS.with(|s| s.borrow_mut().insert(window_handle));
@@ -1662,6 +1686,7 @@ unsafe extern "system" fn input_win_event_proc(
                         scroll_delta: 0.0,
                         callback_params: [id_object as i64, id_child as i64, 0, 0],
                         pre_captured_element: None,
+                        focus_epoch: 0,
                     });
                 }
             }
@@ -1701,6 +1726,7 @@ unsafe extern "system" fn input_win_event_proc(
                 scroll_delta: 0.0,
                 callback_params: [id_object as i64, id_child as i64, 0, 0],
                 pre_captured_element: None,
+                focus_epoch: 0,
             });
         }
 
@@ -1753,6 +1779,7 @@ unsafe extern "system" fn input_win_event_proc(
                 scroll_delta: 0.0,
                 callback_params: [id_object as i64, id_child as i64, 0, 0],
                 pre_captured_element: None,
+                focus_epoch: 0,
             });
         }
 
@@ -1816,6 +1843,7 @@ unsafe extern "system" fn input_win_event_proc(
                 scroll_delta: 0.0,
                 callback_params: [id_object as i64, id_child as i64, 0, 0],
                 pre_captured_element: None,
+                focus_epoch: 0,
             });
         }
 
@@ -1840,6 +1868,12 @@ unsafe extern "system" fn input_mouse_ll_proc(
         let mouse_struct = &*(l_param.0 as *const MSLLHOOKSTRUCT);
         let msg = w_param.0 as u32;
         let pt = mouse_struct.pt;
+
+        // A mouse-down may move the focus, reported or not, in a captured or
+        // an excluded window: later keystrokes start a new focus epoch.
+        if matches!(msg as i32, WM_LBUTTONDOWN | WM_RBUTTONDOWN | WM_MBUTTONDOWN) {
+            focus_epoch_advance();
+        }
 
         // Use WindowFromPoint for PID exclusion — determines WHETHER to capture
         // the event by checking if the click target is Docent's own window.
@@ -1915,6 +1949,7 @@ unsafe extern "system" fn input_mouse_ll_proc(
                                     scroll_delta: 0.0,
                                     callback_params: [0, 0, 0, 0],
                                     pre_captured_element: None,
+                                    focus_epoch: 0,
                                 });
                             }
                         }
@@ -1942,6 +1977,7 @@ unsafe extern "system" fn input_mouse_ll_proc(
                             scroll_delta: 0.0,
                             callback_params: [0, 0, 0, 0],
                             pre_captured_element: None,
+                            focus_epoch: 0,
                         });
 
                         input_dispatch_raw_event(RawEvent {
@@ -1957,6 +1993,7 @@ unsafe extern "system" fn input_mouse_ll_proc(
                             scroll_delta: 0.0,
                             callback_params: [0, 0, 0, 0],
                             pre_captured_element: None,
+                            focus_epoch: 0,
                         });
                     } else {
                         // Click detected — pre-capture the element while
@@ -1975,6 +2012,7 @@ unsafe extern "system" fn input_mouse_ll_proc(
                             scroll_delta: 0.0,
                             callback_params: [0, 0, 0, 0],
                             pre_captured_element: pre_element,
+                            focus_epoch: 0,
                         });
                         INPUT_LAST_CLICK_TIMESTAMP.with(|t| t.set(timestamp));
                     }
@@ -1999,6 +2037,7 @@ unsafe extern "system" fn input_mouse_ll_proc(
                         scroll_delta: delta,
                         callback_params: [0, 0, 0, 0],
                         pre_captured_element: None,
+                        focus_epoch: 0,
                     });
                 }
                 WM_MOUSEHWHEEL => {
@@ -2017,6 +2056,7 @@ unsafe extern "system" fn input_mouse_ll_proc(
                         scroll_delta: delta,
                         callback_params: [1, 0, 0, 0], // 1 = horizontal axis
                         pre_captured_element: None,
+                        focus_epoch: 0,
                     });
                 }
                 // The middle and right buttons record on the press itself, each
@@ -2039,6 +2079,7 @@ unsafe extern "system" fn input_mouse_ll_proc(
                             scroll_delta: 0.0,
                             callback_params: [0, 0, 0, 0],
                             pre_captured_element: pre_element,
+                            focus_epoch: 0,
                         });
                     }
                 }
@@ -2102,7 +2143,14 @@ unsafe extern "system" fn input_keyboard_ll_proc(
                     // read above — no call, lock or allocation on the hook.
                     callback_params: [i64::from(kb_struct.scanCode), 0, 0, 0],
                     pre_captured_element: None,
+                    focus_epoch: 0,
                 });
+            }
+            // After the key's own dispatch, so the key keeps the epoch it was
+            // pressed under. Outside the exclusion gate: a focus-moving key
+            // pressed in an excluded window moves the focus all the same.
+            if super::worker_pool::key_may_move_focus(kb_struct.vkCode, get_modifier_state()) {
+                focus_epoch_advance();
             }
         }
     }
@@ -2839,6 +2887,37 @@ impl AccessibilityBackend for WindowsAccessibilityBackend {
         let uia = self.uia.as_ref()?;
         let focused = unsafe { uia.GetFocusedElement().ok()? };
         unsafe { uia_element_to_description(uia, &focused) }
+    }
+
+    fn focus_epoch(&self) -> u64 {
+        FOCUS_EPOCH.load(Ordering::SeqCst)
+    }
+
+    fn is_foreground_window(&self, window_handle: i64) -> bool {
+        if window_handle == 0 {
+            return false;
+        }
+        let hwnd = HWND(window_handle as *mut _);
+        unsafe {
+            if !IsWindow(Some(hwnd)).as_bool() {
+                return false;
+            }
+            let foreground = GetForegroundWindow();
+            if foreground.0.is_null() {
+                return false;
+            }
+            // Compare top-level windows: a value change comes from a control
+            // inside the window, a keystroke from the window itself.
+            let root_of = |h: HWND| {
+                let root = GetAncestor(h, GA_ROOT as u32);
+                if root.0.is_null() {
+                    h.0
+                } else {
+                    root.0
+                }
+            };
+            root_of(hwnd) == root_of(foreground)
+        }
     }
 
     fn window_title(&self, window_handle: i64) -> String {

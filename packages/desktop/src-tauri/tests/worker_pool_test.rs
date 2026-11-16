@@ -35,6 +35,7 @@ fn make_raw_event(event_type: RawEventType, window_handle: i64) -> RawEvent {
         scroll_delta: 0.0,
         callback_params: [0; 4],
         pre_captured_element: None,
+        focus_epoch: 0,
     }
 }
 
@@ -360,6 +361,7 @@ proptest! {
             scroll_delta: 0.0,
             callback_params: [0; 4],
             pre_captured_element: None,
+            focus_epoch: 0,
         };
 
         let drop_event = RawEvent {
@@ -377,6 +379,7 @@ proptest! {
             scroll_delta: 0.0,
             callback_params: [0; 4],
             pre_captured_element: None,
+            focus_epoch: 0,
         };
 
         pool.dispatch(drag_start);
@@ -678,6 +681,7 @@ proptest! {
             scroll_delta: 0.0,
             callback_params: [0; 4],
             pre_captured_element: None,
+            focus_epoch: 0,
         };
 
         let harness = WorkerTestHarness::new(MockBackend::new());
@@ -753,6 +757,7 @@ proptest! {
                 scroll_delta: 0.0,
                 callback_params: [0; 4],
             pre_captured_element: None,
+            focus_epoch: 0,
             };
             harness.send_event(raw);
         }
@@ -843,6 +848,7 @@ proptest! {
                 scroll_delta: 0.0,
                 callback_params: [0; 4],
             pre_captured_element: None,
+            focus_epoch: 0,
             };
             harness.send_event(raw);
         }
@@ -869,6 +875,7 @@ proptest! {
             scroll_delta: 0.0,
             callback_params: [0; 4],
             pre_captured_element: None,
+            focus_epoch: 0,
         };
         harness.send_event(context_event);
 
@@ -1133,6 +1140,7 @@ fn worker_shutdown_flushes_pending_type_event() {
             scroll_delta: 0.0,
             callback_params: [0; 4],
             pre_captured_element: None,
+            focus_epoch: 0,
         };
         harness.send_event(raw);
     }
@@ -1190,6 +1198,7 @@ fn regression_298_flush_drains_pending_and_worker_continues() {
             scroll_delta: 0.0,
             callback_params: [0; 4],
             pre_captured_element: None,
+            focus_epoch: 0,
         });
     }
     thread::sleep(Duration::from_millis(50)); // queued, debounce not yet expired
@@ -1231,6 +1240,7 @@ fn regression_298_flush_drains_pending_and_worker_continues() {
         scroll_delta: 0.0,
         callback_params: [0; 4],
         pre_captured_element: None,
+        focus_epoch: 0,
     });
     let after_click = harness.drain_actions();
     assert!(
@@ -1279,6 +1289,7 @@ fn regression_298_flush_all_drains_workers_and_emits_sentinel_last() {
             scroll_delta: 0.0,
             callback_params: [0; 4],
             pre_captured_element: None,
+            focus_epoch: 0,
         });
     }
     thread::sleep(Duration::from_millis(80)); // buffered, debounce not expired
@@ -1417,6 +1428,7 @@ fn poison_event_does_not_kill_worker() {
         scroll_delta: 0.0,
         callback_params: [0; 4],
         pre_captured_element: None,
+        focus_epoch: 0,
     });
 
     // Send the poison event (will panic inside element_at_point).
@@ -1433,6 +1445,7 @@ fn poison_event_does_not_kill_worker() {
         scroll_delta: 0.0,
         callback_params: [0; 4],
         pre_captured_element: None,
+        focus_epoch: 0,
     });
 
     // Send another normal click event after the poison.
@@ -1449,6 +1462,7 @@ fn poison_event_does_not_kill_worker() {
         scroll_delta: 0.0,
         callback_params: [0; 4],
         pre_captured_element: None,
+        focus_epoch: 0,
     });
 
     // Give the worker time to process all three events.
@@ -1564,6 +1578,7 @@ fn locators_and_provider_facts_pass_through_the_pipeline_verbatim() {
         scroll_delta: 0.0,
         callback_params: [0; 4],
         pre_captured_element: None,
+        focus_epoch: 0,
     });
 
     thread::sleep(Duration::from_millis(100));
@@ -1610,6 +1625,7 @@ fn pre_captured_click_exports_zero_describe_latency() {
         scroll_delta: 0.0,
         callback_params: [0; 4],
         pre_captured_element: Some(locator_rich_element()),
+        focus_epoch: 0,
     });
 
     thread::sleep(Duration::from_millis(100));
@@ -1689,6 +1705,7 @@ fn coordinate_downgrade_strips_locators_facts_and_latency() {
         scroll_delta: 0.0,
         callback_params: [0; 4],
         pre_captured_element: None,
+        focus_epoch: 0,
     });
 
     thread::sleep(Duration::from_millis(100));
@@ -1734,6 +1751,7 @@ fn context_open_carries_process_source_and_no_fabricated_opener() {
         scroll_delta: 0.0,
         callback_params: [0; 4],
         pre_captured_element: None,
+        focus_epoch: 0,
     });
 
     thread::sleep(Duration::from_millis(100));
@@ -1831,6 +1849,7 @@ fn coordinate_fallback_emits_screen_space_verbatim_for_non_origin_window() {
         scroll_delta: 0.0,
         callback_params: [0; 4],
         pre_captured_element: None,
+        focus_epoch: 0,
     });
 
     thread::sleep(Duration::from_millis(100));
@@ -1900,6 +1919,7 @@ fn scroll_accumulator_flushes_on_timeout() {
             scroll_delta: 100.0, // Each scroll event has delta 100 (total 500 > 200 threshold)
             callback_params: [0, 0, 0, 0], // vertical scroll
             pre_captured_element: None,
+            focus_epoch: 0,
         };
         harness.send_event(raw);
     }
@@ -1950,6 +1970,7 @@ fn scroll_accumulator_flushes_on_shutdown() {
             scroll_delta: 150.0,           // total 450 > 200 threshold
             callback_params: [0, 0, 0, 0], // vertical scroll
             pre_captured_element: None,
+            focus_epoch: 0,
         };
         harness.send_event(raw);
     }
@@ -1994,6 +2015,7 @@ fn focus_deduplication_suppresses_consecutive_same_element() {
             scroll_delta: 0.0,
             callback_params: [0; 4],
             pre_captured_element: None,
+            focus_epoch: 0,
         };
         harness.send_event(raw);
     }
@@ -2044,6 +2066,7 @@ fn value_change_deduplication_same_value() {
             scroll_delta: 0.0,
             callback_params: [0; 4],
             pre_captured_element: None,
+            focus_epoch: 0,
         };
         harness.send_event(raw);
     }
@@ -2085,6 +2108,7 @@ fn keyboard_event_produces_key_action() {
         scroll_delta: 0.0,
         callback_params: [0; 4],
         pre_captured_element: None,
+        focus_epoch: 0,
     };
     harness.send_event(raw);
 
@@ -2125,6 +2149,7 @@ fn modifier_only_key_is_skipped() {
         scroll_delta: 0.0,
         callback_params: [0; 4],
         pre_captured_element: None,
+        focus_epoch: 0,
     };
     harness.send_event(raw);
 
@@ -2164,6 +2189,7 @@ fn foreground_event_produces_context_switch() {
         scroll_delta: 0.0,
         callback_params: [0; 4],
         pre_captured_element: None,
+        focus_epoch: 0,
     };
     harness.send_event(raw);
 
@@ -2202,6 +2228,7 @@ fn right_click_event_produces_right_click_action() {
         scroll_delta: 0.0,
         callback_params: [0; 4],
         pre_captured_element: None,
+        focus_epoch: 0,
     };
     harness.send_event(raw);
 
@@ -2254,6 +2281,7 @@ fn excluded_pid_events_are_discarded() {
             scroll_delta: 0.0,
             callback_params: [0; 4],
             pre_captured_element: None,
+            focus_epoch: 0,
         })))
         .unwrap();
 
@@ -2273,6 +2301,7 @@ fn excluded_pid_events_are_discarded() {
             scroll_delta: 0.0,
             callback_params: [0; 4],
             pre_captured_element: None,
+            focus_epoch: 0,
         })))
         .unwrap();
 
@@ -2324,6 +2353,7 @@ fn selection_event_produces_select_action() {
         scroll_delta: 0.0,
         callback_params: [0, 0, 0, 0],
         pre_captured_element: None,
+        focus_epoch: 0,
     });
 
     thread::sleep(Duration::from_millis(200));
@@ -2368,6 +2398,7 @@ fn modifier_only_keys_produce_no_events() {
             scroll_delta: 0.0,
             callback_params: [0, 0, 0, 0],
             pre_captured_element: None,
+            focus_epoch: 0,
         });
     }
 
@@ -2406,6 +2437,7 @@ fn win_l_key_combo_is_captured_if_received() {
         scroll_delta: 0.0,
         callback_params: [0, 0, 0, 0],
         pre_captured_element: None,
+        focus_epoch: 0,
     });
 
     thread::sleep(Duration::from_millis(200));
@@ -2462,6 +2494,7 @@ fn packet_key(seq: u64, timestamp: u64, unit: u16) -> RawEvent {
         scroll_delta: 0.0,
         callback_params: [i64::from(unit), 0, 0, 0],
         pre_captured_element: None,
+        focus_epoch: 0,
     }
 }
 
@@ -3191,4 +3224,374 @@ fn regression_noissue_the_same_value_in_a_second_window_is_its_own_type() {
     );
     let contexts: Vec<Option<i64>> = events.iter().map(|e| e.context_id).collect();
     assert_eq!(contexts, vec![Some(100), Some(200)]);
+}
+
+// ---------------------------------------------------------------------------
+// A key or value change described late names its own element, or none
+// ---------------------------------------------------------------------------
+//
+// A worker describes a keystroke or a value change by asking for the focused
+// element when it gets to the event. By then focus may have moved: the window
+// closed, the person went to another window or another control. These tests
+// move the focus between the event and its description.
+
+/// What the screen looks like at the moment a worker asks.
+#[derive(Clone)]
+struct FocusScene {
+    epoch: u64,
+    foreground: i64,
+    element: ElementDescription,
+}
+
+fn scene_element(tag: &str, selector: &str, text: Option<&str>) -> ElementDescription {
+    ElementDescription {
+        tag: tag.to_string(),
+        name: Some(selector.to_string()),
+        text: text.map(str::to_string),
+        selector: selector.to_string(),
+        ..Default::default()
+    }
+}
+
+/// A backend whose focus the test moves; it counts focused-element queries.
+struct MovingFocusBackend {
+    scene: Arc<Mutex<FocusScene>>,
+    queries: Arc<AtomicU64>,
+}
+
+impl MovingFocusBackend {
+    fn new(scene: FocusScene) -> (Self, Arc<Mutex<FocusScene>>, Arc<AtomicU64>) {
+        let scene = Arc::new(Mutex::new(scene));
+        let queries = Arc::new(AtomicU64::new(0));
+        (
+            Self {
+                scene: Arc::clone(&scene),
+                queries: Arc::clone(&queries),
+            },
+            scene,
+            queries,
+        )
+    }
+}
+
+impl AccessibilityBackend for MovingFocusBackend {
+    fn init(&mut self) -> Result<(), CaptureError> {
+        Ok(())
+    }
+
+    fn cleanup(&mut self) {}
+
+    fn element_at_point(&self, _x: i32, _y: i32) -> Option<ElementDescription> {
+        None
+    }
+
+    fn focused_element(&self) -> Option<ElementDescription> {
+        self.queries.fetch_add(1, Ordering::SeqCst);
+        Some(self.scene.lock().unwrap().element.clone())
+    }
+
+    fn focus_epoch(&self) -> u64 {
+        self.scene.lock().unwrap().epoch
+    }
+
+    fn is_foreground_window(&self, window_handle: i64) -> bool {
+        self.scene.lock().unwrap().foreground == window_handle
+    }
+
+    fn window_title(&self, _window_handle: i64) -> String {
+        String::new()
+    }
+
+    fn process_name(&self, _window_handle: i64) -> String {
+        "test.exe".to_string()
+    }
+
+    fn read_file_dialog_path(&self, _window_handle: i64) -> Option<(String, String)> {
+        None
+    }
+
+    fn root_window_handle(&self, window_handle: i64) -> i64 {
+        window_handle
+    }
+
+    fn window_rect(&self, _window_handle: i64) -> Option<docent_desktop_lib::capture::WindowRect> {
+        None
+    }
+
+    fn selected_item_name(&self, _window_handle: i64) -> Option<(ElementDescription, String)> {
+        None
+    }
+}
+
+const DIALOG: i64 = 1234;
+const OTHER_WINDOW: i64 = 999;
+
+fn file_name_field(text: &str) -> FocusScene {
+    FocusScene {
+        epoch: 1,
+        foreground: DIALOG,
+        element: scene_element("Edit", "Dialog > Edit:File name", Some(text)),
+    }
+}
+
+/// A key or value change of the dialog, dispatched while its field had focus.
+fn in_dialog(mut raw: RawEvent) -> RawEvent {
+    raw.window_handle = DIALOG;
+    raw.focus_epoch = 1;
+    raw
+}
+
+/// `key` and `type` actions as `"key <name> on <selector>"` and
+/// `"type <value> on <selector>"`, in the order written.
+fn typed_actions_of(events: &[ActionEvent]) -> Vec<String> {
+    events
+        .iter()
+        .filter_map(|e| match &e.payload {
+            ActionPayload::Key { key, element, .. } => {
+                Some(format!("key {key} on {}", element.selector))
+            }
+            ActionPayload::Type { value, element } => {
+                Some(format!("type {value} on {}", element.selector))
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+/// Regression for docent#688: Backspace pressed in a dialog's field was
+/// described after the dialog had closed and named the document behind it.
+/// With nothing known about the dialog's field, the key names no element.
+#[test]
+fn regression_688_a_key_described_after_its_window_closed_names_no_element() {
+    let (backend, _scene, _) = MovingFocusBackend::new(FocusScene {
+        epoch: 2,
+        foreground: OTHER_WINDOW,
+        element: scene_element("Edit", "Document > Edit:Text Editor", Some("text")),
+    });
+    let harness = WorkerTestHarness::new(backend);
+
+    harness.send_event(in_dialog(layout_key(1, now_ms(), 0x08))); // Backspace
+
+    thread::sleep(Duration::from_millis(300));
+    let events = harness.shutdown();
+
+    assert_eq!(typed_actions_of(&events), vec!["key Backspace on "]);
+    let element = events
+        .iter()
+        .find_map(|e| match &e.payload {
+            ActionPayload::Key { element, .. } => Some(element),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(element.tag, "Unknown", "got {element:?}");
+}
+
+/// Regression for docent#688 and docent#689: Enter pressed in a field was
+/// described after focus had gone to another window (the recorder's own, in
+/// the report). The field was described for the keys before it, under the same
+/// focus, so Enter is recorded on the field.
+#[test]
+fn regression_688_a_late_key_is_recorded_on_the_element_its_focus_was_described_as() {
+    let (backend, scene, _) = MovingFocusBackend::new(file_name_field("a"));
+    let harness = WorkerTestHarness::new(backend);
+
+    let t = now_ms();
+    harness.send_event(in_dialog(packet_key(1, t, u16::from(b'a'))));
+    thread::sleep(Duration::from_millis(150));
+    *scene.lock().unwrap() = FocusScene {
+        epoch: 2,
+        foreground: OTHER_WINDOW,
+        element: scene_element("Edit", "Recorder > Edit:narration-input", Some("")),
+    };
+    harness.send_event(in_dialog(layout_key(2, t + 1, 0x0D))); // Enter
+
+    thread::sleep(Duration::from_millis(300));
+    let events = harness.shutdown();
+
+    assert_eq!(
+        typed_actions_of(&events),
+        vec![
+            "key a on Dialog > Edit:File name",
+            "key Enter on Dialog > Edit:File name"
+        ],
+        "got {events:?}"
+    );
+}
+
+/// Regression for docent#690: a value change described after focus had gone to
+/// another window was recorded as a `type` on the newly focused element, with
+/// that element's name as the value. It is no `type`; the keys it would have
+/// superseded are kept, on their own field.
+#[test]
+fn regression_690_a_value_change_described_after_focus_left_its_window_is_no_type() {
+    let (backend, scene, _) = MovingFocusBackend::new(file_name_field("hi"));
+    let harness = WorkerTestHarness::new(backend);
+
+    let t = now_ms();
+    harness.send_event(in_dialog(packet_key(1, t, u16::from(b'h'))));
+    harness.send_event(in_dialog(packet_key(2, t + 1, u16::from(b'i'))));
+    thread::sleep(Duration::from_millis(150));
+    *scene.lock().unwrap() = FocusScene {
+        epoch: 2,
+        foreground: OTHER_WINDOW,
+        element: scene_element("Window", "Window:Calculator", Some("Calculator")),
+    };
+    harness.send_event(in_dialog(value_change(3, t + 2, DIALOG)));
+
+    thread::sleep(Duration::from_millis(900));
+    let events = harness.shutdown();
+
+    assert_eq!(
+        typed_actions_of(&events),
+        vec![
+            "key h on Dialog > Edit:File name",
+            "key i on Dialog > Edit:File name"
+        ],
+        "got {events:?}"
+    );
+}
+
+/// Regression for docent#690: the same inside one window. Focus went from the
+/// field to a button of the same dialog before the value change was described;
+/// the button is not the element the value change belongs to.
+#[test]
+fn regression_690_a_value_change_described_after_focus_moved_within_its_window_is_no_type() {
+    let (backend, scene, _) = MovingFocusBackend::new(file_name_field("hi"));
+    let harness = WorkerTestHarness::new(backend);
+
+    let t = now_ms();
+    harness.send_event(in_dialog(packet_key(1, t, u16::from(b'h'))));
+    harness.send_event(in_dialog(packet_key(2, t + 1, u16::from(b'i'))));
+    thread::sleep(Duration::from_millis(150));
+    *scene.lock().unwrap() = FocusScene {
+        epoch: 2,
+        foreground: DIALOG,
+        element: scene_element("Button", "Dialog > Button:Save", Some("Save")),
+    };
+    harness.send_event(in_dialog(value_change(3, t + 2, DIALOG)));
+
+    thread::sleep(Duration::from_millis(900));
+    let events = harness.shutdown();
+
+    assert_eq!(
+        typed_actions_of(&events),
+        vec![
+            "key h on Dialog > Edit:File name",
+            "key i on Dialog > Edit:File name"
+        ],
+        "got {events:?}"
+    );
+}
+
+/// A focus change was counted, but the same element of the same window is
+/// still focused (a program that reports focus again while one types): the
+/// value change is the field's `type` as before.
+#[test]
+fn a_value_change_after_a_counted_focus_change_back_on_the_same_element_is_its_type() {
+    let (backend, scene, _) = MovingFocusBackend::new(file_name_field("hi"));
+    let harness = WorkerTestHarness::new(backend);
+
+    let t = now_ms();
+    harness.send_event(in_dialog(packet_key(1, t, u16::from(b'h'))));
+    harness.send_event(in_dialog(packet_key(2, t + 1, u16::from(b'i'))));
+    thread::sleep(Duration::from_millis(150));
+    scene.lock().unwrap().epoch = 2;
+    harness.send_event(in_dialog(value_change(3, t + 2, DIALOG)));
+
+    thread::sleep(Duration::from_millis(900));
+    let events = harness.shutdown();
+
+    assert_eq!(
+        typed_actions_of(&events),
+        vec!["type hi on Dialog > Edit:File name"],
+        "got {events:?}"
+    );
+}
+
+/// Keys typed into a password field and described after focus left it stay
+/// part of the field's masked `type`: the field was described as a password
+/// field under the same focus.
+#[test]
+fn late_keys_of_a_password_field_stay_in_its_masked_type() {
+    let mut field = file_name_field("");
+    field.element.element_type = Some("password".to_string());
+    field.element.text = None;
+    let (backend, scene, _) = MovingFocusBackend::new(field);
+    let harness = WorkerTestHarness::new(backend);
+
+    let t = now_ms();
+    harness.send_event(in_dialog(packet_key(1, t, u16::from(b'p'))));
+    thread::sleep(Duration::from_millis(150));
+    *scene.lock().unwrap() = FocusScene {
+        epoch: 2,
+        foreground: OTHER_WINDOW,
+        element: scene_element("Edit", "Document > Edit:Text Editor", Some("text")),
+    };
+    harness.send_event(in_dialog(packet_key(2, t + 1, u16::from(b'w'))));
+    harness.send_event(in_dialog(layout_key(3, t + 2, 0x0D))); // Enter
+
+    thread::sleep(Duration::from_millis(900));
+    let events = harness.shutdown();
+
+    assert_eq!(
+        typed_actions_of(&events),
+        vec![
+            "type •••••••• on Dialog > Edit:File name",
+            "key Enter on Dialog > Edit:File name"
+        ],
+        "got {events:?}"
+    );
+}
+
+/// A run of one key repeated, pressed under one focus, is described once and
+/// comes out as the one `type` with every character.
+#[test]
+fn repeated_keys_under_one_focus_are_described_once_and_typed_exactly() {
+    let text = format!("k{}p", "e".repeat(24));
+    let (backend, _scene, queries) = MovingFocusBackend::new(file_name_field(&text));
+    let harness = WorkerTestHarness::new(backend);
+
+    let t = now_ms();
+    for (i, unit) in text.encode_utf16().enumerate() {
+        harness.send_event(in_dialog(packet_key(i as u64 + 1, t + i as u64, unit)));
+    }
+    harness.send_event(in_dialog(value_change(27, t + 30, DIALOG)));
+
+    thread::sleep(Duration::from_millis(900));
+    let events = harness.shutdown();
+
+    assert_eq!(
+        typed_actions_of(&events),
+        vec![format!("type {text} on Dialog > Edit:File name")],
+        "got {events:?}"
+    );
+    // One query for the 26 keys, one for the value change's value.
+    assert_eq!(queries.load(Ordering::SeqCst), 2);
+}
+
+/// The keys after which the Input_Thread starts a new focus epoch: every key
+/// that can move the focus, never a plain typing key.
+#[test]
+fn only_plain_typing_keys_keep_the_focus_epoch() {
+    use docent_desktop_lib::capture::worker_pool::key_may_move_focus;
+    let none = (false, false, false, false);
+    let alt_gr = (true, false, true, false);
+    let ctrl = (true, false, false, false);
+    let shift = (false, true, false, false);
+
+    // Letters, digits, space, keypad, punctuation, an injected character.
+    for vk in [0x41, 0x5A, 0x30, 0x20, 0x65, 0xBB, 0xE2, VK_PACKET] {
+        assert!(!key_may_move_focus(vk, none), "vk {vk:#x}");
+        assert!(!key_may_move_focus(vk, shift), "vk {vk:#x} with Shift");
+        assert!(!key_may_move_focus(vk, alt_gr), "vk {vk:#x} with AltGr");
+        assert!(key_may_move_focus(vk, ctrl), "vk {vk:#x} with Ctrl");
+    }
+    // Modifier and lock keys alone.
+    for vk in [0x10, 0x11, 0x12, 0xA0, 0xA5, 0x14, 0x90] {
+        assert!(!key_may_move_focus(vk, none), "vk {vk:#x}");
+    }
+    // Tab, Enter, Escape, an arrow, F6, the Windows key, an unknown key.
+    for vk in [0x09, 0x0D, 0x1B, 0x25, 0x75, 0x5B, 0xFF] {
+        assert!(key_may_move_focus(vk, none), "vk {vk:#x}");
+    }
 }
