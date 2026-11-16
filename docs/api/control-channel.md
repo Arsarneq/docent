@@ -74,6 +74,11 @@ sequenceDiagram
 | Frames the panel sends    | `hello`, `paired`, and one `result` per command; nothing unasked                                     |
 | Lengths                   | Every length this document states for text counts UTF-16 code units, as a JavaScript string does     |
 
+For a worked example of the local process side, see the
+[Reference Control Client](../../reference-implementations/control-client/README.md):
+a module with its own test suite, tested against a stand-in for the panel
+that follows this document.
+
 ---
 
 ## Turning the channel on

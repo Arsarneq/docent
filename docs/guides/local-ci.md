@@ -230,6 +230,7 @@ job that could.
 | `extension-e2e-tests`       | ubuntu                               | ✅ yes (Playwright + `xvfb`, as on CI)                                                              |
 | `desktop-integration-tests` | ubuntu                               | ✅ yes                                                                                              |
 | `reference-server-tests`    | ubuntu                               | ✅ yes                                                                                              |
+| `control-client-tests`      | ubuntu                               | ✅ yes                                                                                              |
 | `desktop-cross-compile`     | windows-latest **and** ubuntu matrix | ✅ the ubuntu leg only — the Windows leg needs a Windows runner                                     |
 | `desktop-rust-tests`        | windows-latest                       | ❌ no — Windows-only ([below](#the-windows-boundary))                                               |
 | `desktop-vectors-produce`   | windows-2022 (deliberately pinned)   | ❌ no — the second Windows-only job ([below](#the-windows-boundary))                                |

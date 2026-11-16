@@ -54,7 +54,8 @@
       "code": [
         "packages/extension/sidepanel/{control-channel,control-channel-host,control-commands,project-export}.js",
         "packages/extension/tests/unit/{control-channel,control-channel-host,control-commands,project-export}.test.js",
-        "packages/extension/tests/e2e/specs/control-channel.spec.js"
+        "packages/extension/tests/e2e/specs/control-channel.spec.js",
+        "reference-implementations/control-client/**"
       ],
       "docs": ["docs/api/control-channel.md"]
     },
@@ -123,7 +124,7 @@
         "packages/shared/{sync-*,dispatch-*,conflict-*,connection-test}.js",
         "packages/shared/lib/http-transport.js",
         "packages/shared/tests/**",
-        "reference-implementations/**"
+        "reference-implementations/sync-server/**"
       ],
       "docs": [
         "docs/api/dispatch.md",
@@ -280,11 +281,15 @@
     },
     {
       "path": "reference-implementations/README.md",
-      "reason": "Reference-implementations index — orientation for runnable example artifacts (never shipped in a release), not project doctrine."
+      "reason": "Reference-implementations index — orientation for the example implementations of Docent's contracts and their test suites (never shipped in a release), not project doctrine."
     },
     {
       "path": "reference-implementations/sync-server/README.md",
       "reason": "Reference sync-server README — implementation notes for a runnable example artifact (never shipped); the protocol it implements is governed by docs/api/sync-protocol.md."
+    },
+    {
+      "path": "reference-implementations/control-client/README.md",
+      "reason": "Reference control-client README: implementation notes for an example module and its test suite (never shipped); the channel it implements the local process side of is governed by docs/api/control-channel.md."
     }
   ],
   "governance-partitions": [
