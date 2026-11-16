@@ -242,7 +242,8 @@ and a unit that is no character on its own as `Unidentified`), so the same
 text is never recorded twice. Every keyboard event and every value-change
 event is processed by one worker, the typing worker, in the order the input
 thread dispatched them, so a value change is processed after the keystrokes
-that caused it and supersedes each buffered one, however busy the pool is;
+that caused it and supersedes each buffered one, however busy the pool is
+(DCP-12 states the one hand-over of the role);
 every keystroke a value change does not supersede is written, so a repeated
 key is recorded once per press. A keystroke that enters text into a password
 field (DCP-11's signal) is never buffered as a key: it starts or extends that
@@ -356,9 +357,12 @@ which stays that index across a respawn, so supersession and value
 deduplication (per element within its window) stay correct; a typing worker
 that does not answer a commit's flush barrier in time gives the role up, and
 the next keyboard or value-change event chooses a worker again by shortest
-queue, so typing after that commit does not wait behind a wedged
-accessibility call (what was dispatched to the wedged worker before it is the
-residue above); exactly the focus and selection events route
+queue among the workers that answered, so typing after that commit does not
+wait behind a wedged accessibility call. What was dispatched to the
+unanswering worker before that stays with it: lost if it never returns (the
+residue above), processed there if it does, where a keystroke whose value
+change was dispatched after the hand-over is written as a `key` beside the
+`type`; exactly the focus and selection events route
 **sticky** — the same window handle always reaches the same worker — so their
 deduplication stays correct; a drop routes to the worker that took its drag
 start; events without a routing affinity use shortest-queue dispatch.
@@ -400,10 +404,11 @@ with a caveat):
 - A file dialog whose confirm button is named other than "Save" or "Open", or
   whose window title contains none of "save as", "save" or "open" — both tests
   English-only, so a localized dialog — produces no `file_dialog` action
-- A `type` whose value equals the worker's last for the same selector — not
-  written, the keys buffered for it discarded with it, and for a password
-  field, whose value is the mask, every entry after the first on that worker;
-  a departure (core CP-18)
+- A `type` whose value equals the typing worker's last for the same element
+  (its selector within its window) — not written, the keys buffered for it
+  discarded with it, and for a password field, whose value is the mask, every
+  value change after the first that no text-entering keystroke accompanies (a
+  paste, for example); a departure (core CP-18)
 - A focus whose selector equals the worker's last — not written; a departure
   (core CP-18)
 - A focus or value change on an element the accessibility layer cannot

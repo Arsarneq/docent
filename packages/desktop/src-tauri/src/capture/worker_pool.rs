@@ -343,6 +343,10 @@ pub struct WorkerPool {
     /// so typing does not queue behind a wedged accessibility call for the
     /// rest of the capture. `NO_TYPING_WORKER` while none is chosen.
     typing_worker: AtomicUsize,
+    /// The workers that did not answer the most recent flush barrier, one bit
+    /// per index. The typing role is not given to one of them while another
+    /// worker is available; a respawn clears its index's bit.
+    missed_last_barrier: AtomicU64,
     /// Sticky routing: maps `window_handle` → `worker_index` for focus and
     /// selection events, so each window's events of those types reach one
     /// worker and its deduplication holds.
@@ -409,6 +413,7 @@ impl WorkerPool {
             pending_directory,
             sequence_counter: Arc::new(AtomicU64::new(0)),
             typing_worker: AtomicUsize::new(NO_TYPING_WORKER),
+            missed_last_barrier: AtomicU64::new(0),
             window_affinity: HashMap::new(),
             last_drag_worker: None,
             spawn_worker: Box::new(spawn_worker),
@@ -472,7 +477,13 @@ impl WorkerPool {
                 if current != NO_TYPING_WORKER {
                     return current;
                 }
-                let idx = self.shortest_queue_worker();
+                let missed = self.missed_last_barrier.load(Ordering::SeqCst);
+                let unresponsive: std::collections::HashSet<usize> = (0..self.workers.len())
+                    .filter(|i| *i < 64 && missed & (1 << i) != 0)
+                    .collect();
+                let idx = self
+                    .pick_worker_excluding(&unresponsive)
+                    .unwrap_or_else(|| self.shortest_queue_worker());
                 self.typing_worker.store(idx, Ordering::SeqCst);
                 idx
             }
@@ -648,7 +659,12 @@ impl WorkerPool {
         self.window_affinity.retain(|_, &mut v| v != index);
 
         // The typing worker keeps its index: the replacement is installed at
-        // that index, so keyboard and value-change events stay together.
+        // that index, so keyboard and value-change events stay together. The
+        // replacement has missed no barrier.
+        if index < 64 {
+            self.missed_last_barrier
+                .fetch_and(!(1 << index), Ordering::SeqCst);
+        }
 
         // Clear drag worker if it was the dead one.
         if self.last_drag_worker == Some(index) {
@@ -829,10 +845,13 @@ impl WorkerPool {
         emit_barrier_sentinel(&self.action_sender, barrier_id);
 
         // A typing worker that did not answer gives the role up: the next
-        // keyboard or value-change event chooses again by shortest queue, which
-        // the unanswered worker's own backlog keeps away from it. What it still
-        // has queued stays together on it, keystrokes ahead of their value
-        // changes.
+        // keyboard or value-change event chooses again, among the workers that
+        // did answer. What the unanswered worker still has queued stays on it.
+        let missed = rescue
+            .iter()
+            .filter(|i| **i < 64)
+            .fold(0u64, |mask, i| mask | (1 << i));
+        self.missed_last_barrier.store(missed, Ordering::SeqCst);
         let typing = self.typing_worker.load(Ordering::SeqCst);
         if rescue.contains(&typing) {
             self.typing_worker.store(NO_TYPING_WORKER, Ordering::SeqCst);
@@ -2412,7 +2431,7 @@ mod tests {
         };
 
         pool.dispatch(key()); // worker 0 takes the typing role and wedges
-        pool.dispatch(key()); // still worker 0: the role holds
+        thread::sleep(Duration::from_millis(50));
         let wedged = pool.flush_all(3, Duration::from_millis(200));
         assert_eq!(wedged, vec![0]);
         pool.dispatch(key());
@@ -2421,8 +2440,8 @@ mod tests {
         assert_eq!(
             *received.lock().unwrap(),
             vec![0, 1],
-            "worker 0 took the first keystroke (the second waits in its queue); \
-             after the barrier the next keystroke reaches worker 1"
+            "worker 0 took the first keystroke and wedged with nothing queued \
+             behind it; after the barrier the next keystroke reaches worker 1"
         );
         pool.shutdown_with_timeout(Duration::from_millis(200));
     }
