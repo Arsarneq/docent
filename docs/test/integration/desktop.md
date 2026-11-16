@@ -37,6 +37,10 @@ Chromium, rewritten on the way out so the mock can stand in for the backend:
   `window.fetch`, so a spec's fetch stubs service the real transport path),
   and `event.listen` records each handler so a spec can fire `capture:action`
   events directly, simulating captured input arriving from the backend.
+- the mock also replaces `window.confirm` the way the dialog plugin does in
+  the application: the call answers with a Promise of the choice, never the
+  boolean itself, while the dialog is still the browser's own, so a spec answers
+  it through the page's `dialog` event.
 
 Because the mock is suite-wide, so are its affordances: a spec reads the
 recorded invoke traffic through the fixture's readers — `invokedCommands` (the
@@ -137,6 +141,7 @@ its full path into the directory's one set of paths, where it must stay distinct
 | `panel-coverage-boost.spec.js`              | Metadata CRUD, import (including duplicate-project copies), export, sync partial-success and auth-error paths, "Send all", target-app selector, self-capture toggle, drag reorder.                                                                                                                                   |
 | `import-export-rerecord-desktop.spec.js`    | Import/export round-trips (format stamp derived from the composed schema, never hardcoded), re-record (and leaving one through a breadcrumb cancelling it, so the next recording's step gets its own logical id and none of the actions captured for it), drag reorder persistence.                                  |
 | `panel-rerecord-leave-drain.spec.js`        | Leaving a re-record through either breadcrumb, against a mocked `stop_capture` that delivers a drained action after its result: the panel waits for the stop's sentinel, so the drained action is discarded with the re-record and is never pending in the recording opened next.                                    |
+| `panel-confirm-dialogs.spec.js`             | The confirmations before Clear (both recording modes) and before deleting a step, a recording or a project: answered Cancel, nothing is cleared or deleted; Clear in simple mode answered OK clears; and the mock's `confirm` answering with a Promise, as the dialog plugin's does.                                 |
 | `accessibility-desktop.spec.js`             | axe-core WCAG 2.1 AA scan of each major panel view (machine-detectable issues only).                                                                                                                                                                                                                                 |
 | `sync-samples.spec.js`                      | The real desktop client pulls the bundled `desktop-windows` seed sample from a running reference sync server and rejects the `extension`-stamped one.                                                                                                                                                                |
 

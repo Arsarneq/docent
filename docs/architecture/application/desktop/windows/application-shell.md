@@ -100,10 +100,16 @@ it lists as its first backticked token:
 
 The `core:default` grant is load-bearing: the adapter's `capture:action`
 listener is itself an event-plugin invocation that grant authorizes,
-exercised on every captured action. The dialog grants are unused headroom
-today — no shipped frontend code invokes the dialog plugin; the file dialogs
-are opened from Rust inside `export_file`/`import_file`, which capabilities
-do not gate. For the user the native dialogs stand in for the browser's
+exercised on every captured action. So is `dialog:default`: the dialog
+plugin injects a script into the webview that replaces `window.alert` and
+`window.confirm` with versions that invoke its message command, so every
+`alert()` and `confirm()` the panel makes is a native dialog that grant
+authorizes. The replacement `confirm()` is asynchronous: it answers with a
+Promise of the user's choice, never the boolean itself, so the panel awaits it
+before acting on the answer. The open and save grants are unused headroom
+today — no shipped frontend code invokes the plugin's open or save command; the
+file dialogs are opened from Rust inside `export_file`/`import_file`, which
+capabilities do not gate. For the user the native dialogs stand in for the browser's
 download and file-picker flows — Export writes the same file, Import picks a
 file — a difference of mechanism, not of outcome, which the
 [index of deliberate differences](../../../../design/ui_ux/shared-interaction-model.md#the-deliberate-platform-differences)
