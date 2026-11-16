@@ -675,12 +675,12 @@ half of the extension is documented in
 | Test file | Covers |
 | --- | --- |
 | `adapter-chrome.test.js` | The Chrome adapter: settings, theme, recording mode, schema loading, the pending-count and action-event subscriptions, and send. |
-| `auto-sync-host.test.js` | The background sync host wired in the service worker: one shared cycle, run headless, with its state persisted for the panel. |
+| `auto-sync-host.test.js` | The background sync host wired in the service worker: one shared cycle, run headless, with its state persisted for the panel, and a cycle requested by a stop the panel sends while capture is off. |
 | `build-size.test.js` | Size tripwires over the extension bundle, per type and in total. |
 | `capture-timing.test.js` | The capture-timing constants' validity and relative ordering, and the recent-user-action decision they drive. |
 | `control-channel-host.test.js` | The local control channel's host, run against the shipped module with a fake socket: off by default, one code per turn-on, the export grant fixed at turn-on and the trace of each export, redialling and its cap, and every route that turns the channel off. |
 | `control-channel.test.js` | The local control channel's pure core: the loopback address, the pairing code and the labelled proof in each direction, the indicator's export line, frame parsing, the closed command set and its bounds, and the session's pairing and command handling. |
-| `control-commands.test.js` | The mapping from a control-channel command to a panel action: the state each command needs, the refusals, the export of the open project as the Export button builds it, the storage and re-record notice codes, and results of identifiers, names, counts, flags and codes, an export only with the grant. |
+| `control-commands.test.js` | The mapping from a control-channel command to a panel action: the state each command needs, its refusals, and its result. [Detail](#control-commandstestjs) |
 | `dispatch.test.js` | Settings round-trip, endpoint validation, payload fidelity, the authorization header, and the action-event subscription. |
 | `e2e-suite-locks.test.js` | The end-to-end guide's retry, attempt, trace, timeout and worker sentences held to the Playwright config, each key read as text and set exactly once. |
 | `frame-trust.test.js` | The per-frame trust predicate deciding whether an appended action may enter a recording. |
@@ -697,5 +697,21 @@ half of the extension is documented in
 | `service-worker-mirror-parity.test.js` | The append chokepoint's and the active-unit helpers' second copies stay textually identical to the shipped functions, the chokepoint under indentation only. |
 | `service-worker-navigation.test.js` | The worker's navigation proxy through its registered listeners: the duplicate check, the last-URL marker and its self-clear, and the new-tab link path. |
 | `service-worker-static-import.test.js` | A static-source guard that the background path uses the statically imported validator, never a dynamic import. |
-| `service-worker.test.js` | The worker's message handlers: the panel protocol, import and export, the trusted-sender gate, redaction, and storage-failure recovery. |
+| `service-worker.test.js` | The worker's message handlers: the panel protocol, import and export, the trusted-sender gate, redaction, and storage-failure recovery. [Detail](#service-workertestjs) |
 | `storage-quota.test.js` | The storage-pressure classifier: the warn band's threshold and the resume hysteresis. |
+
+### `control-commands.test.js`
+
+- the state each command needs, and the refusals when it is missing;
+- the export of the open project as the Export button builds it, an export only with the grant;
+- a pause, a resume or a create the service worker refused, answered with a fixed text;
+- the storage and re-record notice codes;
+- and results of identifiers, names, counts, flags and codes.
+
+### `service-worker.test.js`
+
+- the panel protocol, import and export, the trusted-sender gate, redaction, and storage-failure
+  recovery;
+- through the shipped worker's listener, each project- and recording-scoped message found by the
+  ids it carries, or refused unless it names the active project and recording;
+- and capture stopped once no recording is active.

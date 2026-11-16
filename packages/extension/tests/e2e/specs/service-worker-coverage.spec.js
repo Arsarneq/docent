@@ -106,6 +106,21 @@ async function sendSWMessage(panelPage, msg) {
 }
 
 /**
+ * The worker's active project and recording ids, as a project- and
+ * recording-scoped message names them when it comes from the one panel that
+ * opened or created them (extension runtime, Panel protocol).
+ */
+async function activeIds(serviceWorker) {
+  const stored = await serviceWorker.evaluate(() =>
+    chrome.storage.local.get(['activeProjectId', 'activeRecordingId']),
+  );
+  return {
+    project_id: stored.activeProjectId ?? null,
+    recording_id: stored.activeRecordingId ?? null,
+  };
+}
+
+/**
  * Reset SW state to a clean slate via the service worker's storage API.
  *
  * Waits for the SW's chrome.runtime.onInstalled init reset to settle first.
@@ -212,7 +227,10 @@ test.describe('SW Message: Project CRUD', () => {
     expect(result.project.name).toBe('New');
     expect(result.project).toHaveProperty('project_id');
 
-    const get = await sendSWMessage(panelPage, { type: 'PROJECT_GET' });
+    const get = await sendSWMessage(panelPage, {
+      ...(await activeIds(serviceWorker)),
+      type: 'PROJECT_GET',
+    });
     expect(get.ok).toBe(true);
     expect(get.project.name).toBe('New');
   });
@@ -229,7 +247,10 @@ test.describe('SW Message: Project CRUD', () => {
     });
 
     // Active should be Second (last created)
-    let get = await sendSWMessage(panelPage, { type: 'PROJECT_GET' });
+    let get = await sendSWMessage(panelPage, {
+      ...(await activeIds(serviceWorker)),
+      type: 'PROJECT_GET',
+    });
     expect(get.project.name).toBe('Second');
 
     // Open First
@@ -240,7 +261,10 @@ test.describe('SW Message: Project CRUD', () => {
     expect(open.ok).toBe(true);
     expect(open.project.name).toBe('First');
 
-    get = await sendSWMessage(panelPage, { type: 'PROJECT_GET' });
+    get = await sendSWMessage(panelPage, {
+      ...(await activeIds(serviceWorker)),
+      type: 'PROJECT_GET',
+    });
     expect(get.project.name).toBe('First');
   });
 
@@ -270,8 +294,12 @@ test.describe('SW Message: Project CRUD', () => {
     });
     expect(del.ok).toBe(true);
 
-    const get = await sendSWMessage(panelPage, { type: 'PROJECT_GET' });
-    expect(get.project).toBeNull();
+    const get = await sendSWMessage(panelPage, {
+      ...(await activeIds(serviceWorker)),
+      type: 'PROJECT_GET',
+    });
+    // No project is active any more, so none is named.
+    expect(get).toEqual({ ok: false, error: 'Project not found' });
 
     const list = await sendSWMessage(panelPage, { type: 'PROJECTS_LIST' });
     expect(list.projects).toHaveLength(0);
@@ -294,7 +322,10 @@ test.describe('SW Message: Project CRUD', () => {
     // Active is p2 (last created). Delete p1.
     await sendSWMessage(panelPage, { type: 'PROJECT_DELETE', project_id: p1.project_id });
 
-    const get = await sendSWMessage(panelPage, { type: 'PROJECT_GET' });
+    const get = await sendSWMessage(panelPage, {
+      ...(await activeIds(serviceWorker)),
+      type: 'PROJECT_GET',
+    });
     expect(get.project.name).toBe('Remove');
   });
 
@@ -303,6 +334,7 @@ test.describe('SW Message: Project CRUD', () => {
     await sendSWMessage(panelPage, { type: 'PROJECT_CREATE', name: 'Old' });
 
     const result = await sendSWMessage(panelPage, {
+      ...(await activeIds(serviceWorker)),
       type: 'PROJECT_RENAME',
       name: 'Renamed',
     });
@@ -310,17 +342,18 @@ test.describe('SW Message: Project CRUD', () => {
     expect(result.project.name).toBe('Renamed');
   });
 
-  test('PROJECT_RENAME with no active project returns error', async ({
+  test('PROJECT_RENAME naming no project returns Project not found', async ({
     serviceWorker,
     panelPage,
   }) => {
     await resetState(serviceWorker);
     const result = await sendSWMessage(panelPage, {
+      ...(await activeIds(serviceWorker)),
       type: 'PROJECT_RENAME',
       name: 'X',
     });
     expect(result.ok).toBe(false);
-    expect(result.error).toMatch(/No active project/);
+    expect(result.error).toMatch(/Project not found/);
   });
 });
 
@@ -335,6 +368,7 @@ test.describe('SW Message: Recording lifecycle', () => {
     await sendSWMessage(panelPage, { type: 'PROJECT_CREATE', name: 'P' });
 
     const result = await sendSWMessage(panelPage, {
+      ...(await activeIds(serviceWorker)),
       type: 'RECORDING_CREATE',
       name: 'Rec1',
     });
@@ -349,17 +383,18 @@ test.describe('SW Message: Recording lifecycle', () => {
     expect(state.recording).toBe(true);
   });
 
-  test('RECORDING_CREATE with no active project returns error', async ({
+  test('RECORDING_CREATE naming no project returns Project not found', async ({
     serviceWorker,
     panelPage,
   }) => {
     await resetState(serviceWorker);
     const result = await sendSWMessage(panelPage, {
+      ...(await activeIds(serviceWorker)),
       type: 'RECORDING_CREATE',
       name: 'Orphan',
     });
     expect(result.ok).toBe(false);
-    expect(result.error).toMatch(/No active project/);
+    expect(result.error).toMatch(/Project not found/);
   });
 
   test('RECORDING_OPEN switches active recording and stops recording', async ({
@@ -369,16 +404,19 @@ test.describe('SW Message: Recording lifecycle', () => {
     await resetState(serviceWorker);
     await sendSWMessage(panelPage, { type: 'PROJECT_CREATE', name: 'P' });
     const { recording: r1 } = await sendSWMessage(panelPage, {
+      ...(await activeIds(serviceWorker)),
       type: 'RECORDING_CREATE',
       name: 'R1',
     });
     await sendSWMessage(panelPage, {
+      ...(await activeIds(serviceWorker)),
       type: 'RECORDING_CREATE',
       name: 'R2',
     });
 
     // Open R1
     const open = await sendSWMessage(panelPage, {
+      ...(await activeIds(serviceWorker)),
       type: 'RECORDING_OPEN',
       recording_id: r1.recording_id,
     });
@@ -397,6 +435,7 @@ test.describe('SW Message: Recording lifecycle', () => {
     await resetState(serviceWorker);
     await sendSWMessage(panelPage, { type: 'PROJECT_CREATE', name: 'P' });
     const result = await sendSWMessage(panelPage, {
+      ...(await activeIds(serviceWorker)),
       type: 'RECORDING_OPEN',
       recording_id: 'bad-id',
     });
@@ -404,27 +443,31 @@ test.describe('SW Message: Recording lifecycle', () => {
     expect(result.error).toMatch(/not found/i);
   });
 
-  test('RECORDING_OPEN with no active project returns error', async ({
+  test('RECORDING_OPEN naming no project returns Project not found', async ({
     serviceWorker,
     panelPage,
   }) => {
     await resetState(serviceWorker);
     const result = await sendSWMessage(panelPage, {
+      ...(await activeIds(serviceWorker)),
       type: 'RECORDING_OPEN',
       recording_id: 'any',
     });
     expect(result.ok).toBe(false);
+    expect(result.error).toMatch(/Project not found/);
   });
 
   test('RECORDING_DELETE removes recording from project', async ({ serviceWorker, panelPage }) => {
     await resetState(serviceWorker);
     await sendSWMessage(panelPage, { type: 'PROJECT_CREATE', name: 'P' });
     const { recording } = await sendSWMessage(panelPage, {
+      ...(await activeIds(serviceWorker)),
       type: 'RECORDING_CREATE',
       name: 'ToDelete',
     });
 
     const del = await sendSWMessage(panelPage, {
+      ...(await activeIds(serviceWorker)),
       type: 'RECORDING_DELETE',
       recording_id: recording.recording_id,
     });
@@ -445,13 +488,19 @@ test.describe('SW Message: Recording lifecycle', () => {
     await resetState(serviceWorker);
     await sendSWMessage(panelPage, { type: 'PROJECT_CREATE', name: 'P' });
     const { recording: r1 } = await sendSWMessage(panelPage, {
+      ...(await activeIds(serviceWorker)),
       type: 'RECORDING_CREATE',
       name: 'R1',
     });
-    await sendSWMessage(panelPage, { type: 'RECORDING_CREATE', name: 'R2' });
+    await sendSWMessage(panelPage, {
+      ...(await activeIds(serviceWorker)),
+      type: 'RECORDING_CREATE',
+      name: 'R2',
+    });
 
     // Active is R2. Delete R1.
     const del = await sendSWMessage(panelPage, {
+      ...(await activeIds(serviceWorker)),
       type: 'RECORDING_DELETE',
       recording_id: r1.recording_id,
     });
@@ -462,17 +511,24 @@ test.describe('SW Message: Recording lifecycle', () => {
   test('RECORDING_START enables recording', async ({ serviceWorker, panelPage }) => {
     await resetState(serviceWorker);
     await sendSWMessage(panelPage, { type: 'PROJECT_CREATE', name: 'P' });
-    await sendSWMessage(panelPage, { type: 'RECORDING_CREATE', name: 'R' });
+    await sendSWMessage(panelPage, {
+      ...(await activeIds(serviceWorker)),
+      type: 'RECORDING_CREATE',
+      name: 'R',
+    });
 
     // Stop recording first
-    await sendSWMessage(panelPage, { type: 'RECORDING_STOP' });
+    await sendSWMessage(panelPage, { ...(await activeIds(serviceWorker)), type: 'RECORDING_STOP' });
     let state = await serviceWorker.evaluate(async () => {
       return await chrome.storage.local.get('recording');
     });
     expect(state.recording).toBe(false);
 
     // Start recording
-    const result = await sendSWMessage(panelPage, { type: 'RECORDING_START' });
+    const result = await sendSWMessage(panelPage, {
+      ...(await activeIds(serviceWorker)),
+      type: 'RECORDING_START',
+    });
     expect(result.ok).toBe(true);
 
     state = await serviceWorker.evaluate(async () => {
@@ -486,7 +542,10 @@ test.describe('SW Message: Recording lifecycle', () => {
     panelPage,
   }) => {
     await resetState(serviceWorker);
-    const result = await sendSWMessage(panelPage, { type: 'RECORDING_START' });
+    const result = await sendSWMessage(panelPage, {
+      ...(await activeIds(serviceWorker)),
+      type: 'RECORDING_START',
+    });
     expect(result.ok).toBe(false);
     expect(result.error).toMatch(/No active recording/);
   });
@@ -494,9 +553,16 @@ test.describe('SW Message: Recording lifecycle', () => {
   test('RECORDING_STOP disables recording', async ({ serviceWorker, panelPage }) => {
     await resetState(serviceWorker);
     await sendSWMessage(panelPage, { type: 'PROJECT_CREATE', name: 'P' });
-    await sendSWMessage(panelPage, { type: 'RECORDING_CREATE', name: 'R' });
+    await sendSWMessage(panelPage, {
+      ...(await activeIds(serviceWorker)),
+      type: 'RECORDING_CREATE',
+      name: 'R',
+    });
 
-    const result = await sendSWMessage(panelPage, { type: 'RECORDING_STOP' });
+    const result = await sendSWMessage(panelPage, {
+      ...(await activeIds(serviceWorker)),
+      type: 'RECORDING_STOP',
+    });
     expect(result.ok).toBe(true);
 
     const state = await serviceWorker.evaluate(async () => {
@@ -515,7 +581,10 @@ test.describe('SW Message: Recording lifecycle', () => {
       });
     });
 
-    const result = await sendSWMessage(panelPage, { type: 'RECORDING_CLEAR' });
+    const result = await sendSWMessage(panelPage, {
+      ...(await activeIds(serviceWorker)),
+      type: 'RECORDING_CLEAR',
+    });
     expect(result.ok).toBe(true);
 
     const state = await serviceWorker.evaluate(async () => {
@@ -532,7 +601,11 @@ test.describe('SW Message: Step operations', () => {
   test('STEP_COMMIT creates step from pending actions', async ({ serviceWorker, panelPage }) => {
     await resetState(serviceWorker);
     await sendSWMessage(panelPage, { type: 'PROJECT_CREATE', name: 'P' });
-    await sendSWMessage(panelPage, { type: 'RECORDING_CREATE', name: 'R' });
+    await sendSWMessage(panelPage, {
+      ...(await activeIds(serviceWorker)),
+      type: 'RECORDING_CREATE',
+      name: 'R',
+    });
 
     // Seed pending actions
     await serviceWorker.evaluate(async () => {
@@ -546,6 +619,7 @@ test.describe('SW Message: Step operations', () => {
     });
 
     const result = await sendSWMessage(panelPage, {
+      ...(await activeIds(serviceWorker)),
       type: 'STEP_COMMIT',
       narration: 'Log in as admin',
       narration_source: 'typed',
@@ -569,9 +643,14 @@ test.describe('SW Message: Step operations', () => {
   }) => {
     await resetState(serviceWorker);
     await sendSWMessage(panelPage, { type: 'PROJECT_CREATE', name: 'P' });
-    await sendSWMessage(panelPage, { type: 'RECORDING_CREATE', name: 'R' });
+    await sendSWMessage(panelPage, {
+      ...(await activeIds(serviceWorker)),
+      type: 'RECORDING_CREATE',
+      name: 'R',
+    });
 
     const result = await sendSWMessage(panelPage, {
+      ...(await activeIds(serviceWorker)),
       type: 'STEP_COMMIT',
       narration: 'Empty',
       narration_source: 'typed',
@@ -586,7 +665,11 @@ test.describe('SW Message: Step operations', () => {
   }) => {
     await resetState(serviceWorker);
     await sendSWMessage(panelPage, { type: 'PROJECT_CREATE', name: 'P' });
-    await sendSWMessage(panelPage, { type: 'RECORDING_CREATE', name: 'R' });
+    await sendSWMessage(panelPage, {
+      ...(await activeIds(serviceWorker)),
+      type: 'RECORDING_CREATE',
+      name: 'R',
+    });
 
     // Create initial step
     await serviceWorker.evaluate(async () => {
@@ -596,6 +679,7 @@ test.describe('SW Message: Step operations', () => {
       });
     });
     const { step } = await sendSWMessage(panelPage, {
+      ...(await activeIds(serviceWorker)),
       type: 'STEP_COMMIT',
       narration: 'Original',
       narration_source: 'typed',
@@ -603,6 +687,7 @@ test.describe('SW Message: Step operations', () => {
 
     // Re-record with same logical_id but no new pending actions (narration-only update)
     const rerecord = await sendSWMessage(panelPage, {
+      ...(await activeIds(serviceWorker)),
       type: 'STEP_COMMIT',
       narration: 'Updated narration',
       narration_source: 'typed',
@@ -620,7 +705,11 @@ test.describe('SW Message: Step operations', () => {
   }) => {
     await resetState(serviceWorker);
     await sendSWMessage(panelPage, { type: 'PROJECT_CREATE', name: 'P' });
-    await sendSWMessage(panelPage, { type: 'RECORDING_CREATE', name: 'R' });
+    await sendSWMessage(panelPage, {
+      ...(await activeIds(serviceWorker)),
+      type: 'RECORDING_CREATE',
+      name: 'R',
+    });
 
     await serviceWorker.evaluate(async () => {
       await chrome.storage.local.set({
@@ -630,6 +719,7 @@ test.describe('SW Message: Step operations', () => {
     });
 
     const result = await sendSWMessage(panelPage, {
+      ...(await activeIds(serviceWorker)),
       type: 'STEP_COMMIT',
       step_type: 'validation',
       expect: 'present',
@@ -645,6 +735,7 @@ test.describe('SW Message: Step operations', () => {
   }) => {
     await resetState(serviceWorker);
     const result = await sendSWMessage(panelPage, {
+      ...(await activeIds(serviceWorker)),
       type: 'STEP_COMMIT',
       narration: 'X',
       narration_source: 'typed',
@@ -656,7 +747,11 @@ test.describe('SW Message: Step operations', () => {
   test('STEP_DELETE removes step by logical_id', async ({ serviceWorker, panelPage }) => {
     await resetState(serviceWorker);
     await sendSWMessage(panelPage, { type: 'PROJECT_CREATE', name: 'P' });
-    await sendSWMessage(panelPage, { type: 'RECORDING_CREATE', name: 'R' });
+    await sendSWMessage(panelPage, {
+      ...(await activeIds(serviceWorker)),
+      type: 'RECORDING_CREATE',
+      name: 'R',
+    });
 
     // Create two steps
     await serviceWorker.evaluate(async () => {
@@ -666,6 +761,7 @@ test.describe('SW Message: Step operations', () => {
       });
     });
     const { step: s1 } = await sendSWMessage(panelPage, {
+      ...(await activeIds(serviceWorker)),
       type: 'STEP_COMMIT',
       narration: 'First',
       narration_source: 'typed',
@@ -678,6 +774,7 @@ test.describe('SW Message: Step operations', () => {
       });
     });
     await sendSWMessage(panelPage, {
+      ...(await activeIds(serviceWorker)),
       type: 'STEP_COMMIT',
       narration: 'Second',
       narration_source: 'typed',
@@ -685,6 +782,7 @@ test.describe('SW Message: Step operations', () => {
 
     // Delete first step
     const del = await sendSWMessage(panelPage, {
+      ...(await activeIds(serviceWorker)),
       type: 'STEP_DELETE',
       logical_id: s1.logical_id,
     });
@@ -693,22 +791,28 @@ test.describe('SW Message: Step operations', () => {
     expect(del.activeSteps[0].narration).toBe('Second');
   });
 
-  test('STEP_DELETE with no active recording returns error', async ({
+  test('STEP_DELETE naming no project returns Project not found', async ({
     serviceWorker,
     panelPage,
   }) => {
     await resetState(serviceWorker);
     const result = await sendSWMessage(panelPage, {
+      ...(await activeIds(serviceWorker)),
       type: 'STEP_DELETE',
       logical_id: 'any',
     });
     expect(result.ok).toBe(false);
+    expect(result.error).toMatch(/Project not found/);
   });
 
   test('STEPS_REORDER changes step order', async ({ serviceWorker, panelPage }) => {
     await resetState(serviceWorker);
     await sendSWMessage(panelPage, { type: 'PROJECT_CREATE', name: 'P' });
-    await sendSWMessage(panelPage, { type: 'RECORDING_CREATE', name: 'R' });
+    await sendSWMessage(panelPage, {
+      ...(await activeIds(serviceWorker)),
+      type: 'RECORDING_CREATE',
+      name: 'R',
+    });
 
     // Create 3 steps
     const steps = [];
@@ -720,6 +824,7 @@ test.describe('SW Message: Step operations', () => {
         });
       }, i * 1000);
       const { step } = await sendSWMessage(panelPage, {
+        ...(await activeIds(serviceWorker)),
         type: 'STEP_COMMIT',
         narration: `Step ${i}`,
         narration_source: 'typed',
@@ -729,6 +834,7 @@ test.describe('SW Message: Step operations', () => {
 
     // Reorder: 3, 1, 2
     const result = await sendSWMessage(panelPage, {
+      ...(await activeIds(serviceWorker)),
       type: 'STEPS_REORDER',
       orderedLogicalIds: [steps[2].logical_id, steps[0].logical_id, steps[1].logical_id],
     });
@@ -739,16 +845,18 @@ test.describe('SW Message: Step operations', () => {
     expect(sorted[2].narration).toBe('Step 2');
   });
 
-  test('STEPS_REORDER with no active recording returns error', async ({
+  test('STEPS_REORDER naming no project returns Project not found', async ({
     serviceWorker,
     panelPage,
   }) => {
     await resetState(serviceWorker);
     const result = await sendSWMessage(panelPage, {
+      ...(await activeIds(serviceWorker)),
       type: 'STEPS_REORDER',
       orderedLogicalIds: [],
     });
     expect(result.ok).toBe(false);
+    expect(result.error).toMatch(/Project not found/);
   });
 });
 
@@ -761,7 +869,11 @@ test.describe('SW Message: Import and Export', () => {
       type: 'PROJECT_CREATE',
       name: 'ExportMe',
     });
-    await sendSWMessage(panelPage, { type: 'RECORDING_CREATE', name: 'Rec' });
+    await sendSWMessage(panelPage, {
+      ...(await activeIds(serviceWorker)),
+      type: 'RECORDING_CREATE',
+      name: 'Rec',
+    });
 
     await serviceWorker.evaluate(async () => {
       await chrome.storage.local.set({
@@ -770,6 +882,7 @@ test.describe('SW Message: Import and Export', () => {
       });
     });
     await sendSWMessage(panelPage, {
+      ...(await activeIds(serviceWorker)),
       type: 'STEP_COMMIT',
       narration: 'Click A',
       narration_source: 'typed',
@@ -908,6 +1021,7 @@ test.describe('SW Message: Metadata operations', () => {
     await sendSWMessage(panelPage, { type: 'PROJECT_CREATE', name: 'P' });
 
     const result = await sendSWMessage(panelPage, {
+      ...(await activeIds(serviceWorker)),
       type: 'PROJECT_SET_METADATA',
       metadata: { ticket: 'PROJ-42', tags: ['smoke', 'regression'] },
     });
@@ -921,10 +1035,15 @@ test.describe('SW Message: Metadata operations', () => {
     await resetState(serviceWorker);
     await sendSWMessage(panelPage, { type: 'PROJECT_CREATE', name: 'P' });
     await sendSWMessage(panelPage, {
+      ...(await activeIds(serviceWorker)),
       type: 'PROJECT_SET_METADATA',
       metadata: { x: '1' },
     });
-    await sendSWMessage(panelPage, { type: 'PROJECT_SET_METADATA', metadata: null });
+    await sendSWMessage(panelPage, {
+      ...(await activeIds(serviceWorker)),
+      type: 'PROJECT_SET_METADATA',
+      metadata: null,
+    });
 
     const { projects } = await sendSWMessage(panelPage, { type: 'PROJECTS_GET_ALL' });
     expect(projects[0].metadata).toBeUndefined();
@@ -934,11 +1053,13 @@ test.describe('SW Message: Metadata operations', () => {
     await resetState(serviceWorker);
     await sendSWMessage(panelPage, { type: 'PROJECT_CREATE', name: 'P' });
     const { recording } = await sendSWMessage(panelPage, {
+      ...(await activeIds(serviceWorker)),
       type: 'RECORDING_CREATE',
       name: 'R',
     });
 
     const result = await sendSWMessage(panelPage, {
+      ...(await activeIds(serviceWorker)),
       type: 'RECORDING_SET_METADATA',
       recording_id: recording.recording_id,
       metadata: { env: 'staging' },
@@ -953,15 +1074,18 @@ test.describe('SW Message: Metadata operations', () => {
     await resetState(serviceWorker);
     await sendSWMessage(panelPage, { type: 'PROJECT_CREATE', name: 'P' });
     const { recording } = await sendSWMessage(panelPage, {
+      ...(await activeIds(serviceWorker)),
       type: 'RECORDING_CREATE',
       name: 'R',
     });
     await sendSWMessage(panelPage, {
+      ...(await activeIds(serviceWorker)),
       type: 'RECORDING_SET_METADATA',
       recording_id: recording.recording_id,
       metadata: { x: '1' },
     });
     const result = await sendSWMessage(panelPage, {
+      ...(await activeIds(serviceWorker)),
       type: 'RECORDING_SET_METADATA',
       recording_id: recording.recording_id,
       metadata: null,
@@ -973,11 +1097,13 @@ test.describe('SW Message: Metadata operations', () => {
     await resetState(serviceWorker);
     await sendSWMessage(panelPage, { type: 'PROJECT_CREATE', name: 'P' });
     const { recording } = await sendSWMessage(panelPage, {
+      ...(await activeIds(serviceWorker)),
       type: 'RECORDING_CREATE',
       name: 'Old',
     });
 
     const result = await sendSWMessage(panelPage, {
+      ...(await activeIds(serviceWorker)),
       type: 'RECORDING_RENAME',
       recording_id: recording.recording_id,
       name: 'New Name',
@@ -996,29 +1122,33 @@ test.describe('SW Message: Error paths', () => {
     expect(result.error).toMatch(/Unknown message type/);
   });
 
-  test('RECORDING_DELETE with no active project returns error', async ({
+  test('RECORDING_DELETE naming no project returns Project not found', async ({
     serviceWorker,
     panelPage,
   }) => {
     await resetState(serviceWorker);
     const result = await sendSWMessage(panelPage, {
+      ...(await activeIds(serviceWorker)),
       type: 'RECORDING_DELETE',
       recording_id: 'any',
     });
     expect(result.ok).toBe(false);
+    expect(result.error).toMatch(/Project not found/);
   });
 
-  test('RECORDING_RENAME with no active project returns error', async ({
+  test('RECORDING_RENAME naming no project returns Project not found', async ({
     serviceWorker,
     panelPage,
   }) => {
     await resetState(serviceWorker);
     const result = await sendSWMessage(panelPage, {
+      ...(await activeIds(serviceWorker)),
       type: 'RECORDING_RENAME',
       recording_id: 'any',
       name: 'X',
     });
     expect(result.ok).toBe(false);
+    expect(result.error).toMatch(/Project not found/);
   });
 
   test('RECORDING_RENAME with invalid recording_id returns error', async ({
@@ -1028,6 +1158,7 @@ test.describe('SW Message: Error paths', () => {
     await resetState(serviceWorker);
     await sendSWMessage(panelPage, { type: 'PROJECT_CREATE', name: 'P' });
     const result = await sendSWMessage(panelPage, {
+      ...(await activeIds(serviceWorker)),
       type: 'RECORDING_RENAME',
       recording_id: 'nonexistent',
       name: 'X',
@@ -1036,17 +1167,19 @@ test.describe('SW Message: Error paths', () => {
     expect(result.error).toMatch(/not found/i);
   });
 
-  test('RECORDING_SET_METADATA with no active project returns error', async ({
+  test('RECORDING_SET_METADATA naming no project returns Project not found', async ({
     serviceWorker,
     panelPage,
   }) => {
     await resetState(serviceWorker);
     const result = await sendSWMessage(panelPage, {
+      ...(await activeIds(serviceWorker)),
       type: 'RECORDING_SET_METADATA',
       recording_id: 'any',
       metadata: {},
     });
     expect(result.ok).toBe(false);
+    expect(result.error).toMatch(/Project not found/);
   });
 
   test('RECORDING_SET_METADATA with invalid recording_id returns error', async ({
@@ -1056,6 +1189,7 @@ test.describe('SW Message: Error paths', () => {
     await resetState(serviceWorker);
     await sendSWMessage(panelPage, { type: 'PROJECT_CREATE', name: 'P' });
     const result = await sendSWMessage(panelPage, {
+      ...(await activeIds(serviceWorker)),
       type: 'RECORDING_SET_METADATA',
       recording_id: 'nonexistent',
       metadata: {},
@@ -1064,17 +1198,18 @@ test.describe('SW Message: Error paths', () => {
     expect(result.error).toMatch(/not found/i);
   });
 
-  test('PROJECT_SET_METADATA with no active project returns error', async ({
+  test('PROJECT_SET_METADATA naming no project returns Project not found', async ({
     serviceWorker,
     panelPage,
   }) => {
     await resetState(serviceWorker);
     const result = await sendSWMessage(panelPage, {
+      ...(await activeIds(serviceWorker)),
       type: 'PROJECT_SET_METADATA',
       metadata: { x: '1' },
     });
     expect(result.ok).toBe(false);
-    expect(result.error).toMatch(/No active project/);
+    expect(result.error).toMatch(/Project not found/);
   });
 });
 
@@ -1138,15 +1273,18 @@ test.describe('SW Message: Export includes metadata', () => {
       name: 'MetaExport',
     });
     await sendSWMessage(panelPage, {
+      ...(await activeIds(serviceWorker)),
       type: 'PROJECT_SET_METADATA',
       metadata: { ticket: 'T-1' },
     });
 
     const { recording } = await sendSWMessage(panelPage, {
+      ...(await activeIds(serviceWorker)),
       type: 'RECORDING_CREATE',
       name: 'R',
     });
     await sendSWMessage(panelPage, {
+      ...(await activeIds(serviceWorker)),
       type: 'RECORDING_SET_METADATA',
       recording_id: recording.recording_id,
       metadata: { browser: 'chrome' },
@@ -1159,6 +1297,7 @@ test.describe('SW Message: Export includes metadata', () => {
       });
     });
     await sendSWMessage(panelPage, {
+      ...(await activeIds(serviceWorker)),
       type: 'STEP_COMMIT',
       narration: 'Step',
       narration_source: 'typed',
@@ -1189,18 +1328,21 @@ test.describe('SW Message: Full workflow integration', () => {
 
     // Set project metadata
     await sendSWMessage(panelPage, {
+      ...(await activeIds(serviceWorker)),
       type: 'PROJECT_SET_METADATA',
       metadata: { env: 'test' },
     });
 
     // Create recording
     const { recording } = await sendSWMessage(panelPage, {
+      ...(await activeIds(serviceWorker)),
       type: 'RECORDING_CREATE',
       name: 'Flow',
     });
 
     // Set recording metadata
     await sendSWMessage(panelPage, {
+      ...(await activeIds(serviceWorker)),
       type: 'RECORDING_SET_METADATA',
       recording_id: recording.recording_id,
       metadata: { browser: 'chrome-130' },
@@ -1214,6 +1356,7 @@ test.describe('SW Message: Full workflow integration', () => {
       });
     });
     const { step: s1 } = await sendSWMessage(panelPage, {
+      ...(await activeIds(serviceWorker)),
       type: 'STEP_COMMIT',
       narration: 'Navigate to site',
       narration_source: 'typed',
@@ -1226,6 +1369,7 @@ test.describe('SW Message: Full workflow integration', () => {
       });
     });
     await sendSWMessage(panelPage, {
+      ...(await activeIds(serviceWorker)),
       type: 'STEP_COMMIT',
       narration: 'Click login',
       narration_source: 'typed',
@@ -1239,20 +1383,29 @@ test.describe('SW Message: Full workflow integration', () => {
     expect(exportResult.project.recordings[0].steps).toHaveLength(2);
 
     // Stop recording
-    await sendSWMessage(panelPage, { type: 'RECORDING_STOP' });
+    await sendSWMessage(panelPage, { ...(await activeIds(serviceWorker)), type: 'RECORDING_STOP' });
 
     // Rename project
-    await sendSWMessage(panelPage, { type: 'PROJECT_RENAME', name: 'Lifecycle v2' });
+    await sendSWMessage(panelPage, {
+      ...(await activeIds(serviceWorker)),
+      type: 'PROJECT_RENAME',
+      name: 'Lifecycle v2',
+    });
 
     // Rename recording
     await sendSWMessage(panelPage, {
+      ...(await activeIds(serviceWorker)),
       type: 'RECORDING_RENAME',
       recording_id: recording.recording_id,
       name: 'Flow v2',
     });
 
     // Delete a step
-    await sendSWMessage(panelPage, { type: 'STEP_DELETE', logical_id: s1.logical_id });
+    await sendSWMessage(panelPage, {
+      ...(await activeIds(serviceWorker)),
+      type: 'STEP_DELETE',
+      logical_id: s1.logical_id,
+    });
 
     // Export — PROJECT_EXPORT returns the raw project it names
     const finalExport = await sendSWMessage(panelPage, {

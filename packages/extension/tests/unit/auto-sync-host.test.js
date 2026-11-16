@@ -328,6 +328,29 @@ describe('extension background Auto-Sync host (service worker)', () => {
     await setAutoSync(false);
   });
 
+  it('a stop the panel sends requests a cycle, whatever recording it names', async () => {
+    storageData[SYNC_URL_KEY] = 'https://sync.test';
+    await setAutoSync(true);
+    try {
+      await tick();
+      assert.equal(fetchedManifestFrom('https://sync.test'), false, 'no cycle before the stop');
+
+      // No recording is active in this worker; the stop names a project and no
+      // recording, as a breadcrumb sends it from the project view.
+      const response = await new Promise((resolve) =>
+        messageListener(
+          { type: 'RECORDING_STOP', project_id: 'shown', recording_id: null },
+          {},
+          resolve,
+        ),
+      );
+      assert.equal(response.ok, true, 'capture is off, so the stop is answered ok');
+      await waitFor(() => fetchedManifestFrom('https://sync.test'));
+    } finally {
+      await setAutoSync(false);
+    }
+  });
+
   it('runs the cycle headless with the UI/panel closed', async () => {
     // The host lives in the service worker, independent of the panel: there is no
     // DOM and no panel surface in this context, yet a background alarm still

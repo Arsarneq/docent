@@ -28,11 +28,17 @@ import { NO_OPEN_PROJECT } from './project-export.js';
  *   rerecording: boolean, busy: boolean, storageQuota: object|null}} getState -
  *   the panel's current view state; `busy` while a step commit is under way;
  *   `storageQuota` the storage-pressure state the panel last received
- * @property {(name: string) => Promise<object>} createProject - the New project
- *   action; resolves with the created project
- * @property {(name: string) => Promise<object>} createRecording - the New
- *   recording action, which also starts capture; resolves with the recording
- * @property {(on: boolean) => Promise<void>} setCapture - the Pause / Resume action
+ * @property {(name: string) => Promise<{ok: boolean, project?: object}>}
+ *   createProject - the New project action; resolves with the service
+ *   worker's response, which carries the created project
+ * @property {(name: string) => Promise<{ok: boolean, recording?: object}>}
+ *   createRecording - the New recording action, which also starts capture;
+ *   resolves with the service worker's response, which carries the recording
+ *   and answers `Project not found` for a project deleted in another panel
+ * @property {(on: boolean) => Promise<{ok: boolean}>} setCapture - the Pause /
+ *   Resume action; resolves with the service worker's response, which refuses
+ *   a resume once another panel has opened or created a project or recording,
+ *   and a pause while that other panel's capture runs
  * @property {(payload: object) => Promise<object>} commitStep - the Done this
  *   step action; resolves with the worker's response
  * @property {() => Promise<{ok: boolean, project?: object, document?: object,
@@ -51,6 +57,10 @@ const EXPORT_NOT_ALLOWED = {
   error: 'Export was not allowed when local control was turned on',
 };
 const NOT_EXPORTED = { ok: false, error: 'The project was not exported' };
+const NOT_PAUSED = { ok: false, error: 'The recording was not paused' };
+const NOT_RESUMED = { ok: false, error: 'The recording was not resumed' };
+const PROJECT_NOT_CREATED = { ok: false, error: 'The project was not created' };
+const RECORDING_NOT_CREATED = { ok: false, error: 'The recording was not created' };
 
 /**
  * The notice codes of the three storage pressure states, which the panel's
@@ -112,7 +122,10 @@ const recordingIdAndName = (recording) => ({
 async function setCapture(panel, on) {
   const state = panel.getState();
   if (!state.recording) return NO_RECORDING;
-  if (state.capturing !== on) await panel.setCapture(on);
+  if (state.capturing !== on) {
+    const response = await panel.setCapture(on);
+    if (!response?.ok) return on ? NOT_RESUMED : NOT_PAUSED;
+  }
   return { ok: true, capturing: on };
 }
 
@@ -137,16 +150,19 @@ const HANDLERS = new Map([
   ],
   [
     'project.create',
-    async (panel, args) => ({
-      ok: true,
-      project: projectIdAndName(await panel.createProject(args.name)),
-    }),
+    async (panel, args) => {
+      const response = await panel.createProject(args.name);
+      if (!response?.ok) return PROJECT_NOT_CREATED;
+      return { ok: true, project: projectIdAndName(response.project) };
+    },
   ],
   [
     'recording.create',
     async (panel, args) => {
       if (!panel.getState().project) return NO_PROJECT;
-      return { ok: true, recording: recordingIdAndName(await panel.createRecording(args.name)) };
+      const response = await panel.createRecording(args.name);
+      if (!response?.ok) return RECORDING_NOT_CREATED;
+      return { ok: true, recording: recordingIdAndName(response.recording) };
     },
   ],
   ['recording.pause', (panel) => setCapture(panel, false)],

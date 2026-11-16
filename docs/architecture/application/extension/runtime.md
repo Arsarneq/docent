@@ -292,16 +292,62 @@ The closed set of request types the panel sends, by group:
 | Steps             | `STEP_COMMIT`, `STEP_DELETE`, `STEPS_REORDER`                                                                                                                    |
 | Import / export   | `PROJECT_IMPORT`, `PROJECT_EXPORT`                                                                                                                               |
 
-`PROJECT_EXPORT` names the project to export by its `project_id`: the panel
-sends the id of the project it has open, and the worker answers with that
-stored project, or `{ ok: false, error }` when it holds none by that id. It
-never reads the worker-wide active project, which follows whichever open panel
-last opened or created one.
+Each open panel shows a project of its own and, in the recording view, a
+recording, while capture is one per browser: the worker's active project and
+recording (`activeProjectId`, `activeRecordingId`) are the ones captured
+actions go to, and they follow whichever panel last opened or created a
+project or a recording — `PROJECT_CREATE`, `PROJECT_OPEN`, `RECORDING_CREATE`
+and `RECORDING_OPEN` make the project or recording they create or open the
+active one. Capture runs only while there is an active recording:
+`PROJECT_CREATE` and `PROJECT_OPEN` stop it, and so do `PROJECT_DELETE` of
+the active project, `RECORDING_DELETE` of the active recording and a
+`PROJECTS_SET` that leaves the active recording out; none of them changes the
+pending buffer. Every other message about one project or recording names it by
+ids: the `project_id` of the project the sending panel shows
+(`PROJECT_DELETE` that of the project it deletes) and, for a recording or its
+steps, the `recording_id` of the recording the action is for — the one the
+recording view shows, or a row of the project view's recording list. The
+worker reads its target from those ids alone:
+
+- **Resolved by the ids it carries** — `PROJECT_GET`, `PROJECT_RENAME`,
+  `PROJECT_SET_METADATA`, `RECORDING_CREATE`, `RECORDING_OPEN`,
+  `RECORDING_DELETE`, `RECORDING_RENAME`, `RECORDING_SET_METADATA`,
+  `STEP_DELETE`, `STEPS_REORDER` and `PROJECT_EXPORT` act on the stored project
+  and recording they name, or answer `{ ok: false, error: 'Project not found' }`
+  or `{ ok: false, error: 'Recording not found' }` and change nothing.
+- **Refused unless they name the active ones** — `RECORDING_START`,
+  `RECORDING_STOP`, `RECORDING_CLEAR` and `STEP_COMMIT` act on the capture
+  state and the pending buffer, which belong to the active recording. Each is
+  carried out only when its `project_id` and `recording_id` are the active
+  project and recording, a missing `recording_id` matching only when no
+  recording is active; otherwise it is answered
+  `{ ok: false, error: 'Not the active recording' }` and changes nothing. A
+  `RECORDING_STOP` while capture is off has no capture to protect and is
+  carried out whatever it names, changing nothing. A
+  panel whose recording has stopped being the active one learns it from that
+  answer: it drops its own capture state and ends a re-record under way, and
+  opening the recording again makes it the active one.
+
+The panel reads `ok` on every answer before it uses the answer's fields. When
+the worker does not accept a message, the action it belongs to changes nothing
+in the panel and a click tells the person `<Action> failed: <error>` (the
+sync and resolution flows report it in their own `Sync failed` and
+`Could not resolve` wording); after a not-found answer the panel shows the
+open project, or the projects list when the project is gone, as the worker
+now holds it. Two things stand apart from that rule: the drop of the panel's
+capture state on `Not the active recording`, stated above, and the stop the
+panel sends when the person leaves, which reports no failure, since a refused
+stop there means capture belongs to another panel: after leaving a recording
+through a breadcrumb the panel shows no capture whatever the answer, and
+cancelling a re-record ends the re-record whatever the answer. A stop that an action sends
+first, as creating a recording does, stands when the action then fails.
 
 A successful response to one of the messages in the worker's data-event set —
 `STEP_COMMIT`, `RECORDING_STOP`, `PROJECT_CREATE`, `PROJECT_DELETE`,
 `RECORDING_CREATE`, `RECORDING_DELETE` — additionally fires a background
-Auto-Sync trigger. The set stands in for the six events
+Auto-Sync trigger, and a `RECORDING_STOP` fires it refused or not: a refused
+stop comes only while capture runs, when the scheduler drops the trigger. The
+set stands in for the six events
 [SP-21](../../../api/sync-protocol.md#automatic-sync-auto-sync) enumerates;
 `RECORDING_STOP` is sent more widely than the clause's recording close, the
 departure SP-21 records.
@@ -333,24 +379,24 @@ for an existing key, MUST extend these tables in the same change.
 
 `chrome.storage.local`:
 
-| Key                       | Holds                                                                                                                                                             | Written by                                                                                      |
-| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| `projects`                | The full project/recording model                                                                                                                                  | Service worker                                                                                  |
-| `activeProjectId`         | The open project's id                                                                                                                                             | Service worker                                                                                  |
-| `activeRecordingId`       | The open recording's id                                                                                                                                           | Service worker                                                                                  |
-| `recording`               | The capture flag: recorders capture and chrome proxies are recorded only while `true`                                                                             | Service worker                                                                                  |
-| `pendingActions`          | The pending buffer — actions captured since the last step boundary, already redacted at the chokepoint ([ECP-9](capture-principles.md#sensitive-value-redaction)) | Service worker                                                                                  |
-| `pendingCount`            | `pendingActions.length`, maintained beside every buffer write                                                                                                     | Service worker                                                                                  |
-| `lastUserActionTimestamp` | Recent in-page-action signal the worker's effect suppression reads ([ECP-8](capture-principles.md#filtering-approach))                                            | Recorder                                                                                        |
-| `lastTabNavUrl`           | Navigation dedup marker, self-clearing (~5 s)                                                                                                                     | Service worker                                                                                  |
-| `docentStorageQuota`      | Published storage-pressure state ([ECP-11](capture-principles.md#storage-pressure))                                                                               | Service worker                                                                                  |
-| `docentEndpointUrl`       | Dispatch endpoint URL                                                                                                                                             | Side panel                                                                                      |
-| `docentApiKey`            | Dispatch API key, stored as an encrypted envelope ([security policy](../../../../.github/SECURITY.md#protecting-stored-credentials))                              | Side panel                                                                                      |
-| `docentSyncUrl`           | Sync server URL                                                                                                                                                   | Side panel                                                                                      |
-| `docentSyncApiKey`        | Sync API key, stored as an encrypted envelope                                                                                                                     | Side panel                                                                                      |
-| `docentTheme`             | Theme setting                                                                                                                                                     | Side panel                                                                                      |
-| `docentRecordingMode`     | Default step-context mode (narration / simple)                                                                                                                    | Side panel                                                                                      |
-| `docentSyncState`         | The durable sync reconcile state blob: baselines, snapshots, reviews, conflicts and sync settings among them — the sync-state store holds the set                 | Side panel and service worker, each through the shared sync-store helpers over the same adapter |
+| Key                       | Holds                                                                                                                                                                                                                                                                           | Written by                                                                                      |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `projects`                | The full project/recording model                                                                                                                                                                                                                                                | Service worker                                                                                  |
+| `activeProjectId`         | The id of the project last opened or created in a panel, or of the one holding the recording last opened or created; none once that project is deleted ([Panel protocol](#panel-protocol))                                                                                      | Service worker                                                                                  |
+| `activeRecordingId`       | The id of the recording last opened or created in a panel, which captured actions go to; none once a project is opened or created, or `RECORDING_DELETE` or `PROJECT_DELETE` removes that recording or its project; a `PROJECTS_SET` without it stops capture and leaves the id | Service worker                                                                                  |
+| `recording`               | The capture flag: recorders capture and chrome proxies are recorded only while `true`                                                                                                                                                                                           | Service worker                                                                                  |
+| `pendingActions`          | The pending buffer — actions captured since the last step boundary, already redacted at the chokepoint ([ECP-9](capture-principles.md#sensitive-value-redaction))                                                                                                               | Service worker                                                                                  |
+| `pendingCount`            | `pendingActions.length`, maintained beside every buffer write                                                                                                                                                                                                                   | Service worker                                                                                  |
+| `lastUserActionTimestamp` | Recent in-page-action signal the worker's effect suppression reads ([ECP-8](capture-principles.md#filtering-approach))                                                                                                                                                          | Recorder                                                                                        |
+| `lastTabNavUrl`           | Navigation dedup marker, self-clearing (~5 s)                                                                                                                                                                                                                                   | Service worker                                                                                  |
+| `docentStorageQuota`      | Published storage-pressure state ([ECP-11](capture-principles.md#storage-pressure))                                                                                                                                                                                             | Service worker                                                                                  |
+| `docentEndpointUrl`       | Dispatch endpoint URL                                                                                                                                                                                                                                                           | Side panel                                                                                      |
+| `docentApiKey`            | Dispatch API key, stored as an encrypted envelope ([security policy](../../../../.github/SECURITY.md#protecting-stored-credentials))                                                                                                                                            | Side panel                                                                                      |
+| `docentSyncUrl`           | Sync server URL                                                                                                                                                                                                                                                                 | Side panel                                                                                      |
+| `docentSyncApiKey`        | Sync API key, stored as an encrypted envelope                                                                                                                                                                                                                                   | Side panel                                                                                      |
+| `docentTheme`             | Theme setting                                                                                                                                                                                                                                                                   | Side panel                                                                                      |
+| `docentRecordingMode`     | Default step-context mode (narration / simple)                                                                                                                                                                                                                                  | Side panel                                                                                      |
+| `docentSyncState`         | The durable sync reconcile state blob: baselines, snapshots, reviews, conflicts and sync settings among them — the sync-state store holds the set                                                                                                                               | Side panel and service worker, each through the shared sync-store helpers over the same adapter |
 
 `chrome.storage.session` (held in memory by the browser, cleared on browser
 restart):

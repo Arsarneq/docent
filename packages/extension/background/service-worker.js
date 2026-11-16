@@ -21,8 +21,9 @@
  * Core model and capture keys (chrome.storage.local — the complete key
  * inventory and write ownership is the ERT-3 table in the runtime doc):
  *   projects[]         — all saved projects
- *   activeProjectId    — project currently open in the panel
- *   activeRecordingId  — recording currently being recorded
+ *   activeProjectId    — project of the recording capture goes to, as the
+ *                        panel that last opened or created one set it
+ *   activeRecordingId  — recording capture goes to
  *   recording          — whether the content script should capture events
  *   pendingActions[]   — actions captured since last step boundary
  *   pendingCount       — length of pendingActions (for panel commit button)
@@ -54,6 +55,7 @@ import {
 } from '../lib/capture-timing.js';
 import { STORAGE_QUOTA_KEY, classifyStoragePressure } from '../lib/storage-quota.js';
 import { isTrustedActionSender } from '../lib/frame-trust.js';
+import { NOT_ACTIVE_RECORDING, namesActiveRecording } from '../lib/active-recording.js';
 import {
   classifyNavigation,
   normaliseNavigationUrl,
@@ -668,6 +670,24 @@ function getActiveRecording() {
   return findRecording(project, activeRecordingId) ?? null;
 }
 
+// A panel message names its target: each open panel shows a project and a
+// recording of its own, while the active ones follow whichever panel last
+// opened or created one (extension runtime, Panel protocol).
+
+/** The stored project a message names by its `project_id`, or null. */
+function namedProject(msg) {
+  return projects.find((p) => p.project_id === msg.project_id) ?? null;
+}
+
+/** Whether a message names the active project and recording, the ones capture goes to. */
+function namesActive(msg) {
+  return namesActiveRecording(msg, { projectId: activeProjectId, recordingId: activeRecordingId });
+}
+
+const PROJECT_NOT_FOUND = { ok: false, error: 'Project not found' };
+const RECORDING_NOT_FOUND = { ok: false, error: 'Recording not found' };
+const NOT_ACTIVE = { ok: false, error: NOT_ACTIVE_RECORDING };
+
 async function persist() {
   await chrome.storage.local.set({ projects, activeProjectId, activeRecordingId });
   // Project growth or deletion shifts the pressure band — re-evaluate so the warn
@@ -685,8 +705,8 @@ async function setRecording(value) {
   // any external change as well.
   liveRecording = value === true;
   // Drop the active-frame registry the moment capture stops, on every
-  // record-stop path (RECORDING_STOP, RECORDING_OPEN, PROJECT_OPEN/DELETE,
-  // RECORDING_DELETE). This chokepoint stays synchronous, ahead of the
+  // record-stop path (RECORDING_STOP, RECORDING_OPEN, PROJECT_CREATE/OPEN/DELETE,
+  // RECORDING_DELETE, PROJECTS_SET). This chokepoint stays synchronous, ahead of the
   // storage write below; doubling stated at the recording-flag watch.
   if (value !== true) clearActiveFrames();
   await chrome.storage.local.set({ recording: value });
@@ -768,7 +788,7 @@ let autoSyncActive = false;
 // SP-21). RECORDING_STOP stands in for the recording close and is sent more
 // widely than the clause's leaving-the-recording-view moment — the departure
 // SP-21 records. Fired centrally from the message dispatcher on a successful
-// response.
+// response, and on every RECORDING_STOP.
 const AUTO_SYNC_DATA_EVENTS = new Set([
   'STEP_COMMIT',
   'RECORDING_STOP',
@@ -777,6 +797,12 @@ const AUTO_SYNC_DATA_EVENTS = new Set([
   'RECORDING_CREATE',
   'RECORDING_DELETE',
 ]);
+
+// The data events that fire the trigger whatever they are answered: a
+// RECORDING_STOP requests a cycle wherever the panel sends it, refused or not.
+// A refused stop changed nothing, and capture is running then, so the
+// scheduler drops the trigger.
+const AUTO_SYNC_ON_EVERY_RESPONSE = new Set(['RECORDING_STOP']);
 
 function fireAutoSyncTrigger() {
   // No-op when Auto-Sync is off (notify is null); the scheduler also drops the
@@ -969,11 +995,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   handle(message)
     .then((response) => {
-      // Fire an Auto-Sync trigger on a successful local data event: a
-      // step commit, a recording close, or a project/recording create/delete.
+      // Fire an Auto-Sync trigger on a local data event: a step commit, a
+      // recording close, or a project/recording create/delete, when the
+      // worker accepted it — and on every RECORDING_STOP, accepted or not.
       // The scheduler coalesces bursts and drops triggers while capture is
       // active; this is a no-op when Auto-Sync is off.
-      if (response?.ok && AUTO_SYNC_DATA_EVENTS.has(message.type)) {
+      const requests = response?.ok || AUTO_SYNC_ON_EVERY_RESPONSE.has(message.type);
+      if (requests && AUTO_SYNC_DATA_EVENTS.has(message.type)) {
         fireAutoSyncTrigger();
       }
       sendResponse(response);
@@ -1007,6 +1035,9 @@ async function handle(msg) {
 
     case 'PROJECTS_SET': {
       projects = msg.projects;
+      // Capture is on only while its recording exists: a set without it (a
+      // resolution that accepted its deletion) stops capture.
+      if (!getActiveRecording()) await setRecording(false);
       await persist();
       return { ok: true };
     }
@@ -1016,6 +1047,8 @@ async function handle(msg) {
       projects.push(project);
       activeProjectId = project.project_id;
       activeRecordingId = null;
+      // No recording is active, so capture stops, as on PROJECT_OPEN.
+      await setRecording(false);
       await persist();
       return { ok: true, project };
     }
@@ -1031,7 +1064,9 @@ async function handle(msg) {
     }
 
     case 'PROJECT_GET': {
-      return { ok: true, project: getActiveProject() };
+      const project = namedProject(msg);
+      if (!project) return PROJECT_NOT_FOUND;
+      return { ok: true, project };
     }
 
     case 'PROJECT_DELETE': {
@@ -1046,16 +1081,16 @@ async function handle(msg) {
     }
 
     case 'PROJECT_RENAME': {
-      const project = getActiveProject();
-      if (!project) return { ok: false, error: 'No active project' };
+      const project = namedProject(msg);
+      if (!project) return PROJECT_NOT_FOUND;
       project.name = msg.name;
       await persist();
       return { ok: true, project };
     }
 
     case 'PROJECT_SET_METADATA': {
-      const project = getActiveProject();
-      if (!project) return { ok: false, error: 'No active project' };
+      const project = namedProject(msg);
+      if (!project) return PROJECT_NOT_FOUND;
       if (msg.metadata) {
         project.metadata = msg.metadata;
       } else {
@@ -1068,9 +1103,11 @@ async function handle(msg) {
     // ── Recordings ────────────────────────────────────────────────────────────
 
     case 'RECORDING_CREATE': {
-      const project = getActiveProject();
-      if (!project) return { ok: false, error: 'No active project' };
+      const project = namedProject(msg);
+      if (!project) return PROJECT_NOT_FOUND;
       const recording = createRecording(project, msg.name);
+      // The new recording is the one capture goes to.
+      activeProjectId = project.project_id;
       activeRecordingId = recording.recording_id;
       await clearPending();
       await persist();
@@ -1083,20 +1120,22 @@ async function handle(msg) {
     }
 
     case 'RECORDING_OPEN': {
-      const project = getActiveProject();
-      if (!project) return { ok: false, error: 'No active project' };
+      const project = namedProject(msg);
+      if (!project) return PROJECT_NOT_FOUND;
       const recording = findRecording(project, msg.recording_id);
-      if (!recording) return { ok: false, error: 'Recording not found' };
+      if (!recording) return RECORDING_NOT_FOUND;
+      activeProjectId = project.project_id;
       activeRecordingId = recording.recording_id;
       await clearPending();
       await setRecording(false);
-      await chrome.storage.local.set({ activeRecordingId });
+      await chrome.storage.local.set({ activeProjectId, activeRecordingId });
       return { ok: true, recording, activeSteps: resolveActiveSteps(recording) };
     }
 
     case 'RECORDING_DELETE': {
-      const project = getActiveProject();
-      if (!project) return { ok: false, error: 'No active project' };
+      const project = namedProject(msg);
+      if (!project) return PROJECT_NOT_FOUND;
+      if (!findRecording(project, msg.recording_id)) return RECORDING_NOT_FOUND;
       project.recordings = project.recordings.filter((r) => r.recording_id !== msg.recording_id);
       if (activeRecordingId === msg.recording_id) {
         activeRecordingId = null;
@@ -1107,20 +1146,20 @@ async function handle(msg) {
     }
 
     case 'RECORDING_RENAME': {
-      const project = getActiveProject();
-      if (!project) return { ok: false, error: 'No active project' };
+      const project = namedProject(msg);
+      if (!project) return PROJECT_NOT_FOUND;
       const recording = findRecording(project, msg.recording_id);
-      if (!recording) return { ok: false, error: 'Recording not found' };
+      if (!recording) return RECORDING_NOT_FOUND;
       recording.name = msg.name;
       await persist();
       return { ok: true };
     }
 
     case 'RECORDING_SET_METADATA': {
-      const project = getActiveProject();
-      if (!project) return { ok: false, error: 'No active project' };
+      const project = namedProject(msg);
+      if (!project) return PROJECT_NOT_FOUND;
       const recording = findRecording(project, msg.recording_id);
-      if (!recording) return { ok: false, error: 'Recording not found' };
+      if (!recording) return RECORDING_NOT_FOUND;
       if (msg.metadata) {
         recording.metadata = msg.metadata;
       } else {
@@ -1131,8 +1170,12 @@ async function handle(msg) {
     }
 
     // ── Recording control ─────────────────────────────────────────────────────
+    // Capture and the pending buffer are one per browser, so these messages,
+    // and STEP_COMMIT below, act only for the panel showing the active recording;
+    // a stop while capture is off has nothing to protect and is accepted.
 
     case 'RECORDING_START': {
+      if (!namesActive(msg)) return NOT_ACTIVE;
       if (!getActiveRecording()) return { ok: false, error: 'No active recording' };
       // Leading clear ahead of this route's seed; doubling stated at the recording-flag watch.
       clearActiveFrames();
@@ -1143,11 +1186,14 @@ async function handle(msg) {
     }
 
     case 'RECORDING_STOP': {
+      // With capture off there is nothing to protect, whatever the stop names.
+      if ((await isRecording()) && !namesActive(msg)) return NOT_ACTIVE;
       await setRecording(false);
       return { ok: true };
     }
 
     case 'RECORDING_CLEAR': {
+      if (!namesActive(msg)) return NOT_ACTIVE;
       await clearPending();
       return { ok: true };
     }
@@ -1162,6 +1208,7 @@ async function handle(msg) {
     // ── Steps ─────────────────────────────────────────────────────────────────
 
     case 'STEP_COMMIT': {
+      if (!namesActive(msg)) return NOT_ACTIVE;
       const recording = getActiveRecording();
       if (!recording) return { ok: false, error: 'No active recording' };
 
@@ -1202,16 +1249,20 @@ async function handle(msg) {
     }
 
     case 'STEP_DELETE': {
-      const recording = getActiveRecording();
-      if (!recording) return { ok: false, error: 'No active recording' };
+      const project = namedProject(msg);
+      if (!project) return PROJECT_NOT_FOUND;
+      const recording = findRecording(project, msg.recording_id);
+      if (!recording) return RECORDING_NOT_FOUND;
       deleteStep(recording, msg.logical_id);
       await persist();
       return { ok: true, activeSteps: resolveActiveSteps(recording) };
     }
 
     case 'STEPS_REORDER': {
-      const recording = getActiveRecording();
-      if (!recording) return { ok: false, error: 'No active recording' };
+      const project = namedProject(msg);
+      if (!project) return PROJECT_NOT_FOUND;
+      const recording = findRecording(project, msg.recording_id);
+      if (!recording) return RECORDING_NOT_FOUND;
       reorderSteps(recording, msg.orderedLogicalIds);
       await persist();
       return { ok: true, activeSteps: resolveActiveSteps(recording) };
@@ -1249,11 +1300,8 @@ async function handle(msg) {
     }
 
     case 'PROJECT_EXPORT': {
-      // The project the asking panel has open, named by its id: each open
-      // panel holds its own project, and the worker-wide active one follows
-      // whichever panel last opened or created one.
-      const project = projects.find((p) => p.project_id === msg.project_id);
-      if (!project) return { ok: false, error: 'Project not found' };
+      const project = namedProject(msg);
+      if (!project) return PROJECT_NOT_FOUND;
       // Return the raw project; the panel stamps + shapes it into the
       // `.docent.json` export via buildExport(), where the composed schema (the
       // source of the docent_format stamp) is available.

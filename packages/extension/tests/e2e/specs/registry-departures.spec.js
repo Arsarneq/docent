@@ -163,6 +163,21 @@ async function sendSWMessage(panelPage, msg) {
   }, msg);
 }
 
+/**
+ * The worker's active project and recording ids, as a project- and
+ * recording-scoped message names them when it comes from the one panel that
+ * opened or created them (extension runtime, Panel protocol).
+ */
+async function activeIds(serviceWorker) {
+  const stored = await serviceWorker.evaluate(() =>
+    chrome.storage.local.get(['activeProjectId', 'activeRecordingId']),
+  );
+  return {
+    project_id: stored.activeProjectId ?? null,
+    recording_id: stored.activeRecordingId ?? null,
+  };
+}
+
 // ─── Handle accessors (all through serviceWorker.evaluate) ───────────────────
 // Plants and wipes are synchronous inside the worker — when the evaluate
 // resolves, the mutation is applied — so plant-then-verify reads directly
@@ -510,7 +525,15 @@ test.describe('worker capture bookkeeping through the introspection handle', () 
   }) => {
     // Start a recording through the panel protocol, with a real recorded page.
     expect((await sendSWMessage(panelPage, { type: 'PROJECT_CREATE', name: 'P' })).ok).toBe(true);
-    expect((await sendSWMessage(panelPage, { type: 'RECORDING_CREATE', name: 'R' })).ok).toBe(true);
+    expect(
+      (
+        await sendSWMessage(panelPage, {
+          ...(await activeIds(serviceWorker)),
+          type: 'RECORDING_CREATE',
+          name: 'R',
+        })
+      ).ok,
+    ).toBe(true);
     const page = await context.newPage();
     await setTestContent(page, '<h1>recorded page</h1>');
     const seedCoveredIds = await seedCoveredOnceRegistered(serviceWorker);
@@ -533,7 +556,14 @@ test.describe('worker capture bookkeeping through the introspection handle', () 
     // planted state has that key, so it cannot satisfy this); the assertion
     // carries the discriminators the wait does not, that no sentinel survived
     // anywhere in the registry.
-    expect((await sendSWMessage(panelPage, { type: 'RECORDING_START' })).ok).toBe(true);
+    expect(
+      (
+        await sendSWMessage(panelPage, {
+          ...(await activeIds(serviceWorker)),
+          type: 'RECORDING_START',
+        })
+      ).ok,
+    ).toBe(true);
     await expectRescopedToSeedCovered(serviceWorker, seedCoveredIds);
   });
 
@@ -548,7 +578,15 @@ test.describe('worker capture bookkeeping through the introspection handle', () 
     // clear is already spent when the sentinels go in. The RECORDING_CREATE
     // below writes the flag the value it already holds, so it fires no watch.
     expect((await sendSWMessage(panelPage, { type: 'PROJECT_CREATE', name: 'P' })).ok).toBe(true);
-    expect((await sendSWMessage(panelPage, { type: 'RECORDING_CREATE', name: 'R' })).ok).toBe(true);
+    expect(
+      (
+        await sendSWMessage(panelPage, {
+          ...(await activeIds(serviceWorker)),
+          type: 'RECORDING_CREATE',
+          name: 'R',
+        })
+      ).ok,
+    ).toBe(true);
     const seedCoveredIds = await seedCoveredOnceRegistered(serviceWorker);
     await plantSentinels(serviceWorker, seedCoveredIds);
 
@@ -558,7 +596,14 @@ test.describe('worker capture bookkeeping through the introspection handle', () 
     // the worker's recording-flag watch). Nothing asynchronous is left behind
     // either, for the reason the direct-read helper states.
     await expectFlagAlreadyHolds(serviceWorker, true);
-    expect((await sendSWMessage(panelPage, { type: 'RECORDING_START' })).ok).toBe(true);
+    expect(
+      (
+        await sendSWMessage(panelPage, {
+          ...(await activeIds(serviceWorker)),
+          type: 'RECORDING_START',
+        })
+      ).ok,
+    ).toBe(true);
     await expectRescopedDirectly(serviceWorker, seedCoveredIds);
   });
 
@@ -567,10 +612,14 @@ test.describe('worker capture bookkeeping through the introspection handle', () 
     serviceWorker,
     panelPage,
   }) => {
-    // The fixture starts capture by a direct flag write and waits for the
-    // recorder's readiness beacon, which rides the watch's own injection — and
-    // the watch clears synchronously before it injects — so the setup's watch
-    // clear is already spent when the sentinels go in.
+    // Creating the project stops capture, since no recording is active yet;
+    // capture then restarts by a direct flag write, which waits for the
+    // recorder's readiness beacon riding the watch's own injection — and the
+    // watch clears synchronously before it injects — so that watch clear is
+    // already spent when the sentinels go in.
+    expect((await sendSWMessage(panelPage, { type: 'PROJECT_CREATE', name: 'P' })).ok).toBe(true);
+    await waitForRegistry(serviceWorker, (r) => r.size === 0);
+    await writeRecordingFlag(serviceWorker, true);
     const seedCoveredIds = await seedCoveredOnceRegistered(serviceWorker);
     await plantSentinels(serviceWorker, seedCoveredIds);
 
@@ -579,11 +628,18 @@ test.describe('worker capture bookkeeping through the introspection handle', () 
     // so the handler's leading clear is the sole clear on this route-state
     // (mechanism stated at the worker's recording-flag watch). Nothing
     // asynchronous is left behind either, for the reason the direct-read
-    // helper states. The guard sits after PROJECT_CREATE so it holds the flag
-    // at the moment RECORDING_CREATE is sent, not merely at the case's start.
-    expect((await sendSWMessage(panelPage, { type: 'PROJECT_CREATE', name: 'P' })).ok).toBe(true);
+    // helper states. The guard holds the flag at the moment RECORDING_CREATE
+    // is sent, not merely at the case's start.
     await expectFlagAlreadyHolds(serviceWorker, true);
-    expect((await sendSWMessage(panelPage, { type: 'RECORDING_CREATE', name: 'R' })).ok).toBe(true);
+    expect(
+      (
+        await sendSWMessage(panelPage, {
+          ...(await activeIds(serviceWorker)),
+          type: 'RECORDING_CREATE',
+          name: 'R',
+        })
+      ).ok,
+    ).toBe(true);
     await expectRescopedDirectly(serviceWorker, seedCoveredIds);
   });
 
@@ -595,7 +651,15 @@ test.describe('worker capture bookkeeping through the introspection handle', () 
     // Live recording with a real registered page plus the planted sentinels, so
     // the stop must destroy both real registrations and every sentinel cell.
     expect((await sendSWMessage(panelPage, { type: 'PROJECT_CREATE', name: 'P' })).ok).toBe(true);
-    expect((await sendSWMessage(panelPage, { type: 'RECORDING_CREATE', name: 'R' })).ok).toBe(true);
+    expect(
+      (
+        await sendSWMessage(panelPage, {
+          ...(await activeIds(serviceWorker)),
+          type: 'RECORDING_CREATE',
+          name: 'R',
+        })
+      ).ok,
+    ).toBe(true);
     const page = await context.newPage();
     await setTestContent(page, '<h1>recorded page</h1>');
     const seedCoveredIds = await seedCoveredOnceRegistered(serviceWorker);
@@ -606,7 +670,14 @@ test.describe('worker capture bookkeeping through the introspection handle', () 
     // the handle can observe that the clear actually ran.
     // The wait carries the real registrations' departure; the assertion is the
     // whole registry going, which covers every sentinel with it.
-    expect((await sendSWMessage(panelPage, { type: 'RECORDING_STOP' })).ok).toBe(true);
+    expect(
+      (
+        await sendSWMessage(panelPage, {
+          ...(await activeIds(serviceWorker)),
+          type: 'RECORDING_STOP',
+        })
+      ).ok,
+    ).toBe(true);
     await expectRegistryEmptied(serviceWorker, seedCoveredIds);
   });
 
@@ -649,7 +720,14 @@ test.describe('worker capture bookkeeping through the introspection handle', () 
     // at the worker's recording-flag watch). It clears before its own storage
     // write, so the read is direct.
     await expectFlagAlreadyHolds(serviceWorker, false);
-    expect((await sendSWMessage(panelPage, { type: 'RECORDING_STOP' })).ok).toBe(true);
+    expect(
+      (
+        await sendSWMessage(panelPage, {
+          ...(await activeIds(serviceWorker)),
+          type: 'RECORDING_STOP',
+        })
+      ).ok,
+    ).toBe(true);
     // Direct read; the emptied-state helper states the one-directional
     // late-write hazard.
     expect([...(await readRegistry(serviceWorker))]).toEqual([]);
