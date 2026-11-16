@@ -1,7 +1,7 @@
 // Property tests for the capture worker pool infrastructure.
 //
-// The principal subjects: sequence numbering, shortest-queue dispatch, sticky
-// routing, drag-pair routing, and the dead-worker drain rescues (dispatch-time
+// The principal subjects: sequence numbering, shortest-queue dispatch, typing
+// and sticky routing, drag-pair routing, and the dead-worker drain rescues (dispatch-time
 // respawn and shutdown join) — the pipeline-level truth-lock — alongside
 // end-to-end action truth-locks over the same pipeline (key, right-click,
 // selection, scroll flush, locator pass-through, excluded-PID discard). The
@@ -536,6 +536,7 @@ impl AccessibilityBackend for MockBackend {
 /// Helper: spawn a worker_loop in a background thread and return the channels
 /// and handles needed to interact with it.
 struct WorkerTestHarness {
+    pending: Arc<Mutex<PendingBuffers>>,
     event_tx: mpsc::Sender<WorkerMessage>,
     action_rx: mpsc::Receiver<ActionEvent>,
     _queue_len: Arc<AtomicU64>,
@@ -553,12 +554,23 @@ impl WorkerTestHarness {
         let ql = Arc::clone(&queue_len);
         let ep = Arc::clone(&excluded_pid);
 
+        let pending = Arc::new(Mutex::new(PendingBuffers::default()));
+        let worker_pending = Arc::clone(&pending);
         let thread = thread::spawn(move || {
-            let pending = std::sync::Arc::new(Mutex::new(PendingBuffers::default()));
-            worker_loop(0, backend, event_rx, ql, action_tx, ep, pending, None);
+            worker_loop(
+                0,
+                backend,
+                event_rx,
+                ql,
+                action_tx,
+                ep,
+                worker_pending,
+                None,
+            );
         });
 
         Self {
+            pending,
             event_tx,
             action_rx,
             _queue_len: queue_len,
@@ -573,6 +585,14 @@ impl WorkerTestHarness {
         self.event_tx
             .send(WorkerMessage::Event(Box::new(event)))
             .unwrap();
+    }
+
+    /// Put completed key actions into the worker's held buffer, as keystrokes
+    /// buffered a moment ago would sit there.
+    fn seed_pending_keys(&self, keys: Vec<ActionEvent>) {
+        let mut buffers = self.pending.lock().unwrap();
+        buffers.pending_keys = keys;
+        buffers.pending_keys_last_timestamp = now_ms();
     }
 
     /// Send a commit flush marker (docent#298) and return the acknowledging
@@ -2696,4 +2716,439 @@ fn shutdown_drains_the_buffers_of_an_already_dead_worker() {
         vec!["d1", "d2"],
         "an already-dead worker's held completed actions must be drained at shutdown"
     );
+}
+
+// ---------------------------------------------------------------------------
+// Typing across the pool: one `type`, no `key` beside it (DCP-9)
+// ---------------------------------------------------------------------------
+//
+// The worker tests above feed one worker. These feed the pool, where a burst of
+// keystrokes arrives while every worker is still busy describing an earlier
+// event, and the value changes the burst caused arrive behind it.
+
+use std::sync::Condvar;
+
+/// The latch a [`TypingBackend`] waits on before answering a focused-element
+/// query: closed, every worker stays inside its first query; opened, they run.
+type Gate = Arc<(Mutex<bool>, Condvar)>;
+
+fn closed_gate() -> Gate {
+    Arc::new((Mutex::new(false), Condvar::new()))
+}
+
+fn open_gate(gate: &Gate) {
+    *gate.0.lock().unwrap() = true;
+    gate.1.notify_all();
+}
+
+/// A backend whose focused element is one edit field holding `text`, of
+/// `element_type` (`Some("password")` for a password field), described only
+/// once `gate` is open.
+struct TypingBackend {
+    gate: Gate,
+    element_type: Option<String>,
+    text: Option<String>,
+}
+
+impl TypingBackend {
+    fn edit(gate: &Gate, text: &str) -> Self {
+        Self {
+            gate: Arc::clone(gate),
+            element_type: None,
+            text: Some(text.to_string()),
+        }
+    }
+
+    fn password(gate: &Gate) -> Self {
+        Self {
+            gate: Arc::clone(gate),
+            element_type: Some("password".to_string()),
+            text: None,
+        }
+    }
+}
+
+impl AccessibilityBackend for TypingBackend {
+    fn init(&mut self) -> Result<(), CaptureError> {
+        Ok(())
+    }
+
+    fn cleanup(&mut self) {}
+
+    fn element_at_point(&self, _x: i32, _y: i32) -> Option<ElementDescription> {
+        None
+    }
+
+    fn focused_element(&self) -> Option<ElementDescription> {
+        let (open, signal) = &*self.gate;
+        let guard = open.lock().unwrap();
+        // Bounded, so a test that never opens the gate fails instead of hanging.
+        let _open = signal
+            .wait_timeout_while(guard, Duration::from_secs(10), |open| !*open)
+            .unwrap();
+        Some(ElementDescription {
+            tag: "Edit".to_string(),
+            id: Some("field1".to_string()),
+            name: Some("Field".to_string()),
+            role: Some("editable text".to_string()),
+            element_type: self.element_type.clone(),
+            text: self.text.clone(),
+            selector: "Edit#field1".to_string(),
+            ..Default::default()
+        })
+    }
+
+    fn window_title(&self, _window_handle: i64) -> String {
+        "Test Window".to_string()
+    }
+
+    fn process_name(&self, _window_handle: i64) -> String {
+        "test.exe".to_string()
+    }
+
+    fn read_file_dialog_path(&self, _window_handle: i64) -> Option<(String, String)> {
+        None
+    }
+
+    fn root_window_handle(&self, window_handle: i64) -> i64 {
+        window_handle
+    }
+
+    fn window_rect(&self, _window_handle: i64) -> Option<docent_desktop_lib::capture::WindowRect> {
+        None
+    }
+
+    fn selected_item_name(&self, _window_handle: i64) -> Option<(ElementDescription, String)> {
+        None
+    }
+}
+
+/// A keydown of a layout key (`key_code` is its virtual-key code).
+fn layout_key(seq: u64, timestamp: u64, key_code: u32) -> RawEvent {
+    let mut raw = make_raw_event(RawEventType::Keyboard, 1234);
+    raw.sequence_id = seq;
+    raw.timestamp = timestamp;
+    raw.key_code = key_code;
+    raw
+}
+
+fn value_change(seq: u64, timestamp: u64, window_handle: i64) -> RawEvent {
+    let mut raw = make_raw_event(RawEventType::ValueChange, window_handle);
+    raw.sequence_id = seq;
+    raw.timestamp = timestamp;
+    raw
+}
+
+fn type_values_of(events: &[ActionEvent]) -> Vec<String> {
+    events
+        .iter()
+        .filter_map(|e| match &e.payload {
+            ActionPayload::Type { value, .. } => Some(value.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Regression: twelve keystrokes typed as one burst into an edit field were
+/// recorded as the `type` plus eight `key` actions, out of typing order. The
+/// burst arrived while the workers were busy, so shortest-queue dispatch spread
+/// the keystrokes over all three; the value changes reached one worker, which
+/// discarded only the keystrokes it held itself, and the other two workers
+/// wrote theirs as keys when the debounce ran out.
+#[test]
+fn regression_noissue_a_typing_burst_over_busy_workers_records_one_type() {
+    let gate = closed_gate();
+    let (action_tx, action_rx) = mpsc::channel::<ActionEvent>();
+    let worker_gate = Arc::clone(&gate);
+    let mut pool = WorkerPool::new(
+        3,
+        action_tx,
+        move |index, rx, queue_len, sender, pending| {
+            let backend = TypingBackend::edit(&worker_gate, "hello docent");
+            thread::spawn(move || {
+                let ep = Arc::new(AtomicU32::new(0));
+                worker_loop(index, backend, rx, queue_len, sender, ep, pending, None);
+            })
+        },
+    );
+
+    // The burst: every keystroke is dispatched before any worker has answered.
+    let t = now_ms();
+    let mut seq = 0;
+    for unit in "hello docent".encode_utf16() {
+        seq += 1;
+        pool.dispatch(packet_key(seq, t, unit));
+    }
+    // The value changes the burst caused, from the edit control's own window.
+    for _ in 0..3 {
+        seq += 1;
+        pool.dispatch(value_change(seq, t + 5, 5678));
+    }
+    open_gate(&gate);
+
+    // Past TYPE_DEBOUNCE_MS (500 ms), so every worker's tick has flushed.
+    thread::sleep(Duration::from_millis(900));
+    pool.shutdown();
+    let events: Vec<ActionEvent> = action_rx.try_iter().collect();
+
+    assert_eq!(
+        key_names_of(&events),
+        Vec::<String>::new(),
+        "the type supersedes every keystroke of the burst, got {events:?}"
+    );
+    assert_eq!(
+        type_values_of(&events),
+        vec!["hello docent"],
+        "expected the one coalesced type, got {events:?}"
+    );
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(20))]
+
+    /// Typing routing
+    ///
+    /// For any mix of keyboard and value-change events over any windows, with
+    /// clicks between them loading the queues, one worker receives every
+    /// keyboard and value-change event.
+    #[test]
+    fn keyboard_and_value_change_events_reach_one_worker(
+        events in proptest::collection::vec((0u8..3, 1i64..6), 2..60),
+    ) {
+        let (action_tx, _action_rx) = mpsc::channel::<ActionEvent>();
+        let typing_counts: Vec<Arc<AtomicU64>> = (0..3)
+            .map(|_| Arc::new(AtomicU64::new(0)))
+            .collect();
+        let tc_clone = typing_counts.clone();
+
+        // Workers never dequeue until shutdown, so the queue lengths the
+        // dispatcher reads are exactly what the test dispatched.
+        let mut pool = WorkerPool::new(3, action_tx, move |index, rx, _queue_len, _sender, _pending| {
+            let tc = Arc::clone(&tc_clone[index]);
+            std::thread::spawn(move || {
+                loop {
+                    match rx.recv() {
+                        Ok(WorkerMessage::Event(raw)) => {
+                            if matches!(
+                                raw.event_type,
+                                RawEventType::Keyboard | RawEventType::ValueChange
+                            ) {
+                                tc.fetch_add(1, Ordering::SeqCst);
+                            }
+                        }
+                        Ok(WorkerMessage::Flush(_)) => {}
+                        Ok(WorkerMessage::Shutdown) => break,
+                        Err(_) => break,
+                    }
+                }
+            })
+        });
+
+        let mut typing_total = 0u64;
+        for (kind, window_handle) in &events {
+            let event_type = match kind {
+                0 => RawEventType::Keyboard,
+                1 => RawEventType::ValueChange,
+                _ => RawEventType::Click,
+            };
+            if *kind < 2 {
+                typing_total += 1;
+            }
+            pool.dispatch(make_raw_event(event_type, *window_handle));
+        }
+        pool.shutdown();
+
+        let counts: Vec<u64> = typing_counts
+            .iter()
+            .map(|c| c.load(Ordering::SeqCst))
+            .collect();
+        prop_assert_eq!(counts.iter().sum::<u64>(), typing_total);
+        prop_assert!(
+            counts.iter().filter(|&&c| c > 0).count() <= 1,
+            "keyboard and value-change events reached more than one worker: {:?}",
+            counts
+        );
+    }
+}
+
+/// Regression: a printable keystroke into a password field was buffered as a
+/// `key` named by its character, so whenever no value change discarded it — a
+/// field that reports none — the typed characters were written as keys.
+#[test]
+fn regression_noissue_typing_in_a_password_field_that_reports_no_value_change_is_one_masked_type() {
+    let gate = closed_gate();
+    open_gate(&gate);
+    let harness = WorkerTestHarness::new(TypingBackend::password(&gate));
+
+    let t = now_ms();
+    // 0x50 = P, 0x57 = W.
+    harness.send_event(layout_key(1, t, 0x50));
+    harness.send_event(layout_key(2, t + 1, 0x57));
+
+    thread::sleep(Duration::from_millis(900));
+    let events = harness.shutdown();
+
+    assert_eq!(
+        key_names_of(&events),
+        Vec::<String>::new(),
+        "typing in a password field is its masked type, got {events:?}"
+    );
+    assert_eq!(type_values_of(&events), vec!["••••••••"]);
+}
+
+/// Regression: a control key pressed before the password field's value change
+/// was processed released the buffered keystrokes as keys named by their
+/// characters, ahead of the masked `type`.
+#[test]
+fn regression_noissue_enter_right_behind_typing_in_a_password_field_writes_no_character_key() {
+    let gate = closed_gate();
+    open_gate(&gate);
+    let harness = WorkerTestHarness::new(TypingBackend::password(&gate));
+
+    let t = now_ms();
+    harness.send_event(packet_key(1, t, u16::from(b'p')));
+    harness.send_event(packet_key(2, t + 1, u16::from(b'w')));
+    harness.send_event(layout_key(3, t + 2, 0x0D)); // Enter
+    harness.send_event(value_change(4, t + 6, 1234));
+
+    thread::sleep(Duration::from_millis(900));
+    let events = harness.shutdown();
+
+    // The typing, then the control key, and nothing after it: the value change
+    // finds the masked type already recorded for the field.
+    let kinds: Vec<String> = events
+        .iter()
+        .filter_map(|e| match &e.payload {
+            ActionPayload::Type { value, .. } => Some(format!("type {value}")),
+            ActionPayload::Key { key, .. } => Some(format!("key {key}")),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        kinds,
+        vec!["type ••••••••", "key Enter"],
+        "the typing is one masked type ahead of the control key, got {events:?}"
+    );
+}
+
+/// In a password field the space bar, the numeric keypad and an AltGr
+/// combination enter characters too; each belongs to the masked type. A
+/// shortcut (Ctrl+V) stays a key.
+#[test]
+fn regression_noissue_every_text_entering_key_in_a_password_field_joins_the_masked_type() {
+    let gate = closed_gate();
+    open_gate(&gate);
+    let harness = WorkerTestHarness::new(TypingBackend::password(&gate));
+
+    let t = now_ms();
+    harness.send_event(layout_key(1, t, 0x20)); // space bar
+    harness.send_event(layout_key(2, t + 1, 0x65)); // numeric keypad 5
+    harness.send_event(layout_key(3, t + 2, 0x6B)); // numeric keypad +
+    let mut alt_gr = layout_key(4, t + 3, 0x32); // AltGr+2
+    alt_gr.modifiers = (true, false, true, false);
+    harness.send_event(alt_gr);
+    let mut paste = layout_key(5, t + 4, 0x56); // Ctrl+V
+    paste.modifiers = (true, false, false, false);
+    harness.send_event(paste);
+
+    thread::sleep(Duration::from_millis(900));
+    let events = harness.shutdown();
+
+    assert_eq!(key_names_of(&events), vec!["V"], "got {events:?}");
+    assert_eq!(type_values_of(&events), vec!["••••••••"], "got {events:?}");
+}
+
+/// Keys buffered for a control that reports no value change are written as
+/// keys when typing starts in a password field; the masked type does not
+/// supersede them.
+#[test]
+fn keys_typed_before_a_password_field_survive_its_masked_type() {
+    let gate = closed_gate();
+    open_gate(&gate);
+    let harness = WorkerTestHarness::new(TypingBackend::password(&gate));
+
+    let t = now_ms();
+    harness.seed_pending_keys(vec![held_key("1"), held_key("2")]);
+    harness.send_event(layout_key(1, t, 0x50));
+    thread::sleep(Duration::from_millis(100));
+    harness.flush();
+    let events = harness.shutdown();
+
+    assert_eq!(held_key_names(&events), vec!["1", "2"], "got {events:?}");
+    assert_eq!(type_values_of(&events), vec!["••••••••"], "got {events:?}");
+}
+
+// Repeated keystrokes: every press is recorded, however many and however fast.
+// Nothing in the pipeline collapses equal neighbours; these pin that for a
+// short run ("keep") and a long one, in a control that reports no value change
+// (each press is its own `key`, in typing order) and in an edit field (the one
+// `type` carries the field's text).
+
+fn burst_through_busy_pool(text: &str, value_changes: usize) -> Vec<ActionEvent> {
+    let gate = closed_gate();
+    let (action_tx, action_rx) = mpsc::channel::<ActionEvent>();
+    let worker_gate = Arc::clone(&gate);
+    let field_text = text.to_string();
+    let mut pool = WorkerPool::new(
+        3,
+        action_tx,
+        move |index, rx, queue_len, sender, pending| {
+            let backend = TypingBackend::edit(&worker_gate, &field_text);
+            thread::spawn(move || {
+                let ep = Arc::new(AtomicU32::new(0));
+                worker_loop(index, backend, rx, queue_len, sender, ep, pending, None);
+            })
+        },
+    );
+
+    let t = now_ms();
+    let mut seq = 0;
+    for c in text.chars() {
+        seq += 1;
+        // Layout keys: the virtual-key code of a letter is its upper-case ASCII.
+        pool.dispatch(layout_key(seq, t, c.to_ascii_uppercase() as u32));
+    }
+    for _ in 0..value_changes {
+        seq += 1;
+        pool.dispatch(value_change(seq, t + 5, 5678));
+    }
+    open_gate(&gate);
+
+    thread::sleep(Duration::from_millis(900));
+    pool.shutdown();
+    action_rx.try_iter().collect()
+}
+
+fn upper_letters(text: &str) -> Vec<String> {
+    text.chars()
+        .map(|c| c.to_ascii_uppercase().to_string())
+        .collect()
+}
+
+#[test]
+fn repeated_keystrokes_with_no_value_change_are_each_recorded_in_order() {
+    let long_run = format!("k{}p", "e".repeat(24));
+    for text in ["keep", long_run.as_str()] {
+        let events = burst_through_busy_pool(text, 0);
+        assert_eq!(
+            key_names_of(&events),
+            upper_letters(text),
+            "every press of {text:?} is its own key, in typing order"
+        );
+        assert_eq!(type_values_of(&events), Vec::<String>::new());
+    }
+}
+
+#[test]
+fn repeated_keystrokes_in_an_edit_field_are_the_one_type_with_every_character() {
+    let long_run = format!("k{}p", "e".repeat(24));
+    for text in ["keep", long_run.as_str()] {
+        let events = burst_through_busy_pool(text, 3);
+        assert_eq!(
+            key_names_of(&events),
+            Vec::<String>::new(),
+            "got {events:?}"
+        );
+        assert_eq!(type_values_of(&events), vec![text.to_string()]);
+    }
 }

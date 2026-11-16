@@ -239,7 +239,19 @@ stacks, software keyboards and automation) is printable input whatever it
 carries: the hook passes on its scan code, which is the injected UTF-16 code
 unit, and the worker names the key by that character (a space as `Space`,
 and a unit that is no character on its own as `Unidentified`), so the same
-text is never recorded twice.
+text is never recorded twice. Every keyboard event and every value-change
+event is processed by one worker, the typing worker, in the order the input
+thread dispatched them, so a value change is processed after the keystrokes
+that caused it and supersedes each buffered one, however busy the pool is;
+every keystroke a value change does not supersede is written, so a repeated
+key is recorded once per press. A keystroke that enters text into a password
+field (DCP-11's signal) is never buffered as a key: it starts or extends that
+field's masked `type` action, so typing into a password field is recorded as
+that `type` whether or not the field reports a value change. The keystrokes
+that enter text there are the printable ones, the space bar, the numeric
+keypad's digits and operators, and each of those with Ctrl and Alt held
+together; a key that enters no character, and a key with Ctrl, Alt or Meta
+held otherwise, is a `key` action there as anywhere.
 
 Timing constants and correlation windows live in `src/capture/timing.rs`.
 
@@ -263,7 +275,8 @@ middle-click type); a right-button press records a `right_click`.
 property's documented type — reads as itself; an empty (`VT_EMPTY`) answer or a
 failed read reads as no password; and an answer of any other type reads as a
 password, so a provider answering outside the documented type has its field
-masked rather than exposed. Other sensitive values — the classes core CP-11
+masked rather than exposed. A keystroke that enters text into such a field is
+recorded as part of the field's masked `type`, never as a `key` (DCP-9). Other sensitive values — the classes core CP-11
 names, recognised by the shared detection from their accessibility name or
 automation id — are masked at the
 **adapter chokepoint**, which processes each action's `element` (and its
@@ -337,10 +350,12 @@ this clause admits, all of them input that never became a buffered action:
   and still cannot accept the event — surfaced on stderr, never silent.
 
 A worker panic is detected on the next dispatch, the worker is respawned in
-place at the same index, and the send is retried on the fresh worker; exactly
-the value-change, focus, and selection events route **sticky** — the same window
-handle always reaches the same worker — so per-window supersession and
-deduplication stay correct; a drop routes to the worker that took its drag
+place at the same index, and the send is retried on the fresh worker; keyboard
+and value-change events all route to one worker, the typing worker (DCP-9),
+which stays that index across a respawn, so supersession and value
+deduplication stay correct; exactly the focus and selection events route
+**sticky** — the same window handle always reaches the same worker — so their
+deduplication stays correct; a drop routes to the worker that took its drag
 start; events without a routing affinity use shortest-queue dispatch.
 
 ---

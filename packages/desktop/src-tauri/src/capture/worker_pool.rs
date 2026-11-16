@@ -316,8 +316,9 @@ type SpawnWorkerFn = Box<
 /// worker threads.
 ///
 /// The pool manages a fixed set of workers, assigns monotonic sequence numbers
-/// to events, and routes events using shortest-queue dispatch with sticky
-/// routing for value-change events and paired routing for drag events.
+/// to events, and routes events using shortest-queue dispatch with one typing
+/// worker for keyboard and value-change events, sticky routing for focus and
+/// selection events, and paired routing for drag events.
 ///
 /// When a worker panics, the pool detects the failure on the next dispatch
 /// attempt, immediately respawns a replacement worker at the same index, and
@@ -330,10 +331,16 @@ pub struct WorkerPool {
     /// (see [`PendingDirectory`]). Updated in-place on every respawn.
     pending_directory: PendingDirectory,
     sequence_counter: Arc<AtomicU64>,
-    /// Sticky routing: maps `window_handle` → `worker_index` for value-change,
-    /// focus and selection events, so each window's events of those types reach
-    /// one worker and its per-window supersession and deduplication hold.
-    value_change_affinity: HashMap<i64, usize>,
+    /// The typing worker: the one worker every keyboard and value-change event
+    /// reaches, so its queue processes a value change after the keystrokes
+    /// that caused it and the typing state it judges them with (buffered keys,
+    /// the pending type, the last values) is whole. Chosen by shortest queue
+    /// at the first such event.
+    typing_worker: Option<usize>,
+    /// Sticky routing: maps `window_handle` → `worker_index` for focus and
+    /// selection events, so each window's events of those types reach one
+    /// worker and its deduplication holds.
+    window_affinity: HashMap<i64, usize>,
     /// Tracks the worker index that received the most recent `DragStart`,
     /// so the corresponding `Drop` event is routed to the same worker.
     last_drag_worker: Option<usize>,
@@ -395,7 +402,8 @@ impl WorkerPool {
             workers,
             pending_directory,
             sequence_counter: Arc::new(AtomicU64::new(0)),
-            value_change_affinity: HashMap::new(),
+            typing_worker: None,
+            window_affinity: HashMap::new(),
             last_drag_worker: None,
             spawn_worker: Box::new(spawn_worker),
             action_sender,
@@ -427,8 +435,10 @@ impl WorkerPool {
     /// Dispatch a `RawEvent` to the appropriate worker.
     ///
     /// Routing rules:
-    /// - `ValueChange`, `Focus`, `Selection` → sticky routing (same
-    ///   `window_handle` → same worker).
+    /// - `Keyboard`, `ValueChange` → the typing worker (one worker for all of
+    ///   them, whatever the window).
+    /// - `Focus`, `Selection` → sticky routing (same `window_handle` → same
+    ///   worker).
     /// - `DragStart`   → shortest-queue worker (index stored for the paired `Drop`).
     /// - `Drop`        → same worker as the most recent `DragStart`.
     /// - All others    → shortest-queue worker.
@@ -436,7 +446,8 @@ impl WorkerPool {
     /// If the selected worker has disconnected (panicked), it is marked dead
     /// and removed from future dispatch rotation. The event is retried on the
     /// next available worker. Sticky affinity entries pointing to the dead
-    /// worker are cleared so subsequent events are re-routed.
+    /// worker are cleared so subsequent events are re-routed; the typing
+    /// worker stays the respawned index.
     pub fn dispatch(&mut self, event: RawEvent) {
         let worker_index = self.select_worker(&event);
         self.send_to_worker(worker_index, event);
@@ -445,16 +456,29 @@ impl WorkerPool {
     /// Select the target worker index for an event based on routing rules.
     fn select_worker(&mut self, event: &RawEvent) -> usize {
         match &event.event_type {
-            // Sticky routing: consecutive events for the same window go to
-            // the same worker. This ensures per-worker deduplication works
-            // correctly (focus dedup, value-change dedup, selection dedup).
-            RawEventType::ValueChange | RawEventType::Focus | RawEventType::Selection => {
-                let handle = event.window_handle;
-                if let Some(&idx) = self.value_change_affinity.get(&handle) {
+            // Typing: every keystroke and every value change goes to one
+            // worker. Its FIFO queue then processes a value change after the
+            // keystrokes that caused it, so the value change supersedes all of
+            // them — spread over several workers, each would hold keystrokes
+            // the value change's worker never sees.
+            RawEventType::Keyboard | RawEventType::ValueChange => {
+                if let Some(idx) = self.typing_worker {
                     return idx;
                 }
                 let idx = self.shortest_queue_worker();
-                self.value_change_affinity.insert(handle, idx);
+                self.typing_worker = Some(idx);
+                idx
+            }
+            // Sticky routing: consecutive events for the same window go to
+            // the same worker. This ensures per-worker deduplication works
+            // correctly (focus dedup, selection dedup).
+            RawEventType::Focus | RawEventType::Selection => {
+                let handle = event.window_handle;
+                if let Some(&idx) = self.window_affinity.get(&handle) {
+                    return idx;
+                }
+                let idx = self.shortest_queue_worker();
+                self.window_affinity.insert(handle, idx);
                 idx
             }
             RawEventType::DragStart { .. } => {
@@ -614,7 +638,10 @@ impl WorkerPool {
         };
 
         // Clear sticky affinity entries that pointed to the dead worker.
-        self.value_change_affinity.retain(|_, &mut v| v != index);
+        self.window_affinity.retain(|_, &mut v| v != index);
+
+        // The typing worker keeps its index: the replacement is installed at
+        // that index, so keyboard and value-change events stay together.
 
         // Clear drag worker if it was the dead one.
         if self.last_drag_worker == Some(index) {
@@ -1065,6 +1092,23 @@ fn is_printable_key(raw: &RawEvent, key: &str) -> bool {
     carries_text && !raw.modifiers.0 && !raw.modifiers.2 && !raw.modifiers.3
 }
 
+/// Whether a keystroke into a password field enters text there, and so
+/// belongs to the field's masked type: every key that is printable input, and
+/// the keys that enter a character under a longer name or with Ctrl and Alt
+/// held together (AltGr) — the space bar and the numeric keypad's digits and
+/// operators among them. A key with Ctrl, Alt or Meta held otherwise is a
+/// shortcut and stays a key, as does every key that enters no character.
+fn enters_text_in_password_field(raw: &RawEvent, key: &str) -> bool {
+    let (ctrl, _shift, alt, meta) = raw.modifiers;
+    if meta || (ctrl != alt) {
+        return false;
+    }
+    raw.key_code == VK_PACKET
+        || key.chars().count() == 1
+        || key == "Space"
+        || matches!(raw.key_code, 0x60..=0x6F)
+}
+
 // ---------------------------------------------------------------------------
 // worker_loop
 // ---------------------------------------------------------------------------
@@ -1349,6 +1393,7 @@ fn process_raw_event<B: AccessibilityBackend>(
                 action_sender,
                 context_id,
                 pending,
+                &mut state.last_value_map,
                 window_rect.clone(),
             );
         }
@@ -1636,7 +1681,36 @@ fn handle_value_change<B: AccessibilityBackend>(
 
     // In-memory buffer mutation only — short lock, no backend calls inside.
     let mut buffers = lock_buffers(pending);
+    buffer_type_value(
+        &mut buffers,
+        action_sender,
+        element,
+        value,
+        is_password,
+        raw,
+        context_id,
+        window_rect,
+    );
+}
 
+/// Start the pending type event for `element`, or carry the one already
+/// pending for it forward to `value`.
+///
+/// A type pending for a different element is flushed first. For the same
+/// element the value, the sequence id and the debounce stamp move to this
+/// event; the action's own timestamp and described element stay those of the
+/// event that started it.
+#[allow(clippy::too_many_arguments)]
+fn buffer_type_value(
+    buffers: &mut PendingBuffers,
+    action_sender: &mpsc::Sender<ActionEvent>,
+    element: ElementDescription,
+    value: String,
+    is_password: bool,
+    raw: &RawEvent,
+    context_id: Option<i64>,
+    window_rect: Option<WindowRect>,
+) {
     // Check if we have a pending type event for a different element — flush it.
     if let Some(ref pt) = buffers.pending_type {
         if pt.element.selector != element.selector {
@@ -1755,6 +1829,7 @@ fn handle_keyboard<B: AccessibilityBackend>(
     action_sender: &mpsc::Sender<ActionEvent>,
     context_id: Option<i64>,
     pending: &SharedPendingBuffers,
+    last_value_map: &mut HashMap<String, String>,
     window_rect: Option<WindowRect>,
 ) {
     let key = key_name(raw);
@@ -1781,6 +1856,36 @@ fn handle_keyboard<B: AccessibilityBackend>(
         }
     });
     stamp_described_after(&mut element, raw.timestamp);
+
+    // Typing into a password field is its masked type, never a key: a key is
+    // named by the character it carries, and a buffered key is written as
+    // typed whenever no value change discards it first (a control key right
+    // behind it, a drain, a field that reports no value change). So the
+    // keystroke starts or extends the field's pending type itself, masked as
+    // a value change would mask it; the value change that follows finds the
+    // mask already recorded as the field's last value and adds nothing.
+    if element.element_type.as_deref() == Some("password")
+        && enters_text_in_password_field(raw, &key)
+    {
+        last_value_map.insert(element.selector.clone(), PASSWORD_MASK.to_string());
+        let mut buffers = lock_buffers(pending);
+        // Keys still buffered were typed into another control, one that
+        // reported no value change; write them before this type starts, so no
+        // later flush counts them superseded by it.
+        flush_pending_keys(&mut buffers.pending_keys, action_sender);
+        buffers.pending_keys_last_timestamp = 0;
+        buffer_type_value(
+            &mut buffers,
+            action_sender,
+            element,
+            PASSWORD_MASK.to_string(),
+            true,
+            raw,
+            context_id,
+            window_rect,
+        );
+        return;
+    }
 
     let event = ActionEvent {
         timestamp: raw.timestamp,

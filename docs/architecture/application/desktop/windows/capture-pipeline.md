@@ -50,9 +50,11 @@ per-worker order is preserved end to end, and only cross-worker interleaving
 is unordered (restored by the frontend's ordered insertion). Dispatch places
 events so the per-worker state that judges them stays coherent (DCP-12):
 
-- **Sticky routing** — value-change, focus, and selection events for the same
-  window handle always reach the same worker, keeping per-window supersession
-  and deduplication correct.
+- **Typing worker** — every keyboard and value-change event reaches one
+  worker, so a value change is processed after the keystrokes that caused it
+  and supersedes the buffered ones (DCP-9).
+- **Sticky routing** — focus and selection events for the same window handle
+  always reach the same worker, keeping their deduplication correct.
 - **Drag pairing** — a drop routes to the worker that took its drag start, so
   the pair is built from the same recorded source element.
 - **Shortest queue** — everything else goes to the least-loaded worker (ties
@@ -60,7 +62,8 @@ events so the per-worker state that judges them stays coherent (DCP-12):
 
 A worker found dead at dispatch (its channel disconnected) is respawned in
 place at the same index and the event is retried on the fresh worker; sticky
-affinities pointing at the dead index are cleared so later events re-route. A
+affinities pointing at the dead index are cleared so later events re-route,
+while the typing worker stays that index. A
 respawned worker starts fresh — empty queue, empty dedup state, empty held
 buffers — and the held buffers the dead worker leaves behind are **drained
 into the action stream before the replacement is installed**, so its completed
