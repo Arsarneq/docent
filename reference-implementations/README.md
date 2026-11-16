@@ -33,4 +33,5 @@ Two invariants hold for everything in this directory:
   control client: it offers the channel's commands as tools of the Model
   Context Protocol over stdio, and writes an export a person allowed to a
   file. Its suite drives it with the official MCP client against the same
-  stand-in for the panel.
+  stand-in for the panel, and the extension's end-to-end suite runs it
+  against the real panel.
