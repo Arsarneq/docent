@@ -9,7 +9,7 @@
 // per-platform schemas are authoritative for field semantics.
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -312,6 +312,9 @@ type SpawnWorkerFn = Box<
         + Send,
 >;
 
+/// The value of the pool's typing-worker slot while no worker holds the role.
+const NO_TYPING_WORKER: usize = usize::MAX;
+
 /// Platform-agnostic worker pool for dispatching raw events to accessibility
 /// worker threads.
 ///
@@ -335,8 +338,11 @@ pub struct WorkerPool {
     /// reaches, so its queue processes a value change after the keystrokes
     /// that caused it and the typing state it judges them with (buffered keys,
     /// the pending type, the last values) is whole. Chosen by shortest queue
-    /// at the first such event.
-    typing_worker: Option<usize>,
+    /// at the first such event, kept across a respawn of its index, and given
+    /// up when a flush barrier finds it unresponsive ([`flush_all`](Self::flush_all)),
+    /// so typing does not queue behind a wedged accessibility call for the
+    /// rest of the capture. `NO_TYPING_WORKER` while none is chosen.
+    typing_worker: AtomicUsize,
     /// Sticky routing: maps `window_handle` → `worker_index` for focus and
     /// selection events, so each window's events of those types reach one
     /// worker and its deduplication holds.
@@ -402,7 +408,7 @@ impl WorkerPool {
             workers,
             pending_directory,
             sequence_counter: Arc::new(AtomicU64::new(0)),
-            typing_worker: None,
+            typing_worker: AtomicUsize::new(NO_TYPING_WORKER),
             window_affinity: HashMap::new(),
             last_drag_worker: None,
             spawn_worker: Box::new(spawn_worker),
@@ -462,11 +468,12 @@ impl WorkerPool {
             // them — spread over several workers, each would hold keystrokes
             // the value change's worker never sees.
             RawEventType::Keyboard | RawEventType::ValueChange => {
-                if let Some(idx) = self.typing_worker {
-                    return idx;
+                let current = self.typing_worker.load(Ordering::SeqCst);
+                if current != NO_TYPING_WORKER {
+                    return current;
                 }
                 let idx = self.shortest_queue_worker();
-                self.typing_worker = Some(idx);
+                self.typing_worker.store(idx, Ordering::SeqCst);
                 idx
             }
             // Sticky routing: consecutive events for the same window go to
@@ -821,6 +828,16 @@ impl WorkerPool {
         // enqueued after every action belonging to the step.
         emit_barrier_sentinel(&self.action_sender, barrier_id);
 
+        // A typing worker that did not answer gives the role up: the next
+        // keyboard or value-change event chooses again by shortest queue, which
+        // the unanswered worker's own backlog keeps away from it. What it still
+        // has queued stays together on it, keystrokes ahead of their value
+        // changes.
+        let typing = self.typing_worker.load(Ordering::SeqCst);
+        if rescue.contains(&typing) {
+            self.typing_worker.store(NO_TYPING_WORKER, Ordering::SeqCst);
+        }
+
         let mut rescued: Vec<usize> = rescue.into_iter().collect();
         rescued.sort_unstable();
         rescued
@@ -1088,8 +1105,13 @@ fn is_modifier_only_key(key: &str) -> bool {
 /// emitted immediately): a single-character key name, or any `VK_PACKET`
 /// keystroke (it carries text, whatever its name), with no Ctrl/Alt/Meta held.
 fn is_printable_key(raw: &RawEvent, key: &str) -> bool {
-    let carries_text = raw.key_code == VK_PACKET || key.chars().count() == 1;
-    carries_text && !raw.modifiers.0 && !raw.modifiers.2 && !raw.modifiers.3
+    carries_text(raw, key) && !raw.modifiers.0 && !raw.modifiers.2 && !raw.modifiers.3
+}
+
+/// Whether a keystroke carries text by its name alone: a single-character key
+/// name, or any `VK_PACKET` keystroke.
+fn carries_text(raw: &RawEvent, key: &str) -> bool {
+    raw.key_code == VK_PACKET || key.chars().count() == 1
 }
 
 /// Whether a keystroke into a password field enters text there, and so
@@ -1103,10 +1125,7 @@ fn enters_text_in_password_field(raw: &RawEvent, key: &str) -> bool {
     if meta || (ctrl != alt) {
         return false;
     }
-    raw.key_code == VK_PACKET
-        || key.chars().count() == 1
-        || key == "Space"
-        || matches!(raw.key_code, 0x60..=0x6F)
+    carries_text(raw, key) || key == "Space" || matches!(raw.key_code, 0x60..=0x6F)
 }
 
 // ---------------------------------------------------------------------------
@@ -1672,12 +1691,13 @@ fn handle_value_change<B: AccessibilityBackend>(
 
     // Value-change deduplication: skip if value unchanged for this element.
     // (last_value_map is dedup state — stays thread-local in WorkerState.)
-    if let Some(last_val) = last_value_map.get(&element.selector) {
+    let value_key = last_value_key(context_id, &element.selector);
+    if let Some(last_val) = last_value_map.get(&value_key) {
         if *last_val == value {
             return;
         }
     }
-    last_value_map.insert(element.selector.clone(), value.clone());
+    last_value_map.insert(value_key, value.clone());
 
     // In-memory buffer mutation only — short lock, no backend calls inside.
     let mut buffers = lock_buffers(pending);
@@ -1691,6 +1711,13 @@ fn handle_value_change<B: AccessibilityBackend>(
         context_id,
         window_rect,
     );
+}
+
+/// The key an element's last recorded value is kept under: its selector within
+/// its window. Two windows can hold elements with equal selectors (two
+/// documents of one application), and each has its own last value.
+fn last_value_key(context_id: Option<i64>, selector: &str) -> String {
+    format!("{}\u{1f}{selector}", context_id.unwrap_or(0))
 }
 
 /// Start the pending type event for `element`, or carry the one already
@@ -1711,22 +1738,28 @@ fn buffer_type_value(
     context_id: Option<i64>,
     window_rect: Option<WindowRect>,
 ) {
-    // Check if we have a pending type event for a different element — flush it.
-    if let Some(ref pt) = buffers.pending_type {
-        if pt.element.selector != element.selector {
-            buffers.flush_pending_type_only(action_sender);
-        }
+    // The pending type is this element's when it names the same selector in the
+    // same window; a type pending for any other element is flushed first.
+    let same_element = |pt: &PendingTypeEvent| {
+        pt.context_id == context_id && pt.element.selector == element.selector
+    };
+    if buffers
+        .pending_type
+        .as_ref()
+        .is_some_and(|pt| !same_element(pt))
+    {
+        buffers.flush_pending_type_only(action_sender);
     }
 
     // Buffer or update the pending type event.
     match buffers.pending_type {
-        Some(ref mut pt) if pt.element.selector == element.selector => {
+        Some(ref mut pt) => {
             // Same element — update value and reset debounce timer.
             pt.value = value;
             pt.sequence_id = raw.sequence_id;
             pt.last_update = raw.timestamp;
         }
-        _ => {
+        None => {
             // New element or no pending event.
             buffers.pending_type = Some(PendingTypeEvent {
                 element,
@@ -1867,7 +1900,10 @@ fn handle_keyboard<B: AccessibilityBackend>(
     if element.element_type.as_deref() == Some("password")
         && enters_text_in_password_field(raw, &key)
     {
-        last_value_map.insert(element.selector.clone(), PASSWORD_MASK.to_string());
+        last_value_map.insert(
+            last_value_key(context_id, &element.selector),
+            PASSWORD_MASK.to_string(),
+        );
         let mut buffers = lock_buffers(pending);
         // Keys still buffered were typed into another control, one that
         // reported no value change; write them before this type starts, so no
@@ -2330,6 +2366,64 @@ mod tests {
             "the completion sentinel must still be emitted last"
         );
 
+        pool.shutdown_with_timeout(Duration::from_millis(200));
+    }
+
+    #[test]
+    fn a_typing_worker_that_misses_the_flush_barrier_gives_the_role_up() {
+        // Typing follows one worker. One that is wedged in an accessibility
+        // call would hold every later keystroke behind it, so the barrier that
+        // finds it unresponsive frees the role and the next keystroke goes to
+        // a worker that answers.
+        let received: Arc<Mutex<Vec<usize>>> = Arc::new(Mutex::new(Vec::new()));
+        let (action_tx, _action_rx) = mpsc::channel::<ActionEvent>();
+        let seen = Arc::clone(&received);
+        let mut pool = WorkerPool::new(2, action_tx, move |idx, rx, _queue_len, _sender, _p| {
+            let seen = Arc::clone(&seen);
+            thread::spawn(move || loop {
+                match rx.recv() {
+                    Ok(WorkerMessage::Event(_)) => {
+                        seen.lock().unwrap().push(idx);
+                        if idx == 0 {
+                            // Worker 0 wedges on its first event.
+                            std::thread::sleep(Duration::from_secs(3600));
+                        }
+                    }
+                    Ok(WorkerMessage::Flush(ack)) => {
+                        let _ = ack.send(idx);
+                    }
+                    Ok(WorkerMessage::Shutdown) | Err(_) => break,
+                }
+            })
+        });
+        let key = || RawEvent {
+            event_type: RawEventType::Keyboard,
+            sequence_id: 0,
+            timestamp: 1,
+            screen_x: 0,
+            screen_y: 0,
+            window_handle: 1,
+            process_id: 1,
+            key_code: 0x41,
+            modifiers: (false, false, false, false),
+            scroll_delta: 0.0,
+            callback_params: [0; 4],
+            pre_captured_element: None,
+        };
+
+        pool.dispatch(key()); // worker 0 takes the typing role and wedges
+        pool.dispatch(key()); // still worker 0: the role holds
+        let wedged = pool.flush_all(3, Duration::from_millis(200));
+        assert_eq!(wedged, vec![0]);
+        pool.dispatch(key());
+        thread::sleep(Duration::from_millis(100));
+
+        assert_eq!(
+            *received.lock().unwrap(),
+            vec![0, 1],
+            "worker 0 took the first keystroke (the second waits in its queue); \
+             after the barrier the next keystroke reaches worker 1"
+        );
         pool.shutdown_with_timeout(Duration::from_millis(200));
     }
 

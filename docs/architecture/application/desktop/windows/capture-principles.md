@@ -353,7 +353,12 @@ A worker panic is detected on the next dispatch, the worker is respawned in
 place at the same index, and the send is retried on the fresh worker; keyboard
 and value-change events all route to one worker, the typing worker (DCP-9),
 which stays that index across a respawn, so supersession and value
-deduplication stay correct; exactly the focus and selection events route
+deduplication (per element within its window) stay correct; a typing worker
+that does not answer a commit's flush barrier in time gives the role up, and
+the next keyboard or value-change event chooses a worker again by shortest
+queue, so typing after that commit does not wait behind a wedged
+accessibility call (what was dispatched to the wedged worker before it is the
+residue above); exactly the focus and selection events route
 **sticky** — the same window handle always reaches the same worker — so their
 deduplication stays correct; a drop routes to the worker that took its drag
 start; events without a routing affinity use shortest-queue dispatch.

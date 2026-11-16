@@ -203,13 +203,14 @@ proptest! {
 
     /// Sticky routing
     ///
-    /// For any sequence of value-change events with the same window_handle,
-    /// all events are dispatched to the same worker index.
+    /// For any sequence of focus and selection events with the same
+    /// window_handle, all events are dispatched to the same worker index.
     #[test]
-    fn sticky_routing_for_value_change_events(
+    fn sticky_routing_for_focus_and_selection_events(
         window_handle in 1i64..10000,
-        event_count in 2usize..50,
+        kinds in proptest::collection::vec(proptest::bool::ANY, 2..50),
     ) {
+        let event_count = kinds.len();
         let (action_tx, _action_rx) = mpsc::channel::<ActionEvent>();
         let worker_counts: Vec<Arc<AtomicU64>> = (0..3)
             .map(|_| Arc::new(AtomicU64::new(0)))
@@ -221,8 +222,13 @@ proptest! {
             std::thread::spawn(move || {
                 loop {
                     match rx.recv() {
-                        Ok(WorkerMessage::Event(_)) => {
-                            wc.fetch_add(1, Ordering::SeqCst);
+                        Ok(WorkerMessage::Event(raw)) => {
+                            if matches!(
+                                raw.event_type,
+                                RawEventType::Focus | RawEventType::Selection
+                            ) {
+                                wc.fetch_add(1, Ordering::SeqCst);
+                            }
                         }
                         Ok(WorkerMessage::Flush(_)) => {}
                         Ok(WorkerMessage::Shutdown) => break,
@@ -232,9 +238,16 @@ proptest! {
             })
         });
 
-        // Dispatch multiple value-change events with the same window_handle.
-        for _ in 0..event_count {
-            pool.dispatch(make_raw_event(RawEventType::ValueChange, window_handle));
+        // Dispatch focus and selection events with the same window_handle,
+        // a click between them so the queue lengths keep moving.
+        for is_focus in &kinds {
+            let event_type = if *is_focus {
+                RawEventType::Focus
+            } else {
+                RawEventType::Selection
+            };
+            pool.dispatch(make_raw_event(event_type, window_handle));
+            pool.dispatch(make_raw_event(RawEventType::Click, window_handle + 1));
         }
 
         // Give workers time to receive.
@@ -266,7 +279,7 @@ proptest! {
         prop_assert_eq!(
             non_zero_workers.len(),
             1,
-            "expected exactly 1 worker to receive all value-change events, \
+            "expected exactly 1 worker to receive all focus and selection events, \
              but {} workers received events: {:?}",
             non_zero_workers.len(),
             counts
@@ -2971,9 +2984,8 @@ proptest! {
     }
 }
 
-/// Regression: a printable keystroke into a password field was buffered as a
-/// `key` named by its character, so whenever no value change discarded it — a
-/// field that reports none — the typed characters were written as keys.
+/// Regression: typing into a password field that reports no value change was
+/// recorded as `key` actions; it is the field's one masked `type`.
 #[test]
 fn regression_noissue_typing_in_a_password_field_that_reports_no_value_change_is_one_masked_type() {
     let gate = closed_gate();
@@ -2996,9 +3008,10 @@ fn regression_noissue_typing_in_a_password_field_that_reports_no_value_change_is
     assert_eq!(type_values_of(&events), vec!["••••••••"]);
 }
 
-/// Regression: a control key pressed before the password field's value change
-/// was processed released the buffered keystrokes as keys named by their
-/// characters, ahead of the masked `type`.
+/// Regression: a control key processed before the password field's value
+/// change put `key` actions for the typing ahead of the masked `type`, and a
+/// second `type` behind the control key; it is one masked `type`, then the
+/// control key.
 #[test]
 fn regression_noissue_enter_right_behind_typing_in_a_password_field_writes_no_character_key() {
     let gate = closed_gate();
@@ -3151,4 +3164,29 @@ fn repeated_keystrokes_in_an_edit_field_are_the_one_type_with_every_character() 
         );
         assert_eq!(type_values_of(&events), vec![text.to_string()]);
     }
+}
+
+/// Regression: the last recorded value was kept per selector alone, so a value
+/// typed in one window hid the same value arriving in another window whose
+/// element has an equal selector (two documents of one application).
+#[test]
+fn regression_noissue_the_same_value_in_a_second_window_is_its_own_type() {
+    let gate = closed_gate();
+    open_gate(&gate);
+    let harness = WorkerTestHarness::new(TypingBackend::edit(&gate, "keep"));
+
+    let t = now_ms();
+    harness.send_event(value_change(1, t, 100));
+    harness.send_event(value_change(2, t + 1, 200));
+
+    thread::sleep(Duration::from_millis(900));
+    let events = harness.shutdown();
+
+    assert_eq!(
+        type_values_of(&events),
+        vec!["keep", "keep"],
+        "got {events:?}"
+    );
+    let contexts: Vec<Option<i64>> = events.iter().map(|e| e.context_id).collect();
+    assert_eq!(contexts, vec![Some(100), Some(200)]);
 }
