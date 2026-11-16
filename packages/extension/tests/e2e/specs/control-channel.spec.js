@@ -748,6 +748,132 @@ test.describe('Local control channel', () => {
     await otherPage.close();
   });
 
+  /** Open a second panel page and pair it, returning the page and its connection. */
+  async function pairSecondPanel(context, extensionId, localProcess) {
+    const otherPage = await context.newPage();
+    await otherPage.goto(`chrome-extension://${extensionId}/sidepanel/index.html`);
+    await otherPage.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
+    const { connection } = await pair(otherPage, localProcess);
+    return { otherPage, connection };
+  }
+
+  /** The stored projects as name → names of their recordings. */
+  const storedRecordings = (serviceWorker) =>
+    serviceWorker.evaluate(async () => {
+      const { projects } = await chrome.storage.local.get('projects');
+      return Object.fromEntries(projects.map((p) => [p.name, p.recordings.map((r) => r.name)]));
+    });
+
+  test('two panel pages each create their own project and report it', async ({
+    panelPage,
+    localProcess,
+    context,
+    extensionId,
+  }) => {
+    const first = await pair(panelPage, localProcess);
+    await command(first.connection, 'p', 'project.create', { name: 'Alpha' });
+    const second = await pairSecondPanel(context, extensionId, localProcess);
+    await command(second.connection, 'p', 'project.create', { name: 'Beta' });
+
+    expect((await command(first.connection, 's', 'status')).project.name).toBe('Alpha');
+    expect((await command(second.connection, 's', 'status')).project.name).toBe('Beta');
+    await expect(panelPage.locator('#project-title')).toHaveText('Alpha');
+    await expect(second.otherPage.locator('#project-title')).toHaveText('Beta');
+    await second.otherPage.close();
+  });
+
+  // Regression: #661 — with two side panels open, a recording created through
+  // the first panel's channel was created in the project the second panel had
+  // opened last, and a pause or resume acted on the second panel's capture
+  // while answering that it succeeded.
+  // https://github.com/Arsarneq/docent/issues/661
+  test('regression_661_recording_create_creates_in_the_project_open_in_its_panel', async ({
+    panelPage,
+    localProcess,
+    serviceWorker,
+    context,
+    extensionId,
+  }) => {
+    const first = await pair(panelPage, localProcess);
+    await command(first.connection, 'p', 'project.create', { name: 'Alpha' });
+    const second = await pairSecondPanel(context, extensionId, localProcess);
+    await command(second.connection, 'p', 'project.create', { name: 'Beta' });
+
+    expect((await command(first.connection, 'r', 'recording.create', { name: 'A1' })).ok).toBe(
+      true,
+    );
+    expect(await storedRecordings(serviceWorker)).toEqual({ Alpha: ['A1'], Beta: [] });
+    await expect(panelPage.locator('#bc-project')).toHaveText('Alpha');
+    await second.otherPage.close();
+  });
+
+  test('regression_661_pause_and_resume_of_a_recording_no_longer_active_are_refused', async ({
+    panelPage,
+    localProcess,
+    serviceWorker,
+    context,
+    extensionId,
+  }) => {
+    const first = await pair(panelPage, localProcess);
+    await command(first.connection, 'p', 'project.create', { name: 'Alpha' });
+    await command(first.connection, 'r', 'recording.create', { name: 'A1' });
+    const second = await pairSecondPanel(context, extensionId, localProcess);
+    await command(second.connection, 'p', 'project.create', { name: 'Beta' });
+    await command(second.connection, 'r', 'recording.create', { name: 'B1' });
+    const capturing = () =>
+      serviceWorker.evaluate(async () => (await chrome.storage.local.get('recording')).recording);
+
+    const pause = await command(first.connection, 'pa', 'recording.pause');
+    expect([pause.ok, pause.error]).toEqual([false, 'The recording was not paused']);
+    expect(await capturing()).toBe(true);
+    expect((await command(first.connection, 's', 'status')).capturing).toBe(false);
+
+    expect((await command(second.connection, 'pb', 'recording.pause')).ok).toBe(true);
+    const resume = await command(first.connection, 're', 'recording.resume');
+    expect([resume.ok, resume.error]).toEqual([false, 'The recording was not resumed']);
+    expect(await capturing()).toBe(false);
+    await second.otherPage.close();
+  });
+
+  test('regression_661_a_recording_create_refused_after_its_stop_shows_capture_off', async ({
+    panelPage,
+    localProcess,
+    serviceWorker,
+    context,
+    extensionId,
+  }) => {
+    // The New recording button sits in the project view, reached from a
+    // recording only through the breadcrumb that stops capture first; the
+    // channel's recording.create runs from the recording view itself.
+    const first = await pair(panelPage, localProcess);
+    await command(first.connection, 'p', 'project.create', { name: 'Alpha' });
+    await command(first.connection, 'r', 'recording.create', { name: 'A1' });
+    await expect(panelPage.locator('#recording-badge')).toHaveText('Recording');
+
+    // Another panel deletes the project this panel is capturing in.
+    const other = await context.newPage();
+    await other.goto(`chrome-extension://${extensionId}/sidepanel/index.html`);
+    await other.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
+    other.once('dialog', (d) => d.accept());
+    await other
+      .locator('#project-list li', { hasText: 'Alpha' })
+      .locator('[data-action="delete"]')
+      .click();
+    await expect(other.locator('#project-list li', { hasText: 'Alpha' })).toHaveCount(0);
+
+    const created = await command(first.connection, 'r2', 'recording.create', { name: 'A2' });
+    expect([created.ok, created.error]).toEqual([false, 'The recording was not created']);
+    await expect(panelPage.locator('#recording-badge')).toHaveText('Paused');
+    await expect(panelPage.locator('#btn-toggle-recording')).toContainText('Resume');
+    expect((await command(first.connection, 's', 'status')).capturing).toBe(false);
+    expect(
+      await serviceWorker.evaluate(
+        async () => (await chrome.storage.local.get('recording')).recording,
+      ),
+    ).toBe(false);
+    await other.close();
+  });
+
   test('a project larger than the inbound frame cap crosses as one result frame', async ({
     panelPage,
     localProcess,

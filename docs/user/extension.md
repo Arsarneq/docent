@@ -52,6 +52,20 @@ re-record does not restore the previous list — actions captured during the
 re-record stay pending. Leaving the recording through the breadcrumb ends a
 re-record the way Cancel does.
 
+### Side panels in two windows
+
+Each browser window has its own side panel, and each panel works on the
+project and recording it shows: renaming, metadata, deleting, history and
+reordering act there. Capture is one per browser, though: actions go to the
+recording last opened or created in any panel, and so does the pending list,
+and opening or creating a project in any panel stops capture until a recording
+is opened or created. After another panel opens or creates a project or a
+recording, this panel's **Resume**, **Done this step**, **Clear** and
+re-record are refused with a message such as "Commit failed: Not the active
+recording", and so is **Pause** while the other panel is capturing. A refused
+action changes nothing, and the panel then shows its recording as paused. To
+record into this panel's recording again, open it again from its project.
+
 ## Edit steps
 
 | Control         | Action                                               |

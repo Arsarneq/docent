@@ -44,6 +44,7 @@ import { createControlChannelHost } from './control-channel-host.js';
 import { createControlExecutor, STORAGE_NOTICES, storageNotice } from './control-commands.js';
 import { describeExportGrant } from './control-channel.js';
 import { buildOpenProjectExport, exportFileName } from './project-export.js';
+import { NOT_ACTIVE_RECORDING } from '../lib/active-recording.js';
 import {
   escapeHtml,
   renderProjectList as renderProjectListHtml,
@@ -248,6 +249,84 @@ function send(message) {
   return adapter.send(message);
 }
 
+/**
+ * The project and recording this panel shows, as its project- and
+ * recording-scoped messages name them: each open panel shows its own, and the
+ * worker acts on the ones a message names (extension runtime, Panel protocol).
+ */
+function shownIds() {
+  return {
+    project_id: activeProject?.project_id ?? null,
+    recording_id: activeRecording?.recording_id ?? null,
+  };
+}
+
+/** Whether the worker refused a capture message because another panel has the active recording. */
+function refusedAsNotActive(response) {
+  return response?.ok === false && response.error === NOT_ACTIVE_RECORDING;
+}
+
+/**
+ * Drop this panel's capture state after the worker refused a capture message:
+ * another panel has since opened or created a project or recording, so this
+ * panel's recording is no longer the one capture goes to (capture went to the
+ * other panel's recording, or stopped with a project opened or created). A
+ * re-record under way ends, keeping the narration the person typed; opening
+ * the recording again makes it the one capture goes to.
+ */
+function leaveCapture() {
+  isRecording = false;
+  if (rerecordLogicalId) {
+    const typed = narrationInput.value;
+    endRerecord();
+    narrationInput.value = typed;
+  }
+  updateRecordingUI();
+  updateCommitButton();
+}
+
+/**
+ * Tell the person an action the worker did not accept failed, in the panel's
+ * one wording for a failed action. Only a click calls it: a control-channel
+ * command answers with a fixed text instead (control-channel LC-8).
+ */
+function alertFailed(action, response) {
+  alert(`${action} failed: ${response?.error ?? 'unknown error'}`);
+}
+
+/**
+ * Stop capture for the open recording ahead of another action. The panel's
+ * capture state follows only an accepted stop; a refusal because another
+ * panel has the active recording drops it.
+ */
+async function stopCapture() {
+  const response = await send({ type: 'RECORDING_STOP', ...shownIds() });
+  if (refusedAsNotActive(response)) leaveCapture();
+  else if (response?.ok) isRecording = false;
+  return response;
+}
+
+/**
+ * Start capture for the open recording after another action. The panel's
+ * capture state follows only an accepted start; a refusal because another
+ * panel has the active recording drops it.
+ */
+async function startCapture() {
+  const response = await send({ type: 'RECORDING_START', ...shownIds() });
+  if (refusedAsNotActive(response)) leaveCapture();
+  else if (response?.ok) isRecording = true;
+  return response;
+}
+
+/**
+ * The worker's answer, or a thrown error carrying its text when it did not
+ * accept the message: for the flows that report a failure from one catch.
+ */
+function accepted(response) {
+  if (!response?.ok) throw new Error(response?.error ?? 'unknown error');
+  return response;
+}
+
 // ─── SW restart recovery ──────────────────────────────────────────────────────
 // pendingActions live in chrome.storage.local (writer: the service worker —
 // extension runtime ERT-3), so they survive SW suspension. The panel watches
@@ -339,7 +418,7 @@ function updateBreadcrumb(viewKey) {
 // ─── Breadcrumb navigation ────────────────────────────────────────────────────
 
 bcProjects.addEventListener('click', async () => {
-  await send({ type: 'RECORDING_STOP' });
+  await send({ type: 'RECORDING_STOP', ...shownIds() });
   isRecording = false;
   endRerecord();
   activeProject = null;
@@ -349,21 +428,23 @@ bcProjects.addEventListener('click', async () => {
 });
 
 bcProject.addEventListener('click', async () => {
-  await send({ type: 'RECORDING_STOP' });
+  await send({ type: 'RECORDING_STOP', ...shownIds() });
   isRecording = false;
   endRerecord();
   activeRecording = null;
   updateRecordingUI();
-  const { project } = await send({ type: 'PROJECT_GET' });
-  if (project) activeProject = project;
-  renderProjectDetail();
-  showView('project');
+  await refreshSyncViews();
 });
 
 // ─── Projects list ────────────────────────────────────────────────────────────
 
 async function loadProjectsList() {
-  const { projects } = await send({ type: 'PROJECTS_LIST' });
+  const response = await send({ type: 'PROJECTS_LIST' });
+  if (!response?.ok) {
+    alertFailed('Loading projects', response);
+    return;
+  }
+  const { projects } = response;
   projectList.innerHTML = '';
   projectsEmpty.classList.toggle('hidden', projects.length > 0);
 
@@ -391,8 +472,14 @@ async function loadProjectsList() {
 }
 
 async function openProject(project_id) {
-  const { project } = await send({ type: 'PROJECT_OPEN', project_id });
-  activeProject = project;
+  const response = await send({ type: 'PROJECT_OPEN', project_id });
+  if (!response?.ok) {
+    // A project deleted in another panel: show the list as it now is.
+    alertFailed('Open', response);
+    await loadProjectsList();
+    return;
+  }
+  activeProject = response.project;
   activeRecording = null;
   isRecording = false;
   updateRecordingUI();
@@ -402,7 +489,8 @@ async function openProject(project_id) {
 
 async function deleteProject(project_id, name) {
   if (!confirm(`Delete project "${name}"? This cannot be undone.`)) return;
-  await send({ type: 'PROJECT_DELETE', project_id });
+  const response = await send({ type: 'PROJECT_DELETE', project_id });
+  if (!response?.ok) alertFailed('Delete', response);
   loadProjectsList();
 }
 
@@ -456,19 +544,24 @@ importFileInput.addEventListener('change', async () => {
 
 btnNewProjectCancel.addEventListener('click', () => showView('projects'));
 
-/** The New project action: create the project and show it. */
+/**
+ * The New project action: create the project and show it. Resolves with the
+ * worker's response; on a failure the panel is left as it was.
+ */
 async function createProjectNamed(name) {
-  const { project } = await send({ type: 'PROJECT_CREATE', name });
-  activeProject = project;
+  const response = await send({ type: 'PROJECT_CREATE', name });
+  if (!response?.ok) return response;
+  activeProject = response.project;
   activeRecording = null;
   renderProjectDetail();
   showView('project');
-  return project;
+  return response;
 }
 
-btnNewProjectCreate.addEventListener('click', () =>
-  createProjectNamed(newProjectName.value.trim() || 'Untitled Project'),
-);
+btnNewProjectCreate.addEventListener('click', async () => {
+  const response = await createProjectNamed(newProjectName.value.trim() || 'Untitled Project');
+  if (!response?.ok) alertFailed('Create', response);
+});
 
 newProjectName.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') btnNewProjectCreate.click();
@@ -516,12 +609,20 @@ projectTitle.addEventListener('click', async () => {
   const current = activeProject.name;
   const next = prompt('Rename project:', current);
   if (!next || next.trim() === current) return;
-  const { project } = await send({ type: 'PROJECT_RENAME', name: next.trim() });
-  if (project) {
-    activeProject = project;
-    renderProjectDetail();
-    updateBreadcrumb('project');
+  const response = await send({
+    type: 'PROJECT_RENAME',
+    project_id: activeProject.project_id,
+    name: next.trim(),
+  });
+  if (!response?.ok) {
+    // A project deleted in another panel: show where things now stand.
+    alertFailed('Rename', response);
+    await refreshSyncViews();
+    return;
   }
+  activeProject = response.project;
+  renderProjectDetail();
+  updateBreadcrumb('project');
 });
 
 // New recording
@@ -532,43 +633,80 @@ btnNewRecording.addEventListener('click', () => {
 
 btnNewRecordingCancel.addEventListener('click', () => showView('project'));
 
-/** The New recording action: create it in the open project and start capture. */
+/**
+ * The New recording action: create it in the open project and start capture.
+ * Resolves with the worker's response; on a failure the panel's project and
+ * recording are left as they were, and the stop sent first stands.
+ */
 async function createRecordingNamed(name) {
   // Stop any in-progress recording before switching recordings
-  await send({ type: 'RECORDING_STOP' });
-  const { recording, project } = await send({ type: 'RECORDING_CREATE', name });
-  activeProject = project;
-  activeRecording = recording;
+  await stopCapture();
+  const response = await send({
+    type: 'RECORDING_CREATE',
+    project_id: activeProject.project_id,
+    name,
+  });
+  if (!response?.ok) {
+    updateRecordingUI(); // the stop above stands: show capture as it now is
+    return response;
+  }
+  activeProject = response.project;
+  activeRecording = response.recording;
   activeSteps = [];
+  // An accepted create starts capture for the new recording.
   isRecording = true;
   enterRecordingView();
-  return recording;
+  return response;
 }
 
-btnNewRecordingCreate.addEventListener('click', () =>
-  createRecordingNamed(newRecordingName.value.trim() || 'Untitled Recording'),
-);
+btnNewRecordingCreate.addEventListener('click', async () => {
+  const response = await createRecordingNamed(
+    newRecordingName.value.trim() || 'Untitled Recording',
+  );
+  if (!response?.ok) {
+    // A project deleted in another panel: show where things now stand.
+    alertFailed('Create', response);
+    await refreshSyncViews();
+  }
+});
 
 newRecordingName.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') btnNewRecordingCreate.click();
 });
 
 async function openRecording(recording_id) {
-  const { recording, activeSteps: steps } = await send({
+  const response = await send({
     type: 'RECORDING_OPEN',
+    project_id: activeProject.project_id,
     recording_id,
   });
-  activeRecording = recording;
-  activeSteps = steps;
+  if (!response?.ok) {
+    // A recording or project deleted in another panel: show the list as it now is.
+    alertFailed('Open', response);
+    await refreshSyncViews();
+    return;
+  }
+  activeRecording = response.recording;
+  activeSteps = response.activeSteps;
   isRecording = false;
   enterRecordingView();
 }
 
 async function deleteRecording(recording_id, name) {
   if (!confirm(`Delete recording "${name}"? This cannot be undone.`)) return;
+  const response = await send({
+    type: 'RECORDING_DELETE',
+    project_id: activeProject.project_id,
+    recording_id,
+  });
+  if (!response?.ok) {
+    // A recording or project deleted in another panel: show the list as it now is.
+    alertFailed('Delete', response);
+    await refreshSyncViews();
+    return;
+  }
   isRecording = false;
-  const { project } = await send({ type: 'RECORDING_DELETE', recording_id });
-  activeProject = project;
+  activeProject = response.project;
   activeRecording = null;
   updateRecordingUI();
   renderProjectDetail();
@@ -749,28 +887,44 @@ recordingTitle.addEventListener('click', async () => {
   const current = activeRecording.name;
   const next = prompt('Rename recording:', current);
   if (!next || next.trim() === current) return;
-  await send({
+  const response = await send({
     type: 'RECORDING_RENAME',
-    recording_id: activeRecording.recording_id,
+    ...shownIds(),
     name: next.trim(),
   });
+  if (!response?.ok) {
+    alertFailed('Rename', response);
+    return;
+  }
   activeRecording.name = next.trim();
   recordingTitle.textContent = next.trim();
   updateBreadcrumb('recording');
 });
 
-/** The Pause / Resume action: stop or start capture for the open recording. */
+/**
+ * The Pause / Resume action: stop or start capture for the open recording.
+ * Resolves with the worker's response. The panel's capture state follows only
+ * an accepted change; a refusal because another panel has the active
+ * recording drops it.
+ */
 async function setCapturing(on) {
-  if (on) {
-    await send({ type: 'RECORDING_START' });
-  } else {
-    await send({ type: 'RECORDING_STOP' });
+  const response = on
+    ? await send({ type: 'RECORDING_START', ...shownIds() })
+    : await send({ type: 'RECORDING_STOP', ...shownIds() });
+  if (refusedAsNotActive(response)) {
+    leaveCapture();
+    return response;
   }
-  isRecording = on;
+  if (response?.ok) isRecording = on;
   updateRecordingUI();
+  return response;
 }
 
-btnToggleRecording.addEventListener('click', () => setCapturing(!isRecording));
+btnToggleRecording.addEventListener('click', async () => {
+  const on = !isRecording;
+  const response = await setCapturing(on);
+  if (!response?.ok) alertFailed(on ? 'Resume' : 'Pause', response);
+});
 
 // ─── Step narration ───────────────────────────────────────────────────────────
 
@@ -789,12 +943,22 @@ btnCommitStep.addEventListener('click', () =>
   commitStep(narrationInput, 'typed', rerecordLogicalId),
 );
 
-btnClearStep.addEventListener('click', async () => {
-  if (!confirm('Clear all recorded actions for this step?')) return;
-  await send({ type: 'RECORDING_CLEAR' });
+/** The Clear action: discard the actions captured since the last step. */
+async function clearStep() {
+  const response = await send({ type: 'RECORDING_CLEAR', ...shownIds() });
+  if (!response?.ok) {
+    if (refusedAsNotActive(response)) leaveCapture();
+    alertFailed('Clear', response);
+    return;
+  }
   pendingCount = 0;
   updateCommitButton();
   clearLiveActionList();
+}
+
+btnClearStep.addEventListener('click', async () => {
+  if (!confirm('Clear all recorded actions for this step?')) return;
+  await clearStep();
 });
 
 // ─── Simple mode handlers ─────────────────────────────────────────────────────
@@ -810,10 +974,7 @@ btnCommitStepSimple.addEventListener('click', () => commitStepSimple(rerecordLog
 
 btnClearStepSimple.addEventListener('click', async () => {
   if (!confirm('Clear all recorded actions for this step?')) return;
-  await send({ type: 'RECORDING_CLEAR' });
-  pendingCount = 0;
-  updateCommitButton();
-  clearLiveActionList();
+  await clearStep();
 });
 
 async function commitStepSimple(logicalId) {
@@ -828,7 +989,8 @@ async function commitStepSimple(logicalId) {
 
     const payload = { step_type: stepType, logical_id: logicalId ?? undefined };
     if (expect) payload.expect = expect;
-    await submitStepCommit(payload);
+    const response = await submitStepCommit(payload);
+    tellCommitOutcome(response);
   } finally {
     commitInProgress = false;
   }
@@ -844,12 +1006,14 @@ async function submitStepCommit(payload) {
   const wasRecording = isRecording;
   const recordingAtStart = activeRecording;
 
-  if (isRecording) {
-    await send({ type: 'RECORDING_STOP' });
-    isRecording = false;
-  }
+  if (isRecording) await stopCapture();
 
-  const response = await send({ type: 'STEP_COMMIT', ...payload });
+  const response = await send({ type: 'STEP_COMMIT', ...shownIds(), ...payload });
+  if (refusedAsNotActive(response)) {
+    // Capture goes to another panel's recording: nothing to resume here.
+    leaveCapture();
+    return response;
+  }
 
   if (response?.ok) {
     activeSteps = response.activeSteps;
@@ -864,13 +1028,12 @@ async function submitStepCommit(payload) {
   }
 
   // Capture resumes only for the recording the commit was made in: a person
-  // who left it meanwhile has stopped capture, and it stays stopped.
-  if (wasRecording && activeRecording === recordingAtStart) {
-    await send({ type: 'RECORDING_START' });
-    isRecording = true;
-  }
+  // who left it meanwhile has stopped capture, and it stays stopped. A resume
+  // the worker refuses rides on the commit's response for the click to tell.
+  let resumed = null;
+  if (wasRecording && activeRecording === recordingAtStart) resumed = await startCapture();
   updateRecordingUI();
-  return response;
+  return resumed && !resumed.ok ? { ...response, resumeRefused: resumed } : response;
 }
 
 // ─── Recording mode ───────────────────────────────────────────────────────────
@@ -898,6 +1061,12 @@ recordingModeRadios.forEach((radio) => {
   });
 });
 
+/** Tell the person a commit, or the resume after it, the worker did not accept. */
+function tellCommitOutcome(response) {
+  if (!response?.ok) alertFailed('Commit', response);
+  else if (response.resumeRefused) alertFailed('Resume', response.resumeRefused);
+}
+
 async function commitStep(inputEl, source, logicalId) {
   if (commitInProgress) return;
   commitInProgress = true;
@@ -910,6 +1079,7 @@ async function commitStep(inputEl, source, logicalId) {
       narration_source: source,
       logical_id: logicalId ?? undefined,
     });
+    tellCommitOutcome(response);
 
     if (response?.ok) {
       inputEl.value = '';
@@ -958,12 +1128,13 @@ async function openRerecord(step) {
   if (commitInProgress) return;
   rerecordLogicalId = step.logical_id;
   previousRecordingView = isRecording;
-  if (isRecording) {
-    await send({ type: 'RECORDING_STOP' });
-    isRecording = false;
-  }
+  if (isRecording) await stopCapture();
   // Clear pending actions and start fresh capture for re-recording
-  await send({ type: 'RECORDING_CLEAR' });
+  const cleared = await send({ type: 'RECORDING_CLEAR', ...shownIds() });
+  if (!cleared?.ok) {
+    failRerecord(cleared);
+    return;
+  }
   pendingCount = 0;
   clearLiveActionList();
 
@@ -976,10 +1147,26 @@ async function openRerecord(step) {
     narrationInput.value = step.narration;
   }
 
-  await send({ type: 'RECORDING_START' });
-  isRecording = true;
+  const started = await startCapture();
+  if (!started?.ok) {
+    failRerecord(started);
+    return;
+  }
   updateRecordingUI();
   updateCommitButton();
+}
+
+/** End a re-record the worker did not let start, and tell the person. */
+function failRerecord(response) {
+  if (refusedAsNotActive(response)) leaveCapture();
+  else {
+    const typed = narrationInput.value;
+    endRerecord();
+    narrationInput.value = typed;
+    updateRecordingUI();
+    updateCommitButton();
+  }
+  alertFailed('Re-record', response);
 }
 
 /**
@@ -1000,10 +1187,7 @@ btnRerecordCancel.addEventListener('click', async () => {
   // Restore recording state to what it was before entering re-record
   const wasRecordingBefore = previousRecordingView;
   endRerecord();
-  if (!wasRecordingBefore) {
-    await send({ type: 'RECORDING_STOP' });
-    isRecording = false;
-  }
+  if (!wasRecordingBefore) await stopCapture();
   updateRecordingUI();
   updateCommitButton();
 });
@@ -1016,11 +1200,18 @@ btnRerecordCancel.addEventListener('click', async () => {
 // ─── History ──────────────────────────────────────────────────────────────────
 
 async function openHistory(logical_id) {
-  const { project } = await send({ type: 'PROJECT_GET' });
-  const recording = project?.recordings?.find(
+  const response = await send({ type: 'PROJECT_GET', project_id: activeProject?.project_id });
+  if (!response?.ok) {
+    alertFailed('History', response);
+    return;
+  }
+  const recording = response.project.recordings?.find(
     (r) => r.recording_id === activeRecording?.recording_id,
   );
-  if (!recording) return;
+  if (!recording) {
+    alertFailed('History', { error: 'Recording not found' });
+    return;
+  }
 
   const versions = recording.steps
     .filter((s) => s.logical_id === logical_id)
@@ -1068,8 +1259,12 @@ btnStepDetailBack.addEventListener('click', () => showView('recording'));
 
 async function confirmDeleteStep(logical_id) {
   if (!confirm('Delete this step? History will be preserved.')) return;
-  const { activeSteps: steps } = await send({ type: 'STEP_DELETE', logical_id });
-  activeSteps = steps;
+  const response = await send({ type: 'STEP_DELETE', ...shownIds(), logical_id });
+  if (!response?.ok) {
+    alertFailed('Delete', response);
+    return;
+  }
+  activeSteps = response.activeSteps;
   renderStepList();
 }
 
@@ -1112,12 +1307,15 @@ async function onDragEnd() {
 
 async function persistReorder() {
   const orderedIds = [...stepList.querySelectorAll('.step-item')].map((el) => el.dataset.logical);
-  const { activeSteps: steps } = await send({
+  const response = await send({
     type: 'STEPS_REORDER',
+    ...shownIds(),
     orderedLogicalIds: orderedIds,
   });
-  activeSteps = steps;
+  if (response?.ok) activeSteps = response.activeSteps;
+  // On a failure the list goes back to the order the steps still have.
   renderStepList();
+  if (!response?.ok) alertFailed('Reorder', response);
 }
 
 // ─── Theme ────────────────────────────────────────────────────────────────────
@@ -1537,7 +1735,7 @@ async function handleSync() {
 
   try {
     // Get all local projects from the service worker
-    const { projects: localProjects } = await send({ type: 'PROJECTS_GET_ALL' });
+    const { projects: localProjects } = accepted(await send({ type: 'PROJECTS_GET_ALL' }));
 
     // Schema (for the push-side docent_format stamp) and the generated
     // validator (applied to each pulled payload) — both from the adapter, where
@@ -1585,7 +1783,7 @@ async function handleSync() {
     );
 
     // Persist merged projects back to the service worker
-    await send({ type: 'PROJECTS_SET', projects: mergedProjects });
+    accepted(await send({ type: 'PROJECTS_SET', projects: mergedProjects }));
 
     // Refresh the cached conflict-handling state so the indicators and the
     // resolution workflow reflect what the cycle just recorded.
@@ -1813,7 +2011,7 @@ function resolveConflictSide(unitRef, side) {
  */
 async function runResolution(apply) {
   try {
-    const { projects: localProjects } = await send({ type: 'PROJECTS_GET_ALL' });
+    const { projects: localProjects } = accepted(await send({ type: 'PROJECTS_GET_ALL' }));
     const result = apply(localProjects);
     if (!result.ok) {
       // A failed/abandoned resolution retains the item. Re-render so any
@@ -1822,7 +2020,7 @@ async function runResolution(apply) {
       return;
     }
     // Persist the adopted local projects and the mutated conflict-handling state.
-    await send({ type: 'PROJECTS_SET', projects: result.projects });
+    accepted(await send({ type: 'PROJECTS_SET', projects: result.projects }));
     await saveSyncState(adapterSyncStore, syncState);
     syncState = await loadSyncState(adapterSyncStore);
     workflowUnitRef = null;
@@ -1839,13 +2037,19 @@ async function runResolution(apply) {
  */
 async function refreshSyncViews() {
   if (activeProject) {
-    const { project } = await send({ type: 'PROJECT_GET' });
-    if (project) activeProject = project;
-    renderProjectDetail();
-    showView('project');
-  } else {
-    await loadProjectsList();
+    const response = await send({ type: 'PROJECT_GET', project_id: activeProject.project_id });
+    if (response?.ok) {
+      activeProject = response.project;
+      activeRecording = null;
+      renderProjectDetail();
+      showView('project');
+      return;
+    }
+    // The project is gone (deleted in another panel or by a sync).
+    activeProject = null;
+    activeRecording = null;
   }
+  await loadProjectsList();
 }
 
 btnSyncWorkflowBack.addEventListener('click', () => {
@@ -1925,6 +2129,21 @@ function addMetadataRow(container) {
   container.appendChild(row);
 }
 
+/**
+ * Save the metadata the list now shows through its message, which names the
+ * project or recording; the panel's copy takes the metadata once the worker
+ * accepts it.
+ */
+async function saveMetadata(holder, metadata, sendMetadata) {
+  const response = await sendMetadata(metadata ?? null);
+  if (!response?.ok) {
+    alertFailed('Saving metadata', response);
+    return;
+  }
+  if (metadata) holder.metadata = metadata;
+  else delete holder.metadata;
+}
+
 // Project metadata
 btnAddProjectMetadata.addEventListener('click', () => {
   addMetadataRow(projectMetadataList);
@@ -1933,18 +2152,16 @@ btnAddProjectMetadata.addEventListener('click', () => {
 projectMetadataList.addEventListener('click', async (e) => {
   if (e.target.classList.contains('metadata-remove')) {
     e.target.closest('.metadata-row').remove();
-    const metadata = collectMetadata(projectMetadataList);
-    if (metadata) activeProject.metadata = metadata;
-    else delete activeProject.metadata;
-    await send({ type: 'PROJECT_SET_METADATA', metadata: metadata ?? null });
+    await saveMetadata(activeProject, collectMetadata(projectMetadataList), (metadata) =>
+      send({ type: 'PROJECT_SET_METADATA', project_id: activeProject.project_id, metadata }),
+    );
   }
 });
 
 projectMetadataList.addEventListener('change', async () => {
-  const metadata = collectMetadata(projectMetadataList);
-  if (metadata) activeProject.metadata = metadata;
-  else delete activeProject.metadata;
-  await send({ type: 'PROJECT_SET_METADATA', metadata: metadata ?? null });
+  await saveMetadata(activeProject, collectMetadata(projectMetadataList), (metadata) =>
+    send({ type: 'PROJECT_SET_METADATA', project_id: activeProject.project_id, metadata }),
+  );
 });
 
 // Recording metadata
@@ -1955,26 +2172,16 @@ btnAddRecordingMetadata.addEventListener('click', () => {
 recordingMetadataList.addEventListener('click', async (e) => {
   if (e.target.classList.contains('metadata-remove')) {
     e.target.closest('.metadata-row').remove();
-    const metadata = collectMetadata(recordingMetadataList);
-    if (metadata) activeRecording.metadata = metadata;
-    else delete activeRecording.metadata;
-    await send({
-      type: 'RECORDING_SET_METADATA',
-      recording_id: activeRecording.recording_id,
-      metadata: metadata ?? null,
-    });
+    await saveMetadata(activeRecording, collectMetadata(recordingMetadataList), (metadata) =>
+      send({ type: 'RECORDING_SET_METADATA', ...shownIds(), metadata }),
+    );
   }
 });
 
 recordingMetadataList.addEventListener('change', async () => {
-  const metadata = collectMetadata(recordingMetadataList);
-  if (metadata) activeRecording.metadata = metadata;
-  else delete activeRecording.metadata;
-  await send({
-    type: 'RECORDING_SET_METADATA',
-    recording_id: activeRecording.recording_id,
-    metadata: metadata ?? null,
-  });
+  await saveMetadata(activeRecording, collectMetadata(recordingMetadataList), (metadata) =>
+    send({ type: 'RECORDING_SET_METADATA', ...shownIds(), metadata }),
+  );
 });
 
 // ─── Local control channel ────────────────────────────────────────────────────
@@ -2016,13 +2223,10 @@ const controlExecutor = createControlExecutor({
   }),
   createProject: holdingCommit(async (name) => {
     // Leave an open recording the way the Projects breadcrumb does.
-    if (isRecording) {
-      await send({ type: 'RECORDING_STOP' });
-      isRecording = false;
-    }
-    const project = await createProjectNamed(name);
+    if (isRecording) await stopCapture();
+    const response = await createProjectNamed(name);
     updateRecordingUI();
-    return project;
+    return response;
   }),
   createRecording: holdingCommit(createRecordingNamed),
   setCapture: holdingCommit(setCapturing),

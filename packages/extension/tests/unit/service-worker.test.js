@@ -8,12 +8,17 @@
  * replicates the core message handler logic and tests it with mocked state —
  * the append chokepoint's and the active-unit helpers' copies held to the
  * shipped text by `service-worker-mirror-parity.test.js`, the rest of the
- * replica pinning only itself (docs/test/unit.md).
+ * replica pinning only itself (docs/test/unit.md). The last block imports the
+ * shipped worker that way instead and drives its listener, for the messages a
+ * panel sends while another panel holds the worker's active project. That
+ * block holds how the worker resolves each project- and recording-scoped
+ * message; the replica's cases send those messages only as the panel showing
+ * the active project and recording sends them.
  *
  * Uses Node.js built-in test runner.
  */
 
-import { describe, it, beforeEach } from 'node:test';
+import { describe, it, before, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   createProject,
@@ -44,6 +49,10 @@ function reset() {
   activeRecordingId = null;
   pendingActions = [];
 }
+
+// The ids of the active project and recording, as the panel showing them sends
+// them with a scoped message (extension runtime, Panel protocol).
+const activeIds = () => ({ project_id: activeProjectId, recording_id: activeRecordingId });
 
 // Verbatim copies of the worker's active-unit helpers, held by service-worker-mirror-parity.test.js
 function getActiveProject() {
@@ -280,76 +289,6 @@ async function handle(msg) {
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
-describe('SERVICE WORKER: PROJECT_SET_METADATA', () => {
-  beforeEach(reset);
-
-  it('persists metadata on the active project', async () => {
-    await handle({ type: 'PROJECT_CREATE', name: 'Test' });
-    const result = await handle({
-      type: 'PROJECT_SET_METADATA',
-      metadata: { ticket: 'PROJ-1', tags: ['smoke'] },
-    });
-    assert.equal(result.ok, true);
-    assert.deepStrictEqual(getActiveProject().metadata, { ticket: 'PROJ-1', tags: ['smoke'] });
-  });
-
-  it('removes metadata when null is passed', async () => {
-    await handle({ type: 'PROJECT_CREATE', name: 'Test' });
-    await handle({ type: 'PROJECT_SET_METADATA', metadata: { ticket: 'X' } });
-    await handle({ type: 'PROJECT_SET_METADATA', metadata: null });
-    assert.equal(getActiveProject().metadata, undefined);
-  });
-
-  it('returns error when no active project', async () => {
-    const result = await handle({ type: 'PROJECT_SET_METADATA', metadata: { a: 'b' } });
-    assert.equal(result.ok, false);
-    assert.match(result.error, /No active project/);
-  });
-});
-
-describe('SERVICE WORKER: RECORDING_SET_METADATA', () => {
-  beforeEach(reset);
-
-  it('persists metadata on the specified recording', async () => {
-    await handle({ type: 'PROJECT_CREATE', name: 'P' });
-    const { recording } = await handle({ type: 'RECORDING_CREATE', name: 'R' });
-    const result = await handle({
-      type: 'RECORDING_SET_METADATA',
-      recording_id: recording.recording_id,
-      metadata: { env: 'staging' },
-    });
-    assert.equal(result.ok, true);
-    assert.deepStrictEqual(getActiveRecording().metadata, { env: 'staging' });
-  });
-
-  it('removes metadata when null is passed', async () => {
-    await handle({ type: 'PROJECT_CREATE', name: 'P' });
-    const { recording } = await handle({ type: 'RECORDING_CREATE', name: 'R' });
-    await handle({
-      type: 'RECORDING_SET_METADATA',
-      recording_id: recording.recording_id,
-      metadata: { x: '1' },
-    });
-    await handle({
-      type: 'RECORDING_SET_METADATA',
-      recording_id: recording.recording_id,
-      metadata: null,
-    });
-    assert.equal(getActiveRecording().metadata, undefined);
-  });
-
-  it('returns error for unknown recording_id', async () => {
-    await handle({ type: 'PROJECT_CREATE', name: 'P' });
-    const result = await handle({
-      type: 'RECORDING_SET_METADATA',
-      recording_id: 'nonexistent',
-      metadata: {},
-    });
-    assert.equal(result.ok, false);
-    assert.match(result.error, /Recording not found/);
-  });
-});
-
 describe('SERVICE WORKER: RECORDING_CLEAR', () => {
   beforeEach(reset);
 
@@ -361,38 +300,17 @@ describe('SERVICE WORKER: RECORDING_CLEAR', () => {
   });
 });
 
-describe('SERVICE WORKER: RECORDING_RENAME', () => {
-  beforeEach(reset);
-
-  it('updates the recording name', async () => {
-    await handle({ type: 'PROJECT_CREATE', name: 'P' });
-    const { recording } = await handle({ type: 'RECORDING_CREATE', name: 'Old Name' });
-    const result = await handle({
-      type: 'RECORDING_RENAME',
-      recording_id: recording.recording_id,
-      name: 'New Name',
-    });
-    assert.equal(result.ok, true);
-    assert.equal(getActiveRecording().name, 'New Name');
-  });
-
-  it('returns error for unknown recording_id', async () => {
-    await handle({ type: 'PROJECT_CREATE', name: 'P' });
-    const result = await handle({ type: 'RECORDING_RENAME', recording_id: 'bad-id', name: 'X' });
-    assert.equal(result.ok, false);
-  });
-});
-
 describe('SERVICE WORKER: STEP_COMMIT', () => {
   beforeEach(reset);
 
   it('creates a step with narration fields (narration mode)', async () => {
     await handle({ type: 'PROJECT_CREATE', name: 'P' });
-    await handle({ type: 'RECORDING_CREATE', name: 'R' });
+    await handle({ type: 'RECORDING_CREATE', project_id: activeProjectId, name: 'R' });
     pendingActions = [{ type: 'click', timestamp: 1 }];
 
     const result = await handle({
       type: 'STEP_COMMIT',
+      ...activeIds(),
       narration: 'Click login',
       narration_source: 'typed',
     });
@@ -405,11 +323,12 @@ describe('SERVICE WORKER: STEP_COMMIT', () => {
 
   it('creates a step with step_type and expect (simple mode)', async () => {
     await handle({ type: 'PROJECT_CREATE', name: 'P' });
-    await handle({ type: 'RECORDING_CREATE', name: 'R' });
+    await handle({ type: 'RECORDING_CREATE', project_id: activeProjectId, name: 'R' });
     pendingActions = [{ type: 'click', timestamp: 1 }];
 
     const result = await handle({
       type: 'STEP_COMMIT',
+      ...activeIds(),
       step_type: 'validation',
       expect: 'present',
     });
@@ -421,10 +340,10 @@ describe('SERVICE WORKER: STEP_COMMIT', () => {
 
   it('creates action step without expect field', async () => {
     await handle({ type: 'PROJECT_CREATE', name: 'P' });
-    await handle({ type: 'RECORDING_CREATE', name: 'R' });
+    await handle({ type: 'RECORDING_CREATE', project_id: activeProjectId, name: 'R' });
     pendingActions = [{ type: 'click', timestamp: 1 }];
 
-    const result = await handle({ type: 'STEP_COMMIT', step_type: 'action' });
+    const result = await handle({ type: 'STEP_COMMIT', ...activeIds(), step_type: 'action' });
     assert.equal(result.ok, true);
     assert.equal(result.step.step_type, 'action');
     assert.equal(result.step.expect, undefined);
@@ -432,11 +351,12 @@ describe('SERVICE WORKER: STEP_COMMIT', () => {
 
   it('rejects commit with no pending actions and no logical_id', async () => {
     await handle({ type: 'PROJECT_CREATE', name: 'P' });
-    await handle({ type: 'RECORDING_CREATE', name: 'R' });
+    await handle({ type: 'RECORDING_CREATE', project_id: activeProjectId, name: 'R' });
     pendingActions = [];
 
     const result = await handle({
       type: 'STEP_COMMIT',
+      ...activeIds(),
       narration: 'test',
       narration_source: 'typed',
     });
@@ -446,10 +366,10 @@ describe('SERVICE WORKER: STEP_COMMIT', () => {
 
   it('clears pending actions after commit', async () => {
     await handle({ type: 'PROJECT_CREATE', name: 'P' });
-    await handle({ type: 'RECORDING_CREATE', name: 'R' });
+    await handle({ type: 'RECORDING_CREATE', project_id: activeProjectId, name: 'R' });
     pendingActions = [{ type: 'click', timestamp: 1 }];
 
-    await handle({ type: 'STEP_COMMIT', step_type: 'action' });
+    await handle({ type: 'STEP_COMMIT', ...activeIds(), step_type: 'action' });
     assert.deepStrictEqual(pendingActions, []);
   });
 });
@@ -459,17 +379,17 @@ describe('SERVICE WORKER: STEPS_REORDER', () => {
 
   it('reassigns step_number based on new order', async () => {
     await handle({ type: 'PROJECT_CREATE', name: 'P' });
-    await handle({ type: 'RECORDING_CREATE', name: 'R' });
+    await handle({ type: 'RECORDING_CREATE', project_id: activeProjectId, name: 'R' });
 
     // Create 3 steps with delays to ensure UUID ordering
     pendingActions = [{ type: 'click', timestamp: 1 }];
-    const { step: s1 } = await handle({ type: 'STEP_COMMIT', step_type: 'action' });
+    const { step: s1 } = await handle({ type: 'STEP_COMMIT', ...activeIds(), step_type: 'action' });
     await new Promise((r) => setTimeout(r, 2));
     pendingActions = [{ type: 'click', timestamp: 2 }];
-    const { step: s2 } = await handle({ type: 'STEP_COMMIT', step_type: 'action' });
+    const { step: s2 } = await handle({ type: 'STEP_COMMIT', ...activeIds(), step_type: 'action' });
     await new Promise((r) => setTimeout(r, 2));
     pendingActions = [{ type: 'click', timestamp: 3 }];
-    const { step: s3 } = await handle({ type: 'STEP_COMMIT', step_type: 'action' });
+    const { step: s3 } = await handle({ type: 'STEP_COMMIT', ...activeIds(), step_type: 'action' });
 
     // Delay before reorder to ensure new UUIDs are higher
     await new Promise((r) => setTimeout(r, 2));
@@ -477,6 +397,7 @@ describe('SERVICE WORKER: STEPS_REORDER', () => {
     // Reorder: 3, 1, 2
     const result = await handle({
       type: 'STEPS_REORDER',
+      ...activeIds(),
       orderedLogicalIds: [s3.logical_id, s1.logical_id, s2.logical_id],
     });
 
@@ -505,7 +426,7 @@ describe('SERVICE WORKER: PROJECTS_LIST', () => {
 
   it('returns project summaries with recording_count', async () => {
     await handle({ type: 'PROJECT_CREATE', name: 'A' });
-    await handle({ type: 'RECORDING_CREATE', name: 'R1' });
+    await handle({ type: 'RECORDING_CREATE', project_id: activeProjectId, name: 'R1' });
     const result = await handle({ type: 'PROJECTS_LIST' });
     assert.equal(result.projects.length, 1);
     assert.equal(result.projects[0].name, 'A');
@@ -548,8 +469,7 @@ describe('SERVICE WORKER: PROJECT_OPEN', () => {
     const result = await handle({ type: 'PROJECT_OPEN', project_id: p1.project_id });
     assert.equal(result.ok, true);
     assert.equal(result.project.name, 'First');
-    const get = await handle({ type: 'PROJECT_GET' });
-    assert.equal(get.project.name, 'First');
+    assert.equal(activeProjectId, p1.project_id);
   });
 
   it('returns error for invalid project_id', async () => {
@@ -567,83 +487,35 @@ describe('SERVICE WORKER: PROJECT_DELETE', () => {
     await handle({ type: 'PROJECT_DELETE', project_id: project.project_id });
     const list = await handle({ type: 'PROJECTS_LIST' });
     assert.equal(list.projects.length, 0);
-    const get = await handle({ type: 'PROJECT_GET' });
-    assert.equal(get.project, null);
+    assert.equal(activeProjectId, null);
   });
 
   it('does not clear active when deleting non-active project', async () => {
     const { project: p1 } = await handle({ type: 'PROJECT_CREATE', name: 'Keep' });
-    await handle({ type: 'PROJECT_CREATE', name: 'Active' });
+    const { project: active } = await handle({ type: 'PROJECT_CREATE', name: 'Active' });
     await handle({ type: 'PROJECT_DELETE', project_id: p1.project_id });
-    const get = await handle({ type: 'PROJECT_GET' });
-    assert.equal(get.project.name, 'Active');
-  });
-});
-
-describe('SERVICE WORKER: PROJECT_RENAME', () => {
-  beforeEach(reset);
-
-  it('renames the active project', async () => {
-    await handle({ type: 'PROJECT_CREATE', name: 'Old' });
-    const result = await handle({ type: 'PROJECT_RENAME', name: 'New' });
-    assert.equal(result.ok, true);
-    assert.equal(result.project.name, 'New');
-  });
-
-  it('returns error with no active project', async () => {
-    const result = await handle({ type: 'PROJECT_RENAME', name: 'X' });
-    assert.equal(result.ok, false);
+    assert.equal(activeProjectId, active.project_id);
   });
 });
 
 // ─── RECORDING_OPEN, RECORDING_DELETE, RECORDING_START, RECORDING_STOP ────────
 
-describe('SERVICE WORKER: RECORDING_OPEN', () => {
-  beforeEach(reset);
-
-  it('switches active recording', async () => {
-    await handle({ type: 'PROJECT_CREATE', name: 'P' });
-    const { recording: r1 } = await handle({ type: 'RECORDING_CREATE', name: 'R1' });
-    await handle({ type: 'RECORDING_CREATE', name: 'R2' });
-    const result = await handle({ type: 'RECORDING_OPEN', recording_id: r1.recording_id });
-    assert.equal(result.ok, true);
-    assert.equal(result.recording.name, 'R1');
-    assert.ok(Array.isArray(result.activeSteps));
-  });
-
-  it('returns error for invalid recording_id', async () => {
-    await handle({ type: 'PROJECT_CREATE', name: 'P' });
-    const result = await handle({ type: 'RECORDING_OPEN', recording_id: 'bad' });
-    assert.equal(result.ok, false);
-  });
-
-  it('returns error with no active project', async () => {
-    const result = await handle({ type: 'RECORDING_OPEN', recording_id: 'any' });
-    assert.equal(result.ok, false);
-  });
-});
-
 describe('SERVICE WORKER: RECORDING_DELETE', () => {
   beforeEach(reset);
 
-  it('removes recording from project', async () => {
-    await handle({ type: 'PROJECT_CREATE', name: 'P' });
-    const { recording } = await handle({ type: 'RECORDING_CREATE', name: 'R' });
-    const result = await handle({ type: 'RECORDING_DELETE', recording_id: recording.recording_id });
-    assert.equal(result.ok, true);
-    assert.equal(result.project.recordings.length, 0);
-  });
-
   it('clears activeRecordingId when deleting active recording', async () => {
     await handle({ type: 'PROJECT_CREATE', name: 'P' });
-    const { recording } = await handle({ type: 'RECORDING_CREATE', name: 'R' });
-    await handle({ type: 'RECORDING_DELETE', recording_id: recording.recording_id });
+    const { recording } = await handle({
+      type: 'RECORDING_CREATE',
+      project_id: activeProjectId,
+      name: 'R',
+    });
+    await handle({
+      type: 'RECORDING_DELETE',
+      project_id: activeProjectId,
+      recording_id: recording.recording_id,
+    });
     assert.equal(activeRecordingId, null);
-  });
-
-  it('returns error with no active project', async () => {
-    const result = await handle({ type: 'RECORDING_DELETE', recording_id: 'any' });
-    assert.equal(result.ok, false);
   });
 });
 
@@ -652,8 +524,8 @@ describe('SERVICE WORKER: RECORDING_START and RECORDING_STOP', () => {
 
   it('RECORDING_START succeeds with active recording', async () => {
     await handle({ type: 'PROJECT_CREATE', name: 'P' });
-    await handle({ type: 'RECORDING_CREATE', name: 'R' });
-    const result = await handle({ type: 'RECORDING_START' });
+    await handle({ type: 'RECORDING_CREATE', project_id: activeProjectId, name: 'R' });
+    const result = await handle({ type: 'RECORDING_START', ...activeIds() });
     assert.equal(result.ok, true);
   });
 
@@ -661,11 +533,6 @@ describe('SERVICE WORKER: RECORDING_START and RECORDING_STOP', () => {
     const result = await handle({ type: 'RECORDING_START' });
     assert.equal(result.ok, false);
     assert.match(result.error, /No active recording/);
-  });
-
-  it('RECORDING_STOP always succeeds', async () => {
-    const result = await handle({ type: 'RECORDING_STOP' });
-    assert.equal(result.ok, true);
   });
 });
 
@@ -676,19 +543,18 @@ describe('SERVICE WORKER: STEP_DELETE', () => {
 
   it('deletes step by logical_id', async () => {
     await handle({ type: 'PROJECT_CREATE', name: 'P' });
-    await handle({ type: 'RECORDING_CREATE', name: 'R' });
+    await handle({ type: 'RECORDING_CREATE', project_id: activeProjectId, name: 'R' });
     pendingActions = [{ type: 'click', timestamp: 1 }];
-    const { step } = await handle({ type: 'STEP_COMMIT', step_type: 'action' });
+    const { step } = await handle({ type: 'STEP_COMMIT', ...activeIds(), step_type: 'action' });
     // Delay to ensure deleteStep's UUID is strictly greater (UUIDv7 is time-based)
     await new Promise((r) => setTimeout(r, 2));
-    const result = await handle({ type: 'STEP_DELETE', logical_id: step.logical_id });
+    const result = await handle({
+      type: 'STEP_DELETE',
+      ...activeIds(),
+      logical_id: step.logical_id,
+    });
     assert.equal(result.ok, true);
     assert.equal(result.activeSteps.length, 0);
-  });
-
-  it('returns error with no active recording', async () => {
-    const result = await handle({ type: 'STEP_DELETE', logical_id: 'any' });
-    assert.equal(result.ok, false);
   });
 });
 
@@ -742,9 +608,14 @@ describe('SERVICE WORKER: PROJECT_EXPORT', () => {
 
   it('returns the project named by its id, with recordings and steps', async () => {
     const { project } = await handle({ type: 'PROJECT_CREATE', name: 'Export' });
-    await handle({ type: 'RECORDING_CREATE', name: 'R' });
+    await handle({ type: 'RECORDING_CREATE', project_id: activeProjectId, name: 'R' });
     pendingActions = [{ type: 'click', timestamp: 1 }];
-    await handle({ type: 'STEP_COMMIT', narration: 'Step', narration_source: 'typed' });
+    await handle({
+      type: 'STEP_COMMIT',
+      ...activeIds(),
+      narration: 'Step',
+      narration_source: 'typed',
+    });
 
     const result = await handle({ type: 'PROJECT_EXPORT', project_id: project.project_id });
     assert.equal(result.ok, true);
@@ -762,7 +633,11 @@ describe('SERVICE WORKER: PROJECT_EXPORT', () => {
 
   it('includes metadata in the returned project when set', async () => {
     const { project } = await handle({ type: 'PROJECT_CREATE', name: 'Meta' });
-    await handle({ type: 'PROJECT_SET_METADATA', metadata: { ticket: 'T-1' } });
+    await handle({
+      type: 'PROJECT_SET_METADATA',
+      project_id: project.project_id,
+      metadata: { ticket: 'T-1' },
+    });
     const result = await handle({ type: 'PROJECT_EXPORT', project_id: project.project_id });
     assert.deepStrictEqual(result.project.metadata, { ticket: 'T-1' });
   });
@@ -1158,6 +1033,7 @@ describe('SERVICE WORKER: error recovery — storage failures', () => {
     pendingActions = [{ type: 'click', timestamp: 1 }];
     const result = await handle({
       type: 'STEP_COMMIT',
+      ...activeIds(),
       narration: 'test',
       narration_source: 'typed',
     });
@@ -1165,29 +1041,391 @@ describe('SERVICE WORKER: error recovery — storage failures', () => {
     assert.ok(result.error.includes('No active recording'));
   });
 
-  it('PROJECT_SET_METADATA with no active project returns error', async () => {
-    const result = await handle({ type: 'PROJECT_SET_METADATA', metadata: { x: '1' } });
-    assert.equal(result.ok, false);
-    assert.ok(result.error.includes('No active project'));
-  });
-
-  it('RECORDING_SET_METADATA with no active project returns error', async () => {
-    const result = await handle({
-      type: 'RECORDING_SET_METADATA',
-      recording_id: 'bad',
-      metadata: {},
-    });
-    assert.equal(result.ok, false);
-  });
-
-  it('STEPS_REORDER with no active recording returns error', async () => {
-    const result = await handle({ type: 'STEPS_REORDER', orderedLogicalIds: [] });
-    assert.equal(result.ok, false);
-    assert.ok(result.error.includes('No active recording'));
-  });
-
   it('unknown message type returns error', async () => {
     const result = await handle({ type: 'TOTALLY_INVALID_TYPE' });
     assert.equal(result.ok, false);
+  });
+});
+
+// ─── Two panels open: the shipped worker, driven through its listener ────────
+//
+// Unlike the replica above, this block imports the shipped worker behind a fake
+// `chrome` global with an in-memory `storage.local` (the approach
+// `service-worker-navigation.test.js` documents) and sends each message
+// through the `onMessage` listener the worker registers, so its verdicts stand
+// on the shipped handlers. Each case puts the worker in the state two open side
+// panels leave it in: the first panel shows a project and a recording, and the
+// second panel then created and opened its own, which moved the worker-wide
+// active project and recording to the second panel's. Each message is sent as
+// the first panel sends it, naming the project and the recording it shows.
+
+// Regression: #661 — with two side panels open, project- and recording-scoped
+// messages acted on the worker's active project and recording, the ones the
+// panel that opened one last shows, not the ones the sending panel shows.
+// https://github.com/Arsarneq/docent/issues/661
+describe('SERVICE WORKER: messages from a panel that is not the last to open a project', () => {
+  const NOT_ACTIVE = 'Not the active recording';
+  const workerStorage = {};
+  let workerOnMessage = null;
+
+  const send = (message) => new Promise((resolve) => workerOnMessage(message, {}, resolve));
+  const stored = (projectId) => workerStorage.projects.find((p) => p.project_id === projectId);
+  const storedRecording = (projectId, recordingId) =>
+    findRecording(stored(projectId), recordingId) ?? null;
+  const activeStepIds = (projectId, recordingId) =>
+    resolveActiveSteps(storedRecording(projectId, recordingId)).map((s) => s.logical_id);
+  const capture = (count = 1) => {
+    workerStorage.pendingActions = Array.from({ length: count }, (_, i) => ({
+      type: 'click',
+      timestamp: 1000 + i,
+    }));
+    workerStorage.pendingCount = count;
+  };
+
+  // A step's versions are told apart by their time-ordered ids, so each edit
+  // waits for the clock to move on.
+  const tick = () => new Promise((resolve) => setTimeout(resolve, 2));
+
+  /** A project with one recording of two committed steps, opened as a panel opens it. */
+  async function projectWithSteps(name) {
+    const { project } = await send({ type: 'PROJECT_CREATE', name });
+    const ids = { project_id: project.project_id };
+    const { recording } = await send({ type: 'RECORDING_CREATE', ...ids, name: `${name} rec` });
+    ids.recording_id = recording.recording_id;
+    for (const narration of ['first', 'second']) {
+      capture();
+      const committed = await send({ type: 'STEP_COMMIT', ...ids, narration });
+      assert.equal(committed.ok, true, 'setup commit');
+      await tick();
+    }
+    return ids;
+  }
+
+  let shown; // the project and recording the first panel shows
+  let other; // the ones the second panel opened last, the worker's active ones
+
+  before(async () => {
+    const noListener = { addListener() {} };
+    const getFrom = (keys) => {
+      const list = keys == null ? Object.keys(workerStorage) : [].concat(keys);
+      return Object.fromEntries(
+        list.filter((k) => k in workerStorage).map((k) => [k, workerStorage[k]]),
+      );
+    };
+    globalThis.chrome = {
+      runtime: {
+        id: 'test-extension',
+        onInstalled: noListener,
+        onMessage: { addListener: (fn) => (workerOnMessage = fn) },
+        getURL: (p) => p,
+        sendMessage: async () => ({}),
+      },
+      action: { onClicked: noListener },
+      storage: {
+        local: {
+          get: async (keys) => getFrom(keys),
+          set: async (items) => void Object.assign(workerStorage, structuredClone(items)),
+          getBytesInUse: async () => 0,
+          remove: async (keys) => [].concat(keys).forEach((k) => delete workerStorage[k]),
+        },
+        session: { get: async () => ({}), set: async () => {}, remove: async () => {} },
+        onChanged: noListener,
+      },
+      webNavigation: {
+        onCompleted: noListener,
+        onCommitted: noListener,
+        onBeforeNavigate: noListener,
+        getAllFrames: async () => [],
+      },
+      tabs: {
+        onActivated: noListener,
+        onCreated: noListener,
+        onRemoved: noListener,
+        query: async () => [],
+        get: async () => ({}),
+      },
+      scripting: { executeScript: async () => {} },
+      alarms: { create() {}, clear() {}, onAlarm: noListener },
+      sidePanel: { open: async () => {} },
+    };
+    await import('../../background/service-worker.js');
+  });
+
+  beforeEach(async () => {
+    await send({ type: 'PROJECTS_SET', projects: [] });
+    shown = await projectWithSteps('Shown here');
+    other = await projectWithSteps('Opened elsewhere');
+    // The second panel's recording is capturing, with one action not yet committed.
+    capture();
+    assert.equal(workerStorage.activeRecordingId, other.recording_id, 'setup: active moved');
+    assert.equal(workerStorage.recording, true, 'setup: capturing');
+  });
+
+  // ── Messages that edit the model: resolved by the ids they carry ──
+
+  it('regression_661_project_rename_renames_the_project_the_panel_shows', async () => {
+    const response = await send({
+      type: 'PROJECT_RENAME',
+      project_id: shown.project_id,
+      name: 'Renamed',
+    });
+    assert.equal(response.ok, true);
+    assert.equal(stored(shown.project_id).name, 'Renamed');
+    assert.equal(stored(other.project_id).name, 'Opened elsewhere');
+  });
+
+  it('regression_661_project_set_metadata_sets_the_project_the_panel_shows', async () => {
+    const metadata = { env: 'staging' };
+    const response = await send({
+      type: 'PROJECT_SET_METADATA',
+      project_id: shown.project_id,
+      metadata,
+    });
+    assert.equal(response.ok, true);
+    assert.deepEqual(stored(shown.project_id).metadata, metadata);
+    assert.equal(stored(other.project_id).metadata, undefined);
+  });
+
+  it('regression_661_project_get_returns_the_project_the_panel_shows', async () => {
+    const response = await send({ type: 'PROJECT_GET', project_id: shown.project_id });
+    assert.equal(response.ok, true);
+    assert.equal(response.project.project_id, shown.project_id);
+  });
+
+  it('regression_661_recording_create_creates_in_the_project_the_panel_shows', async () => {
+    const response = await send({
+      type: 'RECORDING_CREATE',
+      project_id: shown.project_id,
+      name: 'New',
+    });
+    assert.equal(response.ok, true);
+    assert.equal(response.project.project_id, shown.project_id);
+    assert.ok(storedRecording(shown.project_id, response.recording.recording_id));
+    assert.equal(stored(other.project_id).recordings.length, 1);
+    // The new recording is the one capture now goes to.
+    assert.equal(workerStorage.activeProjectId, shown.project_id);
+    assert.equal(workerStorage.activeRecordingId, response.recording.recording_id);
+  });
+
+  it('regression_661_recording_open_opens_a_recording_of_the_project_the_panel_shows', async () => {
+    const response = await send({ type: 'RECORDING_OPEN', ...shown });
+    assert.equal(response.ok, true);
+    assert.equal(response.recording.recording_id, shown.recording_id);
+    assert.equal(workerStorage.activeProjectId, shown.project_id);
+    assert.equal(workerStorage.activeRecordingId, shown.recording_id);
+  });
+
+  it('regression_661_recording_delete_deletes_from_the_project_the_panel_shows', async () => {
+    const response = await send({ type: 'RECORDING_DELETE', ...shown });
+    assert.equal(response.ok, true);
+    assert.equal(response.project.project_id, shown.project_id);
+    assert.equal(storedRecording(shown.project_id, shown.recording_id), null);
+    // Not the recording capture goes to, so capture goes on.
+    assert.equal(workerStorage.recording, true);
+  });
+
+  it('regression_661_recording_rename_renames_in_the_project_the_panel_shows', async () => {
+    const response = await send({ type: 'RECORDING_RENAME', ...shown, name: 'Renamed rec' });
+    assert.equal(response.ok, true);
+    assert.equal(storedRecording(shown.project_id, shown.recording_id).name, 'Renamed rec');
+  });
+
+  it('regression_661_recording_set_metadata_sets_in_the_project_the_panel_shows', async () => {
+    const metadata = { ticket: 'T-1' };
+    const response = await send({ type: 'RECORDING_SET_METADATA', ...shown, metadata });
+    assert.equal(response.ok, true);
+    assert.deepEqual(storedRecording(shown.project_id, shown.recording_id).metadata, metadata);
+  });
+
+  it('regression_661_step_delete_deletes_in_the_recording_the_panel_shows', async () => {
+    const [first, second] = activeStepIds(shown.project_id, shown.recording_id);
+    const otherSteps = activeStepIds(other.project_id, other.recording_id);
+    const response = await send({ type: 'STEP_DELETE', ...shown, logical_id: first });
+    assert.equal(response.ok, true);
+    assert.deepEqual(
+      response.activeSteps.map((s) => s.logical_id),
+      [second],
+    );
+    assert.deepEqual(activeStepIds(shown.project_id, shown.recording_id), [second]);
+    assert.deepEqual(activeStepIds(other.project_id, other.recording_id), otherSteps);
+  });
+
+  it('regression_661_steps_reorder_reorders_the_recording_the_panel_shows', async () => {
+    const [first, second] = activeStepIds(shown.project_id, shown.recording_id);
+    const otherSteps = activeStepIds(other.project_id, other.recording_id);
+    const response = await send({
+      type: 'STEPS_REORDER',
+      ...shown,
+      orderedLogicalIds: [second, first],
+    });
+    assert.equal(response.ok, true);
+    assert.deepEqual(
+      response.activeSteps.map((s) => s.logical_id),
+      [second, first],
+    );
+    assert.deepEqual(activeStepIds(shown.project_id, shown.recording_id), [second, first]);
+    assert.deepEqual(activeStepIds(other.project_id, other.recording_id), otherSteps);
+  });
+
+  it('answers Project not found for a project id it does not hold, or none', async () => {
+    const before = JSON.stringify(workerStorage.projects);
+    for (const type of [
+      'PROJECT_GET',
+      'PROJECT_RENAME',
+      'PROJECT_SET_METADATA',
+      'RECORDING_CREATE',
+      'RECORDING_OPEN',
+      'RECORDING_DELETE',
+      'RECORDING_RENAME',
+      'RECORDING_SET_METADATA',
+      'STEP_DELETE',
+      'STEPS_REORDER',
+    ]) {
+      for (const project_id of ['missing', undefined]) {
+        const message = { type, project_id, recording_id: shown.recording_id, name: 'X' };
+        assert.deepEqual(await send(message), { ok: false, error: 'Project not found' }, type);
+      }
+    }
+    assert.equal(JSON.stringify(workerStorage.projects), before, 'nothing changed');
+  });
+
+  it('answers Recording not found for a recording id the named project does not hold, or none', async () => {
+    const before = JSON.stringify(workerStorage.projects);
+    for (const type of [
+      'RECORDING_OPEN',
+      'RECORDING_DELETE',
+      'RECORDING_RENAME',
+      'RECORDING_SET_METADATA',
+      'STEP_DELETE',
+      'STEPS_REORDER',
+    ]) {
+      // The other project's recording, named with this panel's project, and no recording.
+      for (const recording_id of [other.recording_id, null]) {
+        const message = { type, project_id: shown.project_id, recording_id };
+        assert.deepEqual(
+          await send({ ...message, name: 'X', orderedLogicalIds: [] }),
+          { ok: false, error: 'Recording not found' },
+          `${type} ${recording_id}`,
+        );
+      }
+    }
+    assert.equal(JSON.stringify(workerStorage.projects), before, 'nothing changed');
+    assert.equal(workerStorage.recording, true, 'capture goes on');
+  });
+
+  // ── Messages whose effect is the worker-wide capture state: refused unless
+  //    they name the active recording ──
+
+  it('regression_661_step_commit_naming_another_recording_is_refused', async () => {
+    const response = await send({ type: 'STEP_COMMIT', ...shown, narration: 'third' });
+    assert.deepEqual(response, { ok: false, error: NOT_ACTIVE });
+    assert.equal(activeStepIds(other.project_id, other.recording_id).length, 2);
+    assert.equal(activeStepIds(shown.project_id, shown.recording_id).length, 2);
+    assert.equal(workerStorage.pendingActions.length, 1, 'the captured action stays');
+  });
+
+  it('regression_661_recording_start_naming_another_recording_is_refused', async () => {
+    await send({ type: 'RECORDING_STOP', ...other });
+    const response = await send({ type: 'RECORDING_START', ...shown });
+    assert.deepEqual(response, { ok: false, error: NOT_ACTIVE });
+    assert.equal(workerStorage.recording, false);
+  });
+
+  it('regression_661_recording_stop_naming_another_recording_is_refused', async () => {
+    const response = await send({ type: 'RECORDING_STOP', ...shown });
+    assert.deepEqual(response, { ok: false, error: NOT_ACTIVE });
+    assert.equal(workerStorage.recording, true);
+  });
+
+  it('regression_661_recording_stop_from_a_panel_with_no_recording_open_is_refused', async () => {
+    // The breadcrumbs stop capture from the project view too, where the panel
+    // shows a project and no recording.
+    const response = await send({
+      type: 'RECORDING_STOP',
+      project_id: shown.project_id,
+      recording_id: null,
+    });
+    assert.deepEqual(response, { ok: false, error: NOT_ACTIVE });
+    assert.equal(workerStorage.recording, true);
+  });
+
+  it('regression_661_recording_clear_naming_another_recording_is_refused', async () => {
+    const response = await send({ type: 'RECORDING_CLEAR', ...shown });
+    assert.deepEqual(response, { ok: false, error: NOT_ACTIVE });
+    assert.equal(workerStorage.pendingActions.length, 1);
+  });
+
+  it('regression_661_recording_stop_while_capture_is_off_is_answered_ok_and_changes_nothing', async () => {
+    // Capture stopped in the panel that has the active recording.
+    assert.equal((await send({ type: 'RECORDING_STOP', ...other })).ok, true);
+    const before = JSON.stringify(workerStorage);
+    // A stop from the other panel then has no running capture to protect.
+    for (const recording_id of [shown.recording_id, null]) {
+      const response = await send({
+        type: 'RECORDING_STOP',
+        project_id: shown.project_id,
+        recording_id,
+      });
+      assert.deepEqual(response, { ok: true });
+    }
+    assert.equal(JSON.stringify(workerStorage), before, 'nothing changed');
+  });
+
+  // ── Capture is on only while there is an active recording ──
+
+  it('regression_661_project_create_in_another_panel_stops_capture_as_project_open_does', async () => {
+    const { project } = await send({ type: 'PROJECT_CREATE', name: 'Created elsewhere' });
+    assert.equal(workerStorage.activeProjectId, project.project_id);
+    assert.equal(workerStorage.activeRecordingId, null);
+    assert.equal(workerStorage.recording, false, 'no recording for capture to go to');
+    // As after PROJECT_OPEN, the uncommitted action is left where it was.
+    assert.equal(workerStorage.pendingActions.length, 1);
+    // The panel that was capturing can still stop.
+    const response = await send({ type: 'RECORDING_STOP', ...other });
+    assert.deepEqual(response, { ok: true });
+    assert.equal(workerStorage.recording, false);
+  });
+
+  it('regression_661_projects_set_without_the_capturing_recording_stops_capture', async () => {
+    const all = structuredClone(workerStorage.projects);
+    // A set that keeps the capturing recording leaves capture running.
+    assert.equal((await send({ type: 'PROJECTS_SET', projects: all })).ok, true);
+    assert.equal(workerStorage.recording, true);
+    // A set without it (a resolution that accepted its deletion) stops capture.
+    const without = all.map((p) =>
+      p.project_id === other.project_id ? { ...p, recordings: [] } : p,
+    );
+    assert.equal((await send({ type: 'PROJECTS_SET', projects: without })).ok, true);
+    assert.equal(workerStorage.recording, false);
+  });
+
+  it('deleting the capturing recording or its project from another panel stops capture', async () => {
+    assert.equal((await send({ type: 'RECORDING_DELETE', ...other })).ok, true);
+    assert.equal(workerStorage.recording, false);
+    assert.equal(workerStorage.activeRecordingId, null);
+    await send({ type: 'RECORDING_OPEN', ...shown });
+    await send({ type: 'RECORDING_START', ...shown });
+    assert.equal(workerStorage.recording, true);
+    assert.equal((await send({ type: 'PROJECT_DELETE', project_id: shown.project_id })).ok, true);
+    assert.equal(workerStorage.recording, false);
+    assert.equal(workerStorage.activeProjectId, null);
+  });
+
+  // ── The same messages naming the active recording act as before ──
+
+  it('a step commit naming the active recording commits the captured action into it', async () => {
+    const response = await send({ type: 'STEP_COMMIT', ...other, narration: 'third' });
+    assert.equal(response.ok, true);
+    assert.equal(activeStepIds(other.project_id, other.recording_id).length, 3);
+    assert.equal(workerStorage.pendingActions.length, 0);
+  });
+
+  it('a stop, start and clear naming the active recording act on capture', async () => {
+    assert.equal((await send({ type: 'RECORDING_STOP', ...other })).ok, true);
+    assert.equal(workerStorage.recording, false);
+    assert.equal((await send({ type: 'RECORDING_START', ...other })).ok, true);
+    assert.equal(workerStorage.recording, true);
+    assert.equal((await send({ type: 'RECORDING_CLEAR', ...other })).ok, true);
+    assert.equal(workerStorage.pendingActions.length, 0);
   });
 });

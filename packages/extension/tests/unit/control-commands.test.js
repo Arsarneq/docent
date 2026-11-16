@@ -79,22 +79,25 @@ function fakePanel(initial = {}, worker = fakeWorker()) {
     calls,
     state,
     getState: () => ({ ...state }),
+    // Each action resolves with the service worker's answer, as the panel's does.
     async createProject(name) {
       calls.push(['createProject', name]);
       state.project = { project_id: 'p1', name, recordings: [{ secret: true }] };
       state.recording = null;
       state.capturing = false;
-      return state.project;
+      return { ok: true, project: state.project };
     },
     async createRecording(name) {
       calls.push(['createRecording', name]);
       state.recording = { recording_id: 'r1', name, steps: [{ secret: true }] };
       state.capturing = true;
-      return state.recording;
+      return { ok: true, recording: state.recording, project: state.project };
     },
+    // Resolves with the service worker's answer, as the panel's action does.
     async setCapture(on) {
       calls.push(['setCapture', on]);
       state.capturing = on;
+      return { ok: true };
     },
     async commitStep(payload) {
       calls.push(['commitStep', payload]);
@@ -299,6 +302,33 @@ describe('createControlExecutor — project and recording', () => {
     assert.deepEqual(panel.calls, [['createRecording', 'Happy path']]);
   });
 
+  it('answers a project create the service worker refused with a fixed text', async () => {
+    const panel = fakePanel();
+    panel.createProject = async (name) => {
+      panel.calls.push(['createProject', name]);
+      return { ok: false, error: 'worker detail' };
+    };
+    assert.deepEqual(await run(panel, 'project.create', { name: 'Checkout' }), {
+      ok: false,
+      error: 'The project was not created',
+    });
+    assert.deepEqual(panel.calls, [['createProject', 'Checkout']]);
+  });
+
+  it('regression_661_answers_a_recording_create_the_service_worker_refused_with_a_fixed_text', async () => {
+    // The open project was deleted in another panel.
+    const panel = fakePanel({ project: OPEN.project });
+    panel.createRecording = async (name) => {
+      panel.calls.push(['createRecording', name]);
+      return { ok: false, error: 'Project not found' };
+    };
+    assert.deepEqual(await run(panel, 'recording.create', { name: 'Happy path' }), {
+      ok: false,
+      error: 'The recording was not created',
+    });
+    assert.deepEqual(panel.calls, [['createRecording', 'Happy path']]);
+  });
+
   it('refuses a recording when no project is open', async () => {
     const panel = fakePanel();
     assert.deepEqual(await run(panel, 'recording.create', { name: 'R' }), {
@@ -332,6 +362,38 @@ describe('createControlExecutor — pause and resume', () => {
     const panel = fakePanel({ ...OPEN, capturing: true });
     assert.deepEqual(await run(panel, 'recording.resume'), { ok: true, capturing: true });
     assert.deepEqual(panel.calls, []);
+  });
+
+  // Regression: #661 — with two side panels open, a pause or resume of a
+  // recording the other panel had since replaced as the active one acted on
+  // that other panel's capture, and the channel answered that it succeeded.
+  // https://github.com/Arsarneq/docent/issues/661
+  /** A panel whose Pause / Resume the service worker refuses. */
+  function refusingPanel(capturing) {
+    const panel = fakePanel({ ...OPEN, capturing });
+    panel.setCapture = async (on) => {
+      panel.calls.push(['setCapture', on]);
+      return { ok: false, error: 'worker detail' };
+    };
+    return panel;
+  }
+
+  it('regression_661_answers_a_pause_the_service_worker_refused_with_a_fixed_text', async () => {
+    const panel = refusingPanel(true);
+    assert.deepEqual(await run(panel, 'recording.pause'), {
+      ok: false,
+      error: 'The recording was not paused',
+    });
+    assert.deepEqual(panel.calls, [['setCapture', false]]);
+  });
+
+  it('regression_661_answers_a_resume_the_service_worker_refused_with_a_fixed_text', async () => {
+    const panel = refusingPanel(false);
+    assert.deepEqual(await run(panel, 'recording.resume'), {
+      ok: false,
+      error: 'The recording was not resumed',
+    });
+    assert.deepEqual(panel.calls, [['setCapture', true]]);
   });
 
   for (const name of ['recording.pause', 'recording.resume']) {
