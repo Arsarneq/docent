@@ -3246,6 +3246,7 @@ struct FocusScene {
 fn scene_element(tag: &str, selector: &str, text: Option<&str>) -> ElementDescription {
     ElementDescription {
         tag: tag.to_string(),
+        id: Some(selector.to_string()),
         name: Some(selector.to_string()),
         text: text.map(str::to_string),
         selector: selector.to_string(),
@@ -3254,9 +3255,12 @@ fn scene_element(tag: &str, selector: &str, text: Option<&str>) -> ElementDescri
 }
 
 /// A backend whose focus the test moves; it counts focused-element queries.
+/// An element's identity is its `id`: two descriptions with one `id` are the
+/// same element, whatever their selectors say.
 struct MovingFocusBackend {
     scene: Arc<Mutex<FocusScene>>,
     queries: Arc<AtomicU64>,
+    marked: Mutex<Option<String>>,
 }
 
 impl MovingFocusBackend {
@@ -3267,6 +3271,7 @@ impl MovingFocusBackend {
             Self {
                 scene: Arc::clone(&scene),
                 queries: Arc::clone(&queries),
+                marked: Mutex::new(None),
             },
             scene,
             queries,
@@ -3288,6 +3293,17 @@ impl AccessibilityBackend for MovingFocusBackend {
     fn focused_element(&self) -> Option<ElementDescription> {
         self.queries.fetch_add(1, Ordering::SeqCst);
         Some(self.scene.lock().unwrap().element.clone())
+    }
+
+    fn focused_element_marked(&self) -> Option<ElementDescription> {
+        let element = self.focused_element()?;
+        *self.marked.lock().unwrap() = element.id.clone();
+        Some(element)
+    }
+
+    fn focused_is_marked(&self) -> Option<bool> {
+        let focused = self.scene.lock().unwrap().element.id.clone();
+        Some(focused.is_some() && focused == *self.marked.lock().unwrap())
     }
 
     fn focus_epoch(&self) -> u64 {
@@ -3539,6 +3555,165 @@ fn late_keys_of_a_password_field_stay_in_its_masked_type() {
             "type •••••••• on Dialog > Edit:File name",
             "key Enter on Dialog > Edit:File name"
         ],
+        "got {events:?}"
+    );
+}
+
+/// Text keys whose window was gone before the first of them could be
+/// described: nothing shows the field was not a password field, so no
+/// character is written. They are one masked `type` on no element; the
+/// control key behind them is a key on no element.
+#[test]
+fn text_keys_described_after_their_window_closed_are_one_masked_type() {
+    let (backend, _scene, _) = MovingFocusBackend::new(FocusScene {
+        epoch: 2,
+        foreground: OTHER_WINDOW,
+        element: scene_element("Edit", "Document > Edit:Text Editor", Some("text")),
+    });
+    let harness = WorkerTestHarness::new(backend);
+
+    let t = now_ms();
+    harness.send_event(in_dialog(packet_key(1, t, u16::from(b'p'))));
+    harness.send_event(in_dialog(value_change(2, t + 1, DIALOG)));
+    harness.send_event(in_dialog(packet_key(3, t + 2, u16::from(b'w'))));
+    harness.send_event(in_dialog(value_change(4, t + 3, DIALOG)));
+    harness.send_event(in_dialog(layout_key(5, t + 4, 0x0D))); // Enter
+
+    thread::sleep(Duration::from_millis(900));
+    let events = harness.shutdown();
+
+    assert_eq!(
+        typed_actions_of(&events),
+        vec!["type •••••••• on ", "key Enter on "],
+        "got {events:?}"
+    );
+}
+
+/// A `type` is pending for the first character when the window closes; the
+/// value changes of the later characters are dropped. The pending `type` must
+/// not discard their keys when it is written: the recording holds the `type`
+/// and then every later key.
+#[test]
+fn keys_kept_after_a_dropped_value_change_survive_the_pending_type() {
+    let (backend, scene, _) = MovingFocusBackend::new(file_name_field("r"));
+    let harness = WorkerTestHarness::new(backend);
+
+    let t = now_ms();
+    harness.send_event(in_dialog(packet_key(1, t, u16::from(b'r'))));
+    harness.send_event(in_dialog(value_change(2, t + 1, DIALOG)));
+    thread::sleep(Duration::from_millis(100));
+    *scene.lock().unwrap() = FocusScene {
+        epoch: 2,
+        foreground: OTHER_WINDOW,
+        element: scene_element("Edit", "Document > Edit:Text Editor", Some("text")),
+    };
+    harness.send_event(in_dialog(packet_key(3, t + 2, u16::from(b'e'))));
+    harness.send_event(in_dialog(value_change(4, t + 3, DIALOG)));
+    harness.send_event(in_dialog(packet_key(5, t + 4, u16::from(b'p'))));
+    harness.send_event(in_dialog(value_change(6, t + 5, DIALOG)));
+
+    thread::sleep(Duration::from_millis(900));
+    let events = harness.shutdown();
+
+    assert_eq!(
+        typed_actions_of(&events),
+        vec![
+            "type r on Dialog > Edit:File name",
+            "key e on Dialog > Edit:File name",
+            "key p on Dialog > Edit:File name"
+        ],
+        "got {events:?}"
+    );
+}
+
+/// Backspace starts a new focus count behind itself, so the value change it
+/// causes carries a count no key was described under. Described after focus
+/// moved to a button of the same window, it is still no `type` on the button:
+/// the button is not the element the last key was recorded on.
+#[test]
+fn regression_690_a_value_change_under_a_count_of_its_own_is_checked_against_the_last_key() {
+    let (backend, scene, _) = MovingFocusBackend::new(file_name_field("ab"));
+    let harness = WorkerTestHarness::new(backend);
+
+    let t = now_ms();
+    harness.send_event(in_dialog(packet_key(1, t, u16::from(b'a'))));
+    harness.send_event(in_dialog(layout_key(2, t + 1, 0x08))); // Backspace
+    thread::sleep(Duration::from_millis(150));
+    *scene.lock().unwrap() = FocusScene {
+        epoch: 3,
+        foreground: DIALOG,
+        element: scene_element("Button", "Dialog > Button:Save", Some("Save")),
+    };
+    let mut late = value_change(3, t + 2, DIALOG);
+    late.focus_epoch = 2;
+    harness.send_event(late);
+
+    thread::sleep(Duration::from_millis(900));
+    let events = harness.shutdown();
+
+    assert_eq!(
+        typed_actions_of(&events),
+        vec![
+            "key a on Dialog > Edit:File name",
+            "key Backspace on Dialog > Edit:File name"
+        ],
+        "got {events:?}"
+    );
+}
+
+/// A program moves the focus to its next field without reporting it (no focus
+/// change is counted). While the key's window is in front and the count
+/// stands, the remembered element is confirmed against the focused one, so
+/// the next key is described afresh, on the field it went to.
+#[test]
+fn a_focus_move_the_program_did_not_report_is_noticed_at_the_next_key() {
+    let (backend, scene, _) = MovingFocusBackend::new(file_name_field(""));
+    let harness = WorkerTestHarness::new(backend);
+
+    let t = now_ms();
+    harness.send_event(in_dialog(layout_key(1, t, 0x70))); // F1, on the first field
+    thread::sleep(Duration::from_millis(150));
+    scene.lock().unwrap().element = scene_element("Edit", "Dialog > Edit:Second", Some(""));
+    harness.send_event(in_dialog(layout_key(2, t + 1, 0x71))); // F2
+
+    thread::sleep(Duration::from_millis(300));
+    let events = harness.shutdown();
+
+    assert_eq!(
+        typed_actions_of(&events),
+        vec![
+            "key F1 on Dialog > Edit:File name",
+            "key F2 on Dialog > Edit:Second"
+        ],
+        "got {events:?}"
+    );
+}
+
+/// The first character changes the window's title, and with it the selector
+/// of the field (an editor whose title gains a "modified" mark). The value
+/// change is still the `type` of the element the key went to: it is the same
+/// element, described differently.
+#[test]
+fn a_value_change_on_the_same_element_under_a_changed_selector_is_its_type() {
+    let (backend, scene, _) = MovingFocusBackend::new(file_name_field(""));
+    let harness = WorkerTestHarness::new(backend);
+
+    let t = now_ms();
+    harness.send_event(in_dialog(packet_key(1, t, u16::from(b'h'))));
+    thread::sleep(Duration::from_millis(150));
+    {
+        let mut scene = scene.lock().unwrap();
+        scene.element.selector = "*Dialog > Edit:File name".to_string();
+        scene.element.text = Some("h".to_string());
+    }
+    harness.send_event(in_dialog(value_change(2, t + 1, DIALOG)));
+
+    thread::sleep(Duration::from_millis(900));
+    let events = harness.shutdown();
+
+    assert_eq!(
+        typed_actions_of(&events),
+        vec!["type h on *Dialog > Edit:File name"],
         "got {events:?}"
     );
 }

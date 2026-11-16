@@ -1288,8 +1288,6 @@ fn input_thread_main(
 // Input_Thread helper: dispatch a RawEvent
 // ---------------------------------------------------------------------------
 
-/// Assign a sequence ID and dispatch a `RawEvent` to the bridge thread.
-/// Called from hook callbacks on the Input_Thread.
 /// The focus epoch: a count of the focus and foreground changes the
 /// Input_Thread has seen, plus the mouse-downs and focus-moving keys it has
 /// dispatched (each may move the focus without the program reporting it).
@@ -1304,6 +1302,8 @@ fn focus_epoch_advance() {
     FOCUS_EPOCH.fetch_add(1, Ordering::SeqCst);
 }
 
+/// Assign a sequence ID and dispatch a `RawEvent` to the bridge thread.
+/// Called from hook callbacks on the Input_Thread.
 fn input_dispatch_raw_event(mut event: RawEvent) {
     event.focus_epoch = FOCUS_EPOCH.load(Ordering::SeqCst);
     // Assign monotonic sequence ID.
@@ -2819,6 +2819,11 @@ pub(crate) unsafe fn get_modifier_state() -> (bool, bool, bool, bool) {
 /// Therefore the `Send` bound is safe.
 pub struct WindowsAccessibilityBackend {
     uia: Option<IUIAutomation>,
+    /// The element last described by `focused_element_marked`, kept so
+    /// `focused_is_marked` can ask UIA whether the focused element is that
+    /// very element. `None` during the move into the worker thread, like
+    /// `uia`; set, read and dropped (in `cleanup`) on that thread only.
+    marked: std::cell::RefCell<Option<IUIAutomationElement>>,
 }
 
 // SAFETY: See doc comment on the struct. The IUIAutomation instance is created
@@ -2829,7 +2834,10 @@ impl WindowsAccessibilityBackend {
     /// Create a new backend with no COM initialisation.
     /// Call `init()` on the worker thread to set up COM and UIA.
     pub fn new() -> Self {
-        Self { uia: None }
+        Self {
+            uia: None,
+            marked: std::cell::RefCell::new(None),
+        }
     }
 }
 
@@ -2869,7 +2877,8 @@ impl AccessibilityBackend for WindowsAccessibilityBackend {
     }
 
     fn cleanup(&mut self) {
-        // Drop the COM interface before uninitialising COM.
+        // Drop the COM interfaces before uninitialising COM.
+        *self.marked.borrow_mut() = None;
         self.uia = None;
         unsafe {
             CoUninitialize();
@@ -2887,6 +2896,26 @@ impl AccessibilityBackend for WindowsAccessibilityBackend {
         let uia = self.uia.as_ref()?;
         let focused = unsafe { uia.GetFocusedElement().ok()? };
         unsafe { uia_element_to_description(uia, &focused) }
+    }
+
+    fn focused_element_marked(&self) -> Option<ElementDescription> {
+        // Nothing is marked unless this call describes an element.
+        *self.marked.borrow_mut() = None;
+        let uia = self.uia.as_ref()?;
+        let focused = unsafe { uia.GetFocusedElement().ok()? };
+        let description = unsafe { uia_element_to_description(uia, &focused)? };
+        *self.marked.borrow_mut() = Some(focused);
+        Some(description)
+    }
+
+    fn focused_is_marked(&self) -> Option<bool> {
+        let uia = self.uia.as_ref()?;
+        let marked = self.marked.borrow();
+        let marked = marked.as_ref()?;
+        unsafe {
+            let focused = uia.GetFocusedElement().ok()?;
+            Some(uia.CompareElements(marked, &focused).ok()?.as_bool())
+        }
     }
 
     fn focus_epoch(&self) -> u64 {
