@@ -233,6 +233,97 @@ test.describe('Contenteditable', () => {
   });
 });
 
+// Regression: #654 — a checkbox or radio click was recorded twice: the click,
+// then a `type` whose value was the control's `value` attribute ("on"), not
+// its checked state. Every way a person toggles one fires a click on the
+// control, so the click is the record.
+// https://github.com/Arsarneq/docent/issues/654
+test.describe('Checkbox and Radio', () => {
+  const PAGE_HTML = /* html */ `<!DOCTYPE html>
+  <html><body>
+    <input id="box" type="checkbox">
+    <input id="r1" type="radio" name="r" value="a">
+    <input id="r2" type="radio" name="r" value="b">
+  </body></html>`;
+
+  test.beforeEach(async ({ testPage, serviceWorker }) => {
+    await setTestContent(testPage, PAGE_HTML);
+    await testPage.waitForTimeout(200);
+    await clearPendingActions(serviceWorker);
+  });
+
+  test('regression_654_checkbox_and_radio_toggles_record_the_click_only', async ({
+    testPage,
+    serviceWorker,
+  }) => {
+    await testPage.click('#box'); // tick
+    await testPage.click('#box'); // untick
+    await testPage.keyboard.press('Space'); // tick from the keyboard
+    await testPage.click('#r1');
+    await testPage.keyboard.press('ArrowRight'); // moves the choice to r2
+    await waitForActionsToSettle(serviceWorker, testPage);
+
+    const actions = await getPendingActions(serviceWorker);
+    expect(actions.map((a) => [a.type, a.element?.selector])).toEqual([
+      ['click', '#box'],
+      ['click', '#box'],
+      ['click', '#box'],
+      ['click', '#r1'],
+      ['key', '#r1'], // the arrow key is captured as a key of its own
+      ['click', '#r2'],
+    ]);
+  });
+});
+
+// Regression: #670 — a click on a label was recorded twice: the label's click,
+// then the click the browser sends on to the labelled control, so a replay
+// toggled a checkbox twice. The label's click is the one the person made.
+// https://github.com/Arsarneq/docent/issues/670
+test.describe('Label Click', () => {
+  const PAGE_HTML = /* html */ `<!DOCTYPE html>
+  <html><body>
+    <input id="box" type="checkbox"><label id="for-box" for="box">Box</label>
+    <label id="wrap"><input id="inner" type="checkbox"> <span id="wrap-text">Wrapped</span></label>
+    <button id="btn" type="button">Go</button><label id="for-btn" for="btn">Button</label>
+    <label id="role-wrap"><input id="role-box" type="checkbox"><span id="role-child" role="button">Role</span></label>
+    <div id="host"></div>
+    <script>
+      document.getElementById('host').attachShadow({ mode: 'open' }).innerHTML =
+        '<input id="shadow-box" type="checkbox"><label for="shadow-box">Shadow</label>';
+    </script>
+  </body></html>`;
+
+  test.beforeEach(async ({ testPage, serviceWorker }) => {
+    await setTestContent(testPage, PAGE_HTML);
+    await testPage.waitForTimeout(200);
+    await clearPendingActions(serviceWorker);
+  });
+
+  test('regression_670_a_label_click_records_one_click', async ({ testPage, serviceWorker }) => {
+    await testPage.click('#for-box');
+    await testPage.click('#wrap-text');
+    await testPage.click('#for-btn');
+    await testPage.click('#role-child'); // a label holding an interactive child
+    await testPage.locator('#host').locator('label').click(); // a label in an open shadow root
+    await testPage.click('#box'); // the control itself, still one click
+    await waitForActionsToSettle(serviceWorker, testPage);
+
+    const actions = await getPendingActions(serviceWorker);
+    expect(actions.map((a) => [a.type, a.element?.selector])).toEqual([
+      ['click', '#for-box'],
+      ['click', '#wrap'],
+      ['click', '#for-btn'],
+      ['click', '#role-child'],
+      ['click', '#host'],
+      ['click', '#box'],
+    ]);
+    expect(await testPage.isChecked('#box')).toBe(false); // ticked by the label, unticked directly
+    expect(await testPage.isChecked('#inner')).toBe(true);
+    expect(await testPage.isChecked('#role-box')).toBe(true);
+    expect(await testPage.locator('#host').locator('input').isChecked()).toBe(true);
+  });
+});
+
 test.describe('Password Masking', () => {
   const PAGE_HTML = /* html */ `<!DOCTYPE html>
   <html><body>

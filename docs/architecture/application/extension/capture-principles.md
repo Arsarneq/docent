@@ -129,11 +129,13 @@ the capture phase, for exactly these DOM events:
   be attributed to the element the user moved to
 - `click` — activation of the clicked element or its nearest interactive
   ancestor (the set the recorder tests is stated in the session-format
-  document's action table; core CP-18)
+  document's action table; core CP-18); a click on a `label` is the label's,
+  and the click the browser sends on to the labelled control is part of it
 - `contextmenu` — the right-click, its element picked as for `click`
 - `keydown` — the keys in the captured keyboard set
 - `change` — a committed value: a `select` choice, an `input`/`textarea` entry,
-  and a file chosen through the OS dialog
+  and a file chosen through the OS dialog; a checkbox or radio toggle is
+  recorded by its `click`, so its `change` writes nothing
 - `focusin` — a focus move, recorded only when it follows a Tab key press
 - `dragstart` — the start of a drag, which names the drag source
 - `dragover` — the target tracking the browser requires before a drop can fire
@@ -311,6 +313,10 @@ with a caveat):
   page's `window.close()`; a departure (core CP-18)
 - A click or right-click whose picked element is the body or the document
   element — not written; a departure (core CP-18)
+- A click on a `label` inside a closed shadow root — written twice, both
+  against the shadow host: the label's click and the click the browser sends
+  on to its control, since the closed root hides the label from the recorder;
+  a departure (core CP-18)
 - A captured key other than Tab while nothing is focused — not written; a
   departure (core CP-18)
 - A `type` on an input or textarea when a button or input marked

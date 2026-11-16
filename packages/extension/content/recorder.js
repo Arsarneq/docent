@@ -537,6 +537,8 @@
   let lastFileInputClickTime = 0;
   let lastMousedownTime = 0;
   let lastMousedownEl = null;
+  // The control a label click's activation is about to click (#670).
+  let labelForwardedTo = null;
 
   // Track mousedown for blur-caused change suppression.
   // When clicking a different element, the sequence is:
@@ -579,6 +581,23 @@
       if (el.tagName === 'INPUT' && el.type === 'file') {
         lastFileInputClickEl = el;
         lastFileInputClickTime = Date.now();
+      }
+      // A label's activation sends a second click on to its control before the
+      // next task: the person made one click, recorded as the first (#670). The
+      // composed path finds a label in an open shadow root and one holding an
+      // interactive child; a closed shadow root hides its label (ECP-12).
+      const path = e.composedPath();
+      if (labelForwardedTo !== null && path[0] === labelForwardedTo) {
+        labelForwardedTo = null;
+        return;
+      }
+      const label = path.find((n) => n.tagName === 'LABEL');
+      if (label?.control && !path.includes(label.control)) {
+        const control = label.control;
+        labelForwardedTo = control;
+        setTimeout(() => {
+          if (labelForwardedTo === control) labelForwardedTo = null;
+        }, 0);
       }
       appendAction({
         type: 'click',
@@ -715,6 +734,10 @@
         });
         return;
       }
+
+      // A checkbox or radio toggle is recorded by the person's click, on the
+      // control or on its label; its change carries no entered value (#654).
+      if (el.tagName === 'INPUT' && (el.type === 'checkbox' || el.type === 'radio')) return;
 
       if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') {
         // Suppress change events caused by blur from clicking a submit button within the same form.
