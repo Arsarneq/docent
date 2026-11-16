@@ -2096,7 +2096,11 @@ unsafe extern "system" fn input_keyboard_ll_proc(
                     key_code: kb_struct.vkCode,
                     modifiers,
                     scroll_delta: 0.0,
-                    callback_params: [0, 0, 0, 0],
+                    // The scan code: for a VK_PACKET keystroke it is the
+                    // injected UTF-16 code unit the worker names the key by
+                    // (docent#260). A copy of a field of the struct already
+                    // read above — no call, lock or allocation on the hook.
+                    callback_params: [i64::from(kb_struct.scanCode), 0, 0, 0],
                     pre_captured_element: None,
                 });
             }

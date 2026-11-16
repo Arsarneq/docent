@@ -1617,7 +1617,7 @@ mod capture_behaviour {
 
         let mut enigo = Enigo::new(&Settings::default()).unwrap();
         enigo.text("hello").unwrap();
-        // Wait for TYPE_DEBOUNCE_MS (1000ms) + buffer to flush.
+        // Wait for TYPE_DEBOUNCE_MS (500ms) + buffer to flush.
         thread::sleep(Duration::from_millis(1500));
 
         unsafe {
@@ -1633,6 +1633,28 @@ mod capture_behaviour {
             "Expected at most 1 coalesced type event, got {}",
             type_events.len()
         );
+
+        // enigo.text() injects Unicode keystrokes (VK_PACKET). No count is
+        // asserted (focus on a headless runner may not reach this window, see
+        // printable_keys_are_captured_when_no_type_event_arrives), but no
+        // captured key is named by a VK code such as `VK_0xE7` (docent#260),
+        // and each single-character one with no Ctrl, Alt or Meta is a
+        // character of "hello": the hook's scan code is the injected code unit.
+        for e in keys(&events) {
+            if let ActionPayload::Key { key, modifiers, .. } = &e.payload {
+                assert!(
+                    !key.starts_with("VK_"),
+                    "an injected keystroke must not be named by its VK code, got {key:?}"
+                );
+                if key.chars().count() == 1 && !modifiers.ctrl && !modifiers.alt && !modifiers.meta
+                {
+                    assert!(
+                        ["h", "e", "l", "o"].contains(&key.as_str()),
+                        "an injected keystroke must be named by its character, got {key:?}"
+                    );
+                }
+            }
+        }
     }
 
     #[test]

@@ -105,8 +105,10 @@ pub struct RawEvent {
     /// On Windows: `[id_object, id_child, 0, 0]` from `SetWinEventHook`
     /// callbacks, which workers use to determine which sub-element triggered
     /// the event; `[axis, 0, 0, 0]` from the mouse hook's wheel path, where
-    /// 1 = horizontal (read by the scroll arm). On other platforms: unused or
-    /// platform-defined.
+    /// 1 = horizontal (read by the scroll arm); `[scan_code, 0, 0, 0]` from the
+    /// keyboard hook, where a `VK_PACKET` keystroke's scan code is the injected
+    /// UTF-16 code unit (read by the keyboard arm). On other platforms: unused
+    /// or platform-defined.
     pub callback_params: [i64; 4],
     /// Pre-captured element description from the Input_Thread.
     /// For mouse click/right-click events, the Input_Thread may perform a
@@ -1019,6 +1021,35 @@ fn vk_to_key_name(vk: u32) -> String {
     }
 }
 
+/// `VK_PACKET`: the virtual-key code a keystroke injected as Unicode
+/// (`SendInput` with `KEYEVENTF_UNICODE` — IME results, remote-desktop stacks,
+/// software keyboards, automation) reaches the low-level hook with. Its scan
+/// code carries the injected UTF-16 code unit, which the hook passes on in
+/// `RawEvent::callback_params[0]` (docent#260).
+const VK_PACKET: u32 = 0xE7;
+
+/// The key value for a key whose identity is not known — the browser's own
+/// value for that case, so the desktop names it the way the extension would.
+const UNIDENTIFIED_KEY: &str = "Unidentified";
+
+/// Name a keyboard event's key. A `VK_PACKET` keystroke is named by the
+/// character its code unit carries — a space by `Space`, the name a layout
+/// space key gets — and a unit that is no character on its own (a surrogate
+/// half of a character outside the Basic Multilingual Plane, or a control
+/// character) is `Unidentified`. Every other code goes through
+/// [`vk_to_key_name`].
+fn key_name(raw: &RawEvent) -> String {
+    if raw.key_code != VK_PACKET {
+        return vk_to_key_name(raw.key_code);
+    }
+    let unit = (raw.callback_params[0] & 0xFFFF) as u32;
+    match char::from_u32(unit) {
+        Some(' ') => vk_to_key_name(0x20),
+        Some(c) if !c.is_control() => c.to_string(),
+        _ => UNIDENTIFIED_KEY.to_string(),
+    }
+}
+
 /// Whether a key name is the empty name `vk_to_key_name` returns for the
 /// left/right Shift, Control and Alt codes: `true` means skip the event.
 /// Printable characters are handled separately via the pending_keys buffer.
@@ -1026,11 +1057,12 @@ fn is_modifier_only_key(key: &str) -> bool {
     key.is_empty()
 }
 
-/// Determine whether a key is a printable character (should be buffered,
-/// not emitted immediately).
-fn is_printable_key(key: &str, modifiers: &(bool, bool, bool, bool)) -> bool {
-    // A key is "printable" if it's a single character with no Ctrl/Alt/Meta.
-    key.len() == 1 && !modifiers.0 && !modifiers.2 && !modifiers.3
+/// Determine whether a keystroke is printable input (should be buffered, not
+/// emitted immediately): a single-character key name, or any `VK_PACKET`
+/// keystroke (it carries text, whatever its name), with no Ctrl/Alt/Meta held.
+fn is_printable_key(raw: &RawEvent, key: &str) -> bool {
+    let carries_text = raw.key_code == VK_PACKET || key.chars().count() == 1;
+    carries_text && !raw.modifiers.0 && !raw.modifiers.2 && !raw.modifiers.3
 }
 
 // ---------------------------------------------------------------------------
@@ -1725,7 +1757,7 @@ fn handle_keyboard<B: AccessibilityBackend>(
     pending: &SharedPendingBuffers,
     window_rect: Option<WindowRect>,
 ) {
-    let key = vk_to_key_name(raw.key_code);
+    let key = key_name(raw);
 
     // Skip the empty name: every left/right Shift, Control or Alt keydown;
     // a key pressed while they are held reads them into its own modifiers.
@@ -1771,7 +1803,7 @@ fn handle_keyboard<B: AccessibilityBackend>(
 
     // In-memory buffer mutation only — short lock, no backend calls inside.
     let mut buffers = lock_buffers(pending);
-    if is_printable_key(&key, &raw.modifiers) {
+    if is_printable_key(raw, &key) {
         // Buffer printable keys — they may be superseded by a type event.
         buffers.pending_keys.push(event);
         buffers.pending_keys_last_timestamp = raw.timestamp;
