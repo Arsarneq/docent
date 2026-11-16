@@ -77,7 +77,10 @@ sequenceDiagram
 For a worked example of the local process side, see the
 [Reference Control Client](../../reference-implementations/control-client/README.md):
 a module with its own test suite, tested against a stand-in for the panel
-that follows this document.
+that follows this document. The
+[Reference MCP Server](../../reference-implementations/mcp-server/README.md)
+is a runnable local process built on that module: it offers the commands of
+this document as tools of the Model Context Protocol.
 
 ---
 

@@ -253,8 +253,9 @@ the coverage config `.c8rc.json` set `ci` for `unit-tests`; the schemas
 and the corpus set `schema` and `corpus` for the jobs that read them; and
 the reference implementations set `referenceServer` for the end-to-end,
 desktop-integration and reference-server jobs, whose runs execute the
-reference server, and for the control-client job, whose run executes the
-reference control client. Or a test suite holds it: the
+reference server, for the control-client job, whose run executes the
+reference control client, and for the mcp-server job, whose run executes the
+reference MCP server on that client. Or a test suite holds it: the
 reference implementations again, through that same flag, for `unit-tests` (a
 shared suite walks them for resolution-procedure tokens); the publish workflows
 and the release-output guard through `releasePipeline`, which reaches
@@ -309,6 +310,7 @@ everything — a caller that forgets it skips nothing).
 | `desktop-integration-tests` | desktop, shared, schema, referenceServer, ciCore, or buildScripts                                                                         | ubuntu                             | Desktop Playwright suite against the mocked Tauri backend, with coverage.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | `reference-server-tests`    | referenceServer, schema, shared, ciCore, buildScripts, or releasePipeline                                                                 | ubuntu                             | The reference sync server's unit + integration suites, including the seed-sample schema-conformance guard and the release-exclusion guard over the publish pipelines.                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | `control-client-tests`      | referenceServer or ciCore                                                                                                                 | ubuntu                             | The reference control client's unit + integration suites, in its own install root: the pairing's pure parts against the specification's worked example, and the client against a fake panel.                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `mcp-server-tests`          | referenceServer or ciCore                                                                                                                 | ubuntu                             | The reference MCP server's unit + integration suites, in its own install root beside the control client's: the pure parts, and the server as a child process driven by the official MCP client against a fake panel.                                                                                                                                                                                                                                                                                                                                                                                                      |
 
 ### PRs that touch no filtered path
 
@@ -433,8 +435,8 @@ a crate of its own outside the application's dependency graph), under the same
 The four coverage-instrumented jobs — `unit-tests`, `extension-e2e-tests`,
 `desktop-rust-tests`, and `desktop-integration-tests` — stage lcov
 artifacts that the terminal `coverage-upload` job collects and uploads to
-Codecov; the other test jobs stage none (the reference server's and the
-reference control client's suites are the two never coverage-measured — the corpus and vector jobs' test
+Codecov; the other test jobs stage none (the reference server's, the
+reference control client's and the reference MCP server's suites are the three never coverage-measured — the corpus and vector jobs' test
 content is measured inside `desktop-rust-tests` and `unit-tests`). The
 required status is `codecov/patch`, configured in
 [`.github/codecov.yml`](../../.github/codecov.yml) with a fixed target over
