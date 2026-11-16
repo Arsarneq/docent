@@ -263,11 +263,15 @@ importing, sending, syncing, and every setting.
 **LC-8.** The panel carries out each command through the same panel action a
 person's click runs, so its view follows every command — the project opens, the
 recording view appears, the step joins the list, whatever view the person had
-open — and the service worker receives the messages that click sends. For
+open — and the service worker receives the messages that click sends, naming
+the project and recording open in this panel, so a command acts on those
+whatever another side panel has open. For
 `project.export` that is the build the Export button runs: the panel asks the
 service worker for the project open in this panel, by its id, and stamps it;
 the click then downloads the document, and the command delivers it in its
-result instead, opening no dialog. A command
+result instead, opening no dialog. A command the service worker refuses opens
+no dialog either: the click tells the person, and the command answers in its
+result ([LC-9](#results)). A command
 the panel's state cannot carry out is refused: it is answered with `ok: false`,
 sends the service worker nothing and changes nothing. The refusals are these —
 the list is closed:
@@ -356,7 +360,19 @@ local process that storage holds capture back.
 
 The third arises when the panel's view of its state trails the service worker's
 — a commit sent the moment after another, before the panel has seen the
-captured actions consumed — or when an action fails part-way.
+captured actions consumed — or when an action fails part-way. It also arises
+when another side panel has opened or created a project or a recording since
+this panel's recording was opened or created: capture is one per browser and
+no longer goes to this panel's recording, so the service worker refuses this
+panel's resume and commit, and its pause while the other panel's capture runs
+([extension runtime — Panel protocol](../architecture/application/extension/runtime.md#panel-protocol)).
+A refused pause or resume is answered `The recording was not paused` or
+`The recording was not resumed`, a refused commit `The step was not committed`;
+a refusal changes nothing in the service worker, and the panel turns its own
+capture off, which `status` then reports in `capturing`. A create the service
+worker does not accept — a recording asked for in a project another panel has
+deleted — is answered `The recording was not created`, and a project create
+likewise `The project was not created`; the panel's view stays as it was.
 
 A command still running when the channel turns off finishes in the panel, and
 its result is not sent.

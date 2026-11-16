@@ -108,6 +108,24 @@
  *     with the contract-bearing comments that state its bounds, and the panel
  *     grew by its binding; the rest landed earlier inside the previous budget;
  *     no new dependency.
+ *   - Raised to 741KB for side panels in two windows (docent#661): measured
+ *     735,856 B (`node_modules` inside the checkout); margin 22,928 B; growth
+ *     since 709,975 B (the header's recorded size): `sidepanel/panel.js`
+ *     +8,652 B (+6,951 B in this change, +1,701 B before it),
+ *     `sidepanel/control-commands.js` +4,603 B (+1,033 B in this change,
+ *     +3,570 B before it), `sidepanel/project-export.js` +2,910 B (new),
+ *     `sidepanel/control-channel.js` +2,886 B, `background/service-worker.js`
+ *     +2,547 B (+2,307 B in this change, +240 B before it),
+ *     `lib/active-recording.js` +1,649 B (new),
+ *     `sidepanel/control-channel-host.js` +1,487 B, `content/recorder.js`
+ *     +1,147 B. Deliberate: the panel names the project and recording each of
+ *     its messages is for and reads every answer before using it, telling a
+ *     failed action and showing the view as the worker holds it; the worker
+ *     finds each message's target by those ids and refuses a capture message
+ *     for a recording that is no longer the active one, with the rule's text
+ *     and test in `lib/active-recording.js`, shared by both; the control
+ *     commands answer a refused pause, resume or create with fixed texts; the
+ *     rest landed earlier inside the previous budget; no new dependency.
  *
  * Requires `npm run sync-shared` to have been run first.
  */
@@ -158,7 +176,7 @@ function formatSize(bytes) {
 
 const extensionExcludes = ['node_modules', 'tests', '.git', 'coverage'];
 
-const JS_BUDGET_KB = 715;
+const JS_BUDGET_KB = 741;
 
 /** The headroom rule's figures for a measured size: the next budget and its margin. */
 function nextBudget(bytes) {
