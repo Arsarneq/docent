@@ -185,6 +185,110 @@ test.describe('Desktop Re-record Flow', () => {
     // Still only 1 step (re-record replaces, doesn't add)
     await expect(page.locator('.step-item')).toHaveCount(1);
   });
+
+  // Regression for the pattern docent#666 reports on the extension: leaving
+  // the recording view through a breadcrumb while a step is being re-recorded
+  // must end the re-record, as Cancel does. Kept, the next recording's first
+  // commit was stored as a new version of the earlier recording's step (its
+  // logical id), and the banner showed again in a recording it did not belong to.
+  for (const [label, crumb, reopenProject] of [
+    ['project breadcrumb', '#bc-project', false],
+    ['Projects breadcrumb', '#bc-projects', true],
+  ]) {
+    test(`leaving a re-record through the ${label} ends it`, async ({ page }) => {
+      await openPanel(page, server);
+      await seedRecordedStep(page, {
+        project: 'P',
+        recording: 'A',
+        actions: [LOGIN_CLICK],
+        narration: 'a1',
+      });
+
+      await page.locator('[data-action="edit"]').first().click();
+      await expect(page.locator('#rerecord-banner')).toBeVisible();
+
+      await page.click(crumb);
+      if (reopenProject) {
+        await page.waitForSelector('#view-projects:not(.hidden)');
+        await page
+          .locator('#project-list li', { hasText: 'P' })
+          .locator('[data-action="open"]')
+          .first()
+          .click();
+      }
+      await page.waitForSelector('#view-project:not(.hidden)');
+
+      await seedRecordedStep(page, {
+        project: null,
+        recording: 'B',
+        actions: null,
+        narration: null,
+      });
+      await expect(page.locator('#rerecord-banner')).toBeHidden();
+      await expect(page.locator('#narration-input')).toHaveValue('');
+
+      await seedRecordedStep(page, {
+        project: null,
+        recording: null,
+        actions: [LOGIN_CLICK],
+        narration: 'b1',
+      });
+
+      const saved = await page.evaluate(() => JSON.parse(window.__TAURI__._getSavedState()));
+      const recordings = saved.projects.find((p) => p.name === 'P').recordings;
+      const idsOf = (name) =>
+        recordings.find((r) => r.name === name).steps.map((s) => s.logical_id);
+      const [a1] = idsOf('A');
+      expect(idsOf('A')).toHaveLength(1);
+      expect(idsOf('B')).toHaveLength(1);
+      expect(idsOf('B')).not.toContain(a1);
+    });
+  }
+
+  // What a re-record captured belongs to the step it re-records: leaving
+  // through a breadcrumb discards it, as Cancel does, so it never becomes the
+  // pending actions of another, existing recording opened next.
+  test('leaving a re-record through a breadcrumb discards what it captured', async ({ page }) => {
+    await openPanel(page, server);
+    await seedRecordedStep(page, {
+      project: 'P',
+      recording: 'A',
+      actions: [LOGIN_CLICK],
+      narration: 'a1',
+    });
+    await page.click('#bc-project');
+    await page.waitForSelector('#view-project:not(.hidden)');
+    await seedRecordedStep(page, {
+      project: null,
+      recording: 'B',
+      actions: [LOGIN_CLICK],
+      narration: 'b0',
+    });
+    await page.click('#bc-project');
+    await page.waitForSelector('#view-project:not(.hidden)');
+
+    const openRecordingNamed = (name) =>
+      page
+        .locator('#recording-list li', { hasText: name })
+        .locator('[data-action="open"]')
+        .first()
+        .click();
+
+    await openRecordingNamed('A');
+    await page.waitForSelector('#view-recording:not(.hidden)');
+    await page.locator('[data-action="edit"]').first().click();
+    await expect(page.locator('#rerecord-banner')).toBeVisible();
+    await fireCaptureActions(page, [{ ...LOGIN_CLICK, timestamp: Date.now() }]);
+    await expect(page.locator('#pending-action-count')).toHaveText('1');
+
+    await page.click('#bc-project');
+    await page.waitForSelector('#view-project:not(.hidden)');
+    await openRecordingNamed('B');
+    await page.waitForSelector('#view-recording:not(.hidden)');
+
+    await page.fill('#narration-input', 'b1');
+    await expect(page.locator('#btn-commit-step')).toBeDisabled();
+  });
 });
 
 // ─── Drag Reorder Flow ────────────────────────────────────────────────────────

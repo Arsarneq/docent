@@ -23,7 +23,7 @@
  *
  * It starts and stops capture by `invoke` instead — directly through the
  * bridge, and through this file's `stopWithCompleteness` where a commit
- * flushes first — under the direct-invoke closure the application shell states
+ * flushes first or the panel leaves a re-record — under the direct-invoke closure the application shell states
  * (application-shell DSH-1); so the reorder-state reset in this file's `send`
  * arm runs for a caller that takes the seam route to capture start, and the
  * shipped panel loses nothing by taking the direct one, because both reorder
@@ -310,7 +310,8 @@ async function _completeBarrier(report) {
 // Stop capture AND run the in-order commit flush barrier atomically in the
 // backend (docent#298): `stop_capture` drains behind this step's events and
 // returns the barrier report this waits on, per DCP-2. This is the completeness
-// path for a commit while recording.
+// path for a commit while recording, and for leaving the recording view while a
+// step is being re-recorded (so what the stop drains is discarded with it).
 async function stopWithCompleteness() {
   await _completeBarrier(await invoke('stop_capture'));
 }
