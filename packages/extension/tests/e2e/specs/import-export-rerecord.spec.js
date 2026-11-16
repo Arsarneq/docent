@@ -291,6 +291,64 @@ test.describe('Re-record Flow', () => {
     // Still only 1 step (re-record replaces, doesn't add)
     await expect(panelPage.locator('.step-item')).toHaveCount(1);
   });
+
+  // Regression: #666 — leaving the recording view through a breadcrumb during a
+  // re-record kept the re-record, so the next recording showed the old banner
+  // and its first commit took the earlier recording's step logical_id.
+  // https://github.com/Arsarneq/docent/issues/666
+  for (const [crumb, name, reopenProject] of [
+    ['#bc-project', 'project', false],
+    ['#bc-projects', 'projects', true],
+  ]) {
+    test(`regression_666_leaving_through_the_${name}_breadcrumb_ends_the_rerecord`, async ({
+      panelPage,
+      serviceWorker,
+    }) => {
+      await createProjectWithStep(panelPage, serviceWorker);
+      await panelPage.locator('[data-action="edit"]').first().click();
+      await expect(panelPage.locator('#rerecord-banner')).toBeVisible();
+
+      await panelPage.click(crumb);
+      if (reopenProject) {
+        await panelPage.waitForSelector('#view-projects:not(.hidden)', { timeout: 5000 });
+        await panelPage.click('[data-action="open"]');
+      }
+      await panelPage.waitForSelector('#view-project:not(.hidden)', { timeout: 5000 });
+
+      await panelPage.click('#btn-new-recording');
+      await panelPage.waitForSelector('#view-new-recording:not(.hidden)', { timeout: 5000 });
+      await panelPage.fill('#new-recording-name', 'Flow B');
+      await panelPage.click('#btn-new-recording-create');
+      await panelPage.waitForSelector('#view-recording:not(.hidden)', { timeout: 5000 });
+
+      await expect(panelPage.locator('#rerecord-banner')).toBeHidden();
+      await expect(panelPage.locator('#narration-input')).toHaveValue('');
+
+      await serviceWorker.evaluate(async () => {
+        await chrome.storage.local.set({
+          pendingActions: [{ type: 'click', timestamp: Date.now(), element: { selector: '#b' } }],
+          pendingCount: 1,
+        });
+      });
+      await panelPage.waitForTimeout(300);
+      await panelPage.fill('#narration-input', 'b1');
+      await panelPage.click('#btn-commit-step');
+      await expect(panelPage.locator('.step-item')).toHaveCount(1);
+
+      await panelPage.click('#bc-project');
+      await panelPage.waitForSelector('#view-project:not(.hidden)', { timeout: 5000 });
+      const [download] = await Promise.all([
+        panelPage.waitForEvent('download'),
+        panelPage.click('#btn-export-project'),
+      ]);
+      const exported = JSON.parse(fs.readFileSync(await download.path(), 'utf-8'));
+      const byName = Object.fromEntries(exported.recordings.map((r) => [r.name, r]));
+      expect(byName['Flow A'].steps).toHaveLength(1);
+      expect(byName['Flow B'].steps).toHaveLength(1);
+      expect(byName['Flow B'].steps[0].narration).toBe('b1');
+      expect(byName['Flow B'].steps[0].logical_id).not.toBe(byName['Flow A'].steps[0].logical_id);
+    });
+  }
 });
 
 // ─── Drag Reorder Flow ────────────────────────────────────────────────────────
