@@ -286,11 +286,11 @@ automation id — are masked at the
 the chokepoint finds sensitive is stored there as the field's masked `type`
 when the key enters text (DCP-9's test for a password field, on the same
 closed list of key names), and when the step is committed it joins the
-field's masked `type` it sits beside, so typing into a sensitive field is one
-masked `type` and no key name carries a character typed there; a key that
-enters no character, and a shortcut, stays a `key`, as does a key whose
-element could not be described (its name is the window's title, which is no
-field name). Both the shared detection
+field's masked `type` it sits beside (a field with an empty selector joins
+none), so no key name carries a character typed into a sensitive field; a key
+that enters no character, and a shortcut, stays a `key`, as does a key whose
+element could not be described (the `Unknown` element with an empty selector,
+whose name is the window's title and no field name). Both the shared detection
 and the redaction shape are the cross-platform rule ([core
 CP-11](../../../../architecture/system/capture-principles.md#sensitive-values)).
 (Tokened-URL redaction is extension-only, since the desktop app has no captured

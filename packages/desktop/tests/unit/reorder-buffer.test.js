@@ -343,6 +343,29 @@ describe('_insertOrdered redacts sensitive field values', () => {
     assert.deepEqual(shape(), [`type ${SENSITIVE_MASK}`, 'click submit', `type ${SENSITIVE_MASK}`]);
   });
 
+  it('joins every typed key ahead of the masked type their value change produced', () => {
+    insertOrdered(keyOn(cardField(), '4', 1));
+    insertOrdered(keyOn(cardField(), '1', 2));
+    insertOrdered({
+      type: 'type',
+      timestamp: 3,
+      sequence_id: 3,
+      element: { ...cardField(), text: '41' },
+      value: '41',
+      context_id: 7,
+      capture_mode: 'accessibility',
+    });
+
+    assert.deepEqual(shape(), [`type ${SENSITIVE_MASK}`]);
+  });
+
+  it('masks a typed key on a described sensitive field whose control type is unknown', () => {
+    const field = { tag: 'Unknown', name: 'creditCardNumber', selector: 'card', text: null };
+    insertOrdered(keyOn(field, '4', 1));
+
+    assert.deepEqual(shape(), [`type ${SENSITIVE_MASK}`]);
+  });
+
   it('leaves a key on an element that could not be described as a key', () => {
     const fallback = { tag: 'Unknown', name: 'Secret Santa.docx', selector: '', text: null };
     [...'keep'].forEach((key, i) => insertOrdered(keyOn(fallback, key, i + 1)));

@@ -255,21 +255,21 @@ function _maskedTypeFromKey(action) {
 // its way from another worker (a click between two typing runs) is in its
 // place before neighbours are judged.
 function _joinTypedKeys() {
-  const kept = [];
-  _pendingActions.forEach((action, i) => {
-    if (action._typedKey) {
-      const next = _pendingActions[i + 1];
-      const behind = _isMaskedTypeOn(kept[kept.length - 1], action.element, action.context_id);
-      const ahead =
-        !!next && !next._typedKey && _isMaskedTypeOn(next, action.element, action.context_id);
-      if (behind || ahead) return;
-    }
-    kept.push(action);
-  });
-  const joined = kept.length !== _pendingActions.length;
-  _pendingActions = kept;
+  const before = _pendingActions.length;
+  // A run of typed keys is one masked `type`: each joins the one behind it.
+  const runs = [];
+  for (const action of _pendingActions) {
+    const last = runs[runs.length - 1];
+    if (action._typedKey && _isMaskedTypeOn(last, action.element, action.context_id)) continue;
+    runs.push(action);
+  }
+  // What is left of a run joins the masked `type` its value change produced.
+  _pendingActions = runs.filter(
+    (action, i) =>
+      !(action._typedKey && _isMaskedTypeOn(runs[i + 1], action.element, action.context_id)),
+  );
   for (const action of _pendingActions) delete action._typedKey;
-  if (joined) _notifyPendingCount();
+  if (_pendingActions.length !== before) _notifyPendingCount();
 }
 
 function _insertOrdered(action) {
@@ -284,7 +284,7 @@ function _insertOrdered(action) {
     received.element.redacted === true &&
     // A key whose element could not be described carries the window's title
     // as its name; a title is no field name, so it decides nothing here.
-    received.element.tag !== 'Unknown' &&
+    !(received.element.tag === 'Unknown' && received.element.selector === '') &&
     _keyEntersText(received);
   const cleanAction = typedOnSensitiveField ? _maskedTypeFromKey(received) : received;
 
