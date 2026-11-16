@@ -54,7 +54,7 @@
       "code": [
         "packages/extension/sidepanel/{control-channel,control-channel-host,control-commands,project-export}.js",
         "packages/extension/tests/unit/{control-channel,control-channel-host,control-commands,project-export}.test.js",
-        "packages/extension/tests/e2e/specs/control-channel.spec.js",
+        "packages/extension/tests/e2e/specs/{control-channel,control-channel-mcp-server}.spec.js",
         "reference-implementations/control-client/**",
         "reference-implementations/mcp-server/**"
       ],
@@ -933,8 +933,8 @@
       "governed-by": ["docs/test/e2e.md", "docs/test/strategy/coverage.md"]
     },
     {
-      "path": "packages/extension/tests/e2e/helpers/{coverage-launch,deadline-poll,devtools-port,reference-server-launcher}.js",
-      "reason": "The harness mechanics: the debug-port browser launch, bounded polling, the devtools port discovery and the reference server launch, which the end-to-end suite doc states.",
+      "path": "packages/extension/tests/e2e/helpers/{coverage-launch,deadline-poll,devtools-port,mcp-stdio,reference-server-launcher}.js",
+      "reason": "The harness mechanics: the debug-port browser launch, bounded polling, the devtools port discovery, the reference server launch and the stdio client for the Reference MCP Server, which the end-to-end suite doc states.",
       "governed-by": ["docs/test/e2e.md"]
     },
     {

@@ -8,8 +8,9 @@ matching command to the Chrome extension's side panel and hands back the
 panel's result. It is the local process of the channel specification, built on
 the [Reference Control Client](../control-client/README.md), with MCP on its
 other side. It exists as an easy-to-read example for anyone writing their own
-local process, and it is tested with the official MCP client against a
-stand-in for the panel that follows the specification.
+local process. It is tested with the official MCP client against a stand-in
+for the panel that follows the specification, and against the real panel by
+the extension's end-to-end suite.
 
 This server is part of the repository's
 [reference implementations](../README.md).
@@ -243,6 +244,12 @@ control client's stand-in, which follows the panel's side of the
 specification. Neither layer runs the real panel. CI runs both layers in the
 `mcp-server-tests` job
 ([CI gates](../../docs/guides/ci.md#path-filtered-test-jobs)).
+
+The real panel is run against this server by the extension's end-to-end
+suite: its `control-channel-mcp-server.spec.js` starts `server.js` beside a
+real browser with the extension loaded and pairs, records, exports and
+imports through it
+([End-to-end tests](../../docs/test/e2e.md#what-the-suite-covers)).
 
 ---
 

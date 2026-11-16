@@ -206,7 +206,9 @@ which follows the panel's side of the specification and computes its proofs
 independently: where and while the client listens, whom it accepts, which
 connections it drops before the attempt, each pairing outcome, a round trip
 for each command, the frames it refuses, and how the channel ends. Neither
-layer runs the real panel. CI runs both layers in the `control-client-tests` job
+layer runs the real panel; the extension's end-to-end suite does, through
+the [Reference MCP Server](../mcp-server/README.md#running-the-tests) built
+on this client. CI runs both layers in the `control-client-tests` job
 ([CI gates](../../docs/guides/ci.md#path-filtered-test-jobs)).
 
 ---

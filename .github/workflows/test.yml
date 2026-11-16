@@ -677,6 +677,18 @@ jobs:
         working-directory: packages/extension/tests/e2e
         run: npm ci
 
+      # The control channel's MCP server spec starts the Reference MCP Server
+      # as a child process, from its own folder. It runs on the control client
+      # beside it, and each resolves its packages from its own folder, so both
+      # are installed, without the server's test-only dependency.
+      - name: Install control client runtime dependencies
+        working-directory: reference-implementations/control-client
+        run: npm ci --omit=dev
+
+      - name: Install MCP server runtime dependencies
+        working-directory: reference-implementations/mcp-server
+        run: npm ci --omit=dev
+
       # The browser download can hang without a byte of progress, so the step
       # carries its own bound instead of eating the job's. The cache keys on
       # this suite's lockfile, which pins the browser build Playwright fetches;
