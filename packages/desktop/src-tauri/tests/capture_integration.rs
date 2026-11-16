@@ -1638,8 +1638,8 @@ mod capture_behaviour {
         // asserted (focus on a headless runner may not reach this window, see
         // printable_keys_are_captured_when_no_type_event_arrives), but no
         // captured key is named by a VK code such as `VK_0xE7` (docent#260),
-        // and each single-character one is a character of "hello": the hook's
-        // scan code is the injected code unit.
+        // and each single-character one with no Ctrl, Alt or Meta is a
+        // character of "hello": the hook's scan code is the injected code unit.
         for e in keys(&events) {
             if let ActionPayload::Key { key, modifiers, .. } = &e.payload {
                 assert!(
