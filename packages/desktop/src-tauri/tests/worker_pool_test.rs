@@ -3044,9 +3044,9 @@ fn regression_noissue_enter_right_behind_typing_in_a_password_field_writes_no_ch
     );
 }
 
-/// In a password field the space bar, the numeric keypad and an AltGr
-/// combination enter characters too; each belongs to the masked type. A
-/// shortcut (Ctrl+V) stays a key.
+/// In a password field the space bar, the numeric keypad, a key the name
+/// table does not know and an AltGr combination enter characters too; each
+/// belongs to the masked type. A shortcut (Ctrl+V) stays a key.
 #[test]
 fn regression_noissue_every_text_entering_key_in_a_password_field_joins_the_masked_type() {
     let gate = closed_gate();
@@ -3057,6 +3057,8 @@ fn regression_noissue_every_text_entering_key_in_a_password_field_joins_the_mask
     harness.send_event(layout_key(1, t, 0x20)); // space bar
     harness.send_event(layout_key(2, t + 1, 0x65)); // numeric keypad 5
     harness.send_event(layout_key(3, t + 2, 0x6B)); // numeric keypad +
+    harness.send_event(layout_key(6, t + 3, 0x6C)); // numeric keypad separator
+    harness.send_event(layout_key(7, t + 3, 0xE2)); // a layout's extra key
     let mut alt_gr = layout_key(4, t + 3, 0x32); // AltGr+2
     alt_gr.modifiers = (true, false, true, false);
     harness.send_event(alt_gr);

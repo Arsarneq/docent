@@ -11,6 +11,7 @@
 import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import fc from 'fast-check';
+import { readFileSync } from 'node:fs';
 
 // ─── Mock Tauri globals before importing adapter-tauri.js ─────────────────────
 
@@ -269,21 +270,27 @@ describe('_insertOrdered redacts sensitive field values', () => {
     context_id: 7,
     capture_mode: 'accessibility',
   });
-  const shape = () =>
-    adapter
+  // The step's actions as they are once it is complete (the commit barrier).
+  const shape = () => {
+    stripSeqFields();
+    return adapter
       .getPendingActions()
-      .map((a) => (a.type === 'key' ? `key ${a.key}` : `${a.type} ${a.value}`));
+      .map((a) =>
+        a.type === 'key' ? `key ${a.key}` : `${a.type} ${a.value ?? a.element.selector}`,
+      );
+  };
 
   it('regression_noissue_text_keys_on_a_sensitive_field_are_one_masked_type', () => {
     // Keys typed into a card-number field that reports no value change were
     // stored as `key` actions; they are the field's one masked `type`.
-    ['4', '1', '1', 'Space', 'Numpad5', 'Add', 'Unidentified'].forEach((key, i) =>
-      insertOrdered(keyOn(cardField(), key, i + 1)),
+    ['4', '1', '1', 'Space', 'Numpad5', 'Add', 'Unidentified', 'VK_0x6C', 'VK_0xE2'].forEach(
+      (key, i) => insertOrdered(keyOn(cardField(), key, i + 1)),
     );
-    insertOrdered(keyOn(cardField(), '2', 8, { ctrl: true, alt: true })); // AltGr
+    insertOrdered(keyOn(cardField(), '2', 10, { ctrl: true, alt: true })); // AltGr
 
-    const actions = adapter.getPendingActions();
     assert.deepEqual(shape(), [`type ${SENSITIVE_MASK}`]);
+    const actions = adapter.getPendingActions();
+    assert.equal(actions[0]._typedKey, undefined);
     assert.equal(actions[0].key, undefined);
     assert.equal(actions[0].modifiers, undefined);
     assert.equal(actions[0].element.redacted, true);
@@ -316,8 +323,50 @@ describe('_insertOrdered redacts sensitive field values', () => {
     insertOrdered(keyOn(cardField(), 'V', 3, { ctrl: true }));
     insertOrdered(keyOn(cardField(), 'F', 4, { alt: true }));
     insertOrdered(keyOn(cardField(), 'D', 5, { meta: true }));
+    insertOrdered(keyOn(cardField(), 'F5', 6));
 
-    assert.deepEqual(shape(), ['key Enter', 'key Backspace', 'key V', 'key F', 'key D']);
+    assert.deepEqual(shape(), ['key Enter', 'key Backspace', 'key V', 'key F', 'key D', 'key F5']);
+  });
+
+  it('keeps a second typing run when the click between the runs arrives late', () => {
+    insertOrdered(keyOn(cardField(), '4', 1));
+    insertOrdered(keyOn(cardField(), '1', 4));
+    insertOrdered({
+      type: 'click',
+      timestamp: 2,
+      sequence_id: 2,
+      element: { tag: 'Button', name: 'Submit', selector: 'submit' },
+      context_id: 7,
+      capture_mode: 'accessibility',
+    });
+
+    assert.deepEqual(shape(), [`type ${SENSITIVE_MASK}`, 'click submit', `type ${SENSITIVE_MASK}`]);
+  });
+
+  it('leaves a key on an element that could not be described as a key', () => {
+    const fallback = { tag: 'Unknown', name: 'Secret Santa.docx', selector: '', text: null };
+    [...'keep'].forEach((key, i) => insertOrdered(keyOn(fallback, key, i + 1)));
+
+    assert.deepEqual(shape(), ['key k', 'key e', 'key e', 'key p']);
+  });
+
+  it('keeps the same list of keys that enter no character as the native layer', () => {
+    const rust = readFileSync(
+      new URL('../../src-tauri/src/capture/worker_pool.rs', import.meta.url),
+      'utf8',
+    );
+    const block = /const NON_TEXT_KEY_NAMES: &\[&str\] = &\[([^\]]*)\];/.exec(rust);
+    assert.ok(block, 'NON_TEXT_KEY_NAMES not found in worker_pool.rs');
+    const native = [...block[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]).sort();
+    assert.deepEqual([..._testOnly.nonTextKeyNames].sort(), native);
+  });
+
+  it('does not join the masked type of a field it cannot tell apart', () => {
+    const unnamed = () => ({ tag: 'Edit', name: 'cvv', selector: '', text: null });
+    insertOrdered(keyOn(unnamed(), '1', 1));
+    insertOrdered(keyOn(unnamed(), '2', 2));
+
+    assert.deepEqual(shape(), [`type ${SENSITIVE_MASK}`, `type ${SENSITIVE_MASK}`]);
   });
 
   it('keeps a masked type per sensitive field and per window', () => {
@@ -326,6 +375,7 @@ describe('_insertOrdered redacts sensitive field values', () => {
     insertOrdered(keyOn(other, '1', 2));
     insertOrdered({ ...keyOn(other, '2', 3), context_id: 8 });
 
+    stripSeqFields();
     assert.deepEqual(
       adapter.getPendingActions().map((a) => `${a.type} ${a.element.selector} ${a.context_id}`),
       ['type card 7', 'type cvv 7', 'type cvv 8'],

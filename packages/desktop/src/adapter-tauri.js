@@ -192,22 +192,41 @@ function _redactSensitive(action) {
 // has: the field's masked `type`. Keys that enter no character (Enter, Tab,
 // Backspace, the arrows) and shortcuts (Ctrl, Alt or Meta held, other than
 // Ctrl and Alt together, which is AltGr) stay keys.
-const _TEXT_KEY_NAMES = new Set([
-  'Space',
-  'Unidentified',
-  'Multiply',
-  'Add',
-  'Subtract',
-  'Decimal',
-  'Divide',
+// The test is closed on the keys that stay keys, so a key name this list does
+// not know counts as text and is masked. The native layer's password rule
+// keeps the same list (NON_TEXT_KEY_NAMES in src-tauri/src/capture/worker_pool.rs).
+const _NON_TEXT_KEY_NAMES = new Set([
+  'Backspace',
+  'Tab',
+  'Enter',
+  'Shift',
+  'Control',
+  'Alt',
+  'Pause',
+  'CapsLock',
+  'Escape',
+  'PageUp',
+  'PageDown',
+  'End',
+  'Home',
+  'ArrowLeft',
+  'ArrowUp',
+  'ArrowRight',
+  'ArrowDown',
+  'PrintScreen',
+  'Insert',
+  'Delete',
+  'Meta',
+  'NumLock',
+  'ScrollLock',
 ]);
 
 function _keyEntersText(action) {
   const { ctrl = false, alt = false, meta = false } = action.modifiers || {};
   if (meta || ctrl !== alt) return false;
   const key = action.key;
-  if (typeof key !== 'string') return false;
-  return [...key].length === 1 || _TEXT_KEY_NAMES.has(key) || /^Numpad\d$/.test(key);
+  if (typeof key !== 'string' || key === '') return false;
+  return !_NON_TEXT_KEY_NAMES.has(key) && !/^F\d+$/.test(key);
 }
 
 function _isMaskedTypeOn(action, element, contextId) {
@@ -217,6 +236,8 @@ function _isMaskedTypeOn(action, element, contextId) {
     action.value === SENSITIVE_MASK &&
     action.context_id === contextId &&
     !!action.element &&
+    typeof element.selector === 'string' &&
+    element.selector !== '' &&
     action.element.selector === element.selector
   );
 }
@@ -224,7 +245,31 @@ function _isMaskedTypeOn(action, element, contextId) {
 /** The masked `type` a text-entering key on a sensitive field is recorded as. */
 function _maskedTypeFromKey(action) {
   const { key: _key, modifiers: _modifiers, ...rest } = action;
-  return { ...rest, type: 'type', value: SENSITIVE_MASK };
+  return { ...rest, type: 'type', value: SENSITIVE_MASK, _typedKey: true };
+}
+
+// Typing into a sensitive field is one masked `type`: a key recorded as a
+// masked `type` that sits right behind the field's masked `type`, or right
+// ahead of the one its value change produced, is already recorded by it. This
+// runs when a step's actions are complete and in order, so an action still on
+// its way from another worker (a click between two typing runs) is in its
+// place before neighbours are judged.
+function _joinTypedKeys() {
+  const kept = [];
+  _pendingActions.forEach((action, i) => {
+    if (action._typedKey) {
+      const next = _pendingActions[i + 1];
+      const behind = _isMaskedTypeOn(kept[kept.length - 1], action.element, action.context_id);
+      const ahead =
+        !!next && !next._typedKey && _isMaskedTypeOn(next, action.element, action.context_id);
+      if (behind || ahead) return;
+    }
+    kept.push(action);
+  });
+  const joined = kept.length !== _pendingActions.length;
+  _pendingActions = kept;
+  for (const action of _pendingActions) delete action._typedKey;
+  if (joined) _notifyPendingCount();
 }
 
 function _insertOrdered(action) {
@@ -237,6 +282,9 @@ function _insertOrdered(action) {
     received.type === 'key' &&
     !!received.element &&
     received.element.redacted === true &&
+    // A key whose element could not be described carries the window's title
+    // as its name; a title is no field name, so it decides nothing here.
+    received.element.tag !== 'Unknown' &&
     _keyEntersText(received);
   const cleanAction = typedOnSensitiveField ? _maskedTypeFromKey(received) : received;
 
@@ -252,19 +300,6 @@ function _insertOrdered(action) {
     let insertIdx = _pendingActions.length;
     while (insertIdx > 0 && (_pendingActions[insertIdx - 1]._seq || 0) > seqId) {
       insertIdx--;
-    }
-    // Typing into the field is one masked `type`: a key that lands beside the
-    // field's masked `type` is already recorded by it.
-    if (
-      typedOnSensitiveField &&
-      (_isMaskedTypeOn(
-        _pendingActions[insertIdx - 1],
-        cleanAction.element,
-        cleanAction.context_id,
-      ) ||
-        _isMaskedTypeOn(_pendingActions[insertIdx], cleanAction.element, cleanAction.context_id))
-    ) {
-      return;
     }
     _pendingActions.splice(insertIdx, 0, cleanAction);
   }
@@ -385,6 +420,7 @@ async function commitWithCompleteness() {
 }
 
 function _stripSeqFields() {
+  _joinTypedKeys();
   for (const action of _pendingActions) {
     delete action._seq;
   }
@@ -639,6 +675,7 @@ export { commitWithCompleteness, stopWithCompleteness };
 // Test-only exports for reorder internals, the redaction chokepoint, and the
 // commit-barrier sentinel path (docent#298).
 export const _testOnly = {
+  nonTextKeyNames: _NON_TEXT_KEY_NAMES,
   resetReorderState: _resetReorderState,
   insertOrdered: _insertOrdered,
   handleCaptureAction: _handleCaptureAction,

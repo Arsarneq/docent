@@ -248,11 +248,12 @@ every keystroke a value change does not supersede is written, so a repeated
 key is recorded once per press. A keystroke that enters text into a password
 field (DCP-11's signal) is never buffered as a key: it starts or extends that
 field's masked `type` action, so typing into a password field is recorded as
-that `type` whether or not the field reports a value change. The keystrokes
-that enter text there are the printable ones, the space bar, the numeric
-keypad's digits and operators, and each of those with Ctrl and Alt held
-together; a key that enters no character, and a key with Ctrl, Alt or Meta
-held otherwise, is a `key` action there as anywhere.
+that `type` whether or not the field reports a value change. Every keystroke
+enters text there except the keys that enter no character (the editing,
+navigation, lock, system, modifier and function keys, a closed list) and a
+key with Ctrl, Alt or Meta held other than Ctrl and Alt together; those are
+`key` actions there as anywhere, and a key the name table does not know
+counts as text.
 
 Timing constants and correlation windows live in `src/capture/timing.rs`.
 
@@ -283,10 +284,13 @@ automation id — are masked at the
 **adapter chokepoint**, which processes each action's `element` (and its
 `value`) before the action enters the pending list. A `key` action on a field
 the chokepoint finds sensitive is stored there as the field's masked `type`
-when the key enters text (the keys DCP-9 names for a password field, by their
-key names), joining the masked `type` it lands beside, so no key name carries
-a character typed into a sensitive field; a key that enters no character, and
-a shortcut, stays a `key`. Both the shared detection
+when the key enters text (DCP-9's test for a password field, on the same
+closed list of key names), and when the step is committed it joins the
+field's masked `type` it sits beside, so typing into a sensitive field is one
+masked `type` and no key name carries a character typed there; a key that
+enters no character, and a shortcut, stays a `key`, as does a key whose
+element could not be described (its name is the window's title, which is no
+field name). Both the shared detection
 and the redaction shape are the cross-platform rule ([core
 CP-11](../../../../architecture/system/capture-principles.md#sensitive-values)).
 (Tokened-URL redaction is extension-only, since the desktop app has no captured

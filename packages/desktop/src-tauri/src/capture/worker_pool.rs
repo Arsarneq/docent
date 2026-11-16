@@ -1133,18 +1133,55 @@ fn carries_text(raw: &RawEvent, key: &str) -> bool {
     raw.key_code == VK_PACKET || key.chars().count() == 1
 }
 
+/// The key names that enter no character: editing, navigation, lock, system
+/// and modifier keys. The function keys (`F1` to `F24`) join them by their
+/// form. The adapter's sensitive-field rule keeps the same list
+/// (`packages/desktop/src/adapter-tauri.js`).
+const NON_TEXT_KEY_NAMES: &[&str] = &[
+    "Backspace",
+    "Tab",
+    "Enter",
+    "Shift",
+    "Control",
+    "Alt",
+    "Pause",
+    "CapsLock",
+    "Escape",
+    "PageUp",
+    "PageDown",
+    "End",
+    "Home",
+    "ArrowLeft",
+    "ArrowUp",
+    "ArrowRight",
+    "ArrowDown",
+    "PrintScreen",
+    "Insert",
+    "Delete",
+    "Meta",
+    "NumLock",
+    "ScrollLock",
+];
+
+/// Whether a key name is a function key's: `F` and a number.
+fn is_function_key_name(key: &str) -> bool {
+    key.strip_prefix('F')
+        .is_some_and(|n| !n.is_empty() && n.chars().all(|c| c.is_ascii_digit()))
+}
+
 /// Whether a keystroke into a password field enters text there, and so
-/// belongs to the field's masked type: every key that is printable input, and
-/// the keys that enter a character under a longer name or with Ctrl and Alt
-/// held together (AltGr) — the space bar and the numeric keypad's digits and
-/// operators among them. A key with Ctrl, Alt or Meta held otherwise is a
-/// shortcut and stays a key, as does every key that enters no character.
+/// belongs to the field's masked type: every key except the ones known to
+/// enter no character and the shortcuts. The test is closed on the keys that
+/// stay keys, so a key the name table does not know (a layout's extra key, a
+/// keypad separator) counts as text and is masked. Ctrl and Alt held together
+/// is AltGr, which enters a character; Ctrl, Alt or Meta held otherwise is a
+/// shortcut.
 fn enters_text_in_password_field(raw: &RawEvent, key: &str) -> bool {
     let (ctrl, _shift, alt, meta) = raw.modifiers;
     if meta || (ctrl != alt) {
         return false;
     }
-    carries_text(raw, key) || key == "Space" || matches!(raw.key_code, 0x60..=0x6F)
+    !NON_TEXT_KEY_NAMES.contains(&key) && !is_function_key_name(key)
 }
 
 // ---------------------------------------------------------------------------
