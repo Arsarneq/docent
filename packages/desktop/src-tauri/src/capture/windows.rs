@@ -1297,9 +1297,20 @@ fn input_thread_main(
 /// 1; 0 means "not counted". Process-wide, so the workers read it directly.
 static FOCUS_EPOCH: AtomicU64 = AtomicU64::new(1);
 
-/// Start a new focus epoch. One atomic add: safe on the hooks.
+/// Count a focus or foreground change a program reported (the low half of
+/// the epoch). One atomic add.
 fn focus_epoch_advance() {
     FOCUS_EPOCH.fetch_add(1, Ordering::SeqCst);
+}
+
+/// Count something the person did that can move the focus: a mouse-down or a
+/// focus-moving key (the high half of the epoch). One atomic add: safe on the
+/// hooks.
+fn focus_epoch_advance_by_person() {
+    FOCUS_EPOCH.fetch_add(
+        super::worker_pool::FOCUS_EPOCH_PERSON_STEP,
+        Ordering::SeqCst,
+    );
 }
 
 /// Assign a sequence ID and dispatch a `RawEvent` to the bridge thread.
@@ -1872,7 +1883,7 @@ unsafe extern "system" fn input_mouse_ll_proc(
         // A mouse-down may move the focus, reported or not, in a captured or
         // an excluded window: later keystrokes start a new focus epoch.
         if matches!(msg as i32, WM_LBUTTONDOWN | WM_RBUTTONDOWN | WM_MBUTTONDOWN) {
-            focus_epoch_advance();
+            focus_epoch_advance_by_person();
         }
 
         // Use WindowFromPoint for PID exclusion — determines WHETHER to capture
@@ -2150,7 +2161,7 @@ unsafe extern "system" fn input_keyboard_ll_proc(
             // pressed under. Outside the exclusion gate: a focus-moving key
             // pressed in an excluded window moves the focus all the same.
             if super::worker_pool::key_may_move_focus(kb_struct.vkCode, get_modifier_state()) {
-                focus_epoch_advance();
+                focus_epoch_advance_by_person();
             }
         }
     }

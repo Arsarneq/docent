@@ -3261,6 +3261,8 @@ struct MovingFocusBackend {
     scene: Arc<Mutex<FocusScene>>,
     queries: Arc<AtomicU64>,
     marked: Mutex<Option<String>>,
+    /// The focused-element query fails.
+    fails: bool,
 }
 
 impl MovingFocusBackend {
@@ -3272,6 +3274,7 @@ impl MovingFocusBackend {
                 scene: Arc::clone(&scene),
                 queries: Arc::clone(&queries),
                 marked: Mutex::new(None),
+                fails: false,
             },
             scene,
             queries,
@@ -3292,6 +3295,9 @@ impl AccessibilityBackend for MovingFocusBackend {
 
     fn focused_element(&self) -> Option<ElementDescription> {
         self.queries.fetch_add(1, Ordering::SeqCst);
+        if self.fails {
+            return None;
+        }
         Some(self.scene.lock().unwrap().element.clone())
     }
 
@@ -3714,6 +3720,78 @@ fn a_value_change_on_the_same_element_under_a_changed_selector_is_its_type() {
     assert_eq!(
         typed_actions_of(&events),
         vec!["type h on *Dialog > Edit:File name"],
+        "got {events:?}"
+    );
+}
+
+/// The person typed one character and clicked elsewhere in the same window
+/// before the character could be described. The focused element is then not
+/// the character's, and nothing shows what its field was: no element is
+/// named and the character is not written.
+#[test]
+fn a_first_text_key_described_after_the_person_moved_focus_is_masked_on_no_element() {
+    let (backend, _scene, _) = MovingFocusBackend::new(FocusScene {
+        // One person-made focus move later than the key below.
+        epoch: (1 << 32) | 1,
+        foreground: DIALOG,
+        element: scene_element("Edit", "Dialog > Edit:Other field", Some("")),
+    });
+    let harness = WorkerTestHarness::new(backend);
+
+    harness.send_event(in_dialog(packet_key(1, now_ms(), u16::from(b's'))));
+
+    thread::sleep(Duration::from_millis(900));
+    let events = harness.shutdown();
+
+    assert_eq!(
+        typed_actions_of(&events),
+        vec!["type •••••••• on "],
+        "got {events:?}"
+    );
+}
+
+/// A program reported a focus change of its own after the key (the count's
+/// low half moved, the person did nothing): the key is recorded on the
+/// focused element of its window, with its character, as before.
+#[test]
+fn a_first_text_key_behind_a_program_reported_focus_change_keeps_its_character() {
+    let (backend, _scene, _) = MovingFocusBackend::new(FocusScene {
+        epoch: 5,
+        foreground: DIALOG,
+        element: scene_element("Edit", "Dialog > Edit:File name", Some("")),
+    });
+    let harness = WorkerTestHarness::new(backend);
+
+    harness.send_event(in_dialog(packet_key(1, now_ms(), u16::from(b's'))));
+
+    thread::sleep(Duration::from_millis(900));
+    let events = harness.shutdown();
+
+    assert_eq!(
+        typed_actions_of(&events),
+        vec!["key s on Dialog > Edit:File name"],
+        "got {events:?}"
+    );
+}
+
+/// The key's window is in front but gives no focused element (the query
+/// failed): nothing shows what the field was, so a text key is not written
+/// with its character.
+#[test]
+fn a_text_key_whose_window_gives_no_focused_element_is_masked() {
+    let (mut backend, _scene, _) = MovingFocusBackend::new(file_name_field(""));
+    backend.fails = true;
+    let harness = WorkerTestHarness::new(backend);
+
+    harness.send_event(in_dialog(packet_key(1, now_ms(), u16::from(b's'))));
+    harness.send_event(in_dialog(layout_key(2, now_ms(), 0x0D))); // Enter
+
+    thread::sleep(Duration::from_millis(900));
+    let events = harness.shutdown();
+
+    assert_eq!(
+        typed_actions_of(&events),
+        vec!["type •••••••• on ", "key Enter on "],
         "got {events:?}"
     );
 }

@@ -126,6 +126,12 @@ pub struct RawEvent {
     /// that moment to know whether focus is still where the event happened.
     /// Assigned by the Input_Thread at dispatch; `0` where the platform does
     /// not count focus changes.
+    ///
+    /// The count has two halves. The high 32 bits count what the person did
+    /// that can move the focus (a mouse-down, a focus-moving key): counted on
+    /// the hooks, so exact at every dispatch. The low 32 bits count the focus
+    /// and foreground changes programs reported, which reach the Input_Thread
+    /// a moment after they happen. See [`person_moved_focus_between`].
     pub focus_epoch: u64,
 }
 
@@ -1169,6 +1175,28 @@ fn is_printable_key(raw: &RawEvent, key: &str) -> bool {
     carries_text(raw, key) && !raw.modifiers.0 && !raw.modifiers.2 && !raw.modifiers.3
 }
 
+/// One step of the person's half of the focus epoch (see
+/// [`RawEvent::focus_epoch`]).
+pub const FOCUS_EPOCH_PERSON_STEP: u64 = 1 << 32;
+
+/// Whether the person did something that can move the focus between the
+/// dispatch of `raw` and the moment `epoch_now` was read: a mouse-down or a
+/// focus-moving key other than `raw` itself (a focus-moving key starts the
+/// next count right behind its own dispatch).
+fn person_moved_focus_between(raw: &RawEvent, epoch_now: u64) -> bool {
+    let own_step = if matches!(raw.event_type, RawEventType::Keyboard)
+        && key_may_move_focus(raw.key_code, raw.modifiers)
+    {
+        FOCUS_EPOCH_PERSON_STEP
+    } else {
+        0
+    };
+    // The key's own step may or may not have been counted yet when the epoch
+    // was read; either reading is the key's own.
+    let now = epoch_now >> 32;
+    now != raw.focus_epoch >> 32 && now != raw.focus_epoch.wrapping_add(own_step) >> 32
+}
+
 /// Whether a keydown can move the focus by itself: every key but the plain
 /// typing keys. Tab, Enter, Escape, the arrows, a shortcut or a key this table
 /// does not know may leave another element focused; a letter, a digit, the
@@ -1492,21 +1520,29 @@ fn remembered_focus<'a>(
     })
 }
 
+/// What [`describe_focused_for`] found in the event's window.
+struct FocusedNow {
+    /// The focused element; `None` when the window gave none (the query
+    /// failed or timed out).
+    element: Option<ElementDescription>,
+    /// No focus change at all was counted since the event's dispatch: the
+    /// element is the event's.
+    focus_stands: bool,
+    /// The person clicked or pressed a focus-moving key since the event: the
+    /// element is, as far as anyone can tell, not the event's.
+    person_moved_focus: bool,
+}
+
 /// Describe the focused element for a keystroke or value change of
 /// `raw.window_handle`, now, and mark it on the backend.
 ///
 /// `None` when that window is not in front any more (it closed, or the person
-/// left it): the focused element is then some other window's. Otherwise the
-/// element (`None` inside when the window gives no focused element), and
-/// whether focus is known not to have moved since the event was dispatched
-/// (its epoch still stands, before and after the query). With `false` the
-/// element is the window's focused element now, which may be another one than
-/// the event's.
+/// left it): the focused element is then some other window's.
 fn describe_focused_for<B: AccessibilityBackend>(
     raw: &RawEvent,
     backend: &B,
     mark_seq: &mut u64,
-) -> Option<(Option<ElementDescription>, bool)> {
+) -> Option<FocusedNow> {
     let epoch_before = backend.focus_epoch();
     if !backend.is_foreground_window(raw.window_handle) {
         return None;
@@ -1517,9 +1553,12 @@ fn describe_focused_for<B: AccessibilityBackend>(
     if !backend.is_foreground_window(raw.window_handle) {
         return None;
     }
-    let focus_stands =
-        raw.focus_epoch != 0 && epoch_before == raw.focus_epoch && epoch_after == raw.focus_epoch;
-    Some((element, focus_stands))
+    let counted = raw.focus_epoch != 0;
+    Some(FocusedNow {
+        element,
+        focus_stands: counted && epoch_before == raw.focus_epoch && epoch_after == raw.focus_epoch,
+        person_moved_focus: counted && person_moved_focus_between(raw, epoch_after),
+    })
 }
 
 /// The description of a keystroke whose element cannot be described: its
@@ -1927,7 +1966,12 @@ fn handle_value_change<B: AccessibilityBackend>(
     }
     let key_selector = last_key.map(|k| k.selector.clone());
     let described = describe_focused_for(raw, backend, &mut state.mark_seq);
-    let Some((Some(mut element), focus_stands)) = described else {
+    let Some(FocusedNow {
+        element: Some(mut element),
+        focus_stands,
+        ..
+    }) = described
+    else {
         // The marked element changed or went; the last key no longer holds it.
         if let Some(k) = state.last_key.as_mut() {
             k.mark = None;
@@ -1960,8 +2004,11 @@ fn handle_value_change<B: AccessibilityBackend>(
             mark: state.mark_seq,
         });
     } else if let Some(f) = state.typing_focus.as_mut() {
-        // Still the same element (checked above), described again.
-        if f.context_id == context_id && f.epoch == raw.focus_epoch {
+        // The remembered element, described again.
+        if f.context_id == context_id
+            && f.epoch == raw.focus_epoch
+            && f.element.selector == element.selector
+        {
             f.mark = state.mark_seq;
         }
     }
@@ -2187,21 +2234,34 @@ fn handle_keyboard<B: AccessibilityBackend>(
     // Otherwise the focused element is asked for, and taken only while the
     // key's window is still in front; a key whose window closed or was left
     // names no element rather than whatever has focus at this moment.
+    let mut disproved = false;
     let remembered = remembered_focus(&state.typing_focus, raw, context_id).and_then(|known| {
         let present_speaks = known.mark == state.mark_seq
             && backend.focus_epoch() == raw.focus_epoch
             && backend.is_foreground_window(raw.window_handle);
         if present_speaks && backend.focused_is_marked() == Some(false) {
+            disproved = true;
             None
         } else {
             Some((known.element.clone(), known.mark))
         }
     });
-    // `window_gone`: nothing can be said about the element the key went to.
-    let (mut element, mark, window_gone) = match remembered {
+    if disproved {
+        // Not the focused element under this count after all: later keys must
+        // not take it either.
+        state.typing_focus = None;
+    }
+    // `unknowable`: nothing can be said about the element the key went to.
+    // Its window is gone, the window gave no focused element, or the person
+    // moved the focus (a click, a focus-moving key) before this description.
+    let (mut element, mark, unknowable) = match remembered {
         Some((element, mark)) => (element, Some(mark), false),
         None => match describe_focused_for(raw, backend, &mut state.mark_seq) {
-            Some((Some(element), focus_stands)) => {
+            Some(FocusedNow {
+                element: Some(element),
+                focus_stands,
+                person_moved_focus: false,
+            }) => {
                 if focus_stands {
                     state.typing_focus = Some(TypingFocus {
                         context_id,
@@ -2212,9 +2272,7 @@ fn handle_keyboard<B: AccessibilityBackend>(
                 }
                 (element, Some(state.mark_seq), false)
             }
-            // The window is in front and gives no focused element.
-            Some((None, _)) => (undescribed_element(raw, backend), None, false),
-            None => (undescribed_element(raw, backend), None, true),
+            _ => (undescribed_element(raw, backend), None, true),
         },
     };
     // The gap to the moment this worker settled the key's element.
@@ -2234,10 +2292,10 @@ fn handle_keyboard<B: AccessibilityBackend>(
     // a value change would mask it; the value change that follows finds the
     // mask already recorded as the field's last value and adds nothing.
     //
-    // A key whose window was gone before it could be described is held to the
-    // same rule: nothing shows its field was not a password field, so its
-    // character is not written.
-    if (element.element_type.as_deref() == Some("password") || window_gone)
+    // A key whose element is unknowable is held to the same rule: nothing
+    // shows its field was not a password field, so its character is not
+    // written.
+    if (element.element_type.as_deref() == Some("password") || unknowable)
         && enters_text_in_password_field(raw, &key)
     {
         last_value_map.insert(
