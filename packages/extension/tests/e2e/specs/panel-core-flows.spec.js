@@ -246,6 +246,32 @@ test.describe('Clear Button', () => {
     // Commit button should be disabled (no pending actions)
     await expect(panelPage.locator('#btn-commit-step')).toBeDisabled();
   });
+
+  test('clear answered with Cancel keeps the pending actions', async ({
+    panelPage,
+    serviceWorker,
+  }) => {
+    await createProjectAndRecording(panelPage);
+
+    await simulatePendingActions(serviceWorker, [
+      { type: 'click', timestamp: Date.now(), element: { text: 'X' } },
+    ]);
+    await panelPage.fill('#narration-input', 'Some step');
+    await expect(panelPage.locator('#btn-commit-step')).toBeEnabled();
+
+    const shown = new Promise((resolve) => {
+      panelPage.once('dialog', async (dialog) => {
+        const message = dialog.message();
+        await dialog.dismiss();
+        resolve(message);
+      });
+    });
+    await panelPage.click('#btn-clear-step');
+    expect(await shown).toBe('Clear all recorded actions for this step?');
+    await panelPage.waitForTimeout(500);
+
+    await expect(panelPage.locator('#btn-commit-step')).toBeEnabled();
+  });
 });
 
 test.describe('Step Detail View', () => {

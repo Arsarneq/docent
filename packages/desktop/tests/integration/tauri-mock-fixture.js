@@ -301,6 +301,15 @@ ${overrideEntries}
     return { status: _status, headers: _headers, body: _body };
   }
 
+  // The dialog plugin (tauri-plugin-dialog, registered in src-tauri/src/lib.rs)
+  // injects a script that replaces window.confirm with an async function backed
+  // by the native dialog, so the app's confirm() answers with a Promise of the
+  // user's choice, never the boolean itself. The mock keeps that shape over the
+  // browser's own dialog, so a spec still answers it through the page's dialog
+  // event.
+  const _browserConfirm = window.confirm.bind(window);
+  window.confirm = async (message) => _browserConfirm(String(message));
+
   window.__TAURI__ = {
     core: {
       invoke: async (cmd, args) => {

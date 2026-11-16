@@ -700,7 +700,9 @@ function openProject(project_id) {
 }
 
 async function deleteProject(project_id, name) {
-  if (!confirm(`Delete project "${name}"? This cannot be undone.`)) return;
+  // Every confirm() here is awaited: the dialog plugin replaces window.confirm
+  // with an async one, whose Promise is truthy whatever the user answered.
+  if (!(await confirm(`Delete project "${name}"? This cannot be undone.`))) return;
   sessionState.projects = sessionState.projects.filter((p) => p.project_id !== project_id);
   await saveState();
   notifyDataEvent(); // project delete is a meaningful local data event
@@ -881,7 +883,7 @@ function openRecording(recording_id) {
 }
 
 async function deleteRecording(recording_id, name) {
-  if (!confirm(`Delete recording "${name}"? This cannot be undone.`)) return;
+  if (!(await confirm(`Delete recording "${name}"? This cannot be undone.`))) return;
   if (isRecording) {
     await invoke('stop_capture');
     isRecording = false;
@@ -1102,7 +1104,7 @@ btnCommitStep.addEventListener('click', () =>
 );
 
 btnClearStep.addEventListener('click', async () => {
-  if (!confirm('Clear all recorded actions for this step?')) return;
+  if (!(await confirm('Clear all recorded actions for this step?'))) return;
   adapter.clearPendingActions();
   pendingCount = 0;
   updateCommitButton();
@@ -1121,7 +1123,7 @@ stepTypeRadios.forEach((radio) => {
 btnCommitStepSimple.addEventListener('click', () => commitStepSimple(rerecordLogicalId));
 
 btnClearStepSimple.addEventListener('click', async () => {
-  if (!confirm('Clear all recorded actions for this step?')) return;
+  if (!(await confirm('Clear all recorded actions for this step?'))) return;
   adapter.clearPendingActions();
   pendingCount = 0;
   updateCommitButton();
@@ -1423,7 +1425,7 @@ btnStepDetailBack.addEventListener('click', () => showView('recording'));
 // ─── Delete step ──────────────────────────────────────────────────────────────
 
 async function confirmDeleteStep(logical_id) {
-  if (!confirm('Delete this step? History will be preserved.')) return;
+  if (!(await confirm('Delete this step? History will be preserved.'))) return;
   deleteStep(activeRecording, logical_id);
   activeSteps = resolveActiveSteps(activeRecording);
   await saveState();
