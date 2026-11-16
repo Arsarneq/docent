@@ -519,6 +519,9 @@ jobs:
       - name: Install control client dependencies
         run: cd reference-implementations/control-client && npm ci
 
+      - name: Install MCP server dependencies
+        run: cd reference-implementations/mcp-server && npm ci
+
       - name: Check npm dependency licenses (default-deny allowlist)
         run: npm run check:licenses
 
@@ -1488,6 +1491,45 @@ jobs:
         working-directory: reference-implementations/control-client
         run: npm test
 
+  # Reference MCP server tests (repo/testing artifact, excluded from
+  # releases). Runs the server's own pyramid-layered suites, tests/unit and
+  # tests/integration under reference-implementations/mcp-server, which run
+  # nowhere else in CI. The server is its own npm install root and builds on
+  # the control client beside it, which npm links rather than copies, so both
+  # roots install their own lockfiles.
+  mcp-server-tests:
+    needs: [lint, changes]
+    if: |
+      needs.changes.outputs.referenceServer == 'true' ||
+      needs.changes.outputs.ciCore == 'true' ||
+      github.event_name == 'release' ||
+      github.event_name == 'push' ||
+      github.event_name == 'workflow_dispatch'
+    timeout-minutes: 10
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/debug-env
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install control client dependencies
+        working-directory: reference-implementations/control-client
+        run: npm ci
+
+      - name: Install MCP server dependencies
+        working-directory: reference-implementations/mcp-server
+        run: npm ci
+
+      - name: Run reference MCP server tests (unit + integration)
+        working-directory: reference-implementations/mcp-server
+        run: npm test
+
   # Terminal coverage upload. Every test job publishes its lcov as an artifact
   # rather than uploading to Codecov itself; this job collects them all and
   # uploads back-to-back in one tight window. Two reasons:
@@ -1684,13 +1726,14 @@ jobs:
       - desktop-integration-tests
       - reference-server-tests
       - control-client-tests
+      - mcp-server-tests
       - coverage-upload
       - zizmor
       - actionlint
     steps:
       - name: Check job results
         run: |
-          results=("${{ needs.changes.result }}" "${{ needs.lint.result }}" "${{ needs.dependency-audit.result }}" "${{ needs.unit-tests.result }}" "${{ needs.extension-e2e-tests.result }}" "${{ needs.desktop-rust-tests.result }}" "${{ needs.desktop-corpus-diff.result }}" "${{ needs.desktop-vectors-produce.result }}" "${{ needs.desktop-vectors-diff.result }}" "${{ needs.desktop-cross-compile.result }}" "${{ needs.desktop-integration-tests.result }}" "${{ needs.reference-server-tests.result }}" "${{ needs.control-client-tests.result }}" "${{ needs.coverage-upload.result }}" "${{ needs.zizmor.result }}" "${{ needs.actionlint.result }}")
+          results=("${{ needs.changes.result }}" "${{ needs.lint.result }}" "${{ needs.dependency-audit.result }}" "${{ needs.unit-tests.result }}" "${{ needs.extension-e2e-tests.result }}" "${{ needs.desktop-rust-tests.result }}" "${{ needs.desktop-corpus-diff.result }}" "${{ needs.desktop-vectors-produce.result }}" "${{ needs.desktop-vectors-diff.result }}" "${{ needs.desktop-cross-compile.result }}" "${{ needs.desktop-integration-tests.result }}" "${{ needs.reference-server-tests.result }}" "${{ needs.control-client-tests.result }}" "${{ needs.mcp-server-tests.result }}" "${{ needs.coverage-upload.result }}" "${{ needs.zizmor.result }}" "${{ needs.actionlint.result }}")
           for result in "${results[@]}"; do
             if [[ "$result" != "success" && "$result" != "skipped" ]]; then
               echo "Job failed with result: $result"

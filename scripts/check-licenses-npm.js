@@ -46,6 +46,7 @@ export const INSTALL_ROOTS = [
   'packages/extension/tests/e2e',
   'packages/desktop/tests/integration',
   'reference-implementations/control-client',
+  'reference-implementations/mcp-server',
 ];
 
 // GLOBAL allowlist — GPL-3.0-compatible per the FSF license-compatibility list.

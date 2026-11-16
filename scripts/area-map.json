@@ -55,7 +55,8 @@
         "packages/extension/sidepanel/{control-channel,control-channel-host,control-commands,project-export}.js",
         "packages/extension/tests/unit/{control-channel,control-channel-host,control-commands,project-export}.test.js",
         "packages/extension/tests/e2e/specs/control-channel.spec.js",
-        "reference-implementations/control-client/**"
+        "reference-implementations/control-client/**",
+        "reference-implementations/mcp-server/**"
       ],
       "docs": ["docs/api/control-channel.md"]
     },
@@ -290,6 +291,10 @@
     {
       "path": "reference-implementations/control-client/README.md",
       "reason": "Reference control-client README: implementation notes for an example module and its test suite (never shipped); the channel it implements the local process side of is governed by docs/api/control-channel.md."
+    },
+    {
+      "path": "reference-implementations/mcp-server/README.md",
+      "reason": "Reference MCP server README: implementation notes for an example local process and its test suite (never shipped); the channel whose commands it offers as tools is governed by docs/api/control-channel.md."
     }
   ],
   "governance-partitions": [

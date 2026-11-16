@@ -27,3 +27,10 @@ Two invariants hold for everything in this directory:
   commands, for anyone writing their own local process. It has no entry point
   of its own, and its suite tests it against a stand-in for the panel that
   follows the specification.
+- [MCP server](mcp-server/README.md): a runnable reference implementation of
+  a local process of the
+  [Local Control Channel](../docs/api/control-channel.md), built on the
+  control client: it offers the channel's commands as tools of the Model
+  Context Protocol over stdio, and writes an export a person allowed to a
+  file. Its suite drives it with the official MCP client against the same
+  stand-in for the panel.

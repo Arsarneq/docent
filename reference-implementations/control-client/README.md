@@ -99,7 +99,9 @@ npm ci
 Then, from a program of your own, either importing `client.js` by its path
 or, from a sibling package that declares this one as a
 `"docent-reference-control-client": "file:../control-client"` dependency, by
-its name:
+its name (npm links such a dependency rather than copying it, so `ws` is
+still installed here, as above; the
+[Reference MCP Server](../mcp-server/README.md) is built this way):
 
 ```js
 import { createControlClient } from 'docent-reference-control-client';
