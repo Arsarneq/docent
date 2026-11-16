@@ -186,12 +186,59 @@ function _redactSensitive(action) {
   return action;
 }
 
+// A `key` action names the character it carries, which the masking above does
+// not reach. On a sensitive field a key that enters text is therefore recorded
+// as what it is there — typing into the field — in the one shape that typing
+// has: the field's masked `type`. Keys that enter no character (Enter, Tab,
+// Backspace, the arrows) and shortcuts (Ctrl, Alt or Meta held, other than
+// Ctrl and Alt together, which is AltGr) stay keys.
+const _TEXT_KEY_NAMES = new Set([
+  'Space',
+  'Unidentified',
+  'Multiply',
+  'Add',
+  'Subtract',
+  'Decimal',
+  'Divide',
+]);
+
+function _keyEntersText(action) {
+  const { ctrl = false, alt = false, meta = false } = action.modifiers || {};
+  if (meta || ctrl !== alt) return false;
+  const key = action.key;
+  if (typeof key !== 'string') return false;
+  return [...key].length === 1 || _TEXT_KEY_NAMES.has(key) || /^Numpad\d$/.test(key);
+}
+
+function _isMaskedTypeOn(action, element, contextId) {
+  return (
+    !!action &&
+    action.type === 'type' &&
+    action.value === SENSITIVE_MASK &&
+    action.context_id === contextId &&
+    !!action.element &&
+    action.element.selector === element.selector
+  );
+}
+
+/** The masked `type` a text-entering key on a sensitive field is recorded as. */
+function _maskedTypeFromKey(action) {
+  const { key: _key, modifiers: _modifiers, ...rest } = action;
+  return { ...rest, type: 'type', value: SENSITIVE_MASK };
+}
+
 function _insertOrdered(action) {
   const seqId = action.sequence_id;
 
   // Strip sequence_id before adding to pending actions
-  const { sequence_id: _seq, ...cleanAction } = action;
-  _redactSensitive(cleanAction);
+  const { sequence_id: _seq, ...received } = action;
+  _redactSensitive(received);
+  const typedOnSensitiveField =
+    received.type === 'key' &&
+    !!received.element &&
+    received.element.redacted === true &&
+    _keyEntersText(received);
+  const cleanAction = typedOnSensitiveField ? _maskedTypeFromKey(received) : received;
 
   if (seqId == null) {
     // No sequence_id — append to end
@@ -205,6 +252,19 @@ function _insertOrdered(action) {
     let insertIdx = _pendingActions.length;
     while (insertIdx > 0 && (_pendingActions[insertIdx - 1]._seq || 0) > seqId) {
       insertIdx--;
+    }
+    // Typing into the field is one masked `type`: a key that lands beside the
+    // field's masked `type` is already recorded by it.
+    if (
+      typedOnSensitiveField &&
+      (_isMaskedTypeOn(
+        _pendingActions[insertIdx - 1],
+        cleanAction.element,
+        cleanAction.context_id,
+      ) ||
+        _isMaskedTypeOn(_pendingActions[insertIdx], cleanAction.element, cleanAction.context_id))
+    ) {
+      return;
     }
     _pendingActions.splice(insertIdx, 0, cleanAction);
   }

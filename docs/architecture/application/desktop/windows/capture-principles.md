@@ -281,7 +281,12 @@ recorded as part of the field's masked `type`, never as a `key` (DCP-9). Other s
 names, recognised by the shared detection from their accessibility name or
 automation id — are masked at the
 **adapter chokepoint**, which processes each action's `element` (and its
-`value`) before the action enters the pending list. Both the shared detection
+`value`) before the action enters the pending list. A `key` action on a field
+the chokepoint finds sensitive is stored there as the field's masked `type`
+when the key enters text (the keys DCP-9 names for a password field, by their
+key names), joining the masked `type` it lands beside, so no key name carries
+a character typed into a sensitive field; a key that enters no character, and
+a shortcut, stays a `key`. Both the shared detection
 and the redaction shape are the cross-platform rule ([core
 CP-11](../../../../architecture/system/capture-principles.md#sensitive-values)).
 (Tokened-URL redaction is extension-only, since the desktop app has no captured

@@ -256,6 +256,92 @@ describe('_insertOrdered redacts sensitive field values', () => {
     assert.equal(adapter.getPendingActions()[0].element.redacted, true);
   });
 
+  // A `key` names the character it carries, so on a sensitive field a
+  // text-entering key is recorded as the field's masked `type` instead.
+  const cardField = () => ({ tag: 'Edit', name: 'creditCardNumber', selector: 'card', text: null });
+  const keyOn = (element, key, seq, modifiers = {}) => ({
+    type: 'key',
+    timestamp: seq,
+    sequence_id: seq,
+    key,
+    modifiers: { ctrl: false, shift: false, alt: false, meta: false, ...modifiers },
+    element,
+    context_id: 7,
+    capture_mode: 'accessibility',
+  });
+  const shape = () =>
+    adapter
+      .getPendingActions()
+      .map((a) => (a.type === 'key' ? `key ${a.key}` : `${a.type} ${a.value}`));
+
+  it('regression_noissue_text_keys_on_a_sensitive_field_are_one_masked_type', () => {
+    // Keys typed into a card-number field that reports no value change were
+    // stored as `key` actions; they are the field's one masked `type`.
+    ['4', '1', '1', 'Space', 'Numpad5', 'Add', 'Unidentified'].forEach((key, i) =>
+      insertOrdered(keyOn(cardField(), key, i + 1)),
+    );
+    insertOrdered(keyOn(cardField(), '2', 8, { ctrl: true, alt: true })); // AltGr
+
+    const actions = adapter.getPendingActions();
+    assert.deepEqual(shape(), [`type ${SENSITIVE_MASK}`]);
+    assert.equal(actions[0].key, undefined);
+    assert.equal(actions[0].modifiers, undefined);
+    assert.equal(actions[0].element.redacted, true);
+    assert.equal(actions[0].context_id, 7);
+    assert.equal(actions[0].capture_mode, 'accessibility');
+  });
+
+  it('regression_noissue_text_keys_beside_the_masked_type_of_a_sensitive_field_join_it', () => {
+    // Keys released by a control key ahead of the field's value change were
+    // stored beside the masked `type`, whichever arrived first.
+    insertOrdered(keyOn(cardField(), '4', 1));
+    insertOrdered(keyOn(cardField(), '1', 2));
+    insertOrdered(keyOn(cardField(), 'Enter', 3));
+    insertOrdered({
+      type: 'type',
+      timestamp: 5,
+      sequence_id: 5,
+      element: { ...cardField(), text: '41' },
+      value: '41',
+      context_id: 7,
+      capture_mode: 'accessibility',
+    });
+
+    assert.deepEqual(shape(), [`type ${SENSITIVE_MASK}`, 'key Enter', `type ${SENSITIVE_MASK}`]);
+  });
+
+  it('keeps control keys and shortcuts on a sensitive field as keys', () => {
+    insertOrdered(keyOn(cardField(), 'Enter', 1));
+    insertOrdered(keyOn(cardField(), 'Backspace', 2));
+    insertOrdered(keyOn(cardField(), 'V', 3, { ctrl: true }));
+    insertOrdered(keyOn(cardField(), 'F', 4, { alt: true }));
+    insertOrdered(keyOn(cardField(), 'D', 5, { meta: true }));
+
+    assert.deepEqual(shape(), ['key Enter', 'key Backspace', 'key V', 'key F', 'key D']);
+  });
+
+  it('keeps a masked type per sensitive field and per window', () => {
+    const other = { ...cardField(), selector: 'cvv', name: 'cvv' };
+    insertOrdered(keyOn(cardField(), '4', 1));
+    insertOrdered(keyOn(other, '1', 2));
+    insertOrdered({ ...keyOn(other, '2', 3), context_id: 8 });
+
+    assert.deepEqual(
+      adapter.getPendingActions().map((a) => `${a.type} ${a.element.selector} ${a.context_id}`),
+      ['type card 7', 'type cvv 7', 'type cvv 8'],
+    );
+  });
+
+  it('records every repeated key on a field that is not sensitive', () => {
+    const plain = { tag: 'Edit', name: 'username', selector: 'u', text: null };
+    [...'keeeeeep'].forEach((key, i) => insertOrdered(keyOn(plain, key, i + 1)));
+
+    assert.deepEqual(
+      shape(),
+      [...'keeeeeep'].map((k) => `key ${k}`),
+    );
+  });
+
   it('leaves a normal field untouched (no over-masking)', () => {
     insertOrdered({
       type: 'type',
