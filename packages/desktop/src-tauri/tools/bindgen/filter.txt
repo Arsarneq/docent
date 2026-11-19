@@ -37,6 +37,7 @@ Windows.Win32.GetAncestor
 Windows.Win32.GetAsyncKeyState
 Windows.Win32.GetClassNameW
 Windows.Win32.GetCurrentThreadId
+Windows.Win32.GetDoubleClickTime
 Windows.Win32.GetForegroundWindow
 Windows.Win32.GetMessageW
 Windows.Win32.GetModuleFileNameExW
@@ -92,7 +93,9 @@ Windows.Win32.ProviderOptions_UseComThreading
 Windows.Win32.RECT
 Windows.Win32.RegisterClassW
 Windows.Win32.SAFEARRAY
+Windows.Win32.SM_CXDOUBLECLK
 Windows.Win32.SM_CXVIRTUALSCREEN
+Windows.Win32.SM_CYDOUBLECLK
 Windows.Win32.SM_CYVIRTUALSCREEN
 Windows.Win32.SM_XVIRTUALSCREEN
 Windows.Win32.SM_YVIRTUALSCREEN

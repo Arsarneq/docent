@@ -107,8 +107,10 @@ pub struct RawEvent {
     /// the event; `[axis, 0, 0, 0]` from the mouse hook's wheel path, where
     /// 1 = horizontal (read by the scroll arm); `[scan_code, 0, 0, 0]` from the
     /// keyboard hook, where a `VK_PACKET` keystroke's scan code is the injected
-    /// UTF-16 code unit (read by the keyboard arm). On other platforms: unused
-    /// or platform-defined.
+    /// UTF-16 code unit (read by the keyboard arm); `[double, 0, 0, 0]` from the
+    /// mouse hook's left-click path, where [`CLICK_COMPLETES_DOUBLE_CLICK`]
+    /// marks the second click of a double-click (read by the pool's routing
+    /// and the click arm). On other platforms: unused or platform-defined.
     pub callback_params: [i64; 4],
     /// Pre-captured element description from the Input_Thread.
     /// For mouse click/right-click events, the Input_Thread may perform a
@@ -133,6 +135,82 @@ pub struct RawEvent {
     /// and foreground changes programs reported, which reach the Input_Thread
     /// a moment after they happen. See [`person_moved_focus_between`].
     pub focus_epoch: u64,
+}
+
+// ---------------------------------------------------------------------------
+// Double-click
+// ---------------------------------------------------------------------------
+
+/// The `callback_params[0]` value of a left [`RawEventType::Click`] whose press
+/// completed a double-click (DCP-10); `0` on every other click.
+pub const CLICK_COMPLETES_DOUBLE_CLICK: i64 = 1;
+
+/// Whether `raw` is a left click whose press completed a double-click.
+pub fn completes_double_click(raw: &RawEvent) -> bool {
+    matches!(raw.event_type, RawEventType::Click)
+        && raw.callback_params[0] == CLICK_COMPLETES_DOUBLE_CLICK
+}
+
+/// One press of the left button, as the double-click test reads it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ClickPress {
+    /// The press time on the system's input clock, in milliseconds (it wraps).
+    pub time_ms: u32,
+    /// Screen-space X coordinate of the press.
+    pub x: i32,
+    /// Screen-space Y coordinate of the press.
+    pub y: i32,
+    /// The window the press landed in.
+    pub window: i64,
+}
+
+/// The system's double-click bounds: the longest time between the two presses
+/// and the size of the rectangle, centred on the first press, the second must
+/// land in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DoubleClickBounds {
+    pub max_interval_ms: u32,
+    pub width: i32,
+    pub height: i32,
+}
+
+/// Pairs left clicks into double-clicks the way the system does (DCP-10): a
+/// click's press completes a double-click when it lands in the same window as
+/// the press of the left click before it, within the system's double-click
+/// time after it and inside the system's double-click rectangle around it. A
+/// press that completes a double-click starts no new pair, and a right or
+/// middle press, or a drag, between two left clicks breaks the pair.
+///
+/// Pure state the mouse hook keeps, so the pairing is testable without
+/// synthesizing input.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct DoubleClickTracker {
+    previous: Option<ClickPress>,
+}
+
+impl DoubleClickTracker {
+    /// A tracker with no click recorded.
+    pub const fn new() -> Self {
+        Self { previous: None }
+    }
+
+    /// Record a left click by its press; answers whether that press completed
+    /// a double-click.
+    pub fn left_click(&mut self, press: ClickPress, bounds: DoubleClickBounds) -> bool {
+        let completes = self.previous.is_some_and(|first| {
+            first.window == press.window
+                && press.time_ms.wrapping_sub(first.time_ms) <= bounds.max_interval_ms
+                && (press.x - first.x).abs() <= bounds.width / 2
+                && (press.y - first.y).abs() <= bounds.height / 2
+        });
+        self.previous = if completes { None } else { Some(press) };
+        completes
+    }
+
+    /// Break the pair: the next left click starts a new one.
+    pub fn break_pair(&mut self) {
+        self.previous = None;
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -336,7 +414,7 @@ const NO_TYPING_WORKER: usize = usize::MAX;
 /// The pool manages a fixed set of workers, assigns monotonic sequence numbers
 /// to events, and routes events using shortest-queue dispatch with one typing
 /// worker for keyboard and value-change events, sticky routing for focus and
-/// selection events, and paired routing for drag events.
+/// selection events, and paired routing for drag events and double-clicks.
 ///
 /// When a worker panics, the pool detects the failure on the next dispatch
 /// attempt, immediately respawns a replacement worker at the same index, and
@@ -369,6 +447,12 @@ pub struct WorkerPool {
     /// Tracks the worker index that received the most recent `DragStart`,
     /// so the corresponding `Drop` event is routed to the same worker.
     last_drag_worker: Option<usize>,
+    /// The worker index that received the most recent `Click`, so a click
+    /// that completes a double-click reaches the worker that processed the
+    /// click before it (the file-dialog proxy reads the pair there, DCP-6).
+    /// Kept across a respawn of its index: a click retried on the fresh
+    /// worker is the one its pair must follow.
+    last_click_worker: Option<usize>,
     /// Retained spawn closure for respawning dead workers.
     spawn_worker: SpawnWorkerFn,
     /// Retained action sender for respawning dead workers.
@@ -431,6 +515,7 @@ impl WorkerPool {
             missed_last_barrier: AtomicU64::new(0),
             window_affinity: HashMap::new(),
             last_drag_worker: None,
+            last_click_worker: None,
             spawn_worker: Box::new(spawn_worker),
             action_sender,
         }
@@ -467,6 +552,8 @@ impl WorkerPool {
     ///   worker).
     /// - `DragStart`   → shortest-queue worker (index stored for the paired `Drop`).
     /// - `Drop`        → same worker as the most recent `DragStart`.
+    /// - `Click`       → shortest-queue worker, or, for a click that completes
+    ///   a double-click, the same worker as the click before it.
     /// - All others    → shortest-queue worker.
     ///
     /// If the selected worker has disconnected (panicked), it is marked dead
@@ -522,6 +609,17 @@ impl WorkerPool {
             RawEventType::Drop { .. } => self
                 .last_drag_worker
                 .unwrap_or_else(|| self.shortest_queue_worker()),
+            // Double-click pairing: the second click of a double-click reaches
+            // the worker that processed the first, whose FIFO queue then
+            // handles the pair in order.
+            RawEventType::Click => {
+                let idx = match self.last_click_worker {
+                    Some(idx) if completes_double_click(event) => idx,
+                    _ => self.shortest_queue_worker(),
+                };
+                self.last_click_worker = Some(idx);
+                idx
+            }
             _ => self.shortest_queue_worker(),
         }
     }
@@ -958,9 +1056,12 @@ pub trait AccessibilityBackend: Send + 'static {
     /// Get the process name for a window handle.
     fn process_name(&self, window_handle: i64) -> String;
 
-    /// Read a file dialog path from the given window (if it is a file dialog).
-    /// Returns `(dialog_type, file_path)` or `None` if the window is not a
-    /// file dialog or no path could be read.
+    /// Read a file dialog path from the given window: the dialog itself or
+    /// any window inside it (a click names the control under the pointer).
+    /// Returns `(dialog_type, file_path)`, `file_path` being the directory the
+    /// dialog shows and its File name joined with a backslash, or the File
+    /// name alone when the directory could not be read; `None` if the window
+    /// is not in a file dialog or no File name could be read.
     fn read_file_dialog_path(&self, window_handle: i64) -> Option<(String, String)>;
 
     /// Resolve a window handle to its top-level root window handle.
@@ -1464,6 +1565,10 @@ struct WorkerState {
     last_focus_selector: String,
     last_value_map: HashMap<String, String>,
     last_drag_element: Option<ElementDescription>,
+    /// The file the last click selected in a file dialog's item view, read
+    /// from the dialog at that click, for the click that completes a
+    /// double-click on it (DCP-6). Taken by every click.
+    file_pick: Option<FilePick>,
     /// The element last described for a keystroke or value change while focus
     /// was known not to have moved since that event (see [`TypingFocus`]).
     typing_focus: Option<TypingFocus>,
@@ -1480,6 +1585,7 @@ impl WorkerState {
             last_focus_selector: String::new(),
             last_value_map: HashMap::new(),
             last_drag_element: None,
+            file_pick: None,
             typing_focus: None,
             mark_seq: 0,
             last_key: None,
@@ -1632,6 +1738,7 @@ fn process_raw_event<B: AccessibilityBackend>(
                 context_id,
                 false,
                 window_rect.clone(),
+                &mut state.file_pick,
             );
         }
         RawEventType::RightClick => {
@@ -1642,6 +1749,7 @@ fn process_raw_event<B: AccessibilityBackend>(
                 context_id,
                 true,
                 window_rect.clone(),
+                &mut state.file_pick,
             );
         }
         RawEventType::Focus => {
@@ -1789,6 +1897,56 @@ fn process_raw_event<B: AccessibilityBackend>(
 // Click handling
 // ---------------------------------------------------------------------------
 
+/// A file selected in a file dialog's item view, as the dialog showed it at
+/// the click that selected it.
+#[derive(Debug, Clone)]
+struct FilePick {
+    dialog_type: String,
+    file_path: String,
+    source: String,
+    context_id: Option<i64>,
+    window_rect: Option<WindowRect>,
+}
+
+/// The file a click in a file dialog's item view selected, read from the
+/// dialog while it is open: the click landed on an item (its element is, or
+/// sits inside, a `ListItem`), and the dialog's File name field holds that
+/// item's name, which selecting a file puts there and selecting a folder does
+/// not. `None` for any other click, and when the dialog cannot be read.
+fn read_file_pick<B: AccessibilityBackend>(
+    raw: &RawEvent,
+    backend: &B,
+    element: &ElementDescription,
+    context_id: Option<i64>,
+    window_rect: &Option<WindowRect>,
+) -> Option<FilePick> {
+    // Only a click on a list item reads the dialog, so other clicks cost no
+    // accessibility query here.
+    let items: Vec<&str> = element
+        .selector
+        .split(" > ")
+        .filter_map(|segment| segment.strip_prefix("ListItem:"))
+        .collect();
+    if items.is_empty() {
+        return None;
+    }
+    let (dialog_type, file_path) = backend.read_file_dialog_path(raw.window_handle)?;
+    // `file_path` is the dialog's directory and File name joined with a
+    // backslash, or the File name alone (the backend's read).
+    let file_name = file_path.rsplit('\\').next().unwrap_or(&file_path);
+    if file_name.is_empty() || !items.contains(&file_name) {
+        return None;
+    }
+    Some(FilePick {
+        dialog_type,
+        file_path,
+        source: backend.process_name(raw.window_handle),
+        context_id,
+        window_rect: window_rect.clone(),
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
 fn handle_click<B: AccessibilityBackend>(
     raw: &RawEvent,
     backend: &B,
@@ -1796,7 +1954,12 @@ fn handle_click<B: AccessibilityBackend>(
     context_id: Option<i64>,
     is_right_click: bool,
     window_rect: Option<WindowRect>,
+    file_pick: &mut Option<FilePick>,
 ) {
+    // The pick belongs to the click just before this one (the pool routes a
+    // double-click's second click to the first click's worker).
+    let previous_pick = file_pick.take();
+
     // Priority chain for element resolution:
     // 1. Pre-captured element from Input_Thread (window guaranteed alive)
     // 2. Worker's own ElementFromPoint query
@@ -1868,32 +2031,50 @@ fn handle_click<B: AccessibilityBackend>(
         payload,
     });
 
-    // File dialog detection: if the clicked element is a button named
-    // "Save" or "Open", check if the window is a file dialog.
-    if !is_right_click {
-        if let Some(ref name) = element_desc.name {
-            let name_lower = name.to_lowercase();
-            if (name_lower == "save" || name_lower == "open") && element_desc.tag == "Button" {
-                if let Some((dialog_type, file_path)) =
-                    backend.read_file_dialog_path(raw.window_handle)
-                {
-                    let source = backend.process_name(raw.window_handle);
-                    let _ = action_sender.send(ActionEvent {
-                        timestamp: raw.timestamp,
-                        context_id,
-                        capture_mode: CaptureMode::Accessibility,
-                        frame_src: None,
-                        window_rect,
-                        sequence_id: Some(raw.sequence_id),
-                        payload: ActionPayload::FileDialog {
-                            dialog_type,
-                            file_path,
-                            source,
-                        },
-                    });
-                }
-            }
-        }
+    if is_right_click {
+        return;
+    }
+
+    // File dialog proxy (DCP-6), confirmed one of two ways. A click on a
+    // button named "Save" or "Open": the dialog is read at that click.
+    let is_confirm_button = element_desc.tag == "Button"
+        && element_desc
+            .name
+            .as_deref()
+            .is_some_and(|name| matches!(name.to_lowercase().as_str(), "save" | "open"));
+    let pick = if is_confirm_button {
+        backend
+            .read_file_dialog_path(raw.window_handle)
+            .map(|(dialog_type, file_path)| FilePick {
+                dialog_type,
+                file_path,
+                source: backend.process_name(raw.window_handle),
+                context_id,
+                window_rect,
+            })
+    } else if completes_double_click(raw) {
+        // A double-click on a file in the item view: its second press closes
+        // the dialog, often before this click is processed, so the dialog
+        // was read at the first click, which selected the file.
+        previous_pick
+    } else {
+        *file_pick = read_file_pick(raw, backend, &element_desc, context_id, &window_rect);
+        None
+    };
+    if let Some(pick) = pick {
+        let _ = action_sender.send(ActionEvent {
+            timestamp: raw.timestamp,
+            context_id: pick.context_id,
+            capture_mode: CaptureMode::Accessibility,
+            frame_src: None,
+            window_rect: pick.window_rect,
+            sequence_id: Some(raw.sequence_id),
+            payload: ActionPayload::FileDialog {
+                dialog_type: pick.dialog_type,
+                file_path: pick.file_path,
+                source: pick.source,
+            },
+        });
     }
 }
 
