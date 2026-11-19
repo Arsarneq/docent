@@ -430,13 +430,15 @@ proptest! {
 // Mock AccessibilityBackend for worker_loop tests
 // ---------------------------------------------------------------------------
 
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::AtomicU32;
 use std::sync::Mutex;
 use std::thread;
 use std::time::Duration;
 
-use docent_desktop_lib::capture::worker_pool::{worker_loop, AccessibilityBackend, PendingBuffers};
+use docent_desktop_lib::capture::worker_pool::{
+    worker_loop, AccessibilityBackend, ControlLook, PendingBuffers, FOCUS_EPOCH_PERSON_STEP,
+};
 use docent_desktop_lib::capture::{
     ActionPayload, CaptureError, CaptureMode, ElementDescription, Modifiers,
 };
@@ -3263,7 +3265,32 @@ struct MovingFocusBackend {
     marked: Mutex<Option<String>>,
     /// The focused-element query fails.
     fails: bool,
+    controls: Arc<Mutex<Controls>>,
 }
+
+/// The controls (window handles that take the keyboard focus) of the dialog,
+/// as the test arranges them, and how often the backend was asked about them.
+#[derive(Default)]
+struct Controls {
+    /// The control that holds the keyboard focus right now.
+    focused: i64,
+    /// Live controls that can hold the focus only themselves.
+    own: HashMap<i64, ElementDescription>,
+    /// Live windows that hold other focusable elements.
+    shared: Vec<i64>,
+    /// The title of the dialog.
+    title: String,
+    descriptions: u64,
+    value_reads: u64,
+}
+
+/// A backend with the handles a test moves its focus and its controls by.
+type WithControls = (
+    MovingFocusBackend,
+    Arc<Mutex<FocusScene>>,
+    Arc<AtomicU64>,
+    Arc<Mutex<Controls>>,
+);
 
 impl MovingFocusBackend {
     fn new(scene: FocusScene) -> (Self, Arc<Mutex<FocusScene>>, Arc<AtomicU64>) {
@@ -3275,10 +3302,19 @@ impl MovingFocusBackend {
                 queries: Arc::clone(&queries),
                 marked: Mutex::new(None),
                 fails: false,
+                controls: Arc::default(),
             },
             scene,
             queries,
         )
+    }
+
+    /// A backend that also knows the dialog's controls.
+    fn with_controls(scene: FocusScene, controls: Controls) -> WithControls {
+        let (mut backend, scene, queries) = Self::new(scene);
+        backend.controls = Arc::new(Mutex::new(controls));
+        let controls = Arc::clone(&backend.controls);
+        (backend, scene, queries, controls)
     }
 }
 
@@ -3320,8 +3356,30 @@ impl AccessibilityBackend for MovingFocusBackend {
         self.scene.lock().unwrap().foreground == window_handle
     }
 
+    fn focused_control(&self) -> i64 {
+        self.controls.lock().unwrap().focused
+    }
+
+    fn describe_control(&self, control: i64) -> ControlLook {
+        let mut controls = self.controls.lock().unwrap();
+        controls.descriptions += 1;
+        if let Some(element) = controls.own.get(&control) {
+            ControlLook::Own(Box::new(element.clone()))
+        } else if controls.shared.contains(&control) {
+            ControlLook::Shared
+        } else {
+            ControlLook::Gone
+        }
+    }
+
+    fn control_value(&self, control: i64) -> Option<String> {
+        let mut controls = self.controls.lock().unwrap();
+        controls.value_reads += 1;
+        controls.own.get(&control).and_then(|e| e.text.clone())
+    }
+
     fn window_title(&self, _window_handle: i64) -> String {
-        String::new()
+        self.controls.lock().unwrap().title.clone()
     }
 
     fn process_name(&self, _window_handle: i64) -> String {
@@ -3333,7 +3391,12 @@ impl AccessibilityBackend for MovingFocusBackend {
     }
 
     fn root_window_handle(&self, window_handle: i64) -> i64 {
-        window_handle
+        // The dialog's fields are windows inside it, alive or gone.
+        if window_handle == FIELD || window_handle == OTHER_FIELD {
+            DIALOG
+        } else {
+            window_handle
+        }
     }
 
     fn window_rect(&self, _window_handle: i64) -> Option<docent_desktop_lib::capture::WindowRect> {
@@ -3881,4 +3944,399 @@ fn only_plain_typing_keys_keep_the_focus_epoch() {
     for vk in [0x09, 0x0D, 0x1B, 0x25, 0x75, 0x5B, 0xFF] {
         assert!(key_may_move_focus(vk, none), "vk {vk:#x}");
     }
+}
+
+// ---------------------------------------------------------------------------
+// A keystroke's control is settled when the key is pressed
+// ---------------------------------------------------------------------------
+//
+// The Input_Thread reads which control holds the keyboard focus when a key is
+// pressed and stamps the key with it. A control that can hold the focus only
+// itself is described once; its later keys and its value changes need no
+// focused-element query, so they are recorded on it however late a worker
+// gets to them.
+
+/// The dialog's file-name field as a control of its own.
+const FIELD: i64 = 77;
+/// Another field of the dialog.
+const OTHER_FIELD: i64 = 88;
+
+/// The dialog with its file-name field focused, holding `text`.
+fn field_controls(text: &str) -> Controls {
+    Controls {
+        focused: FIELD,
+        own: HashMap::from([(
+            FIELD,
+            scene_element("Edit", "Dialog > Edit:File name", Some(text)),
+        )]),
+        ..Default::default()
+    }
+}
+
+/// What a focused-element query would answer: never the file-name field, so
+/// a `type` or key on the field shows the query was not what named it.
+fn save_button_focused() -> FocusScene {
+    FocusScene {
+        epoch: 1,
+        foreground: DIALOG,
+        element: scene_element("Button", "Dialog > Button:Save", None),
+    }
+}
+
+/// A key of the dialog pressed while the file-name field held the focus.
+fn in_field(raw: RawEvent) -> RawEvent {
+    let mut raw = in_dialog(raw);
+    raw.callback_params[1] = FIELD;
+    raw
+}
+
+/// A value change a control reported about itself.
+fn control_value_change(seq: u64, timestamp: u64, control: i64) -> RawEvent {
+    let mut raw = value_change(seq, timestamp, control);
+    raw.callback_params = [-4, 0, 0, 0]; // OBJID_CLIENT, CHILDID_SELF
+    raw.focus_epoch = 1;
+    raw
+}
+
+/// From the hands-on run of 2026-11-19: a file name typed into a Save As
+/// dialog whose descriptions took a second each. The first key was described
+/// in time; the keys behind it and Enter were reached after Enter had closed
+/// the dialog, and were recorded on no element, the text masked. They carry
+/// the field's handle, and the field was described for the first key.
+#[test]
+fn keys_reached_after_their_dialog_closed_are_recorded_on_the_control_they_were_pressed_in() {
+    let (backend, scene, queries, controls) =
+        MovingFocusBackend::with_controls(save_button_focused(), field_controls("c"));
+    let harness = WorkerTestHarness::new(backend);
+
+    let t = now_ms();
+    harness.send_event(in_field(packet_key(1, t, u16::from(b'c'))));
+    thread::sleep(Duration::from_millis(150));
+    // Enter was pressed and the dialog is gone.
+    *scene.lock().unwrap() = FocusScene {
+        epoch: 2 + FOCUS_EPOCH_PERSON_STEP,
+        foreground: OTHER_WINDOW,
+        element: scene_element("Edit", "Document > Edit:Text Editor", Some("text")),
+    };
+    {
+        let mut controls = controls.lock().unwrap();
+        controls.focused = 0;
+        controls.own.clear();
+    }
+    harness.send_event(in_field(packet_key(2, t + 1, u16::from(b'o'))));
+    harness.send_event(in_field(packet_key(3, t + 2, u16::from(b'p'))));
+    harness.send_event(in_field(layout_key(4, t + 3, 0x0D))); // Enter
+
+    thread::sleep(Duration::from_millis(900));
+    let events = harness.shutdown();
+
+    assert_eq!(
+        typed_actions_of(&events),
+        vec![
+            "key c on Dialog > Edit:File name",
+            "key o on Dialog > Edit:File name",
+            "key p on Dialog > Edit:File name",
+            "key Enter on Dialog > Edit:File name"
+        ],
+        "got {events:?}"
+    );
+    assert_eq!(controls.lock().unwrap().descriptions, 1);
+    assert_eq!(queries.load(Ordering::SeqCst), 0);
+}
+
+/// A value change a control reports about itself is that control's `type`,
+/// read from the control: no focused-element query, whatever has the focus by
+/// then. Repeated keys are in the value exactly as typed.
+#[test]
+fn a_value_change_of_the_keys_control_is_its_type_whatever_has_focus_by_then() {
+    let text = format!("k{}p", "e".repeat(24));
+    let (backend, scene, queries, controls) =
+        MovingFocusBackend::with_controls(save_button_focused(), field_controls(&text));
+    let harness = WorkerTestHarness::new(backend);
+
+    let t = now_ms();
+    for (i, unit) in text.encode_utf16().enumerate() {
+        harness.send_event(in_field(packet_key(i as u64 + 1, t + i as u64, unit)));
+    }
+    thread::sleep(Duration::from_millis(150));
+    scene.lock().unwrap().epoch = 2;
+    controls.lock().unwrap().focused = OTHER_FIELD;
+    harness.send_event(control_value_change(27, t + 30, FIELD));
+
+    thread::sleep(Duration::from_millis(900));
+    let events = harness.shutdown();
+
+    assert_eq!(
+        typed_actions_of(&events),
+        vec![format!("type {text} on Dialog > Edit:File name")],
+        "got {events:?}"
+    );
+    assert_eq!(queries.load(Ordering::SeqCst), 0);
+    let controls = controls.lock().unwrap();
+    assert_eq!((controls.descriptions, controls.value_reads), (1, 1));
+}
+
+/// Only the value change of the control the keys went to is their `type`. One
+/// from another control of the window, or from a part of the control that is
+/// not the control itself (its scroll bar), says nothing about them: it is
+/// passed over, and the keys wait for their own.
+#[test]
+fn a_value_change_from_elsewhere_in_the_window_is_passed_over() {
+    let mut arranged = field_controls("hi");
+    arranged.own.insert(
+        OTHER_FIELD,
+        scene_element("Edit", "Dialog > Edit:Other", Some("zz")),
+    );
+    let (backend, _scene, _, _) =
+        MovingFocusBackend::with_controls(save_button_focused(), arranged);
+    let harness = WorkerTestHarness::new(backend);
+
+    let t = now_ms();
+    harness.send_event(in_field(packet_key(1, t, u16::from(b'h'))));
+    harness.send_event(in_field(packet_key(2, t + 1, u16::from(b'i'))));
+    harness.send_event(control_value_change(3, t + 2, OTHER_FIELD));
+    let mut scroll_bar = control_value_change(4, t + 3, FIELD);
+    scroll_bar.callback_params = [-5, 0, 0, 0]; // OBJID_VSCROLL
+    harness.send_event(scroll_bar);
+    harness.send_event(control_value_change(5, t + 4, FIELD));
+
+    thread::sleep(Duration::from_millis(900));
+    let events = harness.shutdown();
+
+    assert_eq!(
+        typed_actions_of(&events),
+        vec!["type hi on Dialog > Edit:File name"],
+        "got {events:?}"
+    );
+}
+
+/// The handle is read on the hook, possibly before the program acted on what
+/// the person did just before (Tab, then a character at once). So the first
+/// key after the person did something that can move the focus is taken on its
+/// handle only once the present confirms it. Reached after the person moved
+/// the focus again, nothing confirms it: the key names no element, masked.
+#[test]
+fn a_first_key_after_a_focus_move_reached_too_late_is_not_taken_on_its_handle() {
+    let (backend, scene, _, _) =
+        MovingFocusBackend::with_controls(save_button_focused(), field_controls("a"));
+    let harness = WorkerTestHarness::new(backend);
+
+    let t = now_ms();
+    harness.send_event(in_field(packet_key(1, t, u16::from(b'a'))));
+    thread::sleep(Duration::from_millis(150));
+    scene.lock().unwrap().epoch = 1 + 2 * FOCUS_EPOCH_PERSON_STEP;
+    let mut late = in_field(packet_key(2, t + 1, u16::from(b'x')));
+    late.focus_epoch = 1 + FOCUS_EPOCH_PERSON_STEP;
+    harness.send_event(late);
+
+    thread::sleep(Duration::from_millis(900));
+    let events = harness.shutdown();
+
+    assert_eq!(
+        typed_actions_of(&events),
+        vec!["key a on Dialog > Edit:File name", "type •••••••• on "],
+        "got {events:?}"
+    );
+}
+
+/// The same first key reached in time, with the focus in another control by
+/// then (the program had acted on the Tab after the hook read the handle): it
+/// is described from the focused element, as a key without a handle is.
+#[test]
+fn a_first_key_after_a_focus_move_whose_handle_the_present_contradicts_is_described_by_focus() {
+    let (backend, scene, _, controls) =
+        MovingFocusBackend::with_controls(save_button_focused(), field_controls("a"));
+    let harness = WorkerTestHarness::new(backend);
+
+    let t = now_ms();
+    harness.send_event(in_field(packet_key(1, t, u16::from(b'a'))));
+    thread::sleep(Duration::from_millis(150));
+    *scene.lock().unwrap() = FocusScene {
+        epoch: 1 + FOCUS_EPOCH_PERSON_STEP,
+        foreground: DIALOG,
+        element: scene_element("Edit", "Dialog > Edit:Other", Some("")),
+    };
+    controls.lock().unwrap().focused = OTHER_FIELD;
+    let mut key = in_field(packet_key(2, t + 1, u16::from(b'x')));
+    key.focus_epoch = 1 + FOCUS_EPOCH_PERSON_STEP;
+    harness.send_event(key);
+
+    thread::sleep(Duration::from_millis(900));
+    let events = harness.shutdown();
+
+    assert_eq!(
+        typed_actions_of(&events),
+        vec![
+            "key a on Dialog > Edit:File name",
+            "key x on Dialog > Edit:Other"
+        ],
+        "got {events:?}"
+    );
+}
+
+/// A program moved the focus without the person doing anything (a field that
+/// advances by itself) after the hook read the handle. Reached while nothing
+/// was counted since the key, the present contradicts the handle and the key
+/// is described from the focused element.
+#[test]
+fn a_later_key_whose_handle_the_present_contradicts_is_described_by_focus() {
+    let (backend, scene, _, controls) =
+        MovingFocusBackend::with_controls(save_button_focused(), field_controls("a"));
+    let harness = WorkerTestHarness::new(backend);
+
+    let t = now_ms();
+    harness.send_event(in_field(packet_key(1, t, u16::from(b'a'))));
+    thread::sleep(Duration::from_millis(150));
+    scene.lock().unwrap().element = scene_element("Edit", "Dialog > Edit:Other", Some(""));
+    controls.lock().unwrap().focused = OTHER_FIELD;
+    harness.send_event(in_field(packet_key(2, t + 1, u16::from(b'b'))));
+
+    thread::sleep(Duration::from_millis(900));
+    let events = harness.shutdown();
+
+    assert_eq!(
+        typed_actions_of(&events),
+        vec![
+            "key a on Dialog > Edit:File name",
+            "key b on Dialog > Edit:Other"
+        ],
+        "got {events:?}"
+    );
+}
+
+/// A window that holds other focusable elements (a browser's page, a canvas
+/// of controls) does not say which of them a key went to: its keys are
+/// described from the focused element, and the window is looked at once.
+#[test]
+fn a_window_that_holds_other_focusable_elements_is_described_by_focus() {
+    let (backend, _scene, queries, controls) = MovingFocusBackend::with_controls(
+        file_name_field("ab"),
+        Controls {
+            focused: FIELD,
+            shared: vec![FIELD],
+            ..Default::default()
+        },
+    );
+    let harness = WorkerTestHarness::new(backend);
+
+    let t = now_ms();
+    harness.send_event(in_field(packet_key(1, t, u16::from(b'a'))));
+    harness.send_event(in_field(packet_key(2, t + 1, u16::from(b'b'))));
+
+    thread::sleep(Duration::from_millis(900));
+    let events = harness.shutdown();
+
+    assert_eq!(
+        typed_actions_of(&events),
+        vec![
+            "key a on Dialog > Edit:File name",
+            "key b on Dialog > Edit:File name"
+        ],
+        "got {events:?}"
+    );
+    assert_eq!(controls.lock().unwrap().descriptions, 1);
+    assert!(queries.load(Ordering::SeqCst) >= 1);
+}
+
+/// A password control: its keys are the masked `type`, and its value is never
+/// read.
+#[test]
+fn keys_of_a_password_control_are_its_masked_type_and_its_value_is_not_read() {
+    let mut arranged = field_controls("");
+    let field = arranged.own.get_mut(&FIELD).unwrap();
+    field.element_type = Some("password".to_string());
+    field.text = None;
+    let (backend, _scene, _, controls) =
+        MovingFocusBackend::with_controls(save_button_focused(), arranged);
+    let harness = WorkerTestHarness::new(backend);
+
+    let t = now_ms();
+    harness.send_event(in_field(packet_key(1, t, u16::from(b'p'))));
+    harness.send_event(control_value_change(2, t + 1, FIELD));
+    harness.send_event(in_field(packet_key(3, t + 2, u16::from(b'w'))));
+    harness.send_event(control_value_change(4, t + 3, FIELD));
+    harness.send_event(in_field(layout_key(5, t + 4, 0x0D))); // Enter
+
+    thread::sleep(Duration::from_millis(900));
+    let events = harness.shutdown();
+
+    assert_eq!(
+        typed_actions_of(&events),
+        vec![
+            "type •••••••• on Dialog > Edit:File name",
+            "key Enter on Dialog > Edit:File name"
+        ],
+        "got {events:?}"
+    );
+    assert_eq!(controls.lock().unwrap().value_reads, 0);
+}
+
+/// A control's description names its window (the title is in the selector).
+/// Under the same title the description is kept across what the person does;
+/// once the title has changed, the control is described again.
+#[test]
+fn a_control_is_described_again_only_when_its_windows_title_changed() {
+    for (retitled, expected_second, expected_descriptions) in [
+        (false, "key b on Dialog > Edit:File name", 1),
+        (true, "key b on Saved > Edit:File name", 2),
+    ] {
+        let (backend, scene, _, controls) =
+            MovingFocusBackend::with_controls(save_button_focused(), field_controls("a"));
+        let harness = WorkerTestHarness::new(backend);
+
+        let t = now_ms();
+        harness.send_event(in_field(packet_key(1, t, u16::from(b'a'))));
+        thread::sleep(Duration::from_millis(150));
+        scene.lock().unwrap().epoch = 1 + FOCUS_EPOCH_PERSON_STEP;
+        if retitled {
+            let mut controls = controls.lock().unwrap();
+            controls.title = "Saved".to_string();
+            controls.own.get_mut(&FIELD).unwrap().selector = "Saved > Edit:File name".to_string();
+        }
+        let mut key = in_field(packet_key(2, t + 1, u16::from(b'b')));
+        key.focus_epoch = 1 + FOCUS_EPOCH_PERSON_STEP;
+        harness.send_event(key);
+
+        thread::sleep(Duration::from_millis(900));
+        let events = harness.shutdown();
+
+        assert_eq!(
+            typed_actions_of(&events),
+            vec!["key a on Dialog > Edit:File name", expected_second],
+            "retitled {retitled}: got {events:?}"
+        );
+        assert_eq!(
+            controls.lock().unwrap().descriptions,
+            expected_descriptions,
+            "retitled {retitled}"
+        );
+    }
+}
+
+/// The control is gone when its value change is reached: there is no value to
+/// read, so there is no `type`, and the keys stay keys on their control.
+#[test]
+fn a_value_change_of_a_control_that_is_gone_keeps_its_keys() {
+    let (backend, _scene, _, controls) =
+        MovingFocusBackend::with_controls(save_button_focused(), field_controls("hi"));
+    let harness = WorkerTestHarness::new(backend);
+
+    let t = now_ms();
+    harness.send_event(in_field(packet_key(1, t, u16::from(b'h'))));
+    harness.send_event(in_field(packet_key(2, t + 1, u16::from(b'i'))));
+    thread::sleep(Duration::from_millis(150));
+    controls.lock().unwrap().own.clear();
+    harness.send_event(control_value_change(3, t + 2, FIELD));
+
+    thread::sleep(Duration::from_millis(900));
+    let events = harness.shutdown();
+
+    assert_eq!(
+        typed_actions_of(&events),
+        vec![
+            "key h on Dialog > Edit:File name",
+            "key i on Dialog > Edit:File name"
+        ],
+        "got {events:?}"
+    );
 }

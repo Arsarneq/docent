@@ -141,7 +141,7 @@ const MAX_TEXT_LENGTH: usize = 100;
 /// If the string is longer than the limit it is cut at a character boundary
 /// and `"…"` is appended (the total length may therefore be 101 visible
 /// characters, but the semantic intent — "this was truncated" — is preserved).
-fn truncate_text(s: &str) -> String {
+pub(crate) fn truncate_text(s: &str) -> String {
     if s.chars().count() <= MAX_TEXT_LENGTH {
         s.to_string()
     } else {

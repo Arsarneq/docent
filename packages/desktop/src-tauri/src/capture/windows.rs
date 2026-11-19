@@ -33,40 +33,42 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use super::uia_core_api::{
     UIA_AutomationIdPropertyId, UIA_ClassNamePropertyId, UIA_ControlTypePropertyId,
-    UIA_FrameworkIdPropertyId, UIA_IsControlElementPropertyId, UIA_IsPasswordPropertyId,
-    UIA_LabeledByPropertyId, UIA_LevelPropertyId, UIA_LocalizedControlTypePropertyId,
-    UIA_NamePropertyId, UIA_NativeWindowHandlePropertyId, UIA_PositionInSetPropertyId,
-    UIA_SelectionPatternId, UIA_SizeOfSetPropertyId, UIA_ToolBarControlTypeId,
-    UIA_ValueValuePropertyId,
+    UIA_FrameworkIdPropertyId, UIA_IsControlElementPropertyId, UIA_IsKeyboardFocusablePropertyId,
+    UIA_IsPasswordPropertyId, UIA_LabeledByPropertyId, UIA_LevelPropertyId,
+    UIA_LocalizedControlTypePropertyId, UIA_NamePropertyId, UIA_NativeWindowHandlePropertyId,
+    UIA_PositionInSetPropertyId, UIA_SelectionPatternId, UIA_SizeOfSetPropertyId,
+    UIA_ToolBarControlTypeId, UIA_ValueValuePropertyId,
 };
 use super::variant::Variant;
 use super::win32_bindings::{
     CUIAutomation, CallNextHookEx, CloseHandle, CoCreateInstance, CoInitializeEx, CoUninitialize,
     DispatchMessageW, EnumWindows, GetAncestor, GetAsyncKeyState, GetClassNameW,
-    GetCurrentThreadId, GetForegroundWindow, GetMessageW, GetParent, GetWindow, GetWindowLongW,
-    GetWindowTextW, GetWindowThreadProcessId, IUIAutomation, IUIAutomationCondition,
-    IUIAutomationElement, IUIAutomationSelectionPattern, IsWindow, IsWindowVisible, PeekMessageW,
-    PostThreadMessageW, SetProcessDpiAwarenessContext, SetWinEventHook, SetWindowsHookExW,
-    TranslateMessage, TreeScope_Subtree, UnhookWinEvent, UnhookWindowsHookEx, WindowFromPoint,
-    CHILDID_SELF, CLSCTX_ALL, COINIT_APARTMENTTHREADED, COINIT_MULTITHREADED,
-    DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, EVENT_OBJECT_CREATE, EVENT_OBJECT_DESTROY,
-    EVENT_OBJECT_FOCUS, EVENT_OBJECT_SELECTION, EVENT_OBJECT_VALUECHANGE, EVENT_SYSTEM_FOREGROUND,
-    GA_ROOT, GA_ROOTOWNER, GWL_STYLE, GW_OWNER, HANDLE, HHOOK, HWINEVENTHOOK, HWND,
-    INVALID_HANDLE_VALUE, KBDLLHOOKSTRUCT, LPARAM, LRESULT, MSG, MSLLHOOKSTRUCT, OBJID_WINDOW,
-    PM_NOREMOVE, POINT, PROPERTYID, UIA_HWND, VK_CONTROL, VK_LWIN, VK_MENU, VK_RWIN, VK_SHIFT,
-    VT_EMPTY, WH_KEYBOARD_LL, WH_MOUSE_LL, WINEVENT_OUTOFCONTEXT, WM_APP, WM_KEYDOWN,
-    WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MOUSEHWHEEL, WM_MOUSEWHEEL, WM_NULL, WM_QUIT,
-    WM_RBUTTONDOWN, WM_SYSKEYDOWN, WM_USER, WPARAM, WS_CHILD,
+    GetCurrentThreadId, GetForegroundWindow, GetGUIThreadInfo, GetMessageW, GetParent, GetWindow,
+    GetWindowLongW, GetWindowTextW, GetWindowThreadProcessId, IUIAutomation,
+    IUIAutomationCondition, IUIAutomationElement, IUIAutomationSelectionPattern, IsWindow,
+    IsWindowVisible, PeekMessageW, PostThreadMessageW, SetProcessDpiAwarenessContext,
+    SetWinEventHook, SetWindowsHookExW, TranslateMessage, TreeScope_Descendants, TreeScope_Subtree,
+    UnhookWinEvent, UnhookWindowsHookEx, WindowFromPoint, CHILDID_SELF, CLSCTX_ALL,
+    COINIT_APARTMENTTHREADED, COINIT_MULTITHREADED, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
+    EVENT_OBJECT_CREATE, EVENT_OBJECT_DESTROY, EVENT_OBJECT_FOCUS, EVENT_OBJECT_SELECTION,
+    EVENT_OBJECT_VALUECHANGE, EVENT_SYSTEM_FOREGROUND, GA_ROOT, GA_ROOTOWNER, GUITHREADINFO,
+    GWL_STYLE, GW_OWNER, HANDLE, HHOOK, HWINEVENTHOOK, HWND, INVALID_HANDLE_VALUE, KBDLLHOOKSTRUCT,
+    LPARAM, LRESULT, MSG, MSLLHOOKSTRUCT, OBJID_WINDOW, PM_NOREMOVE, POINT, PROPERTYID, UIA_HWND,
+    VK_CONTROL, VK_LWIN, VK_MENU, VK_RWIN, VK_SHIFT, VT_EMPTY, WH_KEYBOARD_LL, WH_MOUSE_LL,
+    WINEVENT_OUTOFCONTEXT, WM_APP, WM_KEYDOWN, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN,
+    WM_MOUSEHWHEEL, WM_MOUSEWHEEL, WM_NULL, WM_QUIT, WM_RBUTTONDOWN, WM_SYSKEYDOWN, WM_USER,
+    WPARAM, WS_CHILD,
 };
 use windows_core::{Error, Interface, BOOL, BSTR, PWSTR};
 
 use super::element_mapping::{
-    map_element, LocatorMeasurements, MeasuredIndex, MeasuredPair, NativeElementProperties,
+    map_element, truncate_text, LocatorMeasurements, MeasuredIndex, MeasuredPair,
+    NativeElementProperties,
 };
 use super::timing;
 use super::worker_pool::{
-    fallback_drain_and_seal, worker_loop, AccessibilityBackend, PendingDirectory, RawEvent,
-    RawEventType, WorkerPool, FLUSH_BARRIER_TIMEOUT,
+    fallback_drain_and_seal, worker_loop, AccessibilityBackend, ControlLook, PendingDirectory,
+    RawEvent, RawEventType, WorkerPool, FLUSH_BARRIER_TIMEOUT,
 };
 use super::{
     ActionEvent, BarrierCompletion, BarrierReport, CaptureError, CaptureLayer, ElementDescription,
@@ -2111,6 +2113,26 @@ unsafe extern "system" fn input_mouse_ll_proc(
     CallNextHookEx(None, n_code, w_param, l_param)
 }
 
+/// The window handle of the control that holds the keyboard focus in the
+/// thread `thread_id` (the foreground window's thread), `0` when there is
+/// none or it cannot be read. `GetGUIThreadInfo` answers from the window
+/// system's own record of the thread's input state: it sends the thread no
+/// message, so it returns at once however busy the program is.
+unsafe fn focused_control_of_thread(thread_id: u32) -> i64 {
+    if thread_id == 0 {
+        return 0;
+    }
+    let mut info = GUITHREADINFO {
+        cbSize: std::mem::size_of::<GUITHREADINFO>() as u32,
+        ..Default::default()
+    };
+    if GetGUIThreadInfo(thread_id, &mut info).as_bool() {
+        info.hwndFocus.0 as i64
+    } else {
+        0
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Input_Thread low-level keyboard hook callback
 // ---------------------------------------------------------------------------
@@ -2129,7 +2151,7 @@ unsafe extern "system" fn input_keyboard_ll_proc(
 
             let hwnd = GetForegroundWindow();
             let mut pid: u32 = 0;
-            GetWindowThreadProcessId(hwnd, Some(&mut pid));
+            let thread_id = GetWindowThreadProcessId(hwnd, Some(&mut pid));
             let excluded = input_get_excluded_pid();
 
             if input_should_keep_event_cached(pid, excluded, hwnd) {
@@ -2158,7 +2180,15 @@ unsafe extern "system" fn input_keyboard_ll_proc(
                     // injected UTF-16 code unit the worker names the key by
                     // (docent#260). A copy of a field of the struct already
                     // read above — no call, lock or allocation on the hook.
-                    callback_params: [i64::from(kb_struct.scanCode), 0, 0, 0],
+                    // Beside it the control that holds the keyboard focus at
+                    // this key: one read of the window system's own state,
+                    // which sends no message and waits on no program.
+                    callback_params: [
+                        i64::from(kb_struct.scanCode),
+                        focused_control_of_thread(thread_id),
+                        0,
+                        0,
+                    ],
                     pre_captured_element: None,
                     focus_epoch: 0,
                 });
@@ -2963,6 +2993,74 @@ impl AccessibilityBackend for WindowsAccessibilityBackend {
                 }
             };
             root_of(hwnd) == root_of(foreground)
+        }
+    }
+
+    fn focused_control(&self) -> i64 {
+        unsafe {
+            let foreground = GetForegroundWindow();
+            if foreground.0.is_null() {
+                return 0;
+            }
+            focused_control_of_thread(GetWindowThreadProcessId(foreground, None))
+        }
+    }
+
+    fn describe_control(&self, control: i64) -> ControlLook {
+        let Some(uia) = self.uia.as_ref() else {
+            return ControlLook::Gone;
+        };
+        let hwnd = HWND(control as *mut _);
+        unsafe {
+            if control == 0 || !IsWindow(Some(hwnd)).as_bool() {
+                return ControlLook::Gone;
+            }
+            let Ok(element) = uia.ElementFromHandle(UIA_HWND(control as isize as *mut _)) else {
+                return ControlLook::Gone;
+            };
+            // The control holds the focus only itself when nothing below it
+            // can take the keyboard focus. `FindFirst` answers "none" as a
+            // null element, which arrives here as an error that carries a
+            // success code; any real failure leaves the question open, and an
+            // open question is answered as a window that holds others.
+            let Ok(focusable) = uia.CreatePropertyCondition(
+                UIA_IsKeyboardFocusablePropertyId,
+                Variant::from(true).as_raw(),
+            ) else {
+                return ControlLook::Shared;
+            };
+            match element.FindFirst(TreeScope_Descendants, &focusable) {
+                Err(none) if none.code().is_ok() => {}
+                _ => return ControlLook::Shared,
+            }
+            match uia_element_to_description(uia, &element) {
+                Some(description) => ControlLook::Own(Box::new(description)),
+                None => ControlLook::Gone,
+            }
+        }
+    }
+
+    fn control_value(&self, control: i64) -> Option<String> {
+        let uia = self.uia.as_ref()?;
+        let hwnd = HWND(control as *mut _);
+        unsafe {
+            if control == 0 || !IsWindow(Some(hwnd)).as_bool() {
+                return None;
+            }
+            let element = uia
+                .ElementFromHandle(UIA_HWND(control as isize as *mut _))
+                .ok()?;
+            // Asked without the default: a control that has no value answers
+            // with no string at all, where the plain read would answer an
+            // empty one, the same as a field the person emptied.
+            let value = Variant::from_raw(
+                element
+                    .GetCurrentPropertyValueEx(UIA_ValueValuePropertyId, true)
+                    .ok()?,
+            );
+            let value = String::from_utf16_lossy(value.as_bstr()?);
+            // Cut as a description's text is.
+            Some(truncate_text(&value))
         }
     }
 

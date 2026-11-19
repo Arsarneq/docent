@@ -28,7 +28,9 @@ hooks / WinEvents        bridge            worker pool               frontend
    click pre-capture (DCP-1), so hooks stay inside their latency budget. It also
    counts focus changes and stamps every raw event with the count, so a
    worker can tell whether focus still is where a keystroke or value change
-   happened (DCP-11).
+   happened, and stamps each keystroke with the window handle of the control
+   that holds the keyboard focus, read from the window system without a call
+   into the program (DCP-11).
 2. **Bridge_Thread** — receives raw events on a single FIFO channel and
    dispatches each to a worker; it also executes the pool-wide
    [flush barrier](#the-commit-flush-barrier) when a commit requests one.

@@ -171,6 +171,11 @@ pub unsafe fn GetForegroundWindow() -> HWND {
     unsafe { GetForegroundWindow() }
 }
 #[inline]
+pub unsafe fn GetGUIThreadInfo(idthread: u32, pgui: *mut GUITHREADINFO) -> windows_core::BOOL {
+    windows_core::link!("user32.dll" "system" fn GetGUIThreadInfo(idthread : u32, pgui : *mut GUITHREADINFO) -> windows_core::BOOL);
+    unsafe { GetGUIThreadInfo(idthread, pgui as _) }
+}
+#[inline]
 pub unsafe fn GetMessageW(
     lpmsg: *mut MSG,
     hwnd: Option<HWND>,
@@ -528,6 +533,19 @@ pub const E_FAIL: windows_core::HRESULT = windows_core::HRESULT(0x80004005_u32 a
 pub const E_POINTER: windows_core::HRESULT = windows_core::HRESULT(0x80004003_u32 as _);
 pub const GA_ROOT: i32 = 2;
 pub const GA_ROOTOWNER: i32 = 3;
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct GUITHREADINFO {
+    pub cbSize: u32,
+    pub flags: u32,
+    pub hwndActive: HWND,
+    pub hwndFocus: HWND,
+    pub hwndCapture: HWND,
+    pub hwndMenuOwner: HWND,
+    pub hwndMoveSize: HWND,
+    pub hwndCaret: HWND,
+    pub rcCaret: RECT,
+}
 pub const GWL_STYLE: i32 = -16;
 pub const GW_OWNER: i32 = 4;
 #[repr(transparent)]

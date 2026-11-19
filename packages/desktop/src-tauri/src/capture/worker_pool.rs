@@ -107,8 +107,11 @@ pub struct RawEvent {
     /// the event; `[axis, 0, 0, 0]` from the mouse hook's wheel path, where
     /// 1 = horizontal (read by the scroll arm); `[scan_code, 0, 0, 0]` from the
     /// keyboard hook, where a `VK_PACKET` keystroke's scan code is the injected
-    /// UTF-16 code unit (read by the keyboard arm). On other platforms: unused
-    /// or platform-defined.
+    /// UTF-16 code unit (read by the keyboard arm); `[scan_code,
+    /// focused_control, 0, 0]` in full, the second being the window handle of
+    /// the control that held the keyboard focus at the key, `0` when none was
+    /// read (see `settle_key_on_its_control`). On other platforms: unused or
+    /// platform-defined.
     pub callback_params: [i64; 4],
     /// Pre-captured element description from the Input_Thread.
     /// For mouse click/right-click events, the Input_Thread may perform a
@@ -952,6 +955,24 @@ pub trait AccessibilityBackend: Send + 'static {
         None
     }
 
+    /// The window handle of the control that holds the keyboard focus right
+    /// now, `0` when there is none or the platform has no such handle. A cheap
+    /// read of the window system's own state, no accessibility call.
+    fn focused_control(&self) -> i64 {
+        0
+    }
+
+    /// Look at the control with window handle `control` (see [`ControlLook`]).
+    fn describe_control(&self, _control: i64) -> ControlLook {
+        ControlLook::Gone
+    }
+
+    /// The value the control with window handle `control` holds right now;
+    /// `None` when the control is gone or gives none.
+    fn control_value(&self, _control: i64) -> Option<String> {
+        None
+    }
+
     /// Get the window title for a window handle.
     fn window_title(&self, window_handle: i64) -> String;
 
@@ -985,6 +1006,22 @@ pub trait AccessibilityBackend: Send + 'static {
     /// selection could be resolved, or `None` if the pattern is not
     /// supported or no item is selected.
     fn selected_item_name(&self, window_handle: i64) -> Option<(ElementDescription, String)>;
+}
+
+/// What [`AccessibilityBackend::describe_control`] found behind a control's
+/// window handle.
+#[derive(Debug, Clone)]
+pub enum ControlLook {
+    /// The control can hold the keyboard focus only itself (an edit field with
+    /// a window of its own): a key pressed while the handle held the focus
+    /// went to this element.
+    Own(Box<ElementDescription>),
+    /// The window holds other elements that can take the focus (a browser's
+    /// page, a canvas of controls): the handle does not say which of them a
+    /// key went to.
+    Shared,
+    /// The window is gone, or could not be looked at.
+    Gone,
 }
 
 // ---------------------------------------------------------------------------
@@ -1472,6 +1509,9 @@ struct WorkerState {
     mark_seq: u64,
     /// The element the last keystroke was recorded on, per window.
     last_key: Option<LastKey>,
+    /// What is known of the controls keys were pressed in, by window handle
+    /// (see [`KnownControl`]).
+    controls: HashMap<i64, KnownControl>,
 }
 
 impl WorkerState {
@@ -1483,6 +1523,7 @@ impl WorkerState {
             typing_focus: None,
             mark_seq: 0,
             last_key: None,
+            controls: HashMap::new(),
         }
     }
 }
@@ -1511,8 +1552,129 @@ struct LastKey {
     /// Empty when the key named no element.
     selector: String,
     /// `WorkerState::mark_seq` of the description the element came from;
-    /// `None` when the key named no element.
+    /// `None` when the key named no element, or was recorded on its control.
     mark: Option<u64>,
+    /// The window handle of the control the key was recorded on (see
+    /// [`settle_key_on_its_control`]); `0` when it was described by focus.
+    control: i64,
+}
+
+/// A control keys were pressed in: a window handle that held the keyboard
+/// focus when the Input_Thread read it on the keyboard hook.
+///
+/// A window handle names one control for as long as the control lives, so a
+/// description made once holds for every key stamped with the handle, however
+/// late a worker gets to it, and the control's value can be read from the
+/// control itself.
+struct KnownControl {
+    /// The control's description; `None` for a window that holds other
+    /// focusable elements, whose keys are described by focus.
+    element: Option<ElementDescription>,
+    /// The person's half of the focus epoch the handle was last confirmed
+    /// under (see [`settle_key_on_its_control`]).
+    person: u64,
+    /// The title of the control's top-level window when it was described: a
+    /// description names its window, so a changed title means describing the
+    /// control again.
+    title: String,
+}
+
+/// More controls than a person types into between two commits; past it the
+/// table starts over, and each control is described again at its next key.
+const KNOWN_CONTROLS_MAX: usize = 64;
+
+/// `OBJID_CLIENT`: the object id of a window's own client area in a WinEvent.
+const OBJECT_ID_CLIENT: i64 = -4;
+
+/// The window handle of the control that held the keyboard focus when this
+/// key was pressed, as the Input_Thread read it on the keyboard hook
+/// (`callback_params[1]`); `0` when it read none.
+fn key_control(raw: &RawEvent) -> i64 {
+    if matches!(raw.event_type, RawEventType::Keyboard) {
+        raw.callback_params[1]
+    } else {
+        0
+    }
+}
+
+/// The window handle of the control a value change is about, when the control
+/// reported it about itself (its own client object, not a child element and
+/// not a scroll bar); `0` otherwise.
+fn value_change_control(raw: &RawEvent) -> i64 {
+    if matches!(raw.event_type, RawEventType::ValueChange)
+        && raw.callback_params[0] == OBJECT_ID_CLIENT
+        && raw.callback_params[1] == 0
+    {
+        raw.window_handle
+    } else {
+        0
+    }
+}
+
+/// The element of the control a key was pressed in, where the key's handle
+/// settles it; `None` where the key has to be described by focus.
+///
+/// The handle was read on the keyboard hook, at the key itself, so it does
+/// not go stale while the key waits for a worker. It can be wrong in one way:
+/// read before the program acted on what came just before the key. So:
+///
+/// - Under the person's count the control was last confirmed under, nothing
+///   the person did can have moved the focus since: the handle stands. While
+///   the present can still speak for the key (nothing counted since, its
+///   window in front) and names another control, a program moved the focus
+///   on its own and the key is described by focus.
+/// - A first key under a new count of the person's (a click, Tab, Backspace
+///   came before it) is taken on its handle only when the present confirms
+///   it: the person did nothing since that can move the focus, and the handle
+///   holds the focus now. Otherwise it is described by focus, which names no
+///   element once the person has moved on.
+///
+/// A control is described when it is first confirmed, and again when the
+/// title of its window changed (the description names the window).
+fn settle_key_on_its_control<B: AccessibilityBackend>(
+    raw: &RawEvent,
+    backend: &B,
+    controls: &mut HashMap<i64, KnownControl>,
+) -> Option<ElementDescription> {
+    let control = key_control(raw);
+    if control == 0 || raw.focus_epoch == 0 {
+        return None;
+    }
+    let person = raw.focus_epoch >> 32;
+    let epoch_now = backend.focus_epoch();
+    if let Some(known) = controls.get(&control).filter(|k| k.person == person) {
+        let present_speaks =
+            epoch_now == raw.focus_epoch && backend.is_foreground_window(raw.window_handle);
+        if present_speaks && backend.focused_control() != control {
+            return None;
+        }
+        return known.element.clone();
+    }
+    if person_moved_focus_between(raw, epoch_now) || backend.focused_control() != control {
+        return None;
+    }
+    let title = backend.window_title(raw.window_handle);
+    if let Some(known) = controls.get_mut(&control).filter(|k| k.title == title) {
+        known.person = person;
+        return known.element.clone();
+    }
+    let element = match backend.describe_control(control) {
+        ControlLook::Own(element) => Some(*element),
+        ControlLook::Shared => None,
+        ControlLook::Gone => return None,
+    };
+    if controls.len() >= KNOWN_CONTROLS_MAX {
+        controls.clear();
+    }
+    controls.insert(
+        control,
+        KnownControl {
+            element: element.clone(),
+            person,
+            title,
+        },
+    );
+    element
 }
 
 /// The element remembered for `raw`'s window and focus epoch, if any. Epoch
@@ -1955,6 +2117,49 @@ fn handle_value_change<B: AccessibilityBackend>(
         .last_key
         .as_ref()
         .filter(|k| k.context_id == context_id);
+    // The keystroke was recorded on its control: its value change is the one
+    // that control reports about itself, and the value is read from the
+    // control, whatever holds the focus by now. A value change from anywhere
+    // else in the window says nothing about the keystroke and is passed over.
+    if let Some(key_control) = last_key.map(|k| k.control).filter(|c| *c != 0) {
+        if value_change_control(raw) != key_control {
+            return false;
+        }
+        let Some(mut element) = state
+            .controls
+            .get(&key_control)
+            .and_then(|known| known.element.clone())
+        else {
+            return false;
+        };
+        let is_password = element.element_type.as_deref() == Some("password");
+        let value = if is_password {
+            PASSWORD_MASK.to_string()
+        } else {
+            match backend.control_value(key_control) {
+                Some(value) => {
+                    element.text = Some(value.clone());
+                    value
+                }
+                None => {
+                    // The control is gone or gives no value: no `type`.
+                    keep_keys_of_dropped_value_change(pending, action_sender);
+                    return false;
+                }
+            }
+        };
+        return record_type_value(
+            raw,
+            action_sender,
+            context_id,
+            pending,
+            &mut state.last_value_map,
+            window_rect,
+            element,
+            value,
+            is_password,
+        );
+    }
     // A keystroke that named no element (its window was gone, gave no focused
     // element, or the person had moved the focus): the value change has no
     // element to be the `type` of.
@@ -1976,7 +2181,7 @@ fn handle_value_change<B: AccessibilityBackend>(
     let key_selector = last_key.map(|k| k.selector.clone());
     let described = describe_focused_for(raw, backend, &mut state.mark_seq);
     let Some(FocusedNow {
-        element: Some(mut element),
+        element: Some(element),
         focus_stands,
         ..
     }) = described
@@ -2021,17 +2226,42 @@ fn handle_value_change<B: AccessibilityBackend>(
             f.mark = state.mark_seq;
         }
     }
-    let last_value_map = &mut state.last_value_map;
-    // The first value-change describes the element; that element (and the
-    // matching timestamp) is what the coalesced type action exports.
-    stamp_described_after(&mut element, raw.timestamp);
-
     let is_password = element.element_type.as_deref() == Some("password");
     let value = if is_password {
         PASSWORD_MASK.to_string()
     } else {
         element.text.clone().unwrap_or_default()
     };
+    record_type_value(
+        raw,
+        action_sender,
+        context_id,
+        pending,
+        &mut state.last_value_map,
+        window_rect,
+        element,
+        value,
+        is_password,
+    )
+}
+
+/// Start or carry forward the pending `type` of `element` with `value`,
+/// unless the value is the element's last recorded one.
+#[allow(clippy::too_many_arguments)]
+fn record_type_value(
+    raw: &RawEvent,
+    action_sender: &mpsc::Sender<ActionEvent>,
+    context_id: Option<i64>,
+    pending: &SharedPendingBuffers,
+    last_value_map: &mut HashMap<String, String>,
+    window_rect: Option<WindowRect>,
+    mut element: ElementDescription,
+    value: String,
+    is_password: bool,
+) -> bool {
+    // The first value-change describes the element; that element (and the
+    // matching timestamp) is what the coalesced type action exports.
+    stamp_described_after(&mut element, raw.timestamp);
 
     // Value-change deduplication: skip if value unchanged for this element.
     // (last_value_map is dedup state — stays thread-local in WorkerState.)
@@ -2243,8 +2473,23 @@ fn handle_keyboard<B: AccessibilityBackend>(
     // Otherwise the focused element is asked for, and taken only while the
     // key's window is still in front; a key whose window closed or was left
     // names no element rather than whatever has focus at this moment.
+    //
+    // Before any of that: the key carries the handle of the control that held
+    // the focus when it was pressed, and where that settles the element no
+    // focused-element query is made at all.
+    let on_control = settle_key_on_its_control(raw, backend, &mut state.controls);
+    let control = if on_control.is_some() {
+        key_control(raw)
+    } else {
+        0
+    };
     let mut disproved = false;
-    let remembered = remembered_focus(&state.typing_focus, raw, context_id).and_then(|known| {
+    let remembered = if on_control.is_some() {
+        None
+    } else {
+        remembered_focus(&state.typing_focus, raw, context_id)
+    }
+    .and_then(|known| {
         let present_speaks = known.mark == state.mark_seq
             && backend.focus_epoch() == raw.focus_epoch
             && backend.is_foreground_window(raw.window_handle);
@@ -2263,9 +2508,10 @@ fn handle_keyboard<B: AccessibilityBackend>(
     // `unknowable`: nothing can be said about the element the key went to.
     // Its window is gone, the window gave no focused element, or the person
     // moved the focus (a click, a focus-moving key) before this description.
-    let (mut element, mark, unknowable) = match remembered {
-        Some((element, mark)) => (element, Some(mark), false),
-        None => match describe_focused_for(raw, backend, &mut state.mark_seq) {
+    let (mut element, mark, unknowable) = match (on_control, remembered) {
+        (Some(element), _) => (element, None, false),
+        (None, Some((element, mark))) => (element, Some(mark), false),
+        (None, None) => match describe_focused_for(raw, backend, &mut state.mark_seq) {
             Some(FocusedNow {
                 element: Some(element),
                 focus_stands,
@@ -2290,6 +2536,7 @@ fn handle_keyboard<B: AccessibilityBackend>(
         context_id,
         selector: element.selector.clone(),
         mark,
+        control,
     });
     let last_value_map = &mut state.last_value_map;
 
