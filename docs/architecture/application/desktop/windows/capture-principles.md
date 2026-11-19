@@ -117,7 +117,8 @@ are not are kept as
 in-surface event enters the recording (WinEvents additionally pass the
 [foreground gate](#event-attribution-and-foreground-scope), DCP-14). Each
 filter judges the process of the event's
-[attributed window](#event-attribution-and-foreground-scope) (DCP-14):
+[attributed window](#event-attribution-and-foreground-scope) (DCP-14); an
+event attributed to no window is judged by the target filter alone:
 
 - **Target application** — when the user selects a target application, only
   events attributed to its process are captured; with no target set, all
@@ -152,8 +153,22 @@ event source of the DCP-4 surface names the window whose process is judged:
 | Event source            | Attributed window                                                                        |
 | ----------------------- | ---------------------------------------------------------------------------------------- |
 | Low-level mouse hook    | The window under the cursor (the foreground window when no window resolves at the point) |
-| Low-level keyboard hook | The foreground window                                                                    |
+| Low-level keyboard hook | The foreground window, or no window for a key the shell takes (below)                    |
 | WinEvent callbacks      | The window the event names                                                               |
+
+A key the shell takes — the Windows key, or a key pressed while it is held —
+is attributed to no window when the self-capture exclusion (DCP-5) excludes
+the foreground window, since the system, not that window, acts on such a key,
+and that window stays out of the recording; under any other foreground window it is attributed to
+the foreground window, as every key is. With a target set, a key attributed
+to no window is not the target's input and is dropped. With none, it is
+recorded with `context_id` and `window_rect` null and with the stand-in
+element of a key whose element is unknown (tag `Unknown`, empty selector)
+with no name, also where the shell then acts on the foreground window
+(Win+Arrow, for example). Its press counts as low-level input for the window
+changes it causes (DCP-7), with the excluded foreground window as the input's
+window (DCP-8); it counts as no keyboard input, so no value change correlates
+with it.
 
 WinEvents are additionally **foreground-gated**: the Input_Thread tracks the
 foreground process — seeded from the foreground window when capture starts,
@@ -161,7 +176,7 @@ updated by foreground-change events and by clicks landing in a different
 top-level window, each only when it passes the scope filters — and a WinEvent other than a
 foreground change MUST NOT be dispatched from any other process. Low-level
 input is deliberately not foreground-gated: keyboard input is attributed to
-the foreground window by construction, and a click into a background window
+the foreground window by construction (or to no window, above), and a click into a background window
 is itself the user action that makes that window foreground.
 
 ---
@@ -295,7 +310,8 @@ field's masked `type` it sits beside (a field with an empty selector joins
 none), so no key name carries a character typed into a sensitive field; a key
 that enters no character, and a shortcut, stays a `key`, as does a key whose
 element could not be described (the `Unknown` element with an empty selector,
-whose name is the window's title and no field name). Both the shared detection
+whose name is the window's title, or none for a key attributed to no
+window (DCP-14), and no field name). Both the shared detection
 and the redaction shape are the cross-platform rule ([core
 CP-11](../../../../architecture/system/capture-principles.md#sensitive-values)).
 (Tokened-URL redaction is extension-only, since the desktop app has no captured

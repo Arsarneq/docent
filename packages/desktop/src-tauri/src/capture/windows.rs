@@ -64,6 +64,7 @@ use windows_core::{Error, Interface, BOOL, BSTR, PWSTR};
 use super::element_mapping::{
     map_element, LocatorMeasurements, MeasuredIndex, MeasuredPair, NativeElementProperties,
 };
+use super::scroll::KeyAttribution;
 use super::timing;
 use super::worker_pool::{
     fallback_drain_and_seal, worker_loop, AccessibilityBackend, PendingDirectory, RawEvent,
@@ -2132,18 +2133,41 @@ unsafe extern "system" fn input_keyboard_ll_proc(
             let mut pid: u32 = 0;
             let thread_id = GetWindowThreadProcessId(hwnd, Some(&mut pid));
             let excluded = input_get_excluded_pid();
+            let foreground_kept = input_should_keep_event_cached(pid, excluded, hwnd);
+            let modifiers = get_modifier_state();
+            // Which window the key is attributed to (DCP-14): the system, not
+            // the foreground window, acts on the Windows key and a key pressed
+            // while it is held, so such a key over an excluded foreground
+            // window is kept with no window.
+            let attribution = super::scroll::keyboard_attribution(
+                kb_struct.vkCode,
+                modifiers.3,
+                pid,
+                input_get_included_pid(),
+                excluded,
+                foreground_kept,
+            );
 
-            if input_should_keep_event_cached(pid, excluded, hwnd) {
-                let modifiers = get_modifier_state();
+            if attribution != KeyAttribution::Dropped {
                 let layout_char = foreground_layout_char(kb_struct.vkCode, thread_id);
                 let timestamp = current_timestamp_ms();
-                let window_handle = hwnd.0 as i64;
+                let foreground_handle = hwnd.0 as i64;
+                let (window_handle, process_id) = match attribution {
+                    KeyAttribution::NoWindow => (0, 0),
+                    _ => (foreground_handle, pid),
+                };
 
-                // Record the input for correlation (plus the keyboard-only
-                // pair used by value-change correlation).
-                note_input(timestamp, window_handle);
-                INPUT_LAST_KEYBOARD_TIMESTAMP.with(|t| t.set(timestamp));
-                INPUT_LAST_KEYBOARD_WINDOW.with(|w| w.set(window_handle));
+                // Record the input for correlation. A key with no window still
+                // correlates the window changes it causes, with the foreground
+                // window it was pressed over as the input's window, so the
+                // selections of the windows it opens stay scoped out (DCP-8);
+                // it types into no window, so it is no keyboard input for
+                // value-change correlation.
+                note_input(timestamp, foreground_handle);
+                if attribution == KeyAttribution::ForegroundWindow {
+                    INPUT_LAST_KEYBOARD_TIMESTAMP.with(|t| t.set(timestamp));
+                    INPUT_LAST_KEYBOARD_WINDOW.with(|w| w.set(window_handle));
+                }
 
                 input_dispatch_raw_event(RawEvent {
                     event_type: RawEventType::Keyboard,
@@ -2152,7 +2176,7 @@ unsafe extern "system" fn input_keyboard_ll_proc(
                     screen_x: 0,
                     screen_y: 0,
                     window_handle,
-                    process_id: pid,
+                    process_id,
                     key_code: kb_struct.vkCode,
                     modifiers,
                     scroll_delta: 0.0,
@@ -2170,7 +2194,7 @@ unsafe extern "system" fn input_keyboard_ll_proc(
             // After the key's own dispatch, so the key keeps the epoch it was
             // pressed under. Outside the exclusion gate: a focus-moving key
             // pressed in an excluded window moves the focus all the same.
-            if super::worker_pool::key_may_move_focus(kb_struct.vkCode, get_modifier_state()) {
+            if super::worker_pool::key_may_move_focus(kb_struct.vkCode, modifiers) {
                 focus_epoch_advance_by_person();
             }
         }
