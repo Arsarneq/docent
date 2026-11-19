@@ -1654,8 +1654,10 @@ fn value_change_control(raw: &RawEvent) -> i64 {
 ///
 /// A control is described when it is first confirmed. At the first key under
 /// each later count, the person's or the programs', what the control is (a
-/// field of its own, a password field) is looked at again, and a control
-/// that is gone by then leaves the key to the description by focus. The
+/// field of its own, a password field) is looked at again. A control that is
+/// gone by then leaves the key to the description by focus, except a key
+/// that enters no text under the person's count the control was last looked
+/// at under, which stays on the control. The
 /// control is described again when what it is changed, or, at a new count of
 /// the person's, when the title of its window did (the description names the
 /// window).
@@ -1707,7 +1709,20 @@ fn settle_key_on_its_control<B: AccessibilityBackend>(
             None => ControlNature::Shared,
         };
         match backend.control_nature(control) {
-            ControlNature::Gone => return None,
+            // The control closed before it could be looked at again. Under a
+            // new count of the person's nothing is known of it. Under the
+            // count it was last looked at under, the person did nothing in
+            // between and the key was pressed in it: a key that enters no
+            // text stays on it, since what the control had become cannot put
+            // a character on record. A key that enters text does not: nothing
+            // shows the control had not become a password field.
+            ControlNature::Gone => {
+                return if same_person && !enters_text_in_password_field(raw, &key_name(raw)) {
+                    known.element.clone()
+                } else {
+                    None
+                };
+            }
             now if now == nature => {
                 known.epoch = raw.focus_epoch;
                 return known.element.clone();

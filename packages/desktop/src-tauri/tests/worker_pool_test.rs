@@ -4063,6 +4063,80 @@ fn keys_reached_after_their_dialog_closed_are_recorded_on_the_control_they_were_
     assert_eq!(queries.load(Ordering::SeqCst), 0);
 }
 
+/// From the hands-on run of 2026-11-19: a program reported a focus change
+/// while a file name was typed (the field's suggestion list), Enter closed
+/// the dialog, and Enter was reached after that. Its control could not be
+/// looked at again, and Enter was recorded on no element. Enter enters no
+/// text, so what the control had become cannot put a character on record: it
+/// stays on the control it was pressed in.
+#[test]
+fn a_key_that_enters_no_text_keeps_its_control_when_the_control_closed_before_the_second_look() {
+    let (backend, scene, queries, controls) =
+        MovingFocusBackend::with_controls(save_button_focused(), field_controls("c"));
+    let harness = WorkerTestHarness::new(backend);
+
+    let t = now_ms();
+    harness.send_event(in_field(packet_key(1, t, u16::from(b'c'))));
+    thread::sleep(Duration::from_millis(150));
+    close_the_dialog(&scene, &controls);
+    let mut enter = in_field(layout_key(2, t + 1, 0x0D));
+    enter.focus_epoch = 2;
+    harness.send_event(enter);
+
+    thread::sleep(Duration::from_millis(900));
+    let events = harness.shutdown();
+
+    assert_eq!(
+        typed_actions_of(&events),
+        vec![
+            "key c on Dialog > Edit:File name",
+            "key Enter on Dialog > Edit:File name"
+        ],
+        "got {events:?}"
+    );
+    assert_eq!(queries.load(Ordering::SeqCst), 0);
+}
+
+/// The same for a key that enters text: nothing shows the control had not
+/// become a password field before it closed, so the key is held to the
+/// password rule and names no element.
+#[test]
+fn a_text_key_whose_control_closed_before_the_second_look_is_masked_on_no_element() {
+    let (backend, scene, _, controls) =
+        MovingFocusBackend::with_controls(save_button_focused(), field_controls("c"));
+    let harness = WorkerTestHarness::new(backend);
+
+    let t = now_ms();
+    harness.send_event(in_field(packet_key(1, t, u16::from(b'c'))));
+    thread::sleep(Duration::from_millis(150));
+    close_the_dialog(&scene, &controls);
+    let mut key = in_field(packet_key(2, t + 1, u16::from(b'o')));
+    key.focus_epoch = 2;
+    harness.send_event(key);
+
+    thread::sleep(Duration::from_millis(900));
+    let events = harness.shutdown();
+
+    assert_eq!(
+        typed_actions_of(&events),
+        vec!["key c on Dialog > Edit:File name", "type •••••••• on "],
+        "got {events:?}"
+    );
+}
+
+/// Enter was pressed and the dialog is gone: another window is in front and
+/// the dialog's controls no longer exist.
+fn close_the_dialog(scene: &Arc<Mutex<FocusScene>>, controls: &Arc<Mutex<Controls>>) {
+    *scene.lock().unwrap() = FocusScene {
+        epoch: 2 + FOCUS_EPOCH_PERSON_STEP,
+        foreground: OTHER_WINDOW,
+        element: scene_element("Edit", "Document > Edit:Text Editor", Some("text")),
+    };
+    let mut controls = controls.lock().unwrap();
+    controls.focused = 0;
+    controls.own.clear();
+}
+
 /// A value change a control reports about itself is that control's `type`,
 /// read from the control: no focused-element query, whatever has the focus by
 /// then. Repeated keys are in the value exactly as typed.
