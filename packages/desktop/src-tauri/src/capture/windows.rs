@@ -1288,9 +1288,10 @@ fn input_thread_main(
 // Input_Thread helper: dispatch a RawEvent
 // ---------------------------------------------------------------------------
 
-/// The focus epoch: a count of the focus and foreground changes the
-/// Input_Thread has seen, plus the mouse-downs and focus-moving keys it has
-/// dispatched (each may move the focus without the program reporting it).
+/// The focus epoch, in two halves (`RawEvent::focus_epoch`): the low 32 bits
+/// count the focus and foreground changes programs reported to the
+/// Input_Thread, the high 32 bits the mouse-downs and focus-moving keys the
+/// hooks saw (each may move the focus without the program reporting it).
 /// Every raw event is stamped with the epoch of its dispatch, and a worker
 /// reads the current one when it describes the focused element for a
 /// keystroke or value change (`AccessibilityBackend::focus_epoch`). Starts at
@@ -1882,7 +1883,12 @@ unsafe extern "system" fn input_mouse_ll_proc(
 
         // A mouse-down may move the focus, reported or not, in a captured or
         // an excluded window: later keystrokes start a new focus epoch.
-        if matches!(msg as i32, WM_LBUTTONDOWN | WM_RBUTTONDOWN | WM_MBUTTONDOWN) {
+        // The extra buttons (Back, Forward) count too.
+        const WM_XBUTTONDOWN: i32 = 0x020B;
+        if matches!(
+            msg as i32,
+            WM_LBUTTONDOWN | WM_RBUTTONDOWN | WM_MBUTTONDOWN | WM_XBUTTONDOWN
+        ) {
             focus_epoch_advance_by_person();
         }
 

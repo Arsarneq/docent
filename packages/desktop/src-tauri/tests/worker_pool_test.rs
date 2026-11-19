@@ -3750,6 +3750,31 @@ fn a_first_text_key_described_after_the_person_moved_focus_is_masked_on_no_eleme
     );
 }
 
+/// A focus-moving key counts itself in the person's half right behind its own
+/// dispatch. Described after that, as the first key under its count, it is
+/// still its own: recorded on the focused element, not on none.
+#[test]
+fn a_focus_moving_key_is_not_made_unknowable_by_its_own_count() {
+    let (backend, _scene, _) = MovingFocusBackend::new(FocusScene {
+        // The Tab below, counted.
+        epoch: (1 << 32) | 1,
+        foreground: DIALOG,
+        element: scene_element("Edit", "Dialog > Edit:File name", Some("")),
+    });
+    let harness = WorkerTestHarness::new(backend);
+
+    harness.send_event(in_dialog(layout_key(1, now_ms(), 0x09))); // Tab
+
+    thread::sleep(Duration::from_millis(300));
+    let events = harness.shutdown();
+
+    assert_eq!(
+        typed_actions_of(&events),
+        vec!["key Tab on Dialog > Edit:File name"],
+        "got {events:?}"
+    );
+}
+
 /// A program reported a focus change of its own after the key (the count's
 /// low half moved, the person did nothing): the key is recorded on the
 /// focused element of its window, with its character, as before.
@@ -3839,8 +3864,17 @@ fn only_plain_typing_keys_keep_the_focus_epoch() {
         assert!(!key_may_move_focus(vk, alt_gr), "vk {vk:#x} with AltGr");
         assert!(key_may_move_focus(vk, ctrl), "vk {vk:#x} with Ctrl");
     }
-    // Modifier and lock keys alone.
-    for vk in [0x10, 0x11, 0x12, 0xA0, 0xA5, 0x14, 0x90] {
+    // Shift, Control and lock keys alone.
+    for vk in [0x10, 0x11, 0xA0, 0xA3, 0x14, 0x90] {
+        assert!(!key_may_move_focus(vk, none), "vk {vk:#x}");
+    }
+    // Alt alone opens a menu; as the Alt of AltGr (Control is down) it does not.
+    for vk in [0x12, 0xA4, 0xA5] {
+        assert!(key_may_move_focus(vk, none), "vk {vk:#x}");
+        assert!(!key_may_move_focus(vk, ctrl), "vk {vk:#x} with Ctrl");
+    }
+    // The extra punctuation keys of other layouts type characters.
+    for vk in [0xC1, 0xC2, 0xE1, 0xE4, 0xE6] {
         assert!(!key_may_move_focus(vk, none), "vk {vk:#x}");
     }
     // Tab, Enter, Escape, an arrow, F6, the Windows key, an unknown key.

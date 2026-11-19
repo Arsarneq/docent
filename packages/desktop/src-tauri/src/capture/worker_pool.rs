@@ -918,11 +918,12 @@ pub trait AccessibilityBackend: Send + 'static {
     /// Query the currently focused element.
     fn focused_element(&self) -> Option<ElementDescription>;
 
-    /// The current focus epoch: how many focus and foreground changes the
-    /// Input_Thread has seen so far. An event carries the epoch of its
-    /// dispatch in [`RawEvent::focus_epoch`]; while the two are equal, no
-    /// focus change has been seen since the event. A platform that does not
-    /// count focus changes returns `0` always.
+    /// The current focus epoch: the Input_Thread's count of focus changes,
+    /// in the two halves [`RawEvent::focus_epoch`] describes (not one plain
+    /// number: compare for equality, or with `person_moved_focus_between`).
+    /// An event carries the epoch of its dispatch; while the two are equal,
+    /// no focus change has been seen since the event. A platform that does
+    /// not count focus changes returns `0` always.
     fn focus_epoch(&self) -> u64 {
         0
     }
@@ -1201,25 +1202,31 @@ fn person_moved_focus_between(raw: &RawEvent, epoch_now: u64) -> bool {
 /// typing keys. Tab, Enter, Escape, the arrows, a shortcut or a key this table
 /// does not know may leave another element focused; a letter, a digit, the
 /// space bar, punctuation and the numeric keypad type into the focused one
-/// (AltGr, which is Ctrl+Alt, included), and Shift, Control, Alt and the lock
-/// keys do nothing alone. The Input_Thread starts a new focus epoch after a
-/// key that can move the focus, so the next key is described afresh even when
-/// the program reports no focus change. Called on the keyboard hook: no
-/// allocation, no lock.
+/// (AltGr, which is Ctrl+Alt, included), and Shift, Control and the lock keys
+/// do nothing alone. Alt alone opens a menu when it is released, so it counts,
+/// except as the Alt of AltGr (Control is down by then). The typing keys are a
+/// closed table of the virtual-key codes that enter a character on some
+/// layout. The Input_Thread counts a key that can move the focus in the
+/// person's half of the focus epoch, right behind the key's own dispatch.
+/// Called on the keyboard hook: no allocation, no lock.
 pub fn key_may_move_focus(key_code: u32, modifiers: (bool, bool, bool, bool)) -> bool {
     let (ctrl, _shift, alt, meta) = modifiers;
     match key_code {
-        // Shift, Control, Alt (generic and left/right), CapsLock, NumLock,
+        // Shift, Control (generic and left/right), CapsLock, NumLock,
         // ScrollLock.
-        0x10..=0x12 | 0xA0..=0xA5 | 0x14 | 0x90 | 0x91 => false,
-        // Space, digits, letters, numeric keypad, punctuation, VK_PACKET.
+        0x10 | 0x11 | 0xA0..=0xA3 | 0x14 | 0x90 | 0x91 => false,
+        // Alt (generic and left/right).
+        0x12 | 0xA4 | 0xA5 => !ctrl,
+        // Space, digits, letters, numeric keypad, punctuation (the OEM keys of
+        // every layout: 0xBA-0xC2, 0xDB-0xDF, 0xE1-0xE4, 0xE6), VK_PACKET.
         0x20
         | 0x30..=0x39
         | 0x41..=0x5A
         | 0x60..=0x6F
-        | 0xBA..=0xC0
+        | 0xBA..=0xC2
         | 0xDB..=0xDF
-        | 0xE2
+        | 0xE1..=0xE4
+        | 0xE6
         | VK_PACKET => meta || ctrl != alt,
         _ => true,
     }
@@ -1948,7 +1955,9 @@ fn handle_value_change<B: AccessibilityBackend>(
         .last_key
         .as_ref()
         .filter(|k| k.context_id == context_id);
-    // A keystroke that named no element: its window was gone already.
+    // A keystroke that named no element (its window was gone, gave no focused
+    // element, or the person had moved the focus): the value change has no
+    // element to be the `type` of.
     if last_key.is_some_and(|k| k.mark.is_none()) {
         keep_keys_of_dropped_value_change(pending, action_sender);
         return false;
