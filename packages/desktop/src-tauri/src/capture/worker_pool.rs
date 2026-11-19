@@ -2243,6 +2243,41 @@ fn handle_keyboard<B: AccessibilityBackend>(
     // Otherwise the focused element is asked for, and taken only while the
     // key's window is still in front; a key whose window closed or was left
     // names no element rather than whatever has focus at this moment.
+    // A key attributed to no window (desktop capture DCP-14): a key the shell
+    // takes while the foreground window is excluded. Whatever is focused is
+    // that excluded window's, so nothing is asked of the backend; the key is
+    // no keystroke of any window, so the typing state is left as it is.
+    if raw.window_handle == 0 {
+        let element = ElementDescription {
+            tag: "Unknown".to_string(),
+            selector: String::new(),
+            ..Default::default()
+        };
+        let event = ActionEvent {
+            timestamp: raw.timestamp,
+            context_id: None,
+            capture_mode: CaptureMode::Accessibility,
+            frame_src: None,
+            window_rect: None,
+            sequence_id: Some(raw.sequence_id),
+            payload: ActionPayload::Key {
+                key,
+                modifiers: Modifiers {
+                    ctrl: raw.modifiers.0,
+                    shift: raw.modifiers.1,
+                    alt: raw.modifiers.2,
+                    meta: raw.modifiers.3,
+                },
+                element,
+            },
+        };
+        let mut buffers = lock_buffers(pending);
+        buffers.flush_pending_type_only(action_sender);
+        flush_pending_keys(&mut buffers.pending_keys, action_sender);
+        let _ = action_sender.send(event);
+        return;
+    }
+
     let mut disproved = false;
     let remembered = remembered_focus(&state.typing_focus, raw, context_id).and_then(|known| {
         let present_speaks = known.mark == state.mark_seq
@@ -3061,6 +3096,36 @@ mod tests {
             callback_params: [0; 4],
             pre_captured_element: None,
             focus_epoch: 0,
+        }
+    }
+
+    #[test]
+    fn a_key_attributed_to_no_window_names_no_element_and_no_window() {
+        // The hook attributes a key the shell takes to no window when the
+        // self-capture exclusion excludes the foreground window (DCP-14): the
+        // worker must not describe whatever is focused (a window of Docent's
+        // own), only write the nameless stand-in with no context.
+        let (mut pool, rx) = pool_with_probe_backend(false, false);
+        let mut raw = control_key_raw_event(0x5B, 1); // the left Windows key
+        raw.window_handle = 0;
+        raw.process_id = 0;
+        pool.dispatch(raw);
+        thread::sleep(Duration::from_millis(100));
+        pool.shutdown_with_timeout(Duration::from_secs(5));
+
+        let events = drain_events(&rx);
+        assert_eq!(key_names(&events), vec!["Meta"]);
+        let event = &events[0];
+        assert_eq!(event.context_id, None);
+        assert_eq!(event.window_rect, None);
+        match &event.payload {
+            ActionPayload::Key { element, .. } => {
+                assert_eq!(element.tag, "Unknown");
+                assert_eq!(element.selector, "");
+                assert_eq!(element.name, None);
+                assert!(element.locators.is_empty());
+            }
+            _ => panic!("expected Key payload"),
         }
     }
 
