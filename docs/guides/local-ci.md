@@ -64,6 +64,10 @@ PR_BODY="$(cat pr-body.md)" PR_HEAD_REF=automated/version-table-update \
   node scripts/check-docs-disposition.js origin/main
 ```
 
+The check reads the commits on your branch (`origin/main...HEAD`), so commit
+your change before you run it. `pr-body.md` holds the body only; the title goes
+in GitHub's title field and has [its own check](#pr-title).
+
 Its red output enumerates the exact lines the sections must carry, so a
 failing run teaches its own fix. The one exception is a governance-data file
 the check cannot use (the area map or the clause registry): there is no scope
