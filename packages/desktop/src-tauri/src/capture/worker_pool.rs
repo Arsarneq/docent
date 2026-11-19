@@ -1594,6 +1594,8 @@ struct KnownControl {
     /// The focus epoch of the keystroke the control was last looked at for
     /// (see [`settle_key_on_its_control`]).
     epoch: u64,
+    /// The keystroke's part-focus number at that look (see [`key_part_focus`]).
+    part_focus: i64,
     /// The title of the control's top-level window when it was described: a
     /// description names its window, so a changed title means describing the
     /// control again.
@@ -1615,6 +1617,61 @@ fn key_control(raw: &RawEvent) -> i64 {
         raw.callback_params[1]
     } else {
         0
+    }
+}
+
+/// The number of the latest focus change that named a part of this key's
+/// control, as the Input_Thread noted it when the key was pressed
+/// (`callback_params[2]`, see [`PartFocusNote`]); `0` when there was none.
+fn key_part_focus(raw: &RawEvent) -> i64 {
+    raw.callback_params[2]
+}
+
+/// Whether a focus change a program reported names a part of a window rather
+/// than the window as a whole. A window as a whole is named by its own object
+/// (`OBJID_WINDOW`) or its client area (`OBJID_CLIENT`) with no child. A
+/// control that holds the focus only itself reports itself that way; a window
+/// that has come to hold focusable elements reports the one that took the
+/// focus by another object or a child id.
+pub fn focus_names_a_part(id_object: i64, id_child: i64) -> bool {
+    const OBJECT_ID_WINDOW: i64 = 0;
+    id_child != 0 || (id_object != OBJECT_ID_WINDOW && id_object != OBJECT_ID_CLIENT)
+}
+
+/// The Input_Thread's note of the focus changes that named a part of a
+/// window (see [`focus_names_a_part`]), by window handle. Every such change
+/// gets the next number, so a keystroke stamped with its control's number
+/// tells a worker whether one happened since the worker last looked at the
+/// control. A window that had none, or was pushed out by newer ones, answers
+/// `0`, never a number it had before. Kept and read on the Input_Thread only:
+/// a short fixed scan, no allocation after the first few changes.
+#[derive(Debug, Default)]
+pub struct PartFocusNote {
+    last: i64,
+    windows: Vec<(i64, i64)>,
+}
+
+impl PartFocusNote {
+    /// How many windows are remembered.
+    pub const WINDOWS: usize = 16;
+
+    /// Note a focus change that named a part of `window`.
+    pub fn add(&mut self, window: i64) {
+        self.last += 1;
+        self.windows.retain(|(w, _)| *w != window);
+        if self.windows.len() >= Self::WINDOWS {
+            self.windows.remove(0);
+        }
+        self.windows.push((window, self.last));
+    }
+
+    /// The number of the latest such change in `window`, `0` when none is
+    /// remembered.
+    pub fn of(&self, window: i64) -> i64 {
+        self.windows
+            .iter()
+            .find(|(w, _)| *w == window)
+            .map_or(0, |(_, number)| *number)
     }
 }
 
@@ -1643,24 +1700,29 @@ fn value_change_control(raw: &RawEvent) -> i64 {
 ///   the person did can have moved the focus since: the handle stands. While
 ///   the present can still speak for the key (nothing counted since, its
 ///   window in front) and names another control, a program moved the focus
-///   on its own and the key is described by focus. A key stamped with the
-///   very count the control was last looked at under takes its element with
-///   no call at all.
+///   on its own and the key is described by focus. While no focus change
+///   named a part of the control since it was last looked at, the key takes
+///   the control's element with no call at all.
 /// - A first key under a new count of the person's (a click, Tab, Backspace
 ///   came before it) is taken on its handle only when the present confirms
 ///   it: the person did nothing since that can move the focus, and the handle
 ///   holds the focus now. Otherwise it is described by focus, which names no
 ///   element once the person has moved on.
 ///
-/// A control is described when it is first confirmed. At the first key under
-/// each later count, the person's or the programs', what the control is (a
-/// field of its own, a password field) is looked at again. A control that is
-/// gone by then leaves the key to the description by focus, except a key
-/// that enters no text under the person's count the control was last looked
-/// at under, which stays on the control. The
-/// control is described again when what it is changed, or, at a new count of
-/// the person's, when the title of its window did (the description names the
-/// window).
+/// A control is described when it is first confirmed. What the control is (a
+/// field of its own, a password field) is looked at again at the first key
+/// under each later count of the person's, and at the first key after a
+/// program reported a focus change that named a part of the control (a
+/// window that came to hold a focusable element reports the one that took
+/// the focus that way; see [`focus_names_a_part`]). Any other focus change a
+/// program reports says nothing about the control and asks for no look: a
+/// look waits on the program, and a key that waits while the person presses
+/// Enter finds its dialog gone. A control that is gone at the second look
+/// leaves the key to the description by focus, except a key that enters no
+/// text under the person's count the control was last looked at under, which
+/// stays on the control. The control is described again when what it is
+/// changed, or, at a new count of the person's, when the title of its window
+/// did (the description names the window).
 fn settle_key_on_its_control<B: AccessibilityBackend>(
     raw: &RawEvent,
     backend: &B,
@@ -1680,19 +1742,25 @@ fn settle_key_on_its_control<B: AccessibilityBackend>(
         if present_speaks && backend.focused_control() != control {
             return None;
         }
-        if confirmed_under == Some(raw.focus_epoch) {
-            return controls.get(&control).and_then(|k| k.element.clone());
+        // Nothing the person did, and no focus change that named a part of
+        // the control, since it was last looked at: it is what it was. A
+        // window that holds other elements is left to the description by
+        // focus whatever was reported.
+        if let Some(known) = controls.get(&control) {
+            if known.element.is_none() || known.part_focus == key_part_focus(raw) {
+                return known.element.clone();
+            }
         }
     } else if person_moved_focus_between(raw, epoch_now) || backend.focused_control() != control {
         return None;
     }
-    // Something was counted since the control was last looked at: the person
-    // did something (ticked a box), or a program moved the focus (a page that
-    // finished loading and focused one of its fields). What the control is
-    // may have changed with nothing else about it changing, so that is looked
-    // at again, which needs no description. The description is kept while the
-    // control is what it was and, at a new count of the person's, its window
-    // is titled as it was.
+    // The person did something since the control was last looked at (ticked
+    // a box), or a program reported a focus change that named a part of it
+    // (a page that finished loading and focused one of its fields). What the
+    // control is may have changed with nothing else about it changing, so
+    // that is looked at again, which needs no description. The description is
+    // kept while the control is what it was and, at a new count of the
+    // person's, its window is titled as it was.
     let title = if same_person {
         None
     } else {
@@ -1725,6 +1793,7 @@ fn settle_key_on_its_control<B: AccessibilityBackend>(
             }
             now if now == nature => {
                 known.epoch = raw.focus_epoch;
+                known.part_focus = key_part_focus(raw);
                 return known.element.clone();
             }
             _ => {}
@@ -1744,6 +1813,7 @@ fn settle_key_on_its_control<B: AccessibilityBackend>(
         KnownControl {
             element: element.clone(),
             epoch: raw.focus_epoch,
+            part_focus: key_part_focus(raw),
             title,
         },
     );

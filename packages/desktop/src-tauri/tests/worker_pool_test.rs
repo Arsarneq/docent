@@ -437,8 +437,8 @@ use std::thread;
 use std::time::Duration;
 
 use docent_desktop_lib::capture::worker_pool::{
-    worker_loop, AccessibilityBackend, ControlLook, ControlNature, PendingBuffers,
-    FOCUS_EPOCH_PERSON_STEP,
+    focus_names_a_part, worker_loop, AccessibilityBackend, ControlLook, ControlNature,
+    PartFocusNote, PendingBuffers, FOCUS_EPOCH_PERSON_STEP,
 };
 use docent_desktop_lib::capture::{
     ActionPayload, CaptureError, CaptureMode, ElementDescription, Modifiers,
@@ -3283,6 +3283,7 @@ struct Controls {
     title: String,
     descriptions: u64,
     value_reads: u64,
+    nature_looks: u64,
 }
 
 impl Controls {
@@ -3376,7 +3377,9 @@ impl AccessibilityBackend for MovingFocusBackend {
     }
 
     fn control_nature(&self, control: i64) -> ControlNature {
-        self.controls.lock().unwrap().nature(control)
+        let mut controls = self.controls.lock().unwrap();
+        controls.nature_looks += 1;
+        controls.nature(control)
     }
 
     fn describe_control(&self, control: i64) -> ControlLook {
@@ -4081,6 +4084,7 @@ fn a_key_that_enters_no_text_keeps_its_control_when_the_control_closed_before_th
     close_the_dialog(&scene, &controls);
     let mut enter = in_field(layout_key(2, t + 1, 0x0D));
     enter.focus_epoch = 2;
+    enter.callback_params[2] = 1;
     harness.send_event(enter);
 
     thread::sleep(Duration::from_millis(900));
@@ -4112,6 +4116,7 @@ fn a_text_key_whose_control_closed_before_the_second_look_is_masked_on_no_elemen
     close_the_dialog(&scene, &controls);
     let mut key = in_field(packet_key(2, t + 1, u16::from(b'o')));
     key.focus_epoch = 2;
+    key.callback_params[2] = 1;
     harness.send_event(key);
 
     thread::sleep(Duration::from_millis(900));
@@ -4122,6 +4127,83 @@ fn a_text_key_whose_control_closed_before_the_second_look_is_masked_on_no_elemen
         vec!["key c on Dialog > Edit:File name", "type •••••••• on "],
         "got {events:?}"
     );
+}
+
+/// From the hands-on run of 2026-11-19: the file-name field's suggestion list
+/// reported a focus change while the name was typed at a person's speed. The
+/// next character waited for a second look at the field, the dialog was busy,
+/// Enter closed it, and the character was masked on no element. A focus
+/// change that names no part of the control says nothing about the control:
+/// it is not looked at again, and the key is the control's with no call.
+#[test]
+fn a_focus_change_that_names_no_part_of_the_control_asks_for_no_second_look() {
+    let (backend, scene, queries, controls) =
+        MovingFocusBackend::with_controls(save_button_focused(), field_controls("c"));
+    let harness = WorkerTestHarness::new(backend);
+
+    let t = now_ms();
+    harness.send_event(in_field(packet_key(1, t, u16::from(b'c'))));
+    thread::sleep(Duration::from_millis(150));
+    close_the_dialog(&scene, &controls);
+    let mut key = in_field(packet_key(2, t + 1, u16::from(b'o')));
+    key.focus_epoch = 2;
+    harness.send_event(key);
+    let mut enter = in_field(layout_key(3, t + 2, 0x0D));
+    enter.focus_epoch = 2;
+    harness.send_event(enter);
+
+    thread::sleep(Duration::from_millis(900));
+    let events = harness.shutdown();
+
+    assert_eq!(
+        typed_actions_of(&events),
+        vec![
+            "key c on Dialog > Edit:File name",
+            "key o on Dialog > Edit:File name",
+            "key Enter on Dialog > Edit:File name"
+        ],
+        "got {events:?}"
+    );
+    assert_eq!(controls.lock().unwrap().nature_looks, 0);
+    assert_eq!(queries.load(Ordering::SeqCst), 0);
+}
+
+/// The Input_Thread's note of the focus changes that named a part of a
+/// window: each has a number of its own, a window that had none answers 0,
+/// and a window pushed out of the note answers 0 again, never an old number.
+#[test]
+fn the_part_focus_note_numbers_each_change_and_forgets_to_zero() {
+    let mut note = PartFocusNote::default();
+    assert_eq!(note.of(77), 0);
+
+    note.add(77);
+    let first = note.of(77);
+    assert_ne!(first, 0);
+    assert_eq!(note.of(88), 0);
+
+    note.add(88);
+    note.add(77);
+    assert!(note.of(77) > note.of(88));
+    assert!(note.of(88) > first);
+
+    for window in 100..100 + PartFocusNote::WINDOWS as i64 {
+        note.add(window);
+    }
+    assert_eq!(note.of(77), 0);
+    assert_eq!(note.of(88), 0);
+    assert_ne!(note.of(100 + PartFocusNote::WINDOWS as i64 - 1), 0);
+}
+
+/// A focus change names a window as a whole by the window's own object or
+/// its client area with no child; anything else names a part of it.
+#[test]
+fn a_focus_change_names_a_part_unless_it_names_the_window_or_its_client_area() {
+    assert!(!focus_names_a_part(0, 0)); // OBJID_WINDOW, CHILDID_SELF
+    assert!(!focus_names_a_part(-4, 0)); // OBJID_CLIENT, CHILDID_SELF
+    assert!(focus_names_a_part(-4, 3));
+    assert!(focus_names_a_part(-4, -1207));
+    assert!(focus_names_a_part(-25, 0));
+    assert!(focus_names_a_part(12, 0));
 }
 
 /// Enter was pressed and the dialog is gone: another window is in front and
@@ -4587,6 +4669,7 @@ fn a_control_is_looked_at_again_after_a_focus_change_the_program_made() {
     }
     let mut key = in_field(packet_key(2, t + 1, u16::from(b's')));
     key.focus_epoch = 2;
+    key.callback_params[2] = 1; // a focus change named a part of the control
     harness.send_event(key);
 
     thread::sleep(Duration::from_millis(900));

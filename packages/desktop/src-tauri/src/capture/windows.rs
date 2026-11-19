@@ -398,6 +398,11 @@ thread_local! {
     /// Events from non-foreground processes are filtered out.
     static INPUT_FOREGROUND_PID: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
 
+    /// The focus changes that named a part of a window, by window handle. A
+    /// keystroke is stamped with the number of its control's latest one.
+    static INPUT_PART_FOCUS: std::cell::RefCell<super::worker_pool::PartFocusNote> =
+        std::cell::RefCell::new(super::worker_pool::PartFocusNote::default());
+
     /// Root window handle of the last dispatched foreground event. Used to
     /// deduplicate foreground events (click-based + WinEvent-based).
     static INPUT_LAST_FOREGROUND_HWND: std::cell::Cell<i64> = const { std::cell::Cell::new(0) };
@@ -1537,6 +1542,14 @@ unsafe extern "system" fn input_win_event_proc(
     if event == EVENT_OBJECT_FOCUS as u32 || event == EVENT_SYSTEM_FOREGROUND as u32 {
         focus_epoch_advance();
     }
+    // Beside the count: a focus change that names a part of a window is
+    // noted for that window, so a keystroke into the window tells a worker
+    // that what the window holds may have changed.
+    if event == EVENT_OBJECT_FOCUS as u32
+        && super::worker_pool::focus_names_a_part(i64::from(id_object), i64::from(id_child))
+    {
+        INPUT_PART_FOCUS.with(|note| note.borrow_mut().add(hwnd.0 as i64));
+    }
 
     let mut process_id: u32 = 0;
     GetWindowThreadProcessId(hwnd, Some(&mut process_id));
@@ -2165,6 +2178,7 @@ unsafe extern "system" fn input_keyboard_ll_proc(
                 INPUT_LAST_KEYBOARD_TIMESTAMP.with(|t| t.set(timestamp));
                 INPUT_LAST_KEYBOARD_WINDOW.with(|w| w.set(window_handle));
 
+                let control = focused_control_of_thread(thread_id);
                 input_dispatch_raw_event(RawEvent {
                     event_type: RawEventType::Keyboard,
                     sequence_id: 0,
@@ -2183,10 +2197,12 @@ unsafe extern "system" fn input_keyboard_ll_proc(
                     // Beside it the control that holds the keyboard focus at
                     // this key: one read of the window system's own state,
                     // which sends no message and waits on no program.
+                    // And the number of the latest focus change that named a
+                    // part of that control, from this thread's own note.
                     callback_params: [
                         i64::from(kb_struct.scanCode),
-                        focused_control_of_thread(thread_id),
-                        0,
+                        control,
+                        INPUT_PART_FOCUS.with(|note| note.borrow().of(control)),
                         0,
                     ],
                     pre_captured_element: None,
