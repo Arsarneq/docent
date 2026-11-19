@@ -962,6 +962,13 @@ pub trait AccessibilityBackend: Send + 'static {
         0
     }
 
+    /// What the control with window handle `control` is right now (see
+    /// [`ControlNature`]): the part of [`describe_control`](Self::describe_control)
+    /// that can change while the control lives, without the description.
+    fn control_nature(&self, _control: i64) -> ControlNature {
+        ControlNature::Gone
+    }
+
     /// Look at the control with window handle `control` (see [`ControlLook`]).
     fn describe_control(&self, _control: i64) -> ControlLook {
         ControlLook::Gone
@@ -1006,6 +1013,20 @@ pub trait AccessibilityBackend: Send + 'static {
     /// selection could be resolved, or `None` if the pattern is not
     /// supported or no item is selected.
     fn selected_item_name(&self, window_handle: i64) -> Option<(ElementDescription, String)>;
+}
+
+/// What a control is at one moment, as far as the recording of its keys
+/// depends on it. A field can become a password field and a window can come
+/// to hold focusable elements without anything else about it changing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ControlNature {
+    /// It can hold the keyboard focus only itself; `password` is whether it
+    /// is a password field.
+    Own { password: bool },
+    /// It holds other elements that can take the focus.
+    Shared,
+    /// It is gone, or could not be looked at.
+    Gone,
 }
 
 /// What [`AccessibilityBackend::describe_control`] found behind a control's
@@ -1629,8 +1650,11 @@ fn value_change_control(raw: &RawEvent) -> i64 {
 ///   holds the focus now. Otherwise it is described by focus, which names no
 ///   element once the person has moved on.
 ///
-/// A control is described when it is first confirmed, and again when the
-/// title of its window changed (the description names the window).
+/// A control is described when it is first confirmed. At the first key under
+/// each later count of the person's, what the control is (a field of its
+/// own, a password field) is looked at again, and it is described again when
+/// that changed or the title of its window did (the description names the
+/// window).
 fn settle_key_on_its_control<B: AccessibilityBackend>(
     raw: &RawEvent,
     backend: &B,
@@ -1653,10 +1677,27 @@ fn settle_key_on_its_control<B: AccessibilityBackend>(
     if person_moved_focus_between(raw, epoch_now) || backend.focused_control() != control {
         return None;
     }
+    // The person did something since the control was last confirmed (ticked
+    // a box, loaded a page): what the control is may have changed with nothing
+    // else about it changing, so that is looked at again, which is cheap. The
+    // description is kept while the control is what it was and its window is
+    // titled as it was.
     let title = backend.window_title(raw.window_handle);
     if let Some(known) = controls.get_mut(&control).filter(|k| k.title == title) {
-        known.person = person;
-        return known.element.clone();
+        let nature = match &known.element {
+            Some(element) => ControlNature::Own {
+                password: element.element_type.as_deref() == Some("password"),
+            },
+            None => ControlNature::Shared,
+        };
+        match backend.control_nature(control) {
+            ControlNature::Gone => return None,
+            now if now == nature => {
+                known.person = person;
+                return known.element.clone();
+            }
+            _ => {}
+        }
     }
     let element = match backend.describe_control(control) {
         ControlLook::Own(element) => Some(*element),
@@ -2532,9 +2573,10 @@ fn handle_keyboard<B: AccessibilityBackend>(
     };
     // The gap to the moment this worker settled the key's element.
     stamp_described_after(&mut element, raw.timestamp);
+    let key_selector = element.selector.clone();
     state.last_key = Some(LastKey {
         context_id,
-        selector: element.selector.clone(),
+        selector: key_selector.clone(),
         mark,
         control,
     });
@@ -2599,6 +2641,16 @@ fn handle_keyboard<B: AccessibilityBackend>(
     // In-memory buffer mutation only — short lock, no backend calls inside.
     let mut buffers = lock_buffers(pending);
     if is_printable_key(raw, &key) {
+        // A `type` pending for another element is not this key's: it is
+        // written now, so that it cannot count this key superseded when it is
+        // written later.
+        if buffers
+            .pending_type
+            .as_ref()
+            .is_some_and(|pt| pt.context_id != context_id || pt.element.selector != key_selector)
+        {
+            buffers.flush_pending_type_only(action_sender);
+        }
         // Buffer printable keys — they may be superseded by a type event.
         buffers.pending_keys.push(event);
         buffers.pending_keys_last_timestamp = raw.timestamp;

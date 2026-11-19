@@ -67,8 +67,8 @@ use super::element_mapping::{
 };
 use super::timing;
 use super::worker_pool::{
-    fallback_drain_and_seal, worker_loop, AccessibilityBackend, ControlLook, PendingDirectory,
-    RawEvent, RawEventType, WorkerPool, FLUSH_BARRIER_TIMEOUT,
+    fallback_drain_and_seal, worker_loop, AccessibilityBackend, ControlLook, ControlNature,
+    PendingDirectory, RawEvent, RawEventType, WorkerPool, FLUSH_BARRIER_TIMEOUT,
 };
 use super::{
     ActionEvent, BarrierCompletion, BarrierReport, CaptureError, CaptureLayer, ElementDescription,
@@ -2873,6 +2873,44 @@ pub struct WindowsAccessibilityBackend {
     marked: std::cell::RefCell<Option<IUIAutomationElement>>,
 }
 
+impl WindowsAccessibilityBackend {
+    /// The element of the control with window handle `control` and what the
+    /// control is right now; `None` when the window is gone or UI Automation
+    /// gives no element for it.
+    ///
+    /// The control holds the focus only itself when nothing below it can take
+    /// the keyboard focus. `FindFirst` answers "none" as a null element, which
+    /// arrives here as an error that carries a success code; any real failure
+    /// leaves the question open, and an open question is answered as a window
+    /// that holds others.
+    unsafe fn control_element(
+        &self,
+        control: i64,
+    ) -> Option<(IUIAutomationElement, ControlNature)> {
+        let uia = self.uia.as_ref()?;
+        let hwnd = HWND(control as *mut _);
+        if control == 0 || !IsWindow(Some(hwnd)).as_bool() {
+            return None;
+        }
+        let element = uia
+            .ElementFromHandle(UIA_HWND(control as isize as *mut _))
+            .ok()?;
+        let Ok(focusable) = uia.CreatePropertyCondition(
+            UIA_IsKeyboardFocusablePropertyId,
+            Variant::from(true).as_raw(),
+        ) else {
+            return Some((element, ControlNature::Shared));
+        };
+        let nature = match element.FindFirst(TreeScope_Descendants, &focusable) {
+            Err(none) if none.code().is_ok() => ControlNature::Own {
+                password: get_is_password(&element),
+            },
+            _ => ControlNature::Shared,
+        };
+        Some((element, nature))
+    }
+}
+
 // SAFETY: See doc comment on the struct. The IUIAutomation instance is created
 // and used exclusively on the worker thread that owns this backend.
 unsafe impl Send for WindowsAccessibilityBackend {}
@@ -3006,36 +3044,27 @@ impl AccessibilityBackend for WindowsAccessibilityBackend {
         }
     }
 
+    fn control_nature(&self, control: i64) -> ControlNature {
+        match unsafe { self.control_element(control) } {
+            Some((_, nature)) => nature,
+            None => ControlNature::Gone,
+        }
+    }
+
     fn describe_control(&self, control: i64) -> ControlLook {
         let Some(uia) = self.uia.as_ref() else {
             return ControlLook::Gone;
         };
-        let hwnd = HWND(control as *mut _);
         unsafe {
-            if control == 0 || !IsWindow(Some(hwnd)).as_bool() {
-                return ControlLook::Gone;
-            }
-            let Ok(element) = uia.ElementFromHandle(UIA_HWND(control as isize as *mut _)) else {
-                return ControlLook::Gone;
-            };
-            // The control holds the focus only itself when nothing below it
-            // can take the keyboard focus. `FindFirst` answers "none" as a
-            // null element, which arrives here as an error that carries a
-            // success code; any real failure leaves the question open, and an
-            // open question is answered as a window that holds others.
-            let Ok(focusable) = uia.CreatePropertyCondition(
-                UIA_IsKeyboardFocusablePropertyId,
-                Variant::from(true).as_raw(),
-            ) else {
-                return ControlLook::Shared;
-            };
-            match element.FindFirst(TreeScope_Descendants, &focusable) {
-                Err(none) if none.code().is_ok() => {}
-                _ => return ControlLook::Shared,
-            }
-            match uia_element_to_description(uia, &element) {
-                Some(description) => ControlLook::Own(Box::new(description)),
-                None => ControlLook::Gone,
+            match self.control_element(control) {
+                Some((element, ControlNature::Own { .. })) => {
+                    match uia_element_to_description(uia, &element) {
+                        Some(description) => ControlLook::Own(Box::new(description)),
+                        None => ControlLook::Gone,
+                    }
+                }
+                Some((_, ControlNature::Shared)) => ControlLook::Shared,
+                _ => ControlLook::Gone,
             }
         }
     }
