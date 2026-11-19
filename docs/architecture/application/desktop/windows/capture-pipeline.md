@@ -60,6 +60,9 @@ events so the per-worker state that judges them stays coherent (DCP-12):
   always reach the same worker, keeping their deduplication correct.
 - **Drag pairing** — a drop routes to the worker that took its drag start, so
   the pair is built from the same recorded source element.
+- **Double-click pairing** — a click that completes a double-click routes to
+  the worker that took the click before it, so the file-dialog proxy reads the
+  pair in order on one worker (DCP-6, DCP-10).
 - **Shortest queue** — everything else goes to the least-loaded worker (ties
   to the lowest index).
 

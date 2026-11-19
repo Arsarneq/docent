@@ -173,12 +173,13 @@ each captured directly with its window's activation recorded beside it (core
 CP-17), and actions outside the hooks' visibility, captured by proxy (core
 CP-7):
 
-| User action               | Captured as                         |
-| ------------------------- | ----------------------------------- |
-| Click a different window  | `context_switch` beside the `click` |
-| Alt+Tab                   | `context_switch` beside the `key`   |
-| Click title bar close (X) | `context_close`                     |
-| File dialog selection     | `file_dialog`                       |
+| User action                                                                         | Captured as                             |
+| ----------------------------------------------------------------------------------- | --------------------------------------- |
+| Click a different window                                                            | `context_switch` beside the `click`     |
+| Alt+Tab                                                                             | `context_switch` beside the `key`       |
+| Click title bar close (X)                                                           | `context_close`                         |
+| File dialog confirmed by its Save or Open button                                    | `file_dialog` beside the `click`        |
+| File dialog confirmed by a double-click on a file in its item view (DCP-10, DCP-13) | `file_dialog` beside the second `click` |
 
 ---
 
@@ -267,6 +268,17 @@ more than 5 px on either axis between button-down and button-up records a
 from the button-down point); movement within the threshold records a `click`.
 A middle-button press records a `click` (the format has no separate
 middle-click type); a right-button press records a `right_click`.
+
+A left click whose press is the second press of a double-click is marked as
+completing one. The test is the system's own: the press lands in the same
+window as the press of the left click before it, within the system's
+double-click time after that press and inside the system's double-click
+rectangle around it. A press that completes a double-click starts no new pair,
+and a right or middle press, or a drag, between two left clicks breaks the
+pair. The mark changes no action: a double-click is recorded as its two
+`click` actions
+([docent#236](https://github.com/Arsarneq/docent/issues/236)). The file-dialog
+proxy reads it (DCP-6, DCP-13).
 
 ---
 
@@ -376,7 +388,9 @@ change was dispatched after the hand-over is written as a `key` beside the
 `type`; exactly the focus and selection events route
 **sticky** — the same window handle always reaches the same worker — so their
 deduplication stays correct; a drop routes to the worker that took its drag
-start; events without a routing affinity use shortest-queue dispatch.
+start; a click that completes a double-click (DCP-10) routes to the worker that
+took the click before it, so the file-dialog proxy (DCP-6) reads the pair on
+one worker; events without a routing affinity use shortest-queue dispatch.
 
 ---
 
@@ -411,10 +425,17 @@ with a caveat):
   `src/capture/timing.rs`, whose `_PX` suffix is historical
 - A file dialog confirmed from the keyboard (Enter on the filename field)
   produces no `file_dialog` action — the proxy triggers only on a click of
-  the dialog's Save/Open button
-- A file dialog whose confirm button is named other than "Save" or "Open", or
-  whose window title contains none of "save as", "save" or "open" — both tests
-  English-only, so a localized dialog — produces no `file_dialog` action
+  the dialog's Save/Open button and on a double-click on a file in its item
+  view (DCP-6)
+- A file confirmed by a double-click in a file dialog's item view — captured
+  with a caveat: the second press closes the dialog, so the dialog is read at
+  the double-click's first click, which selected the file. The `file_dialog`
+  is written beside the second click when the first click landed on a list
+  item and that read found the dialog's File name equal to the item's name,
+  which selecting a file puts there. A double-click on a folder, whose
+  selection leaves the File name as it was, navigates the dialog and records
+  none; none is recorded either when the read fails as the dialog closes, or
+  finds the File name not yet filled
 - A `type` whose value equals the typing worker's last for the same element
   (its selector within its window) — not written, the keys buffered for it
   discarded with it, and for a password field, whose value is the mask, every
