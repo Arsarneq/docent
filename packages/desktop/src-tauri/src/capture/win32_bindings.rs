@@ -166,6 +166,11 @@ pub unsafe fn GetCurrentThreadId() -> u32 {
     unsafe { GetCurrentThreadId() }
 }
 #[inline]
+pub unsafe fn GetDoubleClickTime() -> u32 {
+    windows_core::link!("user32.dll" "system" fn GetDoubleClickTime() -> u32);
+    unsafe { GetDoubleClickTime() }
+}
+#[inline]
 pub unsafe fn GetForegroundWindow() -> HWND {
     windows_core::link!("user32.dll" "system" fn GetForegroundWindow() -> HWND);
     unsafe { GetForegroundWindow() }
@@ -4361,7 +4366,9 @@ pub struct SAFEARRAYBOUND {
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub struct SCODE(pub i32);
+pub const SM_CXDOUBLECLK: i32 = 36;
 pub const SM_CXVIRTUALSCREEN: i32 = 78;
+pub const SM_CYDOUBLECLK: i32 = 37;
 pub const SM_CYVIRTUALSCREEN: i32 = 79;
 pub const SM_XVIRTUALSCREEN: i32 = 76;
 pub const SM_YVIRTUALSCREEN: i32 = 77;

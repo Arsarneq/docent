@@ -43,21 +43,22 @@ use super::variant::Variant;
 use super::win32_bindings::{
     CUIAutomation, CallNextHookEx, CloseHandle, CoCreateInstance, CoInitializeEx, CoUninitialize,
     DispatchMessageW, EnumWindows, GetAncestor, GetAsyncKeyState, GetClassNameW,
-    GetCurrentThreadId, GetForegroundWindow, GetKeyboardLayout, GetMessageW, GetParent, GetWindow,
-    GetWindowLongW, GetWindowTextW, GetWindowThreadProcessId, IUIAutomation,
-    IUIAutomationCondition, IUIAutomationElement, IUIAutomationSelectionPattern, IsWindow,
-    IsWindowVisible, MapVirtualKeyExW, PeekMessageW, PostThreadMessageW,
-    SetProcessDpiAwarenessContext, SetWinEventHook, SetWindowsHookExW, TranslateMessage,
-    TreeScope_Subtree, UnhookWinEvent, UnhookWindowsHookEx, WindowFromPoint, CHILDID_SELF,
-    CLSCTX_ALL, COINIT_APARTMENTTHREADED, COINIT_MULTITHREADED,
+    GetCurrentThreadId, GetDoubleClickTime, GetForegroundWindow, GetKeyboardLayout, GetMessageW,
+    GetParent, GetSystemMetrics, GetWindow, GetWindowLongW, GetWindowTextW,
+    GetWindowThreadProcessId, IUIAutomation, IUIAutomationCondition, IUIAutomationElement,
+    IUIAutomationSelectionPattern, IsWindow, IsWindowVisible, MapVirtualKeyExW, PeekMessageW,
+    PostThreadMessageW, SetProcessDpiAwarenessContext, SetWinEventHook, SetWindowsHookExW,
+    TranslateMessage, TreeScope_Subtree, UnhookWinEvent, UnhookWindowsHookEx, WindowFromPoint,
+    CHILDID_SELF, CLSCTX_ALL, COINIT_APARTMENTTHREADED, COINIT_MULTITHREADED,
     DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, EVENT_OBJECT_CREATE, EVENT_OBJECT_DESTROY,
     EVENT_OBJECT_FOCUS, EVENT_OBJECT_SELECTION, EVENT_OBJECT_VALUECHANGE, EVENT_SYSTEM_FOREGROUND,
     GA_ROOT, GA_ROOTOWNER, GWL_STYLE, GW_OWNER, HANDLE, HHOOK, HKL, HWINEVENTHOOK, HWND,
     INVALID_HANDLE_VALUE, KBDLLHOOKSTRUCT, LPARAM, LRESULT, MAPVK_VK_TO_CHAR, MSG, MSLLHOOKSTRUCT,
-    OBJID_WINDOW, PM_NOREMOVE, POINT, PROPERTYID, UIA_HWND, VK_CONTROL, VK_LWIN, VK_MENU, VK_RWIN,
-    VK_SHIFT, VT_EMPTY, WH_KEYBOARD_LL, WH_MOUSE_LL, WINEVENT_OUTOFCONTEXT, WM_APP, WM_KEYDOWN,
-    WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MOUSEHWHEEL, WM_MOUSEWHEEL, WM_NULL, WM_QUIT,
-    WM_RBUTTONDOWN, WM_SYSKEYDOWN, WM_USER, WPARAM, WS_CHILD,
+    OBJID_WINDOW, PM_NOREMOVE, POINT, PROPERTYID, SM_CXDOUBLECLK, SM_CYDOUBLECLK, UIA_HWND,
+    VK_CONTROL, VK_LWIN, VK_MENU, VK_RWIN, VK_SHIFT, VT_EMPTY, WH_KEYBOARD_LL, WH_MOUSE_LL,
+    WINEVENT_OUTOFCONTEXT, WM_APP, WM_KEYDOWN, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN,
+    WM_MOUSEHWHEEL, WM_MOUSEWHEEL, WM_NULL, WM_QUIT, WM_RBUTTONDOWN, WM_SYSKEYDOWN, WM_USER,
+    WPARAM, WS_CHILD,
 };
 use windows_core::{Error, Interface, BOOL, BSTR, PWSTR};
 
@@ -67,8 +68,9 @@ use super::element_mapping::{
 use super::scroll::KeyAttribution;
 use super::timing;
 use super::worker_pool::{
-    fallback_drain_and_seal, worker_loop, AccessibilityBackend, PendingDirectory, RawEvent,
-    RawEventType, WorkerPool, FLUSH_BARRIER_TIMEOUT,
+    fallback_drain_and_seal, worker_loop, AccessibilityBackend, ClickPress, DoubleClickBounds,
+    DoubleClickTracker, PendingDirectory, RawEvent, RawEventType, WorkerPool,
+    CLICK_COMPLETES_DOUBLE_CLICK, FLUSH_BARRIER_TIMEOUT,
 };
 use super::{
     ActionEvent, BarrierCompletion, BarrierReport, CaptureError, CaptureLayer, ElementDescription,
@@ -405,6 +407,15 @@ thread_local! {
     /// Mouse-down position for drag detection. Set on WM_LBUTTONDOWN,
     /// compared against WM_LBUTTONUP to classify click vs drag.
     static INPUT_MOUSE_DOWN_POS: std::cell::Cell<Option<POINT>> = const { std::cell::Cell::new(None) };
+
+    /// The left press under way, for the double-click test at its release:
+    /// set on WM_LBUTTONDOWN, read when the release classifies as a click.
+    static INPUT_LEFT_PRESS: std::cell::Cell<Option<ClickPress>> = const { std::cell::Cell::new(None) };
+
+    /// Pairs left clicks into double-clicks (DCP-10).
+    static INPUT_DOUBLE_CLICKS: std::cell::Cell<DoubleClickTracker> = const {
+        std::cell::Cell::new(DoubleClickTracker::new())
+    };
 
     /// Set of window handles for which we've dispatched a WindowCreate event.
     /// Only emit WindowDestroy (context_close) for windows in this set —
@@ -1866,6 +1877,40 @@ unsafe extern "system" fn input_win_event_proc(
 }
 
 // ---------------------------------------------------------------------------
+// Input_Thread double-click pairing (DCP-10)
+// ---------------------------------------------------------------------------
+
+/// Record a left click by its press on the Input_Thread's pairing state, and
+/// answer whether the press completed a double-click under the system's
+/// double-click time and rectangle, read at the click: two system-parameter
+/// reads, no accessibility call.
+fn double_click_completed_by(press: ClickPress) -> bool {
+    let bounds = unsafe {
+        DoubleClickBounds {
+            max_interval_ms: GetDoubleClickTime(),
+            width: GetSystemMetrics(SM_CXDOUBLECLK),
+            height: GetSystemMetrics(SM_CYDOUBLECLK),
+        }
+    };
+    INPUT_DOUBLE_CLICKS.with(|cell| {
+        let mut tracker = cell.get();
+        let completed = tracker.left_click(press, bounds);
+        cell.set(tracker);
+        completed
+    })
+}
+
+/// Break the Input_Thread's double-click pairing: the next left click starts
+/// a new pair.
+fn double_click_break_pair() {
+    INPUT_DOUBLE_CLICKS.with(|cell| {
+        let mut tracker = cell.get();
+        tracker.break_pair();
+        cell.set(tracker);
+    });
+}
+
+// ---------------------------------------------------------------------------
 // Input_Thread low-level mouse hook callback
 // ---------------------------------------------------------------------------
 
@@ -1925,6 +1970,15 @@ unsafe extern "system" fn input_mouse_ll_proc(
                     note_input(timestamp, window_handle);
                     // Store mouse-down position for drag detection.
                     INPUT_MOUSE_DOWN_POS.with(|p| p.set(Some(pt)));
+                    // And the press itself, for the double-click test.
+                    INPUT_LEFT_PRESS.with(|p| {
+                        p.set(Some(ClickPress {
+                            time_ms: mouse_struct.time,
+                            x: pt.x,
+                            y: pt.y,
+                            window: window_handle,
+                        }))
+                    });
                     // Set click timestamp on mousedown (not just mouseup) because
                     // EVENT_OBJECT_SELECTION can fire between mousedown and mouseup.
                     INPUT_LAST_CLICK_TIMESTAMP.with(|t| t.set(timestamp));
@@ -1980,8 +2034,13 @@ unsafe extern "system" fn input_mouse_ll_proc(
                     note_input(timestamp, window_handle);
                     let classified =
                         classify_left_release(INPUT_MOUSE_DOWN_POS.with(|p| p.get()), pt);
+                    // The press this release ends, taken whatever the release
+                    // records, so no later release reads it.
+                    let left_press = INPUT_LEFT_PRESS.with(|p| p.take());
 
                     if let LeftRelease::DragPair { source_coords } = classified {
+                        // A drag between two clicks breaks a double-click.
+                        double_click_break_pair();
                         // Drag detected: dispatch DragStart + Drop pair.
                         input_dispatch_raw_event(RawEvent {
                             event_type: RawEventType::DragStart { source_coords },
@@ -2018,6 +2077,7 @@ unsafe extern "system" fn input_mouse_ll_proc(
                         // Click detected — pre-capture the element while
                         // the window is guaranteed alive.
                         let pre_element = input_pre_capture_element(pt.x, pt.y);
+                        let double = left_press.is_some_and(double_click_completed_by);
                         input_dispatch_raw_event(RawEvent {
                             event_type: RawEventType::Click,
                             sequence_id: 0,
@@ -2029,7 +2089,16 @@ unsafe extern "system" fn input_mouse_ll_proc(
                             key_code: 0,
                             modifiers: (false, false, false, false),
                             scroll_delta: 0.0,
-                            callback_params: [0, 0, 0, 0],
+                            callback_params: [
+                                if double {
+                                    CLICK_COMPLETES_DOUBLE_CLICK
+                                } else {
+                                    0
+                                },
+                                0,
+                                0,
+                                0,
+                            ],
                             pre_captured_element: pre_element,
                             focus_epoch: 0,
                         });
@@ -2081,6 +2150,9 @@ unsafe extern "system" fn input_mouse_ll_proc(
                 // The middle and right buttons record on the press itself, each
                 // dispatching the raw event its message maps to.
                 WM_MBUTTONDOWN | WM_RBUTTONDOWN => {
+                    // Another button between two left clicks breaks a
+                    // double-click.
+                    double_click_break_pair();
                     if let Some(event_type) = down_dispatch_event_type(msg) {
                         // Record the input for correlation.
                         note_input(timestamp, window_handle);
@@ -2105,8 +2177,11 @@ unsafe extern "system" fn input_mouse_ll_proc(
                 _ => {}
             }
         } else if msg == WM_LBUTTONUP as u32 {
-            // Excluded PID — clear drag state.
+            // Excluded PID — clear drag state, and pair no double-click across
+            // the excluded window.
             INPUT_MOUSE_DOWN_POS.with(|p| p.set(None));
+            INPUT_LEFT_PRESS.with(|p| p.set(None));
+            double_click_break_pair();
         }
     }
 
@@ -2662,6 +2737,30 @@ unsafe fn build_tree_path_with_root(
 // File dialog helpers (used by WindowsAccessibilityBackend)
 // ---------------------------------------------------------------------------
 
+/// The condition matching a control of `control_type_id` whose AutomationId is
+/// `automation_id`. Both tests ride one condition, so a search over a file
+/// dialog returns only the controls it names, never every control of the type
+/// (the item view holds an Edit per item).
+unsafe fn type_and_automation_id_condition(
+    uia: &IUIAutomation,
+    control_type_id: i32,
+    automation_id: &str,
+) -> Option<IUIAutomationCondition> {
+    let type_condition = uia
+        .CreatePropertyCondition(
+            UIA_ControlTypePropertyId,
+            Variant::from(control_type_id).as_raw(),
+        )
+        .ok()?;
+    let id_condition = uia
+        .CreatePropertyCondition(
+            UIA_AutomationIdPropertyId,
+            bstr_variant(automation_id).as_raw(),
+        )
+        .ok()?;
+    uia.CreateAndCondition(&type_condition, &id_condition).ok()
+}
+
 /// Find a child Edit element by AutomationId and return its value.
 pub(crate) unsafe fn find_child_value_by_automation_id(
     uia: &IUIAutomation,
@@ -2671,13 +2770,8 @@ pub(crate) unsafe fn find_child_value_by_automation_id(
     use super::uia_core_api::UIA_EditControlTypeId;
     use super::win32_bindings::TreeScope_Descendants;
 
-    // Create a condition to find Edit controls.
-    let edit_condition = uia
-        .CreatePropertyCondition(
-            UIA_ControlTypePropertyId,
-            Variant::from(UIA_EditControlTypeId.0).as_raw(),
-        )
-        .ok()?;
+    let edit_condition =
+        type_and_automation_id_condition(uia, UIA_EditControlTypeId.0, target_automation_id)?;
 
     let all_edits = parent
         .FindAll(TreeScope_Descendants, &edit_condition)
@@ -2686,17 +2780,14 @@ pub(crate) unsafe fn find_child_value_by_automation_id(
     let count = all_edits.Length().ok()?;
     for i in 0..count {
         if let Ok(child) = all_edits.GetElement(i) {
-            let auto_id = get_string_property(&child, UIA_AutomationIdPropertyId);
-            if auto_id == target_automation_id {
-                let value = get_string_property(&child, UIA_ValueValuePropertyId);
-                if !value.is_empty() {
-                    return Some(value);
-                }
-                // Fall back to the Name property.
-                let name = get_string_property(&child, UIA_NamePropertyId);
-                if !name.is_empty() {
-                    return Some(name);
-                }
+            let value = get_string_property(&child, UIA_ValueValuePropertyId);
+            if !value.is_empty() {
+                return Some(value);
+            }
+            // Fall back to the Name property.
+            let name = get_string_property(&child, UIA_NamePropertyId);
+            if !name.is_empty() {
+                return Some(name);
             }
         }
     }
@@ -2719,12 +2810,8 @@ pub(crate) unsafe fn read_file_dialog_directory(
 
     // Strategy 2: Look for a ToolBar with AutomationId "1001" — the breadcrumb
     // bar. Its Name property often contains the current path.
-    let toolbar_condition = uia
-        .CreatePropertyCondition(
-            UIA_ControlTypePropertyId,
-            Variant::from(UIA_ToolBarControlTypeId.0).as_raw(),
-        )
-        .ok()?;
+    let toolbar_condition =
+        type_and_automation_id_condition(uia, UIA_ToolBarControlTypeId.0, "1001")?;
 
     let toolbars = dialog_element
         .FindAll(TreeScope_Descendants, &toolbar_condition)
@@ -2733,12 +2820,9 @@ pub(crate) unsafe fn read_file_dialog_directory(
     let count = toolbars.Length().ok()?;
     for i in 0..count {
         if let Ok(tb) = toolbars.GetElement(i) {
-            let auto_id = get_string_property(&tb, UIA_AutomationIdPropertyId);
-            if auto_id == "1001" {
-                let name = get_string_property(&tb, UIA_NamePropertyId);
-                if !name.is_empty() && name.contains('\\') {
-                    return Some(name);
-                }
+            let name = get_string_property(&tb, UIA_NamePropertyId);
+            if !name.is_empty() && name.contains('\\') {
+                return Some(name);
             }
         }
     }
@@ -3033,7 +3117,9 @@ impl AccessibilityBackend for WindowsAccessibilityBackend {
 
     fn read_file_dialog_path(&self, window_handle: i64) -> Option<(String, String)> {
         let uia = self.uia.as_ref()?;
-        let hwnd = HWND(window_handle as *mut _);
+        // A click names the control under the pointer (the Open button, the
+        // item view), a child of the dialog: the dialog is its root window.
+        let hwnd = HWND(self.root_window_handle(window_handle) as *mut _);
 
         // Check if the window is a file dialog (class name #32770).
         let class_name = unsafe { get_class_name(hwnd) };
