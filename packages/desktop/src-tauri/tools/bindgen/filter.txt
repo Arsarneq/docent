@@ -38,6 +38,8 @@ Windows.Win32.GetAsyncKeyState
 Windows.Win32.GetClassNameW
 Windows.Win32.GetCurrentThreadId
 Windows.Win32.GetForegroundWindow
+Windows.Win32.GetKeyboardLayout
+Windows.Win32.GetKeyboardLayoutList
 Windows.Win32.GetMessageW
 Windows.Win32.GetModuleFileNameExW
 Windows.Win32.GetParent
@@ -48,6 +50,7 @@ Windows.Win32.GetWindowRect
 Windows.Win32.GetWindowTextW
 Windows.Win32.GetWindowThreadProcessId
 Windows.Win32.HHOOK
+Windows.Win32.HKL
 Windows.Win32.HMENU
 Windows.Win32.HWINEVENTHOOK
 Windows.Win32.HWND
@@ -65,11 +68,16 @@ Windows.Win32.IUIAutomationTreeWalker
 Windows.Win32.IsWindow
 Windows.Win32.IsWindowVisible
 Windows.Win32.KBDLLHOOKSTRUCT
+Windows.Win32.KLF_NOTELLSHELL
 Windows.Win32.LBS_NOTIFY
 Windows.Win32.LPARAM
 Windows.Win32.LRESULT
+Windows.Win32.LoadKeyboardLayoutW
+Windows.Win32.MAPVK_VK_TO_CHAR
+Windows.Win32.MAPVK_VSC_TO_VK
 Windows.Win32.MSG
 Windows.Win32.MSLLHOOKSTRUCT
+Windows.Win32.MapVirtualKeyExW
 Windows.Win32.MoveWindow
 Windows.Win32.NavigateDirection
 Windows.Win32.NotifyWinEvent
@@ -116,6 +124,7 @@ Windows.Win32.TreeScope_Subtree
 Windows.Win32.UiaRect
 Windows.Win32.UnhookWinEvent
 Windows.Win32.UnhookWindowsHookEx
+Windows.Win32.UnloadKeyboardLayout
 Windows.Win32.VARIANT
 Windows.Win32.VARIANT_FALSE
 Windows.Win32.VARIANT_TRUE

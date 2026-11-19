@@ -105,10 +105,12 @@ pub struct RawEvent {
     /// On Windows: `[id_object, id_child, 0, 0]` from `SetWinEventHook`
     /// callbacks, which workers use to determine which sub-element triggered
     /// the event; `[axis, 0, 0, 0]` from the mouse hook's wheel path, where
-    /// 1 = horizontal (read by the scroll arm); `[scan_code, 0, 0, 0]` from the
-    /// keyboard hook, where a `VK_PACKET` keystroke's scan code is the injected
-    /// UTF-16 code unit (read by the keyboard arm). On other platforms: unused
-    /// or platform-defined.
+    /// 1 = horizontal (read by the scroll arm); `[scan_code, layout_char, 0, 0]`
+    /// from the keyboard hook, where a `VK_PACKET` keystroke's scan code is the
+    /// injected UTF-16 code unit, and `layout_char` is what the keyboard layout
+    /// gives a punctuation key (see [`punctuation_key_name`]; 0 for every other
+    /// key), both read by the keyboard arm. On other platforms: unused or
+    /// platform-defined.
     pub callback_params: [i64; 4],
     /// Pre-captured element description from the Input_Thread.
     /// For mouse click/right-click events, the Input_Thread may perform a
@@ -1118,17 +1120,6 @@ fn vk_to_key_name(vk: u32) -> String {
         0xA0 | 0xA1 => String::new(), // VK_LSHIFT, VK_RSHIFT
         0xA2 | 0xA3 => String::new(), // VK_LCONTROL, VK_RCONTROL
         0xA4 | 0xA5 => String::new(), // VK_LMENU (LAlt), VK_RMENU (RAlt)
-        0xBA => ";".to_string(),
-        0xBB => "=".to_string(),
-        0xBC => ",".to_string(),
-        0xBD => "-".to_string(),
-        0xBE => ".".to_string(),
-        0xBF => "/".to_string(),
-        0xC0 => "`".to_string(),
-        0xDB => "[".to_string(),
-        0xDC => "\\".to_string(),
-        0xDD => "]".to_string(),
-        0xDE => "'".to_string(),
         _ => format!("VK_{vk:#04X}"),
     }
 }
@@ -1148,9 +1139,13 @@ const UNIDENTIFIED_KEY: &str = "Unidentified";
 /// character its code unit carries — a space by `Space`, the name a layout
 /// space key gets — and a unit that is no character on its own (a surrogate
 /// half of a character outside the Basic Multilingual Plane, or a control
-/// character) is `Unidentified`. Every other code goes through
+/// character) is `Unidentified`. A punctuation key is named by its layout's
+/// character ([`punctuation_key_name`]). Every other code goes through
 /// [`vk_to_key_name`].
 fn key_name(raw: &RawEvent) -> String {
+    if is_punctuation_key(raw.key_code) {
+        return punctuation_key_name(raw.key_code, raw.callback_params[1]);
+    }
     if raw.key_code != VK_PACKET {
         return vk_to_key_name(raw.key_code);
     }
@@ -1159,6 +1154,36 @@ fn key_name(raw: &RawEvent) -> String {
         Some(' ') => vk_to_key_name(0x20),
         Some(c) if !c.is_control() => c.to_string(),
         _ => UNIDENTIFIED_KEY.to_string(),
+    }
+}
+
+/// Whether a virtual-key code is a punctuation key: one of the OEM codes
+/// (`0xBA`-`0xC2`, `0xDB`-`0xDF`, `0xE1`-`0xE4`, `0xE6`), whose character each
+/// keyboard layout assigns for itself. Called on the keyboard hook: no
+/// allocation, no lock.
+pub(crate) const fn is_punctuation_key(vk: u32) -> bool {
+    matches!(vk, 0xBA..=0xC2 | 0xDB..=0xDF | 0xE1..=0xE4 | 0xE6)
+}
+
+/// Name a punctuation key by `layout_char`, the value the keyboard hook read
+/// for it from the keyboard layout of the foreground window's thread: the
+/// character the key enters with no modifier in the low 16 bits, and the
+/// dead-key flag in bit 31, which the name leaves out (a dead key is named by
+/// the accent it carries). A letter is named in its upper case, as the letter
+/// keys are, where that is one character; a space is `Space`; a value that is
+/// no character (0 where the layout gives the key none, a control character,
+/// a surrogate half) leaves the key to its code's name, `VK_0x..`.
+pub(crate) fn punctuation_key_name(vk: u32, layout_char: i64) -> String {
+    match char::from_u32((layout_char & 0xFFFF) as u32) {
+        Some(' ') => vk_to_key_name(0x20),
+        Some(c) if !c.is_control() => {
+            let mut upper = c.to_uppercase();
+            match (upper.next(), upper.next()) {
+                (Some(u), None) => u.to_string(),
+                _ => c.to_string(),
+            }
+        }
+        _ => vk_to_key_name(vk),
     }
 }
 
@@ -1217,17 +1242,10 @@ pub fn key_may_move_focus(key_code: u32, modifiers: (bool, bool, bool, bool)) ->
         0x10 | 0x11 | 0xA0..=0xA3 | 0x14 | 0x90 | 0x91 => false,
         // Alt (generic and left/right).
         0x12 | 0xA4 | 0xA5 => !ctrl,
-        // Space, digits, letters, numeric keypad, punctuation (the OEM keys of
-        // every layout: 0xBA-0xC2, 0xDB-0xDF, 0xE1-0xE4, 0xE6), VK_PACKET.
-        0x20
-        | 0x30..=0x39
-        | 0x41..=0x5A
-        | 0x60..=0x6F
-        | 0xBA..=0xC2
-        | 0xDB..=0xDF
-        | 0xE1..=0xE4
-        | 0xE6
-        | VK_PACKET => meta || ctrl != alt,
+        // Space, digits, letters, numeric keypad, VK_PACKET.
+        0x20 | 0x30..=0x39 | 0x41..=0x5A | 0x60..=0x6F | VK_PACKET => meta || ctrl != alt,
+        // Punctuation (the OEM keys of every layout).
+        vk if is_punctuation_key(vk) => meta || ctrl != alt,
         _ => true,
     }
 }
@@ -3194,5 +3212,107 @@ mod tests {
         );
         // Wedged worker was detached, so a second shutdown is a no-op.
         assert!(pool.workers.iter().all(|w| w.thread.is_none()));
+    }
+
+    /// A keydown of punctuation key `vk` whose layout character, as the
+    /// keyboard hook reads it, is `layout_char` (`callback_params[1]`).
+    fn punctuation_key_raw_event(vk: u32, layout_char: u32, sequence_id: u64) -> RawEvent {
+        let mut raw = control_key_raw_event(vk, sequence_id);
+        raw.callback_params[1] = i64::from(layout_char);
+        raw
+    }
+
+    // Regression: #691 — on a Danish keyboard the `+` key (VK_OEM_PLUS) was
+    // recorded as `=`, the US-layout character of that code.
+    // https://github.com/Arsarneq/docent/issues/691
+    #[test]
+    fn regression_691_punctuation_key_named_by_its_layout_character() {
+        // The Calculator case: `+` pressed with no modifier into a control that
+        // reports no value change, so the buffered key is written as a key.
+        let (mut pool, rx) = pool_with_probe_backend(false, false);
+        pool.dispatch(punctuation_key_raw_event(0xBB, u32::from('+'), 1));
+        thread::sleep(Duration::from_millis(100));
+        pool.shutdown_with_timeout(Duration::from_secs(5));
+
+        assert_eq!(
+            key_names(&drain_events(&rx)),
+            vec!["+"],
+            "VK_OEM_PLUS on a layout where it enters `+` must be named `+`"
+        );
+    }
+
+    /// A key name, as the worker names the keydown of `vk` whose
+    /// `callback_params[1]` is `layout_char`.
+    fn name_with_layout_char(vk: u32, layout_char: i64) -> String {
+        let mut raw = control_key_raw_event(vk, 1);
+        raw.callback_params[1] = layout_char;
+        key_name(&raw)
+    }
+
+    #[test]
+    fn a_punctuation_key_is_named_by_the_character_its_layout_gives_it() {
+        // Danish: `+` on VK_OEM_PLUS, `<` on VK_OEM_102, `'` on VK_OEM_2.
+        assert_eq!(name_with_layout_char(0xBB, '+' as i64), "+");
+        assert_eq!(name_with_layout_char(0xE2, '<' as i64), "<");
+        assert_eq!(name_with_layout_char(0xBF, '\'' as i64), "'");
+        // US: the same codes give the US characters.
+        assert_eq!(name_with_layout_char(0xBB, '=' as i64), "=");
+        assert_eq!(name_with_layout_char(0xE2, '\\' as i64), "\\");
+        // Every OEM code reads its layout character.
+        for vk in [0xBA, 0xC0, 0xC1, 0xC2, 0xDB, 0xDF, 0xE1, 0xE3, 0xE4, 0xE6] {
+            assert_eq!(name_with_layout_char(vk, '§' as i64), "§", "vk {vk:#x}");
+        }
+    }
+
+    #[test]
+    fn a_punctuation_key_that_enters_a_letter_is_named_in_upper_case() {
+        // Danish Æ, Ø and Å sit on OEM codes; letters are named upper case.
+        assert_eq!(name_with_layout_char(0xC0, 'æ' as i64), "Æ");
+        assert_eq!(name_with_layout_char(0xDE, 'ø' as i64), "Ø");
+        assert_eq!(name_with_layout_char(0xDD, 'Å' as i64), "Å");
+        // A letter whose upper case is more than one character keeps its own.
+        assert_eq!(name_with_layout_char(0xDB, 'ß' as i64), "ß");
+    }
+
+    #[test]
+    fn a_dead_punctuation_key_is_named_by_its_accent() {
+        // Bit 31 flags a dead key; the low word is the accent it carries.
+        assert_eq!(name_with_layout_char(0xDB, 0x8000_00B4), "´");
+        assert_eq!(name_with_layout_char(0xBA, 0x8000_00A8), "¨");
+    }
+
+    #[test]
+    fn a_punctuation_key_with_no_layout_character_is_named_by_its_code() {
+        // No character read (the layout gives the key none, or nothing read).
+        assert_eq!(name_with_layout_char(0xBB, 0), "VK_0xBB");
+        assert_eq!(name_with_layout_char(0xE2, 0), "VK_0xE2");
+        // A control character or a surrogate half is no character either.
+        assert_eq!(name_with_layout_char(0xBB, 0x1B), "VK_0xBB");
+        assert_eq!(name_with_layout_char(0xBB, 0xD800), "VK_0xBB");
+        // A space is named as the space bar is.
+        assert_eq!(name_with_layout_char(0xBB, ' ' as i64), "Space");
+    }
+
+    #[test]
+    fn only_punctuation_keys_read_the_layout_character() {
+        // A letter, a digit, a keypad key and a control key keep their names.
+        assert_eq!(name_with_layout_char(0x41, 'q' as i64), "A");
+        assert_eq!(name_with_layout_char(0x31, '&' as i64), "1");
+        assert_eq!(name_with_layout_char(0x6B, '+' as i64), "Add");
+        assert_eq!(name_with_layout_char(0x0D, '+' as i64), "Enter");
+        // VK_PACKET is named by its scan code's character.
+        let mut raw = control_key_raw_event(VK_PACKET, 1);
+        raw.callback_params = [i64::from(u32::from('é')), '+' as i64, 0, 0];
+        assert_eq!(key_name(&raw), "é");
+    }
+
+    #[test]
+    fn a_punctuation_key_with_a_layout_character_is_printable_input() {
+        let mut raw = control_key_raw_event(0xE2, 1);
+        raw.callback_params[1] = '<' as i64;
+        assert!(is_printable_key(&raw, &key_name(&raw)));
+        // Without one it is named by its code, which is not printable input.
+        raw.callback_params[1] = 0;
+        assert!(!is_printable_key(&raw, &key_name(&raw)));
     }
 }

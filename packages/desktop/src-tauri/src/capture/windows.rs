@@ -43,18 +43,19 @@ use super::variant::Variant;
 use super::win32_bindings::{
     CUIAutomation, CallNextHookEx, CloseHandle, CoCreateInstance, CoInitializeEx, CoUninitialize,
     DispatchMessageW, EnumWindows, GetAncestor, GetAsyncKeyState, GetClassNameW,
-    GetCurrentThreadId, GetForegroundWindow, GetMessageW, GetParent, GetWindow, GetWindowLongW,
-    GetWindowTextW, GetWindowThreadProcessId, IUIAutomation, IUIAutomationCondition,
-    IUIAutomationElement, IUIAutomationSelectionPattern, IsWindow, IsWindowVisible, PeekMessageW,
-    PostThreadMessageW, SetProcessDpiAwarenessContext, SetWinEventHook, SetWindowsHookExW,
-    TranslateMessage, TreeScope_Subtree, UnhookWinEvent, UnhookWindowsHookEx, WindowFromPoint,
-    CHILDID_SELF, CLSCTX_ALL, COINIT_APARTMENTTHREADED, COINIT_MULTITHREADED,
+    GetCurrentThreadId, GetForegroundWindow, GetKeyboardLayout, GetMessageW, GetParent, GetWindow,
+    GetWindowLongW, GetWindowTextW, GetWindowThreadProcessId, IUIAutomation,
+    IUIAutomationCondition, IUIAutomationElement, IUIAutomationSelectionPattern, IsWindow,
+    IsWindowVisible, MapVirtualKeyExW, PeekMessageW, PostThreadMessageW,
+    SetProcessDpiAwarenessContext, SetWinEventHook, SetWindowsHookExW, TranslateMessage,
+    TreeScope_Subtree, UnhookWinEvent, UnhookWindowsHookEx, WindowFromPoint, CHILDID_SELF,
+    CLSCTX_ALL, COINIT_APARTMENTTHREADED, COINIT_MULTITHREADED,
     DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, EVENT_OBJECT_CREATE, EVENT_OBJECT_DESTROY,
     EVENT_OBJECT_FOCUS, EVENT_OBJECT_SELECTION, EVENT_OBJECT_VALUECHANGE, EVENT_SYSTEM_FOREGROUND,
-    GA_ROOT, GA_ROOTOWNER, GWL_STYLE, GW_OWNER, HANDLE, HHOOK, HWINEVENTHOOK, HWND,
-    INVALID_HANDLE_VALUE, KBDLLHOOKSTRUCT, LPARAM, LRESULT, MSG, MSLLHOOKSTRUCT, OBJID_WINDOW,
-    PM_NOREMOVE, POINT, PROPERTYID, UIA_HWND, VK_CONTROL, VK_LWIN, VK_MENU, VK_RWIN, VK_SHIFT,
-    VT_EMPTY, WH_KEYBOARD_LL, WH_MOUSE_LL, WINEVENT_OUTOFCONTEXT, WM_APP, WM_KEYDOWN,
+    GA_ROOT, GA_ROOTOWNER, GWL_STYLE, GW_OWNER, HANDLE, HHOOK, HKL, HWINEVENTHOOK, HWND,
+    INVALID_HANDLE_VALUE, KBDLLHOOKSTRUCT, LPARAM, LRESULT, MAPVK_VK_TO_CHAR, MSG, MSLLHOOKSTRUCT,
+    OBJID_WINDOW, PM_NOREMOVE, POINT, PROPERTYID, UIA_HWND, VK_CONTROL, VK_LWIN, VK_MENU, VK_RWIN,
+    VK_SHIFT, VT_EMPTY, WH_KEYBOARD_LL, WH_MOUSE_LL, WINEVENT_OUTOFCONTEXT, WM_APP, WM_KEYDOWN,
     WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MOUSEHWHEEL, WM_MOUSEWHEEL, WM_NULL, WM_QUIT,
     WM_RBUTTONDOWN, WM_SYSKEYDOWN, WM_USER, WPARAM, WS_CHILD,
 };
@@ -2129,11 +2130,12 @@ unsafe extern "system" fn input_keyboard_ll_proc(
 
             let hwnd = GetForegroundWindow();
             let mut pid: u32 = 0;
-            GetWindowThreadProcessId(hwnd, Some(&mut pid));
+            let thread_id = GetWindowThreadProcessId(hwnd, Some(&mut pid));
             let excluded = input_get_excluded_pid();
 
             if input_should_keep_event_cached(pid, excluded, hwnd) {
                 let modifiers = get_modifier_state();
+                let layout_char = foreground_layout_char(kb_struct.vkCode, thread_id);
                 let timestamp = current_timestamp_ms();
                 let window_handle = hwnd.0 as i64;
 
@@ -2158,7 +2160,9 @@ unsafe extern "system" fn input_keyboard_ll_proc(
                     // injected UTF-16 code unit the worker names the key by
                     // (docent#260). A copy of a field of the struct already
                     // read above — no call, lock or allocation on the hook.
-                    callback_params: [i64::from(kb_struct.scanCode), 0, 0, 0],
+                    // Then the character a punctuation key enters on the
+                    // foreground window's layout, read above (docent#691).
+                    callback_params: [i64::from(kb_struct.scanCode), i64::from(layout_char), 0, 0],
                     pre_captured_element: None,
                     focus_epoch: 0,
                 });
@@ -2173,6 +2177,33 @@ unsafe extern "system" fn input_keyboard_ll_proc(
     }
 
     CallNextHookEx(None, n_code, w_param, l_param)
+}
+
+/// What the keyboard layout of the foreground window's thread (`thread_id`,
+/// the thread `GetWindowThreadProcessId` names) gives punctuation key `vk`,
+/// for the worker to name the key by (`worker_pool::punctuation_key_name`
+/// states the value); 0 for every other key, and where no thread or layout is
+/// known. The layout is read at the keypress, so a later switch of layout does
+/// not rename the key. Called on the keyboard hook: two user32 reads, no
+/// accessibility call, lock or allocation.
+unsafe fn foreground_layout_char(vk: u32, thread_id: u32) -> u32 {
+    // Thread 0 would ask for this thread's own layout, not the window's.
+    if thread_id == 0 || !super::worker_pool::is_punctuation_key(vk) {
+        return 0;
+    }
+    layout_char(vk, GetKeyboardLayout(thread_id))
+}
+
+/// The character `vk` enters with no modifier on keyboard layout `hkl`, with
+/// the dead-key flag in bit 31, as `MapVirtualKeyExW(MAPVK_VK_TO_CHAR)` gives
+/// it (0 where the layout gives none). Unlike `ToUnicodeEx`, the read leaves
+/// the keyboard state alone, so a dead key pressed before it still composes
+/// with the next key.
+unsafe fn layout_char(vk: u32, hkl: HKL) -> u32 {
+    if hkl.0.is_null() {
+        return 0;
+    }
+    MapVirtualKeyExW(vk, MAPVK_VK_TO_CHAR as u32, Some(hkl))
 }
 
 // ---------------------------------------------------------------------------
@@ -3099,11 +3130,107 @@ impl AccessibilityBackend for WindowsAccessibilityBackend {
 mod tests {
     use super::{
         control_type_name, get_parent_pid, get_process_exe_name, is_descendant_of,
-        is_password_value, is_recognized_by_exe_name, windows_should_keep_event,
-        GetCurrentThreadId, Variant, BSTR, VT_EMPTY,
+        is_password_value, is_recognized_by_exe_name, layout_char, windows_should_keep_event,
+        GetCurrentThreadId, MapVirtualKeyExW, Variant, BSTR, HKL, VT_EMPTY,
     };
     use crate::capture::uia_core_api::UiaGetReservedNotSupportedValue;
     use crate::capture::win32_bindings::VARIANT;
+    use crate::capture::win32_bindings::{
+        GetKeyboardLayoutList, LoadKeyboardLayoutW, UnloadKeyboardLayout, KLF_NOTELLSHELL,
+        MAPVK_VSC_TO_VK,
+    };
+    use crate::capture::worker_pool::{is_punctuation_key, punctuation_key_name};
+
+    // -- a punctuation key's layout character (docent#691) --------------------
+
+    /// A keyboard layout loaded for a test, by its layout id, and unloaded
+    /// when the test ends unless it was loaded before.
+    struct LoadedLayout {
+        hkl: HKL,
+        unload: bool,
+    }
+
+    impl LoadedLayout {
+        fn load(id: &str, language: usize) -> Self {
+            let wide: Vec<u16> = id.encode_utf16().chain(Some(0)).collect();
+            // SAFETY: the list is read into a buffer of the size the first call
+            // reports, and the id is a NUL-terminated UTF-16 string that lives
+            // across the call.
+            unsafe {
+                let mut loaded = vec![HKL::default(); GetKeyboardLayoutList(0, None) as usize];
+                let n = GetKeyboardLayoutList(loaded.len() as i32, Some(loaded.as_mut_ptr()));
+                loaded.truncate(n.max(0) as usize);
+                let hkl = LoadKeyboardLayoutW(
+                    windows_core::PCWSTR(wide.as_ptr()),
+                    KLF_NOTELLSHELL as u32,
+                );
+                assert!(!hkl.0.is_null(), "layout {id} must load");
+                // The language half of the handle: the layout asked for, not a
+                // substitute.
+                assert_eq!(hkl.0 as usize & 0xFFFF, language, "layout {id}");
+                LoadedLayout {
+                    hkl,
+                    unload: !loaded.contains(&hkl),
+                }
+            }
+        }
+
+        /// The virtual-key code this layout gives the key at `scan_code`.
+        fn vk_at(&self, scan_code: u32) -> u32 {
+            // SAFETY: a read of a loaded layout's tables.
+            unsafe { MapVirtualKeyExW(scan_code, MAPVK_VSC_TO_VK as u32, Some(self.hkl)) }
+        }
+
+        /// The key name the worker gives `vk` from what this layout reads.
+        fn name(&self, vk: u32) -> String {
+            // SAFETY: a read of a loaded layout's tables.
+            punctuation_key_name(vk, i64::from(unsafe { layout_char(vk, self.hkl) }))
+        }
+    }
+
+    impl Drop for LoadedLayout {
+        fn drop(&mut self) {
+            if self.unload {
+                // SAFETY: a layout this test loaded and no longer uses.
+                unsafe {
+                    let _ = UnloadKeyboardLayout(self.hkl);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn layout_char_reads_what_the_danish_layout_gives_a_punctuation_key() {
+        let danish = LoadedLayout::load("00000406", 0x0406);
+        // VK_OEM_PLUS, the key right of 0, enters `+` (`=` on the US layout).
+        // SAFETY: a read of a loaded layout's tables.
+        assert_eq!(unsafe { layout_char(0xBB, danish.hkl) }, u32::from('+'));
+        assert_eq!(danish.name(0xBB), "+");
+        // The key right of L (scan code 0x27) enters `æ`, named in upper case.
+        let ae = danish.vk_at(0x27);
+        assert!(is_punctuation_key(ae), "vk {ae:#x}");
+        assert_eq!(danish.name(ae), "Æ");
+        // The key right of `+` (scan code 0x0D) is the dead acute accent.
+        let acute = danish.vk_at(0x0D);
+        assert!(is_punctuation_key(acute), "vk {acute:#x}");
+        // SAFETY: a read of a loaded layout's tables.
+        let read = unsafe { layout_char(acute, danish.hkl) };
+        assert_ne!(read & 0x8000_0000, 0, "the dead-key flag");
+        assert_eq!(danish.name(acute), "´");
+    }
+
+    #[test]
+    fn layout_char_reads_what_the_us_layout_gives_a_punctuation_key() {
+        let us = LoadedLayout::load("00000409", 0x0409);
+        assert_eq!(us.name(0xBB), "=");
+        assert_eq!(us.name(0xDE), "'");
+    }
+
+    #[test]
+    fn layout_char_reads_nothing_from_no_layout() {
+        // SAFETY: a null layout is answered without a call.
+        assert_eq!(unsafe { layout_char(0xBB, HKL::default()) }, 0);
+    }
 
     // -- the IsPassword reading rule -----------------------------------------
 

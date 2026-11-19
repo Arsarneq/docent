@@ -171,6 +171,16 @@ pub unsafe fn GetForegroundWindow() -> HWND {
     unsafe { GetForegroundWindow() }
 }
 #[inline]
+pub unsafe fn GetKeyboardLayout(idthread: u32) -> HKL {
+    windows_core::link!("user32.dll" "system" fn GetKeyboardLayout(idthread : u32) -> HKL);
+    unsafe { GetKeyboardLayout(idthread) }
+}
+#[inline]
+pub unsafe fn GetKeyboardLayoutList(nbuff: i32, lplist: Option<*mut HKL>) -> i32 {
+    windows_core::link!("user32.dll" "system" fn GetKeyboardLayoutList(nbuff : i32, lplist : *mut HKL) -> i32);
+    unsafe { GetKeyboardLayoutList(nbuff, lplist.unwrap_or(core::mem::zeroed()) as _) }
+}
+#[inline]
 pub unsafe fn GetMessageW(
     lpmsg: *mut MSG,
     hwnd: Option<HWND>,
@@ -251,6 +261,19 @@ pub unsafe fn IsWindow(hwnd: Option<HWND>) -> windows_core::BOOL {
 pub unsafe fn IsWindowVisible(hwnd: HWND) -> windows_core::BOOL {
     windows_core::link!("user32.dll" "system" fn IsWindowVisible(hwnd : HWND) -> windows_core::BOOL);
     unsafe { IsWindowVisible(hwnd) }
+}
+#[inline]
+pub unsafe fn LoadKeyboardLayoutW<P0>(pwszklid: P0, flags: u32) -> HKL
+where
+    P0: windows_core::Param<windows_core::PCWSTR>,
+{
+    windows_core::link!("user32.dll" "system" fn LoadKeyboardLayoutW(pwszklid : windows_core::PCWSTR, flags : u32) -> HKL);
+    unsafe { LoadKeyboardLayoutW(pwszklid.param().abi(), flags) }
+}
+#[inline]
+pub unsafe fn MapVirtualKeyExW(ucode: u32, umaptype: u32, dwhkl: Option<HKL>) -> u32 {
+    windows_core::link!("user32.dll" "system" fn MapVirtualKeyExW(ucode : u32, umaptype : u32, dwhkl : HKL) -> u32);
+    unsafe { MapVirtualKeyExW(ucode, umaptype, dwhkl.unwrap_or(core::mem::zeroed()) as _) }
 }
 #[inline]
 pub unsafe fn MoveWindow(
@@ -421,6 +444,11 @@ pub unsafe fn UnhookWindowsHookEx(hhk: HHOOK) -> windows_core::BOOL {
     unsafe { UnhookWindowsHookEx(hhk) }
 }
 #[inline]
+pub unsafe fn UnloadKeyboardLayout(hkl: HKL) -> windows_core::BOOL {
+    windows_core::link!("user32.dll" "system" fn UnloadKeyboardLayout(hkl : HKL) -> windows_core::BOOL);
+    unsafe { UnloadKeyboardLayout(hkl) }
+}
+#[inline]
 pub unsafe fn VariantClear(pvarg: *mut VARIANTARG) -> windows_core::HRESULT {
     windows_core::link!("oleaut32.dll" "system" fn VariantClear(pvarg : *mut VARIANTARG) -> windows_core::HRESULT);
     unsafe { VariantClear(pvarg) }
@@ -546,6 +574,9 @@ pub struct HICON(pub *mut core::ffi::c_void);
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub struct HINSTANCE(pub *mut core::ffi::c_void);
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub struct HKL(pub *mut core::ffi::c_void);
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub struct HMENU(pub *mut core::ffi::c_void);
@@ -4215,6 +4246,7 @@ pub struct KBDLLHOOKSTRUCT {
     pub time: u32,
     pub dwExtraInfo: usize,
 }
+pub const KLF_NOTELLSHELL: i32 = 128;
 pub const LBS_NOTIFY: i32 = 1;
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -4222,6 +4254,8 @@ pub struct LPARAM(pub isize);
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub struct LRESULT(pub isize);
+pub const MAPVK_VK_TO_CHAR: i32 = 2;
+pub const MAPVK_VSC_TO_VK: i32 = 1;
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct MSG {

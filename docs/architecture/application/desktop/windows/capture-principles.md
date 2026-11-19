@@ -239,7 +239,12 @@ stacks, software keyboards and automation) is printable input whatever it
 carries: the hook passes on its scan code, which is the injected UTF-16 code
 unit, and the worker names the key by that character (a space as `Space`,
 and a unit that is no character on its own as `Unidentified`), so the same
-text is never recorded twice. Every keyboard event and every value-change
+text is never recorded twice. For a punctuation key (the codes the
+[session format](../../../../technical/session-format.md)'s `key` row lists,
+with the naming) the hook also reads the character the key enters with no
+modifier on the keyboard layout of the foreground window's thread, a read that
+leaves the keyboard state alone, and the worker names the key by it, so a
+punctuation key is printable input wherever the layout gives it a character. Every keyboard event and every value-change
 event is processed by one worker, the typing worker, in the order the input
 thread dispatched them, so a value change is processed after the keystrokes
 that caused it and supersedes each buffered one, however busy the pool is
