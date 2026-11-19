@@ -1591,9 +1591,9 @@ struct KnownControl {
     /// The control's description; `None` for a window that holds other
     /// focusable elements, whose keys are described by focus.
     element: Option<ElementDescription>,
-    /// The person's half of the focus epoch the handle was last confirmed
-    /// under (see [`settle_key_on_its_control`]).
-    person: u64,
+    /// The focus epoch of the keystroke the control was last looked at for
+    /// (see [`settle_key_on_its_control`]).
+    epoch: u64,
     /// The title of the control's top-level window when it was described: a
     /// description names its window, so a changed title means describing the
     /// control again.
@@ -1643,7 +1643,9 @@ fn value_change_control(raw: &RawEvent) -> i64 {
 ///   the person did can have moved the focus since: the handle stands. While
 ///   the present can still speak for the key (nothing counted since, its
 ///   window in front) and names another control, a program moved the focus
-///   on its own and the key is described by focus.
+///   on its own and the key is described by focus. A key stamped with the
+///   very count the control was last looked at under takes its element with
+///   no call at all.
 /// - A first key under a new count of the person's (a click, Tab, Backspace
 ///   came before it) is taken on its handle only when the present confirms
 ///   it: the person did nothing since that can move the focus, and the handle
@@ -1651,9 +1653,11 @@ fn value_change_control(raw: &RawEvent) -> i64 {
 ///   element once the person has moved on.
 ///
 /// A control is described when it is first confirmed. At the first key under
-/// each later count of the person's, what the control is (a field of its
-/// own, a password field) is looked at again, and it is described again when
-/// that changed or the title of its window did (the description names the
+/// each later count, the person's or the programs', what the control is (a
+/// field of its own, a password field) is looked at again, and a control
+/// that is gone by then leaves the key to the description by focus. The
+/// control is described again when what it is changed, or, at a new count of
+/// the person's, when the title of its window did (the description names the
 /// window).
 fn settle_key_on_its_control<B: AccessibilityBackend>(
     raw: &RawEvent,
@@ -1666,24 +1670,36 @@ fn settle_key_on_its_control<B: AccessibilityBackend>(
     }
     let person = raw.focus_epoch >> 32;
     let epoch_now = backend.focus_epoch();
-    if let Some(known) = controls.get(&control).filter(|k| k.person == person) {
+    let confirmed_under = controls.get(&control).map(|k| k.epoch);
+    let same_person = confirmed_under.is_some_and(|epoch| epoch >> 32 == person);
+    if same_person {
         let present_speaks =
             epoch_now == raw.focus_epoch && backend.is_foreground_window(raw.window_handle);
         if present_speaks && backend.focused_control() != control {
             return None;
         }
-        return known.element.clone();
-    }
-    if person_moved_focus_between(raw, epoch_now) || backend.focused_control() != control {
+        if confirmed_under == Some(raw.focus_epoch) {
+            return controls.get(&control).and_then(|k| k.element.clone());
+        }
+    } else if person_moved_focus_between(raw, epoch_now) || backend.focused_control() != control {
         return None;
     }
-    // The person did something since the control was last confirmed (ticked
-    // a box, loaded a page): what the control is may have changed with nothing
-    // else about it changing, so that is looked at again, which is cheap. The
-    // description is kept while the control is what it was and its window is
-    // titled as it was.
-    let title = backend.window_title(raw.window_handle);
-    if let Some(known) = controls.get_mut(&control).filter(|k| k.title == title) {
+    // Something was counted since the control was last looked at: the person
+    // did something (ticked a box), or a program moved the focus (a page that
+    // finished loading and focused one of its fields). What the control is
+    // may have changed with nothing else about it changing, so that is looked
+    // at again, which needs no description. The description is kept while the
+    // control is what it was and, at a new count of the person's, its window
+    // is titled as it was.
+    let title = if same_person {
+        None
+    } else {
+        Some(backend.window_title(raw.window_handle))
+    };
+    if let Some(known) = controls
+        .get_mut(&control)
+        .filter(|k| title.as_ref().is_none_or(|t| *t == k.title))
+    {
         let nature = match &known.element {
             Some(element) => ControlNature::Own {
                 password: element.element_type.as_deref() == Some("password"),
@@ -1693,12 +1709,13 @@ fn settle_key_on_its_control<B: AccessibilityBackend>(
         match backend.control_nature(control) {
             ControlNature::Gone => return None,
             now if now == nature => {
-                known.person = person;
+                known.epoch = raw.focus_epoch;
                 return known.element.clone();
             }
             _ => {}
         }
     }
+    let title = title.unwrap_or_else(|| backend.window_title(raw.window_handle));
     let element = match backend.describe_control(control) {
         ControlLook::Own(element) => Some(*element),
         ControlLook::Shared => None,
@@ -1711,7 +1728,7 @@ fn settle_key_on_its_control<B: AccessibilityBackend>(
         control,
         KnownControl {
             element: element.clone(),
-            person,
+            epoch: raw.focus_epoch,
             title,
         },
     );

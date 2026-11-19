@@ -4484,3 +4484,46 @@ fn a_key_on_another_element_is_not_superseded_by_the_pending_type() {
         "got {events:?}"
     );
 }
+
+/// A program can change what a control is with the person doing nothing: a
+/// page finishes loading and puts the focus into its password input. The
+/// program's focus change is counted, so the control is looked at again at
+/// the next key, and a control that now holds a focused password field is
+/// described from the focused element: its characters are the masked `type`.
+#[test]
+fn a_control_is_looked_at_again_after_a_focus_change_the_program_made() {
+    let (backend, scene, _, controls) =
+        MovingFocusBackend::with_controls(save_button_focused(), field_controls("a"));
+    let harness = WorkerTestHarness::new(backend);
+
+    let t = now_ms();
+    harness.send_event(in_field(packet_key(1, t, u16::from(b'a'))));
+    thread::sleep(Duration::from_millis(150));
+    let mut password = scene_element("Edit", "Dialog > Page > Edit:Password", None);
+    password.element_type = Some("password".to_string());
+    *scene.lock().unwrap() = FocusScene {
+        epoch: 2,
+        foreground: DIALOG,
+        element: password,
+    };
+    {
+        let mut controls = controls.lock().unwrap();
+        controls.own.clear();
+        controls.shared.push(FIELD);
+    }
+    let mut key = in_field(packet_key(2, t + 1, u16::from(b's')));
+    key.focus_epoch = 2;
+    harness.send_event(key);
+
+    thread::sleep(Duration::from_millis(900));
+    let events = harness.shutdown();
+
+    assert_eq!(
+        typed_actions_of(&events),
+        vec![
+            "key a on Dialog > Edit:File name",
+            "type •••••••• on Dialog > Page > Edit:Password"
+        ],
+        "got {events:?}"
+    );
+}
