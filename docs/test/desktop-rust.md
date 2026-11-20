@@ -1,52 +1,15 @@
 # Desktop Rust Tests
 
-Orientation for the desktop application's Rust test suite — what exists, how
-it runs, and where a new test goes. The suite lives in the Tauri crate
-(`packages/desktop/src-tauri/`) and verifies the capture backend: input
-classification, element/action mapping, the capture worker pool, persistence
-commands, and the capture layer driven by real OS input.
+Orientation for the desktop application's Rust test suite: what exists, how it runs, and where a new test goes. The suite lives in the Tauri crate (`packages/desktop/src-tauri/`). It verifies the capture backend: input classification, element/action mapping, the capture worker pool, persistence commands, and the capture layer driven by real OS input.
 
 ## Suite layout
 
 Tests live in two places:
 
-- **In-module unit tests** — `#[cfg(test)]` modules beside the code they pin,
-  in `src/` (the capture modules — `action_mapping`, `coordinate`,
-  `element_mapping`, `held_keys`, `scroll`, `timing`, `uia_core_api`, `variant`, `windows`,
-  `worker_pool`, `stub` — plus `commands`, `secret_store`, and `sync_http`).
-  These run under
-  `cargo test --lib`.
-- **Test binaries** — the `packages/desktop/src-tauri/tests/` directory (Cargo
-  convention); the Covers column states what each binary covers (a new binary
-  takes the `<concern>_test.rs` form §Where a new test goes states), and a
-  subject two binaries reach from different angles — the PID base filter, by
-  example in `windows_capture_test.rs` and as a property in
-  `pid_filter_test.rs` — stands in both rows. The binaries are exactly the
-  `.rs` files directly in it — the set CI's discovery step reads — listed
-  below; a new one joins this table in the same change that adds it, and a CI
-  lint holds the two in agreement. That same lint refuses an undiscovered test
-  binary — one Cargo runs under local `cargo test` while CI's discovery never
-  sees it — by either route: the directory form `tests/<name>/main.rs`, or the
-  crate manifest stating the test targets itself (a `[[test]]` stanza, the same
-  array written as a root-table `test = [ … ]` value, or a `[package]`
-  `autotests` key); a nested module file (the `tests/common/mod.rs` convention)
-  is shared code rather than a binary, and stays green.
+- **In-module unit tests:** `#[cfg(test)]` modules beside the code they pin, in `src/`: the capture modules (`action_mapping`, `coordinate`, `element_mapping`, `held_keys`, `scroll`, `timing`, `uia_core_api`, `variant`, `windows`, `worker_pool`, `stub`) plus `commands`, `secret_store`, and `sync_http`. These run under `cargo test --lib`.
+- **Test binaries:** the `packages/desktop/src-tauri/tests/` directory (Cargo convention). The Covers column states what each binary covers (a new binary takes the `<concern>_test.rs` form §Where a new test goes states). A subject two binaries reach from different angles stands in both rows: the PID base filter, by example in `windows_capture_test.rs` and as a property in `pid_filter_test.rs`. The binaries are exactly the `.rs` files directly in that directory (the set CI's discovery step reads), listed below. A new one joins this table in the same change that adds it, and a CI lint holds the two in agreement. That same lint refuses an undiscovered test binary (one Cargo runs under local `cargo test` while CI's discovery never sees it) by either route: the directory form `tests/<name>/main.rs`, or the crate manifest stating the test targets itself (a `[[test]]` stanza, the same array written as a root-table `test = [ … ]` value, or a `[package]` `autotests` key). A nested module file (the `tests/common/mod.rs` convention) is shared code rather than a binary, and stays green.
 
-  **Top-level-only is the rule, and this paragraph is where it lives.**
-  Widening the discovery to what Cargo itself can build is a deliberate
-  change, and it moves every surface that states or holds the rule — among
-  them: the test workflow's `Discover Rust test layers` step;
-  [the test pyramid](strategy/test-pyramid.md)'s Rust-layout sentence; this
-  paragraph; the test-inventory row of [CI gates](../guides/ci.md); the lint
-  itself (`scripts/check-test-inventory.js` — its cargo discovery descriptor,
-  the closure its module header states, its route table, its
-  discovery-admission function, and that class's fix text in the report
-  block); and the lint's gate suite
-  (`packages/shared/tests/unit/check-test-inventory.test.js` — its
-  selection-rule assertions, its discovery-admission block, and its real-tree
-  lock) together with the row describing it in [unit tests](unit.md). The list
-  is open by design: a surface that states the rule is one the widening moves,
-  whether or not it is named here.
+  **Top-level-only is the rule, and this paragraph is where it lives.** Widening the discovery to what Cargo itself can build is a deliberate change. It moves every surface that states or holds the rule, among them: the test workflow's `Discover Rust test layers` step; [the test pyramid](strategy/test-pyramid.md)'s Rust-layout sentence; this paragraph; the test-inventory row of [CI gates](../guides/ci.md); the lint itself (`scripts/check-test-inventory.js`: its cargo discovery descriptor, the closure its module header states, its route table, its discovery-admission function, and that class's fix text in the report block); and the lint's gate suite (`packages/shared/tests/unit/check-test-inventory.test.js`: its selection-rule assertions, its discovery-admission block, and its real-tree lock) together with the row describing it in [unit tests](unit.md). The list is open by design: a surface that states the rule is one the widening moves, whether or not it is named here.
 
 | Test file                   | Covers                                                                                                                                                                                                                                                                                                                                                                                                    |
 | --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -67,27 +30,9 @@ Tests live in two places:
 | `windows_capture_test.rs`   | Pure-function and state-machine units: state transitions, the scroll accumulator and batch scroll, PID filtering, and the file-dialog helper.                                                                                                                                                                                                                                                             |
 | `worker_pool_test.rs`       | Worker-pool properties: sequence numbering, shortest-queue dispatch, typing and sticky routing, the end of typing (one `type` for text typed with pauses, the events that end it, an emptied field), drag-pair and double-click routing, the double-click pairing and the file-dialog proxy, and the dead-worker drain rescues (dispatch-time respawn and shutdown join) — the pipeline-level truth-lock. |
 
-**Property-based tests** use [`proptest`](https://docs.rs/proptest) (the
-convention set in the
-[contributing guide](../../.github/CONTRIBUTING.md#rust)): most of the unit
-binaries above state their contract as `proptest!` properties over generated
-inputs. `worker_pool_test.proptest-regressions` is proptest's committed
-regression-seed file — inputs that once falsified a property, replayed on
-every run — and stays in the repository. proptest only appends to such a file
-(a `*.proptest-regressions` file beside an integration test, or a `.txt` file
-under a `proptest-regressions/` directory for a test in the crate's source
-tree, the lint below holding both layouts), so each seed line in it carries a
-dated review note after proptest's own text
-(`# reviewed <YYYY-MM-DD>: <why kept>`), which proptest does not read: a seed a
-run leaves behind arrives without one, and the
-[`check-proptest-seeds.js`](../../scripts/check-proptest-seeds.js) lint
-(`npm run lint:proptest-seeds`) reds until the seed is kept with a note or
-deleted.
+**Property-based tests** use [`proptest`](https://docs.rs/proptest) (the convention set in the [contributing guide](../../.github/CONTRIBUTING.md#rust)). Most of the unit binaries above state their contract as `proptest!` properties over generated inputs. `worker_pool_test.proptest-regressions` is proptest's committed regression-seed file (inputs that once falsified a property, replayed on every run) and stays in the repository. proptest only appends to such a file: a `*.proptest-regressions` file beside an integration test, or a `.txt` file under a `proptest-regressions/` directory for a test in the crate's source tree (the lint below holds both layouts), so each seed line in such a file carries a dated review note after proptest's own text (`# reviewed <YYYY-MM-DD>: <why kept>`), which proptest does not read. A seed a run leaves behind arrives without one, and the [`check-proptest-seeds.js`](../../scripts/check-proptest-seeds.js) lint (`npm run lint:proptest-seeds`) reds until the seed is kept with a note or deleted.
 
-The suites that synthesize real OS input (`capture_integration.rs`,
-`corpus_capture.rs`, `file_dialog_test.rs`) drive the `enigo` crate and are
-`#[serial]`: they share the machine's input layer, run one at a time, and
-expect the keyboard and mouse to be left alone while they run.
+The suites that synthesize real OS input (`capture_integration.rs`, `corpus_capture.rs`, `file_dialog_test.rs`) drive the `enigo` crate and are `#[serial]`. They share the machine's input layer, run one at a time, and expect the keyboard and mouse to be left alone while they run.
 
 ## Running the suite
 
@@ -101,48 +46,22 @@ cargo test
 cargo test --test worker_pool_test   # one binary
 ```
 
-The crate's build expects `packages/desktop/dist/` to exist (the Tauri build
-script reads it); `npm run build:desktop-dist` produces it — CI creates it
-empty for test runs. A full local `cargo test` includes the real-input suites
-(hands off the machine while they run) and `file_dialog_test`, which launches
-Notepad and a real file dialog. On Windows the `windows` module's in-module
-tests open common Open and Save As dialogs of their own too, on a thread of the
-test process with no input synthesized, and close them themselves; they run in
-CI.
+The crate's build expects `packages/desktop/dist/` to exist (the Tauri build script reads it). `npm run build:desktop-dist` produces it; CI creates it empty for test runs. A full local `cargo test` includes the real-input suites (hands off the machine while they run) and `file_dialog_test`, which launches Notepad and a real file dialog. On Windows, the `windows` module's in-module tests also open common Open and Save As dialogs of their own. They open them on a thread of the test process with no input synthesized, and close them themselves. They run in CI.
 
 ## Classification and CI
 
-Each test file classifies itself from its own source — CI's discovery step
-derives the layers, so adding a test never edits a workflow. The
-classification rules and the `ci-skip` marker are owned by
-[the test pyramid](strategy/test-pyramid.md); the short version a test author
-needs here: a top-level `use enigo` makes a binary **integration**, everything
-else is **unit**, and a `ci-skip` marker excludes a file from CI entirely.
-`file_dialog_test.rs` is today's one `ci-skip` user — it needs Notepad and a
-real dialog, which CI runners do not reliably provide; the suppressions it
-exercises are pinned on CI by `capture_integration.rs`'s deduplication tests.
+Each test file classifies itself from its own source. CI's discovery step derives the layers, so adding a test never edits a workflow. [The test pyramid](strategy/test-pyramid.md) owns the classification rules and the `ci-skip` marker. The short version a test author needs here:
 
-In CI the suite runs on Windows (the platform with a real capture backend),
-split into a unit and an integration `cargo llvm-cov` run so each lands under
-its own coverage flag — see [coverage reporting](strategy/coverage.md). Clippy
-runs over the crate's Cargo targets, so these test sources and the
-`#[cfg(test)]` modules are linted too; the invocation that decides which targets
-those are has its home in the Clippy row of
-[CI gates](../guides/ci.md#the-lint-and-freshness-gates) (§CI-1), which any other
-statement of it repeats exactly.
-A separate job compiles and lints the crate on Windows and Linux without running
-its tests.
+- a top-level `use enigo` makes a binary **integration**;
+- everything else is **unit**;
+- a `ci-skip` marker excludes a file from CI entirely.
+
+`file_dialog_test.rs` is today's one `ci-skip` user. It needs Notepad and a real dialog, which CI runners do not reliably provide. The suppressions it exercises are pinned on CI by `capture_integration.rs`'s deduplication tests.
+
+In CI the suite runs on Windows (the platform with a real capture backend). It runs as a unit and an integration `cargo llvm-cov` run, so each lands under its own coverage flag (see [coverage reporting](strategy/coverage.md)). Clippy runs over the crate's Cargo targets, so these test sources and the `#[cfg(test)]` modules are linted too. The invocation that decides which targets those are has its home in the Clippy row of [CI gates](../guides/ci.md#the-lint-and-freshness-gates) (§CI-1); any other statement of it repeats it exactly. A separate job compiles and lints the crate on Windows and Linux without running its tests.
 
 ## Where a new test goes
 
-- **A unit of one module's private logic** — the module's `#[cfg(test)]`
-  block in `src/`.
-- **Anything exercising the crate's public surface** — a file in `tests/`,
-  named `<concern>_test.rs`, beside the ones above. Add a top-level `use enigo`
-  only if it genuinely synthesizes input (that import is the integration
-  classifier); add `#[serial]` if it does.
-- Whether a new binary joins the mutation run's per-mutant test list is not a
-  choice made here: the membership criterion in
-  [mutation testing](strategy/mutation.md) (§MUT-7) decides it from what the
-  binary reaches and how it runs, and the test-inventory lint holds the list to
-  the set that criterion derives.
+- **A unit of one module's private logic:** the module's `#[cfg(test)]` block in `src/`.
+- **Anything exercising the crate's public surface:** a file in `tests/`, named `<concern>_test.rs`, beside the ones above. Add a top-level `use enigo` only if it genuinely synthesizes input (that import is the integration classifier), and add `#[serial]` if it does.
+- Whether a new binary joins the mutation run's per-mutant test list is not a choice made here. The membership criterion in [mutation testing](strategy/mutation.md) (§MUT-7) decides it from what the binary reaches and how it runs. The test-inventory lint holds the list to the set that criterion derives.
