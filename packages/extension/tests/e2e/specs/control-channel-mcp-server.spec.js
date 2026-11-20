@@ -73,6 +73,23 @@ async function openPanel(context, extensionId) {
   return page;
 }
 
+/**
+ * Open the page, create a project and a recording through the tools, wait for
+ * the recorder the recording injects to report itself ready, and click the
+ * button once, so exactly one action is pending when this returns.
+ */
+async function startRecording({ context, serviceWorker, server, url, project }) {
+  await installReadyProbe(serviceWorker);
+  const page = await context.newPage();
+  await page.goto(url);
+  expect((await call(server, 'project_create', { name: project })).ok).toBe(true);
+  expect((await call(server, 'recording_create', { name: 'Flow' })).ok).toBe(true);
+  await waitForFrameReady(serviceWorker, url);
+  await page.click('#add');
+  await expect.poll(async () => (await call(server, 'status')).pending_actions).toBe(1);
+  return page;
+}
+
 const test = base.extend({
   context: async ({}, use) => {
     const context = await chromium.launchPersistentContext('', {
@@ -336,6 +353,7 @@ test.describe('Local control channel through the Reference MCP Server', () => {
 
   test('with the grant, writes the document of the Export button to the folder, and the panel imports it', async ({
     context,
+    serviceWorker,
     panelPage,
     server,
     site,
@@ -345,19 +363,15 @@ test.describe('Local control channel through the Reference MCP Server', () => {
     await expect(panelPage.locator('#control-channel-export')).toContainText('Export is allowed');
     expect((await call(server, 'status')).export_allowed).toBe(true);
 
-    // Record for real: a page open before the recording starts, and a click on
-    // it once capture runs. The click is repeated until the recorder, injected
-    // when the recording starts, has reported one.
-    const sitePage = await context.newPage();
-    await sitePage.goto(site);
-    expect((await call(server, 'project_create', { name: 'Checkout: happy/path' })).ok).toBe(true);
-    expect((await call(server, 'recording_create', { name: 'Flow' })).ok).toBe(true);
-    await expect
-      .poll(async () => {
-        await sitePage.click('#add');
-        return (await call(server, 'status')).pending_actions;
-      })
-      .toBeGreaterThan(0);
+    // Record for real: a page open before the recording starts, and one click
+    // on it once the recorder the recording injects has reported itself ready.
+    const sitePage = await startRecording({
+      context,
+      serviceWorker,
+      server,
+      url: site,
+      project: 'Checkout: happy/path',
+    });
     expect((await call(server, 'step_commit', { narration: 'Add it' })).ok).toBe(true);
 
     const exported = await call(server, 'project_export');
@@ -392,8 +406,7 @@ test.describe('Local control channel through the Reference MCP Server', () => {
     const clicks = document.recordings[0].steps[0].actions.filter(
       (action) => action.type === 'click',
     );
-    expect(clicks.length).toBeGreaterThan(0);
-    expect(clicks[0].element.text).toBe(SITE_BUTTON);
+    expect(clicks.map((click) => click.element.text)).toEqual([SITE_BUTTON]);
     // The document went to the file and stayed out of the tool results.
     expect(server.stdout().includes(SITE_BUTTON)).toBe(false);
 
@@ -532,23 +545,6 @@ test.describe('A recording made through the tools on a served page', () => {
     },
   });
 
-  /**
-   * Open the page, create a project and a recording through the tools, wait
-   * for the recorder the recording injects to report itself ready, and click
-   * the button once, so exactly one action is pending when this returns.
-   */
-  async function startRecording({ context, serviceWorker, server, url }) {
-    await installReadyProbe(serviceWorker);
-    const page = await context.newPage();
-    await page.goto(url);
-    expect((await call(server, 'project_create', { name: 'Through the tools' })).ok).toBe(true);
-    expect((await call(server, 'recording_create', { name: 'Flow' })).ok).toBe(true);
-    await waitForFrameReady(serviceWorker, url);
-    await page.click('#add');
-    await expect.poll(async () => (await call(server, 'status')).pending_actions).toBe(1);
-    return page;
-  }
-
   /** Export through the tools and return the file's path and text. */
   async function exportFile(server) {
     const exported = await call(server, 'project_export');
@@ -560,7 +556,13 @@ test.describe('A recording made through the tools on a served page', () => {
     'a commit while paused takes what was captured before, and a click while paused leaves nothing pending',
     async ({ context, serviceWorker, panelPage, server, servedUrl }) => {
       await pair(panelPage, server, { allowExport: true });
-      const page = await startRecording({ context, serviceWorker, server, url: servedUrl });
+      const page = await startRecording({
+        context,
+        serviceWorker,
+        server,
+        url: servedUrl,
+        project: 'Through the tools',
+      });
       // A commit is refused only with no recording open or nothing captured
       // since the last step (control channel LC-8): while paused it commits the
       // actions captured before the pause, and leaves nothing pending.
@@ -597,7 +599,13 @@ test.describe('A recording made through the tools on a served page', () => {
     'a validation step commits with the expect it is given, present when none is',
     async ({ context, serviceWorker, panelPage, server, servedUrl }) => {
       await pair(panelPage, server, { allowExport: true });
-      const page = await startRecording({ context, serviceWorker, server, url: servedUrl });
+      const page = await startRecording({
+        context,
+        serviceWorker,
+        server,
+        url: servedUrl,
+        project: 'Through the tools',
+      });
 
       // LC-7, `step.commit`: a `validation` takes `expect`, `present` when omitted.
       const absent = await call(server, 'step_commit', {
@@ -630,7 +638,13 @@ test.describe('A recording made through the tools on a served page', () => {
     'the export file the server writes passes the sufficiency lint with no fail',
     async ({ context, serviceWorker, panelPage, server, servedUrl }) => {
       await pair(panelPage, server, { allowExport: true });
-      const page = await startRecording({ context, serviceWorker, server, url: servedUrl });
+      const page = await startRecording({
+        context,
+        serviceWorker,
+        server,
+        url: servedUrl,
+        project: 'Through the tools',
+      });
       expect((await call(server, 'step_commit', { narration: 'Add it' })).ok).toBe(true);
 
       // The file is validated and linted as the lint's own command reads a file.
@@ -646,7 +660,13 @@ test.describe('A recording made through the tools on a served page', () => {
     'a password typed with spaces is nowhere in the export file, in whole or in part',
     async ({ context, serviceWorker, panelPage, server, servedUrl }) => {
       await pair(panelPage, server, { allowExport: true });
-      const page = await startRecording({ context, serviceWorker, server, url: servedUrl });
+      const page = await startRecording({
+        context,
+        serviceWorker,
+        server,
+        url: servedUrl,
+        project: 'Through the tools',
+      });
       expect((await call(server, 'step_commit', { narration: 'Add it' })).ok).toBe(true);
 
       // Typed with the keys, spaces included, then a click elsewhere ends it.
