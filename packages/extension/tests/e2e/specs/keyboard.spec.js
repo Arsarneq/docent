@@ -1786,11 +1786,11 @@ test.describe('Every key press that is not text', () => {
     });
     await session.send('Input.insertText', { text: '日' });
     await testPage.keyboard.press('Tab');
-    // The composition is driven without key presses here, so the entry is
-    // written when the browser commits it, behind the Tab (ECP-12).
+    // The composition is driven without key presses here. Its text is an
+    // entry all the same, and stands ahead of the Tab (#744).
     expect(await written(serviceWorker, testPage)).toEqual([
-      ['key', 'Tab'],
       ['type', '日'],
+      ['key', 'Tab'],
     ]);
   });
 
