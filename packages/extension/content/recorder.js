@@ -565,6 +565,41 @@
 
   // -- END MIRRORED CAPTURE LOGIC --
 
+  /** The `input` types that hold no entry: controls recorded by what is done to them. */
+  const NON_ENTRY_INPUT_TYPES = ['button', 'checkbox', 'file', 'image', 'radio', 'reset', 'submit'];
+
+  /**
+   * Whether the element holds an entry a `type` records: a `textarea`, or an
+   * `input` other than a button, checkbox, radio button or file chooser (those
+   * are recorded by their click, key or dialog).
+   *
+   * @param {Element} el
+   * @returns {boolean}
+   */
+  function takesEntry(el) {
+    if (el.tagName === 'TEXTAREA') return true;
+    return el.tagName === 'INPUT' && !NON_ENTRY_INPUT_TYPES.includes(el.type);
+  }
+
+  /**
+   * Write the entry a field holds as a `type`, a password's masked.
+   *
+   * @param {Element} el
+   */
+  function writeEntry(el) {
+    const isPassword = el.type === 'password';
+    appendAction({
+      type: 'type',
+      timestamp: Date.now(),
+      element: describeElement(el),
+      value: isPassword ? '••••••••' : el.value,
+    });
+    markUserAction();
+    fieldValueAtFocus.set(el, el.value);
+    fieldsEditedByKey.delete(el);
+    entryLastWritten.set(el, el.value);
+  }
+
   // ─── Click capture ────────────────────────────────────────────────────────────
   // Tries to find a known interactive ancestor first. Falls back to the
   // clicked element itself so custom components and web components are captured.
@@ -601,6 +636,16 @@
   let capturedKeyEventInTask = false;
   // The physical keys whose latest keydown was written, by `code`.
   const capturedKeysDown = new Set();
+  // The value each text field held when it took focus, or after the entry
+  // last written for it: what a `change` is measured against, so a captured
+  // key can tell an entry not yet written from one that is.
+  const fieldValueAtFocus = new WeakMap();
+  // The fields a key has been pressed in since their entry was last written or
+  // committed: only those hold an entry the person made, as against a value the
+  // page set (core CP-6).
+  const fieldsEditedByKey = new WeakSet();
+  // The entry last written for each field, so the same entry is not written twice.
+  const entryLastWritten = new WeakMap();
   let lastTabKeyTimestamp = 0;
   let lastSelectTimestamp = 0;
   let lastFileInputClickEl = null;
@@ -650,6 +695,13 @@
       // activation happens, which a Space press reaches only at its release.
       if (e.pointerType === '' && capturedKeyEventInTask) {
         noteFileInputClick(e.target);
+        markUserAction();
+        return;
+      }
+      // The click a native select sends when its list closes from the keyboard
+      // carries no pointer: the keys pressed inside the open list do not reach
+      // the page, so the closing is not a click anyone made (#704).
+      if (e.pointerType === '' && e.detail === 0 && e.target.tagName === 'SELECT') {
         markUserAction();
         return;
       }
@@ -773,8 +825,20 @@
       if (!e.isTrusted) return;
       // Every keydown restates whether this physical key's press is a written one.
       capturedKeysDown.delete(e.code);
+      // A field focused before the recording began has no value noted yet: the
+      // one it holds now is what the first keystroke is about to change.
+      const fieldInFocus = document.activeElement;
+      if (fieldInFocus && takesEntry(fieldInFocus) && !fieldValueAtFocus.has(fieldInFocus)) {
+        fieldValueAtFocus.set(fieldInFocus, fieldInFocus.value);
+      }
       const key = capturedKeyName(e.key, focusedElement());
-      if (key === null) return;
+      if (key === null) {
+        if (fieldInFocus && takesEntry(fieldInFocus)) {
+          fieldsEditedByKey.add(fieldInFocus);
+          entryLastWritten.delete(fieldInFocus);
+        }
+        return;
+      }
       // Set Tab timestamp BEFORE the body check — focus after Tab on body
       // still needs to be captured (it tells us where focus went).
       if (key === 'Tab') lastTabKeyTimestamp = Date.now();
@@ -783,6 +847,13 @@
       if (!el || (el === document.body && key !== 'Tab')) return;
       capturedKeysDown.add(e.code);
       markCapturedKeyEvent();
+      // The entry the person made in the field is complete before this press, and
+      // the browser's `change` for it comes only while it handles the press
+      // (Enter's submission, the blur Tab causes): written here, the entry
+      // stands ahead of the key it precedes (#703).
+      if (takesEntry(el) && fieldsEditedByKey.has(el) && el.value !== fieldValueAtFocus.get(el)) {
+        writeEntry(el);
+      }
       appendAction({
         type: 'key',
         timestamp: Date.now(),
@@ -794,18 +865,7 @@
           meta: e.metaKey,
         },
         repeat: e.repeat,
-        element:
-          el === document.body
-            ? {
-                tag: 'BODY',
-                id: null,
-                name: null,
-                role: null,
-                type: null,
-                text: null,
-                selector: 'body',
-              }
-            : describeElement(el),
+        element: describeElement(el),
       });
       markUserAction();
     },
@@ -887,6 +947,11 @@
       if (el.tagName === 'INPUT' && (el.type === 'checkbox' || el.type === 'radio')) return;
 
       if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') {
+        fieldValueAtFocus.set(el, el.value);
+        fieldsEditedByKey.delete(el);
+        // An entry already written, ahead of the captured key that followed it,
+        // is not written again.
+        if (entryLastWritten.get(el) === el.value) return;
         // Suppress change events caused by blur from clicking a submit button within the same form.
         // When the user clicks submit, the input blurs and fires change. But the user's
         // intent is captured by the click — the type was already captured earlier (or will
@@ -901,14 +966,7 @@
             if (isSubmit) return;
           }
         }
-        const isPassword = el.type === 'password';
-        appendAction({
-          type: 'type',
-          timestamp: Date.now(),
-          element: describeElement(el),
-          value: isPassword ? '••••••••' : el.value,
-        });
-        markUserAction();
+        writeEntry(el);
       }
     },
     { capture: true, passive: true },
@@ -924,6 +982,11 @@
     'focusin',
     (e) => {
       if (!active) return;
+      if (takesEntry(e.target)) {
+        fieldValueAtFocus.set(e.target, e.target.value);
+        fieldsEditedByKey.delete(e.target);
+        entryLastWritten.delete(e.target);
+      }
       if (document.visibilityState === 'hidden') return;
       const el = e.target;
       const isInput =
