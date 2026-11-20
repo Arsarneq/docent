@@ -1,20 +1,14 @@
 # Application Shell — Desktop Application
 
-The Tauri shell the desktop application's capture and UI surfaces run on: the
-command surface and event channel wiring the JavaScript frontend to the Rust
-backend, the session-persistence commands and their credential-store
-chokepoint, the tray keep-alive behind background Auto-Sync, the native HTTP
-transport chokepoint, and the installer's declared file association. Companion
-to [Capture Principles — Desktop Application](capture-principles.md), which
-governs what may enter a recording, and to
-[the capture pipeline](capture-pipeline.md), which owns how the
-`capture:action` stream is produced; this document governs the shell those
-surfaces are wired through. The cross-platform seams it implements are owned
-elsewhere and cited in place:
-[Shared Core](../../../../architecture/system/shared-core.md) (the adapter
-seam), [Persistence](../../../../architecture/system/persistence.md) (where
-each platform keeps its data), and the
-[Dispatch Protocol](../../../../api/dispatch.md) (the transport policy).
+The Tauri shell the desktop application's capture and UI surfaces run on:
+
+- the command surface and event channel that wire the JavaScript frontend to the Rust backend;
+- the session-persistence commands and their credential-store chokepoint;
+- the tray keep-alive behind background Auto-Sync;
+- the native HTTP transport chokepoint;
+- the installer's declared file association.
+
+Its companions are [Capture Principles — Desktop Application](capture-principles.md), which governs what may enter a recording, and [the capture pipeline](capture-pipeline.md), which owns how the `capture:action` stream is produced. This document governs the shell those surfaces are wired through. Other documents own the cross-platform seams it implements, cited in place: [Shared Core](../../../../architecture/system/shared-core.md) (the adapter seam), [Persistence](../../../../architecture/system/persistence.md) (where each platform keeps its data), and the [Dispatch Protocol](../../../../api/dispatch.md) (the transport policy).
 
 Each rule carries a stable identifier (**DSH-n**) so other documents, reviews,
 and checks can cite it precisely. Identifiers are never renumbered; a retired
@@ -33,16 +27,14 @@ numeric sequence.
 
 ## Components
 
-The application is one Tauri v2 crate hosting one webview window
-(420×700 by default, resizable, under a strict `script-src 'self'` CSP —
-[`tauri.conf.json`](../../../../../packages/desktop/src-tauri/tauri.conf.json)):
+The application is one Tauri v2 crate hosting one webview window (420×700 by default, resizable, under a strict `script-src 'self'` CSP, per [`tauri.conf.json`](../../../../../packages/desktop/src-tauri/tauri.conf.json)):
 
 | Surface          | Entry                                                                                      | Runs                                                                                                                                                                                                                                                                                                                              |
 | ---------------- | ------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Rust backend     | `src-tauri/src/main.rs` → [`lib.rs`](../../../../../packages/desktop/src-tauri/src/lib.rs) | The host process: the capture layer behind [the capture seam](../capture-seam.md), the commands and event channel below, the system tray, and the window-close handling.                                                                                                                                                          |
-| Panel            | `src/index.html` + [`panel.js`](../../../../../packages/desktop/src/panel.js)              | In the webview. The panel driver owns the model: it holds the projects/settings state, mutates it locally, and persists it through the [session commands](#session-persistence) — the desktop half of the model-ownership split [Shared Core](../../../../architecture/system/shared-core.md#the-adapter-seam) states.            |
+| Panel            | `src/index.html` + [`panel.js`](../../../../../packages/desktop/src/panel.js)              | In the webview. The panel driver owns the model: it holds the projects/settings state, mutates it locally, and persists it through the [session commands](#session-persistence). This is the desktop half of the model-ownership split [Shared Core](../../../../architecture/system/shared-core.md#the-adapter-seam) states.     |
 | Platform adapter | [`adapter-tauri.js`](../../../../../packages/desktop/src/adapter-tauri.js)                 | Implements the shared adapter seam over `invoke`/`listen`; holds the in-memory pending list fed by `capture:action`, and binds the shared HTTP transport at module load ([Native HTTP transport](#native-http-transport)).                                                                                                        |
-| Tauri bridge     | [`tauri-bridge.js`](../../../../../packages/desktop/src/tauri-bridge.js)                   | The single access point to `invoke`/`listen`. The app ships `withGlobalTauri: false`, so the real Tauri API is never published to a `window` global — the shipped access path is this module's bundled ESM import (an injected global could at most interpose on the app's own calls; the CSP is what keeps injected script out). |
+| Tauri bridge     | [`tauri-bridge.js`](../../../../../packages/desktop/src/tauri-bridge.js)                   | The single access point to `invoke`/`listen`. The app ships `withGlobalTauri: false`, so the real Tauri API is never published to a `window` global. The shipped access path is this module's bundled ESM import. (An injected global could at most interpose on the app's own calls; the CSP is what keeps injected script out.) |
 
 ---
 
@@ -134,31 +126,13 @@ owns that platform difference.
 
 ## Session Persistence
 
-[Persistence](../../../../architecture/system/persistence.md#desktop--the-session-file-and-the-credential-store)
-owns the cross-platform picture of where data lives; this section owns the
-command-level mechanics. The desktop persists one JSON blob —
-`%APPDATA%/com.docent.desktop/session.json` — carrying `projects`,
-`settings`, and the durable sync reconcile state (`syncState`); the active
-project/recording selection lives in the panel's memory only and is not
-persisted. The frontend serializes and writes the blob through `save_state`
-on every model mutation (the panel's model writes and the adapter's settings
-saves funnel into the same command) and reads it through `load_state` at
-startup. The two writers reach that command differently, and their order is
-part of the arrangement: the adapter's settings save is a load-mutate-save over
-the copy on disk, while the panel's is a whole-blob write of the copy in its
-memory, so a seam save is followed by the panel writing the same values into
-that memory copy — which is what carries them into the panel's next write. When
-the sync server URL is cleared, `saveSyncSettings` omits both keys from its
-write; when both fields are cleared, the panel's mirror-back writes them null —
-so on that path DSH-2's clear branch is satisfied by the panel's write. The
-caller model this rests on is stated where the seam declares it, in the
-`PlatformAdapter` typedef's header
-([`adapter.js`](../../../../../packages/shared/views/adapter.js)). The Rust side
-owns the path and the file I/O
-([`commands.rs`](../../../../../packages/desktop/src-tauri/src/commands.rs));
-a missing or unreadable file reads as `{}`, and JSON the frontend cannot parse
-starts the app with an empty state (the `loadState` catch in
-[`panel.js`](../../../../../packages/desktop/src/panel.js)).
+[Persistence](../../../../architecture/system/persistence.md#desktop--the-session-file-and-the-credential-store) owns the cross-platform picture of where data lives. This section owns the command-level mechanics.
+
+The desktop persists one JSON blob, `%APPDATA%/com.docent.desktop/session.json`, carrying `projects`, `settings`, and the durable sync reconcile state (`syncState`). The active project/recording selection lives in the panel's memory only and is not persisted. The frontend serializes and writes the blob through `save_state` on every model mutation (the panel's model writes and the adapter's settings saves funnel into the same command). It reads the blob through `load_state` at startup.
+
+The two writers reach that command differently, and their order is part of the arrangement. The adapter's settings save is a load-mutate-save over the copy on disk. The panel's save is a whole-blob write of the copy in its memory. So after a seam save, the panel writes the same values into that memory copy, which is what carries them into the panel's next write. When the sync server URL is cleared, `saveSyncSettings` omits both keys from its write. When both fields are cleared, the panel's mirror-back writes them null, so on that path the panel's write satisfies DSH-2's clear branch. The seam declares the caller model this rests on in the `PlatformAdapter` typedef's header ([`adapter.js`](../../../../../packages/shared/views/adapter.js)).
+
+The Rust side owns the path and the file I/O ([`commands.rs`](../../../../../packages/desktop/src-tauri/src/commands.rs)). A missing or unreadable file reads as `{}`. JSON the frontend cannot parse starts the app with an empty state (the `loadState` catch in [`panel.js`](../../../../../packages/desktop/src/panel.js)).
 
 **DSH-2.** `save_state`/`load_state` are the credential chokepoint: on save,
 the two managed keys — `settings.apiKey` and `settings.syncApiKey` — are
@@ -180,85 +154,23 @@ build takes that path (the capture seam documents those targets'
 
 ## Background Auto-Sync Keep-Alive
 
-Automatic sync
-([Sync Protocol — automatic sync](../../../../api/sync-protocol.md#automatic-sync-auto-sync))
-needs a context that stays alive when the window is closed. The desktop's
-keep-alive is the webview itself: while the panel has armed
-`set_auto_sync_keepalive`, a window close request is intercepted in `lib.rs`
-and the window is hidden instead of destroyed, so the frontend's Auto-Sync
-timer and the shared `sync()` it invokes keep running headless. While
-disarmed, the close proceeds normally and the application quits with its last
-window. The panel arms the keep-alive exactly when it starts the Auto-Sync
-host and disarms it when the host stops — reconciled with the persisted
-Auto-sync setting and the configured endpoint at startup and on every settings
-change.
+Automatic sync ([Sync Protocol — automatic sync](../../../../api/sync-protocol.md#automatic-sync-auto-sync)) needs a context that stays alive when the window is closed. The desktop's keep-alive is the webview itself. While the panel has armed `set_auto_sync_keepalive`, `lib.rs` intercepts a window close request and hides the window instead of destroying it. So the frontend's Auto-Sync timer and the shared `sync()` it invokes keep running headless. While disarmed, the close proceeds normally and the application quits with its last window. The panel arms the keep-alive exactly when it starts the Auto-Sync host and disarms it when the host stops, reconciled with the persisted Auto-sync setting and the configured endpoint at startup and on every settings change.
 
-The system tray owns the way back: its menu (also opened by a left click on
-the icon) carries **Show Docent**, which re-shows and focuses the window, and
-**Quit**, which exits the application regardless of the keep-alive. The
-user-facing statement of this behaviour is the
-[desktop guide's Sync section](../../../../user/desktop-windows.md#sync).
-For the user the two platforms are equivalent — background cycles keep running
-on both — so the tray stands in for the browser's background context, its
-service worker — a difference of mechanism, not of outcome, which the
-[index of deliberate differences](../../../../design/ui_ux/shared-interaction-model.md#the-deliberate-platform-differences)
-lists.
+The system tray owns the way back. Its menu (also opened by a left click on the icon) carries **Show Docent**, which re-shows and focuses the window, and **Quit**, which exits the application regardless of the keep-alive. The [desktop guide's Sync section](../../../../user/desktop-windows.md#sync) is the user-facing statement of this behavior. For the user the two platforms are equivalent (background cycles keep running on both), so the tray stands in for the browser's background context, its service worker. This is a difference of mechanism, not of outcome, which the [index of deliberate differences](../../../../design/ui_ux/shared-interaction-model.md#the-deliberate-platform-differences) lists.
 
-The host itself
-([`auto-sync-host.js`](../../../../../packages/desktop/src/auto-sync-host.js))
-is DOM-free so the cycle can run with the window hidden: a ~60-second backstop
-timer plus a data-event hook the panel calls after meaningful local data
-changes, both routed through the shared cooldown-debounced scheduler
-([SP-22](../../../../api/sync-protocol.md#automatic-sync-auto-sync)). Every
-cycle it triggers runs the same shared `sync()` with the same sync-state
-store and live-state adapters as the manual Sync button; an auth halt disables
-Auto-sync, stops the trigger, and flags Settings for a fresh connection test
-([SP-23](../../../../api/sync-protocol.md#automatic-sync-auto-sync)).
+The host itself ([`auto-sync-host.js`](../../../../../packages/desktop/src/auto-sync-host.js)) is DOM-free, so the cycle can run with the window hidden. It runs on a ~60-second backstop timer plus a data-event hook the panel calls after meaningful local data changes. Both route through the shared cooldown-debounced scheduler ([SP-22](../../../../api/sync-protocol.md#automatic-sync-auto-sync)). Every cycle it triggers runs the same shared `sync()`, with the same sync-state store and live-state adapters, as the manual Sync button. An auth halt disables Auto-sync, stops the trigger, and flags Settings for a fresh connection test ([SP-23](../../../../api/sync-protocol.md#automatic-sync-auto-sync)).
 
-One shipped defect fences the trigger sources: the panel nulls the registered
-data-event hook immediately after starting the host (`startAutoSyncHost` in
-`panel.js`), so the data-event trigger never fires and the ~60-second backstop
-is the only thing driving desktop cycles today — the data events are wired at
-every call site but severed at that one assignment.
-[docent#342](https://github.com/Arsarneq/docent/issues/342) tracks the fix;
-the extension is unaffected.
+One shipped defect fences the trigger sources. The panel nulls the registered data-event hook immediately after starting the host (`startAutoSyncHost` in `panel.js`). So the data-event trigger never fires, and the ~60-second backstop is the only thing driving desktop cycles today. The data events are wired at every call site but severed at that one assignment. [docent#342](https://github.com/Arsarneq/docent/issues/342) tracks the fix; the extension is unaffected.
 
 ---
 
 ## Native HTTP Transport
 
-The shared sync, dispatch, and connection-test code issues every HTTP request
-through the shared transport seam
-([dispatch §DI-12](../../../../api/dispatch.md#transport-seam)). The desktop
-binds that seam once, at adapter module load — before the panel runs any sync
-— to the `sync_http_request` command, and adapts the command's response back
-into the seam's `fetch` subset (`ok`, `status`, `headers.get(name)` over
-lower-cased header names, `json()`, `text()`). The seam's `signal` is not
-forwarded across `invoke`; the command's own 30-second timeout is the
-per-attempt bound.
+The shared sync, dispatch, and connection-test code issues every HTTP request through the shared transport seam ([dispatch §DI-12](../../../../api/dispatch.md#transport-seam)). The desktop binds that seam to the `sync_http_request` command once, at adapter module load, before the panel runs any sync. It adapts the command's response back into the seam's `fetch` subset (`ok`, `status`, `headers.get(name)` over lower-cased header names, `json()`, `text()`). The seam's `signal` is not forwarded across `invoke`; the command's own 30-second timeout is the per-attempt bound.
 
-The command
-([`sync_http.rs`](../../../../../packages/desktop/src-tauri/src/sync_http.rs))
-is the chokepoint [dispatch §DI-11](../../../../api/dispatch.md#endpoint-url-policy)
-governs: the only native, CORS-free outbound HTTP primitive exposed to the UI
-layer, re-enforcing its transport policy per request — `https://` to any
-host, plaintext `http://` only to loopback, never a link-local address —
-deliberately stricter at request time than the shared save-time rule
-([DI-10](../../../../api/dispatch.md#endpoint-url-policy)). This document
-adds no rule of its own there; the policy and its verification live with
-those clauses.
+The command ([`sync_http.rs`](../../../../../packages/desktop/src-tauri/src/sync_http.rs)) is the chokepoint [dispatch §DI-11](../../../../api/dispatch.md#endpoint-url-policy) governs. It is the only native, CORS-free outbound HTTP primitive exposed to the UI layer. It re-enforces DI-11's transport policy per request: `https://` to any host, plaintext `http://` only to loopback, never a link-local address. At request time it is deliberately stricter than the shared save-time rule ([DI-10](../../../../api/dispatch.md#endpoint-url-policy)). This document adds no rule of its own there; the policy and its verification live with those clauses.
 
-The same reachability posture bounds what a webview foothold could touch:
-with `withGlobalTauri: false` and the `script-src 'self'` CSP, the Tauri API —
-the crate commands above and the granted plugin surface — is never published
-to a `window` global and is reached through the bridge module's bundled ESM
-import, and the CSP's `connect-src` independently constrains the webview's
-own `fetch`. That `connect-src` is narrower than the extension's for remote
-hosts — `https:` and loopback `http:`, beside the webview's own `'self'` and
-`ipc:` origins — because the shared sync and dispatch traffic leaves
-through the native command, never through the webview's `fetch`. The bridge
-module prefers an injected `window.__TAURI__` when one is present (the seam
-the integration suite's mock uses) before its bundled import.
+The same reachability posture bounds what a webview foothold could touch. With `withGlobalTauri: false` and the `script-src 'self'` CSP, the Tauri API (the crate commands above and the granted plugin surface) is never published to a `window` global. It is reached through the bridge module's bundled ESM import. The CSP's `connect-src` independently constrains the webview's own `fetch`. That `connect-src` is narrower than the extension's for remote hosts: `https:` and loopback `http:`, beside the webview's own `'self'` and `ipc:` origins. This is because the shared sync and dispatch traffic leaves through the native command, never through the webview's `fetch`. The bridge module prefers an injected `window.__TAURI__` when one is present (the seam the integration suite's mock uses) before its bundled import.
 
 ---
 
@@ -267,10 +179,4 @@ the integration suite's mock uses) before its bundled import.
 The bundle configuration declares a file association for the `docent.json`
 extension (MIME type `application/json`, description "Docent Recording") in
 [`tauri.conf.json`](../../../../../packages/desktop/src-tauri/tauri.conf.json),
-for the installer to register with Windows. The application contains no
-handling for a file passed at launch: `main.rs` calls `run()` directly,
-nothing reads the process arguments, and no file-open event is handled — the
-only import path is the `import_file` dialog. A launch through the
-association therefore cannot import the file. This is an admitted gap between
-the installer's declaration and the application's behaviour: the association
-exists in configuration; nothing consumes an opened file.
+for the installer to register with Windows. The application contains no handling for a file passed at launch: `main.rs` calls `run()` directly, nothing reads the process arguments, and no file-open event is handled. The only import path is the `import_file` dialog. So a launch through the association cannot import the file. This is an admitted gap between the installer's declaration and the application's behavior.

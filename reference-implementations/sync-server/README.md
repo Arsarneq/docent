@@ -1,57 +1,38 @@
 # Reference Sync Server
 
-The Reference Sync Server is a small, runnable implementation of the
-[Docent Sync Protocol](../../docs/api/sync-protocol.md). It exists as a faithful, easy-to-read
-example for adopters building their own compatible backend, and as a
-protocol-accurate target for the Docent team's manual end-to-end testing of the
-client sync cycle.
+The Reference Sync Server is a small, runnable implementation of the [Docent Sync Protocol](../../docs/api/sync-protocol.md). It is a faithful, easy-to-read example for adopters building their own compatible backend. It is also a protocol-accurate target for the Docent team's manual end-to-end testing of the client sync cycle.
 
-This server is part of the repository's
-[reference implementations](../README.md).
+This server is part of the repository's [reference implementations](../README.md).
 
-It runs on Node.js with no third-party dependency (`node:http` and friends;
-its ETag derivation imports the repository's shared digest module when the
-checkout provides it, with a local fallback) — no web framework, no build step — and persists to flat JSON files under the OS
-temp folder through a pluggable storage seam. Like any compliant server, it is
-**opaque** — returning each `Full_Project_Payload` verbatim is
-[SP-1](../../docs/api/sync-protocol.md)'s rule, and this server stores what it
-receives unchanged, adding nothing of its own. Beside each stored payload it
-keeps one server-maintained value, a `last_modified` timestamp, never merged
-into the payload; the optional conditional write's `ETag` is stored nowhere,
-being derived from the stored content on each response that carries one.
+It runs on Node.js with no third-party dependency (`node:http` and friends), no web framework and no build step. Its ETag derivation imports the repository's shared digest module when the checkout provides it, with a local fallback. It persists to flat JSON files under the OS temp folder through a pluggable storage seam.
+
+Like any compliant server, it is **opaque**. Returning each `Full_Project_Payload` verbatim is [SP-1](../../docs/api/sync-protocol.md)'s rule, and this server stores what it receives unchanged, adding nothing of its own. Beside each stored payload it keeps one server-maintained value, a `last_modified` timestamp, never merged into the payload. The optional conditional write's `ETag` is stored nowhere: the server derives it from the stored content on each response that carries one.
 
 > **This is a repository and testing artifact only.** The server lives under
 > `reference-implementations/` (separate from `packages/`, which holds the
 > shipped product) and is excluded from every release. It is never part of a
 > product release and is not published to end users.
 
-The [Sync Protocol](../../docs/api/sync-protocol.md) is the authoritative contract — it
-describes what _any_ server must do. This document describes how _this_ reference
-server implements that contract, and links to the protocol spec rather than
-restating it.
+The [Sync Protocol](../../docs/api/sync-protocol.md) is the authoritative contract: it describes what _any_ server must do. This document describes how _this_ reference server implements that contract, and links to the protocol spec rather than restating it.
 
 ---
 
 ## Scope: a sync target, not a consumer API
 
-A sync server is an **opaque sync target** for Docent clients, not a
-consumer-facing read API. The protocol's
-[server-scope and CORS guidance](../../docs/api/sync-protocol.md#server-scope-and-cors)
-defines that scope and why a compliant server needs no CORS headers — where a
-consumer should read from instead, and why permissive CORS on a local,
-optionally-open store is a hazard.
+A sync server is an **opaque sync target** for Docent clients, not a consumer-facing read API. The protocol's [server-scope and CORS guidance](../../docs/api/sync-protocol.md#server-scope-and-cors) defines:
 
-This reference server follows that guidance: it sends **no CORS headers** and
-binds to loopback. If you deliberately expose your own server to a trusted
-browser origin, scope CORS to that exact origin — never `*`, and never on an
-unauthenticated server.
+- that scope;
+- why a compliant server needs no CORS headers;
+- where a consumer should read from instead;
+- why permissive CORS on a local, optionally-open store is a hazard.
+
+This reference server follows that guidance: it sends **no CORS headers** and binds to loopback. If you deliberately expose your own server to a trusted browser origin, scope CORS to that exact origin, never `*`, and never on an unauthenticated server.
 
 ---
 
 ## Running the server
 
-The server has no runtime dependencies and no build step. From
-`reference-implementations/sync-server/`:
+The server has no runtime dependencies and no build step. From `reference-implementations/sync-server/`:
 
 ```bash
 npm start
@@ -76,8 +57,7 @@ Reference Sync Server listening on http://localhost:3000
 | Port    | `--port <n>` argv flag → `PORT` env var        | `3000`              |
 | Token   | `--token <t>` argv flag → `SYNC_TOKEN` env var | unset (open server) |
 
-The argv flag wins over the environment variable, so you can override a shell
-export on a single run:
+The argv flag wins over the environment variable, so you can override a shell export on a single run:
 
 ```bash
 # Listen on port 4000 with a static Bearer token
@@ -87,47 +67,29 @@ node server.js --port 4000 --token my-secret-token
 PORT=4000 SYNC_TOKEN=my-secret-token node server.js
 ```
 
-When no port is configured, the server binds the documented default port
-**`3000`**. When no token is configured, the server runs open (see
-[Authentication](#optional-bearer-authentication)).
+When no port is configured, the server binds the documented default port **`3000`**. When no token is configured, the server runs open (see [Authentication](#optional-bearer-authentication)).
 
 ---
 
 ## Protocol endpoints
 
-The server implements the three endpoints of the
-[Sync Protocol](../../docs/api/sync-protocol.md) exactly as specified there. The request and
-response shapes — including the `Full_Project_Payload` and `Project_Manifest`
-structures — are defined in the protocol spec and are not duplicated here. This
-section only notes how this implementation behaves.
+The server implements the three endpoints of the [Sync Protocol](../../docs/api/sync-protocol.md) exactly as specified there. The protocol spec defines the request and response shapes, including the `Full_Project_Payload` and `Project_Manifest` structures. This section does not repeat them, and only notes how this implementation behaves.
 
 ### GET /projects
 
-Returns the [project manifest](../../docs/api/sync-protocol.md#get-projects): a JSON array of
-`{ project_id, name, last_modified }` entries, one per stored project, with HTTP
-`200`. An empty store returns `200` with `[]`.
+Returns the [project manifest](../../docs/api/sync-protocol.md#get-projects): a JSON array of `{ project_id, name, last_modified }` entries, one per stored project, with HTTP `200`. An empty store returns `200` with `[]`.
 
-Each entry's `project_id` and `name` come from the stored payload's `project`
-object; `last_modified` is a server-maintained timestamp recorded on write (see
-[Storage model](#storage-model)). The server reads nothing else from the
-payload — not the `docent_format` stamp, not the recordings or steps.
+Each entry's `project_id` and `name` come from the stored payload's `project` object. `last_modified` is a server-maintained timestamp recorded on write (see [Storage model](#storage-model)). The server reads nothing else from the payload: not the `docent_format` stamp, not the recordings or steps.
 
 ### GET /projects/:id
 
-Returns the stored [`Full_Project_Payload`](../../docs/api/sync-protocol.md#get-projectsid)
-verbatim with HTTP `200` and `Content-Type: application/json`, or `404` when no
-project with that id is stored. The payload is returned as the JSON value that was
-written, without validation or reshaping — re-serialized by the server, so the
-bytes (whitespace, key order) need not match the request's.
+Returns the stored [`Full_Project_Payload`](../../docs/api/sync-protocol.md#get-projectsid) verbatim with HTTP `200` and `Content-Type: application/json`, or `404` when no project with that id is stored. The payload is the JSON value that was written, without validation or reshaping. The server re-serializes it, so the bytes (whitespace, key order) need not match the request's.
 
-Successful reads also carry an `ETag` header — see
-[Conditional writes](#optional-conditional-write-docent152).
+Successful reads also carry an `ETag` header (see [Conditional writes](#optional-conditional-write-docent152)).
 
 ### PUT /projects/:id
 
-Creates or replaces a whole project per the
-[protocol contract](../../docs/api/sync-protocol.md#put-projectsid). The path `:id` must match
-the `project_id` in the request body.
+Creates or replaces a whole project per the [protocol contract](../../docs/api/sync-protocol.md#put-projectsid). The path `:id` must match the `project_id` in the request body.
 
 | Outcome                     | Status            | Body                |
 | --------------------------- | ----------------- | ------------------- |
@@ -136,34 +98,17 @@ the `project_id` in the request body.
 | Path id ≠ body `project_id` | `400 Bad Request` | — (store unchanged) |
 | Body is not valid JSON      | `400 Bad Request` | — (store unchanged) |
 
-The payload is stored verbatim — the server never interprets the stamp,
-recordings, or steps. On a successful write the server records a fresh
-`last_modified` timestamp (used only for the manifest, never merged into the
-payload) and returns an `ETag` header reflecting the newly stored content.
+The server stores the payload verbatim and never interprets the stamp, recordings, or steps. On a successful write it records a fresh `last_modified` timestamp (used only for the manifest, never merged into the payload) and returns an `ETag` header reflecting the newly stored content.
 
-Because the write is whole-project, an optional top-level field a server adds to
-a stored payload lasts no longer than the next landing push of that project — a
-refused write replaces nothing, whatever refuses it; the store-unchanged outcome
-is tabled above for the `400`s and is
-[SP-14](../../docs/api/sync-protocol.md#optional-conditional-write)'s statement
-for the conditional write's `412` — so how long it lasts, and why no push is
-triggered by the addition itself, is
-[SP-5](../../docs/api/sync-protocol.md#full_project_payload)'s.
+Because the write is whole-project, an optional top-level field a server adds to a stored payload lasts no longer than the next landing push of that project. A refused write replaces nothing, whatever refuses it. The store-unchanged outcome is tabled above for the `400`s and is [SP-14](../../docs/api/sync-protocol.md#optional-conditional-write)'s statement for the conditional write's `412`. How long the field lasts, and why the addition itself triggers no push, is [SP-5](../../docs/api/sync-protocol.md#full_project_payload)'s.
 
 ---
 
 ## Storage model
 
-Request handling reaches stored projects **only** through a `Storage_Provider`
-interface — no project handler touches the filesystem directly (the debug seed
-route reads the committed samples). This is the pluggable
-seam: an adopter swaps in a different backend (a database, an object store, etc.)
-by passing a provider to `startServer` in `server.js` (`npm start` goes through
-it; `createServer` takes one the same way, and each defaults to the file
-provider), with no change to the request-handling logic.
+Request handling reaches stored projects **only** through a `Storage_Provider` interface. No project handler touches the filesystem directly (the debug seed route reads the committed samples). This is the pluggable seam. An adopter swaps in a different backend (a database, an object store, etc.) by passing a provider to `startServer` in `server.js`, with no change to the request-handling logic. `npm start` goes through `startServer`; `createServer` takes a provider the same way, and each defaults to the file provider.
 
-The default provider is the **File Storage Provider**. It persists each project
-as a flat JSON file under a directory inside the OS temp folder:
+The default provider is the **File Storage Provider**. It persists each project as a flat JSON file under a directory inside the OS temp folder:
 
 ```text
 <os.tmpdir()>/docent-reference-sync-server/<project_id>.json
@@ -180,28 +125,19 @@ Each file wraps the verbatim payload alongside the server-maintained timestamp:
 
 Key properties:
 
-- `last_modified` is stored **alongside** the payload, never inside it, so the
-  payload returned by `GET /projects/:id` is the JSON value that was written
-  (re-serialized, so whitespace and key order are the server's).
-- The timestamp persists durably, so manifest entries remain correct after a
-  restart (as long as the OS has not cleared the temp folder).
-- The provider validates the `project_id` shape and rejects ids containing path
-  separators or `..`, so a hostile id from a seed or `PUT` cannot escape the
-  storage directory.
+- `last_modified` is stored **alongside** the payload, never inside it, so the payload returned by `GET /projects/:id` is the JSON value that was written (re-serialized, so whitespace and key order are the server's).
+- The timestamp persists durably, so manifest entries remain correct after a restart (as long as the OS has not cleared the temp folder).
+- The provider validates the `project_id` shape and rejects ids containing path separators or `..`, so a hostile id from a seed or `PUT` cannot escape the storage directory.
 
-The OS temp folder is a deliberate signal: this storage is ephemeral and is not
-intended for production use.
+The OS temp folder is a deliberate signal: this storage is ephemeral and not intended for production use.
 
 ---
 
 ## Optional Bearer authentication
 
-Authentication is optional and controlled entirely by whether a token is
-configured (via `--token` or `SYNC_TOKEN`; see
-[Configuration](#configuration)).
+Authentication is optional and controlled entirely by whether a token is configured (via `--token` or `SYNC_TOKEN`; see [Configuration](#configuration)).
 
-**When a token is set**, every request requires a matching
-`Authorization: Bearer <token>` header:
+**When a token is set**, every request requires a matching `Authorization: Bearer <token>` header:
 
 | Request                     | Status             |
 | --------------------------- | ------------------ |
@@ -209,47 +145,25 @@ configured (via `--token` or `SYNC_TOKEN`; see
 | Header missing              | `401 Unauthorized` |
 | Bearer token does not match | `403 Forbidden`    |
 
-**When no token is set**, the server runs open: every request is served without
-an `Authorization` header, and any header that is sent is ignored.
+**When no token is set**, the server runs open: it serves every request without an `Authorization` header, and ignores any header that is sent.
 
-The auth check runs first for **every** request — both the protocol endpoints
-and the non-protocol [debug affordances](#debug-affordances-non-protocol). A
-configured token therefore leaves no unauthenticated state-mutating endpoint.
+The auth check runs first for **every** request: both the protocol endpoints and the non-protocol [debug affordances](#debug-affordances-non-protocol). A configured token therefore leaves no unauthenticated state-mutating endpoint.
 
 ---
 
 ## Optional conditional write (docent#152)
 
-The server implements the protocol's optional
-[conditional write](../../docs/api/sync-protocol.md#optional-conditional-write)
-(the server-side optimistic-concurrency capability delivered under
-[docent#152](https://github.com/Arsarneq/docent/issues/152)). The wire contract
-lives in that protocol section; what follows describes this implementation. It
-is opt-in: when the relevant headers are absent the server behaves as a plain
-last-write-wins store, exactly as the
-[protocol's last-write-wins window](../../docs/api/sync-protocol.md#known-limitation-the-last-write-wins-window)
-describes.
+The server implements the protocol's optional [conditional write](../../docs/api/sync-protocol.md#optional-conditional-write) (the server-side optimistic-concurrency capability delivered under [docent#152](https://github.com/Arsarneq/docent/issues/152)). The wire contract lives in that protocol section; what follows describes this implementation. It is opt-in. When the relevant headers are absent, the server behaves as a plain last-write-wins store, exactly as the [protocol's last-write-wins window](../../docs/api/sync-protocol.md#known-limitation-the-last-write-wins-window) describes.
 
-**ETag advertisement (this implementation).** This server derives the ETag
-deterministically from the stored payload's content only — a SHA-256 over a
-canonical-JSON projection of the payload, never from `last_modified`. What a
-present, matching, or mismatching `If-Match` header does on a write is the
-protocol's wire contract — given in the protocol's
-[Optional conditional write](../../docs/api/sync-protocol.md#optional-conditional-write)
-section and not restated here.
+**ETag advertisement (this implementation).** This server derives the ETag deterministically from the stored payload's content only: a SHA-256 over a canonical-JSON projection of the payload, never from `last_modified`. What a present, matching, or mismatching `If-Match` header does on a write is the protocol's wire contract. The protocol's [Optional conditional write](../../docs/api/sync-protocol.md#optional-conditional-write) section gives it; this document does not.
 
-The conditional-write logic lives in its own clearly named unit rather than
-being a hidden side effect of normal write handling.
+The conditional-write logic lives in its own clearly named unit, not as a hidden side effect of normal write handling.
 
 ---
 
 ## Debug affordances (non-protocol)
 
-For manual end-to-end testing, the server provides three development
-conveniences under a distinct `/__debug/` path prefix. **These are not part of
-the Sync Protocol** — a protocol-only client never touches them, and they are
-clearly separated from the three protocol endpoints by their path. When a token
-is configured they are token-gated exactly like protocol requests.
+For manual end-to-end testing, the server provides three development conveniences under a distinct `/__debug/` path prefix. **These are not part of the Sync Protocol.** A protocol-only client never touches them, and their path clearly separates them from the three protocol endpoints. When a token is configured, they are token-gated exactly like protocol requests.
 
 ### POST /\_\_debug/reset
 
@@ -263,8 +177,7 @@ A subsequent `GET /projects` returns `[]`.
 
 ### GET /\_\_debug/dump
 
-Returns a read-only summary of the current stored state — without mutating
-anything:
+Returns a read-only summary of the current stored state, without mutating anything:
 
 ```json
 {
@@ -280,15 +193,11 @@ anything:
 }
 ```
 
-This is a per-project summary, not the verbatim payloads — to retrieve a full
-payload use `GET /projects/:id`.
+This is a per-project summary, not the verbatim payloads. To retrieve a full payload, use `GET /projects/:id`.
 
 ### POST /\_\_debug/seed
 
-Stores one or more payloads directly through the storage provider exactly as a
-`PUT` would (verbatim, opaque, with a server-set `last_modified`) — **without**
-requiring a client push, so a tester can stage a known server-side state. It
-responds with the count seeded:
+Stores one or more payloads directly through the storage provider exactly as a `PUT` would (verbatim, opaque, with a server-set `last_modified`), **without** requiring a client push, so a tester can stage a known server-side state. It responds with the count seeded:
 
 ```json
 { "ok": true, "seeded": 2 }
@@ -297,21 +206,13 @@ responds with the count seeded:
 The request body is either:
 
 - an **array of `Full_Project_Payload` objects** supplied by the caller, or
-- `{ "samples": true }` to seed the bundled both-platform sample payloads — one
-  stamped `platform: "extension"` and one stamped `platform: "desktop-windows"`
-  — so you can stage a mixed-platform server state for cross-platform pull
-  testing.
+- `{ "samples": true }` to seed the bundled both-platform sample payloads (one stamped `platform: "extension"` and one stamped `platform: "desktop-windows"`), so you can stage a mixed-platform server state for cross-platform pull testing.
 
-The server stores each seeded payload verbatim without reading its
-`docent_format` stamp (it stays opaque, so it never validates which platform a
-payload claims). Invalid JSON is rejected with `400 Bad Request` and the store
-is left unchanged.
+The server stores each seeded payload verbatim without reading its `docent_format` stamp (it stays opaque, so it never validates which platform a payload claims). It rejects invalid JSON with `400 Bad Request` and leaves the store unchanged.
 
 ---
 
 ## See also
 
-- [Sync Protocol](../../docs/api/sync-protocol.md) — the authoritative protocol contract this
-  server implements.
-- [Session Format](../../docs/technical/session-format.md) — orientation prose for the
-  `.docent.json` format whose schemas define the `Full_Project_Payload` shape.
+- [Sync Protocol](../../docs/api/sync-protocol.md): the authoritative protocol contract this server implements.
+- [Session Format](../../docs/technical/session-format.md): orientation prose for the `.docent.json` format whose schemas define the `Full_Project_Payload` shape.
