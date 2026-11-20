@@ -738,6 +738,35 @@ test.describe('Form Submit Change Suppression', () => {
     expect(types).toEqual(['click']);
   });
 
+  // The pointer press writes the entry made with the keys ahead of the click,
+  // except on a submit control of the field's own form: there the rule above
+  // holds for an entry typed with the keys too.
+  test('an_entry_typed_with_the_keys_is_not_written_at_a_same_form_submit_press', async ({
+    testPage,
+    serviceWorker,
+  }) => {
+    await setTestContent(
+      testPage,
+      /* html */ `<!DOCTYPE html>
+<html><body>
+  <form id="form" onsubmit="return false;">
+    <input id="input" type="text">
+    <button id="submit" type="submit">Submit</button>
+  </form>
+</body></html>`,
+    );
+    await testPage.waitForTimeout(200);
+    await testPage.click('#input');
+    await clearPendingActions(serviceWorker);
+
+    await testPage.keyboard.type('form data');
+    await testPage.click('#submit');
+    await waitForActionsToSettle(serviceWorker, testPage);
+
+    const actions = await getPendingActions(serviceWorker);
+    expect(actions.map((a) => a.type)).toEqual(['click']);
+  });
+
   test('change event from non-submit blur is NOT suppressed', async ({
     testPage,
     serviceWorker,
@@ -882,63 +911,210 @@ test.describe('Edge Cases', () => {
   });
 });
 
-// ─── Contenteditable Debounce ─────────────────────────────────────────────────
+// ─── Contenteditable entry ────────────────────────────────────────────────────
+// The text typed into editable content is one `type`, written when the typing
+// in it ends: the element loses the focus, a key that is written as a `key` is
+// pressed, or the pointer is pressed. A pause between two keys ends nothing.
 
-test.describe('Contenteditable Debounce', () => {
-  test('rapid typing in contenteditable produces single debounced type action', async ({
-    testPage,
-    serviceWorker,
-  }) => {
-    await setTestContent(
-      testPage,
-      /* html */ `<!DOCTYPE html>
+test.describe('Contenteditable entry', () => {
+  const EDITABLE_HTML = /* html */ `<!DOCTYPE html>
 <html><body>
   <div id="editable" contenteditable="true" style="border:1px solid #ccc;padding:0.5rem;min-height:2rem;"></div>
+  <input id="field" type="text">
   <button id="blur">Blur</button>
-</body></html>`,
-    );
+  <button id="keeps-focus" onmousedown="event.preventDefault()">Keeps the focus</button>
+</body></html>`;
+
+  /** The recorded actions as [type, value or key] pairs, in order. */
+  const written = (actions) => actions.map((a) => [a.type, a.type === 'key' ? a.key : a.value]);
+
+  test.beforeEach(async ({ testPage, serviceWorker }) => {
+    await setTestContent(testPage, EDITABLE_HTML);
     await testPage.waitForTimeout(200);
     await testPage.click('#editable');
     await clearPendingActions(serviceWorker);
+  });
 
-    // Type rapidly
-    await testPage.type('#editable', 'rapid typing test', { delay: 30 });
-    // Wait for debounce (500ms)
-    await testPage.waitForTimeout(800);
+  // Regression: text typed with a pause of more than 500 ms between the keys
+  // was recorded as one `type` per pause, each holding the text so far ("k",
+  // "ke", "kee", "keep"). How fast a person types is no part of what they typed.
+  test('regression_719_text_typed_with_pauses_between_the_keys_is_one_type', async ({
+    testPage,
+    serviceWorker,
+  }) => {
+    for (const character of 'keep') {
+      await testPage.keyboard.type(character);
+      await testPage.waitForTimeout(700);
+    }
+    await waitForActionsToSettle(serviceWorker, testPage);
+    expect(
+      await getPendingActions(serviceWorker),
+      'nothing is written while the typing goes on',
+    ).toEqual([]);
+
+    await testPage.click('#blur');
     await waitForActionsToSettle(serviceWorker, testPage);
 
     const actions = await getPendingActions(serviceWorker);
-    const typeActions = actions.filter((a) => a.type === 'type');
-    // Should be debounced to 1 action
-    expect(typeActions.length).toBe(1);
-    expect(typeActions[0].value).toContain('rapid typing test');
+    expect(written(actions)).toEqual([
+      ['type', 'keep'],
+      ['click', undefined],
+    ]);
   });
 
-  test('blur on contenteditable flushes pending type action', async ({
-    testPage,
-    serviceWorker,
-  }) => {
-    await setTestContent(
-      testPage,
-      /* html */ `<!DOCTYPE html>
-<html><body>
-  <div id="editable" contenteditable="true" style="border:1px solid #ccc;padding:0.5rem;min-height:2rem;"></div>
-  <button id="blur">Blur</button>
-</body></html>`,
-    );
-    await testPage.waitForTimeout(200);
-    await testPage.click('#editable');
-    await clearPendingActions(serviceWorker);
-
-    // Type and immediately blur (before debounce fires)
+  test('the_element_losing_the_focus_writes_the_entry', async ({ testPage, serviceWorker }) => {
     await testPage.type('#editable', 'flush', { delay: 20 });
     await testPage.click('#blur');
     await waitForActionsToSettle(serviceWorker, testPage);
 
     const actions = await getPendingActions(serviceWorker);
-    const typeActions = actions.filter((a) => a.type === 'type');
-    // Blur should flush the pending type action
-    expect(typeActions.length).toBe(1);
-    expect(typeActions[0].value).toContain('flush');
+    expect(written(actions)).toEqual([
+      ['type', 'flush'],
+      ['click', undefined],
+    ]);
+  });
+
+  test('a_key_that_is_written_ends_the_entry_and_stands_behind_it', async ({
+    testPage,
+    serviceWorker,
+  }) => {
+    await testPage.keyboard.type('ab');
+    await testPage.keyboard.press('ArrowLeft');
+    await testPage.keyboard.type('c');
+    await testPage.click('#blur');
+    await waitForActionsToSettle(serviceWorker, testPage);
+
+    const actions = await getPendingActions(serviceWorker);
+    expect(written(actions)).toEqual([
+      ['type', 'ab'],
+      ['key', 'ArrowLeft'],
+      ['type', 'acb'],
+      ['click', undefined],
+    ]);
+  });
+
+  test('a_key_pressed_with_nothing_typed_writes_no_entry', async ({ testPage, serviceWorker }) => {
+    await testPage.keyboard.type('ab');
+    await testPage.keyboard.press('ArrowLeft');
+    await testPage.keyboard.press('ArrowLeft');
+    await testPage.click('#blur');
+    await waitForActionsToSettle(serviceWorker, testPage);
+
+    const actions = await getPendingActions(serviceWorker);
+    expect(written(actions)).toEqual([
+      ['type', 'ab'],
+      ['key', 'ArrowLeft'],
+      ['key', 'ArrowLeft'],
+      ['click', undefined],
+    ]);
+  });
+
+  test('a_pointer_press_in_the_element_ends_the_entry', async ({ testPage, serviceWorker }) => {
+    await testPage.keyboard.type('ab');
+    await testPage.click('#editable');
+    await testPage.keyboard.type('c');
+    await testPage.click('#blur');
+    await waitForActionsToSettle(serviceWorker, testPage);
+
+    const actions = await getPendingActions(serviceWorker);
+    expect(actions.map((a) => a.type)).toEqual(['type', 'click', 'type', 'click']);
+    expect(actions[0].value).toBe('ab');
+    // Where the click put the caret decides where the "c" went: any order.
+    expect([...actions[2].value].sort().join('')).toBe('abc');
+  });
+
+  // The same for a field: the pointer pressed in the field being typed into
+  // ends the entry made so far, as it does on the desktop.
+  test('a_pointer_press_in_the_field_being_typed_into_ends_its_entry', async ({
+    testPage,
+    serviceWorker,
+  }) => {
+    await testPage.click('#field');
+    await clearPendingActions(serviceWorker);
+    await testPage.keyboard.type('ab');
+    await testPage.click('#field');
+    await testPage.keyboard.type('c');
+    await testPage.click('#blur');
+    await waitForActionsToSettle(serviceWorker, testPage);
+
+    const actions = await getPendingActions(serviceWorker);
+    expect(actions.map((a) => a.type)).toEqual(['type', 'click', 'type', 'click']);
+    expect(actions[0].value).toBe('ab');
+    // Where the click put the caret decides where the "c" went: any order.
+    expect([...actions[2].value].sort().join('')).toBe('abc');
+  });
+
+  // A press that leaves the focus in the field sends no `change`: the entry
+  // made so far is written ahead of the click all the same, as on the desktop.
+  test('a_pointer_press_that_leaves_the_focus_in_the_field_ends_its_entry', async ({
+    testPage,
+    serviceWorker,
+  }) => {
+    await testPage.click('#field');
+    await clearPendingActions(serviceWorker);
+    await testPage.keyboard.type('ke');
+    await testPage.click('#keeps-focus');
+    await testPage.keyboard.type('ep');
+    await testPage.keyboard.press('Tab');
+    await waitForActionsToSettle(serviceWorker, testPage);
+
+    const actions = await getPendingActions(serviceWorker);
+    expect(written(actions).slice(0, 4)).toEqual([
+      ['type', 'ke'],
+      ['click', undefined],
+      ['type', 'keep'],
+      ['key', 'Tab'],
+    ]);
+  });
+
+  test('a_pointer_press_that_leaves_the_focus_in_the_host_ends_its_entry', async ({
+    testPage,
+    serviceWorker,
+  }) => {
+    await testPage.keyboard.type('ke');
+    await testPage.click('#keeps-focus');
+    await testPage.keyboard.type('ep');
+    await testPage.click('#blur');
+    await waitForActionsToSettle(serviceWorker, testPage);
+
+    const actions = await getPendingActions(serviceWorker);
+    expect(written(actions)).toEqual([
+      ['type', 'ke'],
+      ['click', undefined],
+      ['type', 'keep'],
+      ['click', undefined],
+    ]);
+  });
+
+  // Typing a stopped recording left unwritten is no part of the next one.
+  test('typing_left_unwritten_at_a_stop_is_not_written_in_the_next_recording', async ({
+    testPage,
+    serviceWorker,
+  }) => {
+    const setRecording = (value) =>
+      serviceWorker.evaluate((recording) => chrome.storage.local.set({ recording }), value);
+    await testPage.keyboard.type('before');
+    await setRecording(false);
+    await testPage.waitForTimeout(200);
+    await setRecording(true);
+    await testPage.waitForTimeout(200);
+    await testPage.click('#blur');
+    await waitForActionsToSettle(serviceWorker, testPage);
+
+    const actions = await getPendingActions(serviceWorker);
+    expect(written(actions)).toEqual([['click', undefined]]);
+  });
+
+  test('a_pointer_press_in_a_field_nothing_was_typed_into_writes_no_entry', async ({
+    testPage,
+    serviceWorker,
+  }) => {
+    await testPage.click('#field');
+    await testPage.click('#field');
+    await testPage.click('#blur');
+    await waitForActionsToSettle(serviceWorker, testPage);
+
+    const actions = await getPendingActions(serviceWorker);
+    expect(actions.map((a) => a.type)).toEqual(['click', 'click', 'click']);
   });
 });

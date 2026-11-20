@@ -127,7 +127,14 @@ phase, for exactly these DOM events, on `document` unless the item names
 `window`:
 
 - `mousedown` — the press ahead of a click, held so a blur-caused `change` can
-  be attributed to the element the user moved to
+  be attributed to the element the user moved to; the press also ends the
+  typing done so far in its own document, as it does on the desktop, wherever
+  in that document it is: the entry of
+  a `contenteditable` host typed into is written ahead of it, and so is the
+  entry made with the keys in the `input` or `textarea` in focus, whether the
+  press takes the focus from the field or leaves it there; the press on a
+  submit control of the field's own form is the one exception, listed among
+  the departures below
 - `click` — activation of the clicked element or its nearest interactive
   ancestor (the set the recorder tests is stated in the session-format
   document's action table; core CP-18); a click on a `label` is the label's,
@@ -151,7 +158,9 @@ phase, for exactly these DOM events, on `document` unless the item names
   press is that hold as the browser reports it, written and marked so that it
   is told from a separate physical press; a press made while an `input` or
   `textarea` holds an entry not yet written writes that entry's `type` first,
-  the entry being complete before the press that follows it; a value the page
+  the entry being complete before the press that follows it, and a press made
+  after typing in a `contenteditable` host writes that host's `type` first in
+  the same way; a value the page
   set, with no key pressed in the field, is not an entry, and an entry already
   written writes nothing again when the browser commits the field; each
   press is also written with `held_keys`, the other keys that are down and
@@ -180,8 +189,13 @@ phase, for exactly these DOM events, on `document` unless the item names
 - `drop` — the end of a drag, paired with the source the drag started from
 - `dragend` — the drag's terminal signal, which releases the source
 - `scroll` — a scroll gesture, debounced and coalesced into one action
-- `input` — in-progress editing of a `contenteditable` host, debounced
-- `blur` — the flush that commits pending `contenteditable` editing
+- `input` — editing of a `contenteditable` host, which writes nothing by
+  itself: the host's text is one `type`, written when the typing in it ends
+  (the host loses the focus, a captured key is pressed, the pointer is
+  pressed, or typing begins in another host); a pause between two keys ends
+  nothing, how fast a person types being no part of what they typed
+- `blur` — a `contenteditable` host typed into lost the focus, which it also
+  does when the window does: its `type` is written
 - `blur` on `window` — the window lost the focus, which writes nothing: a key
   released while another window has the focus sends its release there, so no
   key is known to be down from then on (the `held_keys` of later actions)
@@ -401,7 +415,27 @@ with a caveat):
   `type="submit"` in the same form was pressed, with any mouse button, within
   100 ms of the change — not written (a `<button>` with no `type` attribute
   does not trigger the skip); a departure (core CP-18;
-  [docent#223](https://github.com/Arsarneq/docent/issues/223))
+  [docent#223](https://github.com/Arsarneq/docent/issues/223)), and one from
+  the desktop, which writes the `type` ahead of the click (core CP-19;
+  [docent#710](https://github.com/Arsarneq/docent/issues/710))
+- A pointer press in another frame than the one being typed into, where the
+  press leaves the focus in that frame (a toolbar in the parent page of an
+  editor in an iframe, whose buttons keep the focus from moving) — the press
+  does not end the typing: the `type` is written when the typing ends later,
+  behind the `click`; a departure (core CP-18), and one from the desktop,
+  which writes the `type` ahead of the click (core CP-19;
+  [docent#710](https://github.com/Arsarneq/docent/issues/710))
+- An entry typed into an `input`, a `textarea` or a `contenteditable` host
+  that still has the focus when the step is committed or the recording is
+  stopped with no focus taken from the page (through the control channel,
+  for example; a press in the panel takes the focus, and the entry is
+  written) — not written at the commit: it is written when its typing ends
+  later, in the next step; after a stop a host's entry is not written at
+  all, and a field's is written into the next recording when its typing ends
+  there; a departure (core
+  CP-18), and one from the desktop, which writes the `type` at the commit and
+  at the stop (core CP-19;
+  [docent#710](https://github.com/Arsarneq/docent/issues/710))
 - The first activation of a tab opened in the background, when no tab was
   created after it — not written; a departure (core CP-18)
 - The activation of a tab with no address — not written; a departure
@@ -479,7 +513,4 @@ with a caveat):
 - Editing in a contenteditable host whose text exceeds 500 characters —
   captured with a caveat: the `type` value is cut at 500 characters with no
   mark of the cut ([docent#238](https://github.com/Arsarneq/docent/issues/238));
-  a departure (core CP-18)
-- Text dragged from one contenteditable host into another — only the edit of
-  the host whose `input` fired last is written, the other host's edit is not;
   a departure (core CP-18)

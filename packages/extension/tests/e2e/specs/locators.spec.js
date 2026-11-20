@@ -160,7 +160,7 @@ test.describe('Locator masking — sensitive contenteditable', () => {
     // strong signal for the shared field-sensitivity util.
     await testPage.click('#ssn-box');
     await testPage.locator('#ssn-box').pressSequentially('123-45-6789');
-    // The contenteditable capture debounces 500ms; blur flushes it.
+    // The host's entry is written when it loses the focus.
     await testPage.locator('body').click({ position: { x: 5, y: 5 } });
     await waitForActionsToSettle(serviceWorker, testPage);
 

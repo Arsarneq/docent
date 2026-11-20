@@ -2586,7 +2586,7 @@ unsafe fn gather_native_properties(
     let automation_id = get_string_property(element, UIA_AutomationIdPropertyId);
     let name = get_string_property(element, UIA_NamePropertyId);
     let localized_type = get_string_property(element, UIA_LocalizedControlTypePropertyId);
-    let value = get_string_property(element, UIA_ValueValuePropertyId);
+    let value = value_held(element);
     let is_password = get_is_password(element);
     let class_name = get_string_property(element, UIA_ClassNamePropertyId);
     let framework_id = get_string_property(element, UIA_FrameworkIdPropertyId);
@@ -2772,6 +2772,19 @@ unsafe fn get_string_property(element: &IUIAutomationElement, property_id: PROPE
                 .map(|b| String::from_utf16_lossy(b))
         })
         .unwrap_or_default()
+}
+
+/// The value an element holds, `None` where it has none. Asked without the
+/// default: an element that has no value answers with no string at all, where
+/// the plain read would answer an empty one, the same as a field the person
+/// emptied.
+unsafe fn value_held(element: &IUIAutomationElement) -> Option<String> {
+    let value = Variant::from_raw(
+        element
+            .GetCurrentPropertyValueEx(UIA_ValueValuePropertyId, true)
+            .ok()?,
+    );
+    Some(String::from_utf16_lossy(value.as_bstr()?))
 }
 
 /// The `IsPassword` reading rule, decided in this one place over the property's
@@ -3484,17 +3497,8 @@ impl AccessibilityBackend for WindowsAccessibilityBackend {
             let element = uia
                 .ElementFromHandle(UIA_HWND(control as isize as *mut _))
                 .ok()?;
-            // Asked without the default: a control that has no value answers
-            // with no string at all, where the plain read would answer an
-            // empty one, the same as a field the person emptied.
-            let value = Variant::from_raw(
-                element
-                    .GetCurrentPropertyValueEx(UIA_ValueValuePropertyId, true)
-                    .ok()?,
-            );
-            let value = String::from_utf16_lossy(value.as_bstr()?);
             // Cut as a description's text is.
-            Some(truncate_text(&value))
+            value_held(&element).map(|value| truncate_text(&value))
         }
     }
 
