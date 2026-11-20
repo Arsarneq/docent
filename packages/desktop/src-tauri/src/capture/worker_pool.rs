@@ -109,10 +109,11 @@ pub struct RawEvent {
     /// from the keyboard hook, where a `VK_PACKET` keystroke's scan code is the
     /// injected UTF-16 code unit, and `layout_char` is what the keyboard layout
     /// gives a punctuation key (see [`punctuation_key_name`]; 0 for every other
-    /// key), both read by the keyboard arm; `[double, 0, 0, 0]` from the mouse
-    /// hook's left-click path, where [`CLICK_COMPLETES_DOUBLE_CLICK`] marks the
+    /// key), both read by the keyboard arm; `[button, 0, 0, 0]` from the mouse
+    /// hook's click paths, where [`CLICK_COMPLETES_DOUBLE_CLICK`] marks the
     /// second click of a double-click (read by the pool's routing and the click
-    /// arm). On other platforms: unused or platform-defined.
+    /// arm) and [`CLICK_IS_MIDDLE_BUTTON`] a middle-button press (read by the
+    /// click arm). On other platforms: unused or platform-defined.
     pub callback_params: [i64; 4],
     /// Pre-captured element description from the Input_Thread.
     /// For mouse click/right-click events, the Input_Thread may perform a
@@ -144,8 +145,19 @@ pub struct RawEvent {
 // ---------------------------------------------------------------------------
 
 /// The `callback_params[0]` value of a left [`RawEventType::Click`] whose press
-/// completed a double-click (DCP-10); `0` on every other click.
+/// completed a double-click (DCP-10); `0` on every other left click.
 pub const CLICK_COMPLETES_DOUBLE_CLICK: i64 = 1;
+
+/// The `callback_params[0]` value of a [`RawEventType::Click`] the middle
+/// button's press records (DCP-10): a click of the format, but no press of
+/// the left button, so it confirms no file dialog.
+pub const CLICK_IS_MIDDLE_BUTTON: i64 = 2;
+
+/// Whether `raw` is a click the middle button's press records.
+pub fn is_middle_button_click(raw: &RawEvent) -> bool {
+    matches!(raw.event_type, RawEventType::Click)
+        && raw.callback_params[0] == CLICK_IS_MIDDLE_BUTTON
+}
 
 /// Whether `raw` is a left click whose press completed a double-click.
 pub fn completes_double_click(raw: &RawEvent) -> bool {
@@ -2055,7 +2067,9 @@ fn handle_click<B: AccessibilityBackend>(
         payload,
     });
 
-    if is_right_click {
+    // Only a left click confirms or selects in a file dialog: a right or
+    // middle press reads no dialog.
+    if is_right_click || is_middle_button_click(raw) {
         return;
     }
 
