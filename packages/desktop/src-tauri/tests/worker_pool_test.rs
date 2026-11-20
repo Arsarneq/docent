@@ -1,12 +1,14 @@
 // Property tests for the capture worker pool infrastructure.
 //
 // The principal subjects: sequence numbering, shortest-queue dispatch, typing
-// and sticky routing, drag-pair routing, and the dead-worker drain rescues (dispatch-time
-// respawn and shutdown join) — the pipeline-level truth-lock — alongside
-// end-to-end action truth-locks over the same pipeline (key, right-click,
-// selection, scroll flush, locator pass-through, excluded-PID discard). The
-// click-vs-drag threshold itself belongs to the Windows provider and is pinned
-// beside it, in the `capture::windows` module's own unit tests.
+// and sticky routing, drag-pair and double-click routing, and the dead-worker
+// drain rescues (dispatch-time respawn and shutdown join) — the pipeline-level
+// truth-lock — alongside end-to-end action truth-locks over the same pipeline
+// (key, right-click, selection, scroll flush, locator pass-through,
+// excluded-PID discard, the file-dialog proxy), and the double-click pairing
+// the mouse hook keeps (DCP-10). The click-vs-drag threshold itself belongs to
+// the Windows provider and is pinned beside it, in the `capture::windows`
+// module's own unit tests.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc;
@@ -4395,6 +4397,684 @@ fn only_plain_typing_keys_keep_the_focus_epoch() {
 }
 
 // ---------------------------------------------------------------------------
+// File dialog proxy: a file confirmed by a double-click in the item view
+// ---------------------------------------------------------------------------
+
+use docent_desktop_lib::capture::worker_pool::{
+    ClickPress, DoubleClickBounds, DoubleClickTracker, CLICK_COMPLETES_DOUBLE_CLICK,
+    CLICK_IS_MIDDLE_BUTTON,
+};
+
+/// The windows of a Notepad Open dialog, as the mouse hook names them: the
+/// items view a click on a file lands in (a child of the dialog), the dialog
+/// itself, and Notepad's editor, which a click lands in once the dialog has
+/// closed.
+const ITEMS_VIEW: i64 = 0x0510;
+const OPEN_DIALOG: i64 = 0x0500;
+const EDITOR: i64 = 0x0610;
+const NOTEPAD: i64 = 0x0600;
+
+/// A backend modelling an Open dialog showing `directory`, whose File name
+/// field holds `file_name`: its read answers for any window inside the
+/// dialog, and for no other window (the dialog is gone once the second click
+/// of a double-click is processed).
+struct FileDialogBackend {
+    directory: &'static str,
+    file_name: &'static str,
+    /// The file on disk the shown path names, as `(shown path, file)`.
+    on_disk: Option<(&'static str, &'static str)>,
+    /// The dialog type its title gives.
+    dialog_type: &'static str,
+    reads: Arc<AtomicU64>,
+}
+
+impl FileDialogBackend {
+    fn showing(directory: &'static str, file_name: &'static str) -> (Self, Arc<AtomicU64>) {
+        let reads = Arc::new(AtomicU64::new(0));
+        (
+            Self {
+                directory,
+                file_name,
+                on_disk: None,
+                dialog_type: "open",
+                reads: Arc::clone(&reads),
+            },
+            reads,
+        )
+    }
+}
+
+impl AccessibilityBackend for FileDialogBackend {
+    fn init(&mut self) -> Result<(), CaptureError> {
+        Ok(())
+    }
+    fn cleanup(&mut self) {}
+    fn element_at_point(&self, _x: i32, _y: i32) -> Option<ElementDescription> {
+        None
+    }
+    fn focused_element(&self) -> Option<ElementDescription> {
+        None
+    }
+    fn window_title(&self, window_handle: i64) -> String {
+        if self.root_window_handle(window_handle) == OPEN_DIALOG {
+            "Open".to_string()
+        } else {
+            "license.txt - Notepad".to_string()
+        }
+    }
+    fn process_name(&self, _window_handle: i64) -> String {
+        "notepad.exe".to_string()
+    }
+    fn read_file_dialog_path(&self, window_handle: i64) -> Option<(String, String)> {
+        self.reads.fetch_add(1, Ordering::SeqCst);
+        if self.root_window_handle(window_handle) != OPEN_DIALOG {
+            return None;
+        }
+        Some((
+            self.dialog_type.to_string(),
+            format!("{}\\{}", self.directory, self.file_name),
+        ))
+    }
+    fn file_on_disk(&self, shown_path: &str) -> Option<String> {
+        self.on_disk
+            .filter(|(shown, _)| *shown == shown_path)
+            .map(|(_, file)| file.to_string())
+    }
+    fn root_window_handle(&self, window_handle: i64) -> i64 {
+        match window_handle {
+            ITEMS_VIEW | OPEN_DIALOG => OPEN_DIALOG,
+            EDITOR | NOTEPAD => NOTEPAD,
+            other => other,
+        }
+    }
+    fn window_rect(&self, window_handle: i64) -> Option<docent_desktop_lib::capture::WindowRect> {
+        let x = if self.root_window_handle(window_handle) == OPEN_DIALOG {
+            200
+        } else {
+            0
+        };
+        Some(docent_desktop_lib::capture::WindowRect {
+            x,
+            y: 100,
+            width: 800,
+            height: 600,
+        })
+    }
+    fn selected_item_name(&self, _window_handle: i64) -> Option<(ElementDescription, String)> {
+        None
+    }
+}
+
+/// The element a click on an item's name cell in the dialog's item view is
+/// described as (the Details view, as the issue's recording shows it).
+fn item_name_cell(item: &str) -> ElementDescription {
+    ElementDescription {
+        tag: "Edit".to_string(),
+        name: Some("Name".to_string()),
+        selector: format!(
+            "Pane:Desktop 1 > Window:license.txt - Notepad > Window:Open > Pane > \
+             Pane:Shell Folder View > List:Items View > Group:A long time ago > \
+             ListItem:{item} > Edit:Name"
+        ),
+        ..Default::default()
+    }
+}
+
+/// The dialog's Open button.
+fn open_button() -> ElementDescription {
+    ElementDescription {
+        tag: "Button".to_string(),
+        name: Some("Open".to_string()),
+        selector: "Pane:Desktop 1 > Window:license.txt - Notepad > Window:Open > Button:Open"
+            .to_string(),
+        ..Default::default()
+    }
+}
+
+/// Notepad's editor, where the second click of the double-click is described
+/// once the dialog has closed.
+fn notepad_editor() -> ElementDescription {
+    ElementDescription {
+        tag: "Edit".to_string(),
+        name: Some("Text Editor".to_string()),
+        selector: "Pane:Desktop 1 > Window:license.txt - Notepad > Edit:Text Editor".to_string(),
+        ..Default::default()
+    }
+}
+
+/// A left click as the mouse hook dispatches it; `completes_double_click`
+/// marks the second press of a double-click.
+fn left_click(
+    sequence_id: u64,
+    timestamp: u64,
+    window_handle: i64,
+    element: ElementDescription,
+    completes_double_click: bool,
+) -> RawEvent {
+    RawEvent {
+        event_type: RawEventType::Click,
+        sequence_id,
+        timestamp,
+        screen_x: 2539,
+        screen_y: 665,
+        window_handle,
+        process_id: 7,
+        key_code: 0,
+        modifiers: (false, false, false, false),
+        scroll_delta: 0.0,
+        callback_params: [
+            if completes_double_click {
+                CLICK_COMPLETES_DOUBLE_CLICK
+            } else {
+                0
+            },
+            0,
+            0,
+            0,
+        ],
+        pre_captured_element: Some(element),
+        focus_epoch: 0,
+        held: Vec::new(),
+    }
+}
+
+fn file_dialogs(events: &[ActionEvent]) -> Vec<(String, String, String, Option<i64>, u64)> {
+    events
+        .iter()
+        .filter_map(|e| match &e.payload {
+            ActionPayload::FileDialog {
+                dialog_type,
+                file_path,
+                source,
+            } => Some((
+                dialog_type.clone(),
+                file_path.clone(),
+                source.clone(),
+                e.context_id,
+                e.sequence_id.unwrap_or(0),
+            )),
+            _ => None,
+        })
+        .collect()
+}
+
+fn click_count(events: &[ActionEvent]) -> usize {
+    events
+        .iter()
+        .filter(|e| matches!(e.payload, ActionPayload::Click { .. }))
+        .count()
+}
+
+// Regression: #692 — a file opened by a double-click in a file dialog's item
+// view recorded no folder, so the file could not be located from the file.
+// https://github.com/Arsarneq/docent/issues/692
+#[test]
+fn regression_692_double_click_on_a_file_records_the_file_and_its_folder() {
+    let (backend, _reads) = FileDialogBackend::showing("C:\\Users\\u\\Downloads", "license.txt");
+    let harness = WorkerTestHarness::new(backend);
+
+    // The first click selects license.txt in the dialog; the second, 160 ms
+    // later at the same point, completes the double-click, and by its
+    // release the dialog has closed: it is described in Notepad's editor.
+    harness.send_event(left_click(
+        1,
+        1000,
+        ITEMS_VIEW,
+        item_name_cell("license.txt"),
+        false,
+    ));
+    harness.send_event(left_click(2, 1160, EDITOR, notepad_editor(), true));
+
+    thread::sleep(Duration::from_millis(200));
+    let events = harness.shutdown();
+
+    assert_eq!(click_count(&events), 2, "both clicks are recorded");
+    assert_eq!(
+        file_dialogs(&events),
+        vec![(
+            "open".to_string(),
+            "C:\\Users\\u\\Downloads\\license.txt".to_string(),
+            "notepad.exe".to_string(),
+            Some(OPEN_DIALOG),
+            2,
+        )],
+        "the double-click records the file it opened, with the dialog's folder, \
+         in the dialog's context and beside the second click"
+    );
+}
+
+/// A double-click on a folder navigates the dialog: selecting a folder leaves
+/// the File name field as it was, so the read at the first click does not
+/// name the item, and nothing is recorded beyond the two clicks.
+#[test]
+fn double_click_on_a_folder_in_a_file_dialog_records_no_file_dialog() {
+    // The File name still holds a file selected earlier.
+    let (backend, _reads) = FileDialogBackend::showing("C:\\Users\\u\\Downloads", "license.txt");
+    let harness = WorkerTestHarness::new(backend);
+
+    harness.send_event(left_click(
+        1,
+        1000,
+        ITEMS_VIEW,
+        item_name_cell("Archive"),
+        false,
+    ));
+    harness.send_event(left_click(
+        2,
+        1160,
+        ITEMS_VIEW,
+        item_name_cell("Archive"),
+        true,
+    ));
+
+    thread::sleep(Duration::from_millis(200));
+    let events = harness.shutdown();
+
+    assert_eq!(click_count(&events), 2, "both clicks are recorded");
+    assert!(
+        file_dialogs(&events).is_empty(),
+        "a folder is no file chosen"
+    );
+}
+
+/// Two clicks on a file that do not make a double-click select it twice and
+/// confirm nothing: no file_dialog, and each click reads the dialog afresh.
+#[test]
+fn two_clicks_on_a_file_that_are_no_double_click_record_no_file_dialog() {
+    let (backend, reads) = FileDialogBackend::showing("C:\\Users\\u\\Downloads", "license.txt");
+    let harness = WorkerTestHarness::new(backend);
+
+    harness.send_event(left_click(
+        1,
+        1000,
+        ITEMS_VIEW,
+        item_name_cell("license.txt"),
+        false,
+    ));
+    harness.send_event(left_click(
+        2,
+        3000,
+        ITEMS_VIEW,
+        item_name_cell("license.txt"),
+        false,
+    ));
+
+    thread::sleep(Duration::from_millis(200));
+    let events = harness.shutdown();
+
+    assert_eq!(click_count(&events), 2);
+    assert!(file_dialogs(&events).is_empty());
+    assert_eq!(
+        reads.load(Ordering::SeqCst),
+        2,
+        "each item click reads the dialog"
+    );
+}
+
+/// A double-click whose first click was on no list item reads no dialog and
+/// records no file_dialog: only a click on an item reads the dialog.
+#[test]
+fn a_double_click_off_the_item_view_reads_no_dialog_and_records_no_file_dialog() {
+    let (backend, reads) = FileDialogBackend::showing("C:\\Users\\u\\Downloads", "license.txt");
+    let harness = WorkerTestHarness::new(backend);
+
+    harness.send_event(left_click(1, 1000, EDITOR, notepad_editor(), false));
+    harness.send_event(left_click(2, 1160, EDITOR, notepad_editor(), true));
+
+    thread::sleep(Duration::from_millis(200));
+    let events = harness.shutdown();
+
+    assert_eq!(click_count(&events), 2);
+    assert!(file_dialogs(&events).is_empty());
+    assert_eq!(
+        reads.load(Ordering::SeqCst),
+        0,
+        "no item click, no dialog read"
+    );
+}
+
+/// The file a click selected is held for the click right after it only: a
+/// double-click whose first click selected nothing does not confirm a file an
+/// earlier click selected.
+#[test]
+fn a_file_selected_before_another_click_is_not_confirmed_by_a_later_double_click() {
+    let (backend, _reads) = FileDialogBackend::showing("C:\\Users\\u\\Downloads", "license.txt");
+    let harness = WorkerTestHarness::new(backend);
+
+    harness.send_event(left_click(
+        1,
+        1000,
+        ITEMS_VIEW,
+        item_name_cell("license.txt"),
+        false,
+    ));
+    harness.send_event(left_click(2, 3000, EDITOR, notepad_editor(), false));
+    harness.send_event(left_click(3, 3160, EDITOR, notepad_editor(), true));
+
+    thread::sleep(Duration::from_millis(200));
+    let events = harness.shutdown();
+
+    assert_eq!(click_count(&events), 3);
+    assert!(file_dialogs(&events).is_empty());
+}
+
+/// A click on the dialog's Open button reads the dialog at that click, from
+/// the button's window, and records the file beside it.
+#[test]
+fn a_click_on_the_open_button_records_the_file_and_its_folder() {
+    let (backend, _reads) = FileDialogBackend::showing("C:\\Users\\u\\Downloads", "license.txt");
+    let harness = WorkerTestHarness::new(backend);
+
+    let open_button = open_button();
+    harness.send_event(left_click(1, 1000, ITEMS_VIEW, open_button, false));
+
+    thread::sleep(Duration::from_millis(200));
+    let events = harness.shutdown();
+
+    assert_eq!(click_count(&events), 1);
+    assert_eq!(
+        file_dialogs(&events),
+        vec![(
+            "open".to_string(),
+            "C:\\Users\\u\\Downloads\\license.txt".to_string(),
+            "notepad.exe".to_string(),
+            Some(OPEN_DIALOG),
+            1,
+        )]
+    );
+}
+
+/// With file extensions hidden, the dialog shows "license" for license.txt,
+/// in its item view and its File name field alike: the file_dialog names the
+/// file on disk the text names, not the text, whichever way the pick is
+/// confirmed.
+#[test]
+fn regression_692_a_file_shown_without_its_extension_is_recorded_as_the_file() {
+    for by_double_click in [true, false] {
+        let (mut backend, _reads) =
+            FileDialogBackend::showing("C:\\Users\\u\\Downloads", "license");
+        backend.on_disk = Some((
+            "C:\\Users\\u\\Downloads\\license",
+            "C:\\Users\\u\\Downloads\\license.txt",
+        ));
+        let harness = WorkerTestHarness::new(backend);
+        if by_double_click {
+            harness.send_event(left_click(
+                1,
+                1000,
+                ITEMS_VIEW,
+                item_name_cell("license"),
+                false,
+            ));
+            harness.send_event(left_click(2, 1160, EDITOR, notepad_editor(), true));
+        } else {
+            harness.send_event(left_click(1, 1000, ITEMS_VIEW, open_button(), false));
+        }
+
+        thread::sleep(Duration::from_millis(200));
+        let events = harness.shutdown();
+
+        let recorded: Vec<String> = file_dialogs(&events).into_iter().map(|d| d.1).collect();
+        assert_eq!(
+            recorded,
+            vec!["C:\\Users\\u\\Downloads\\license.txt".to_string()],
+            "confirmed by {}",
+            if by_double_click {
+                "a double-click"
+            } else {
+                "the Open button"
+            }
+        );
+    }
+}
+
+/// A Save dialog's File name text names the file to be written, which need
+/// not exist: a file already there that the shell displays under the same
+/// text ("report" for report.pdf, saving a report as .docx) is not the
+/// file chosen, so a Save records the text as the dialog shows it.
+#[test]
+fn a_save_records_the_text_not_a_file_displayed_under_it() {
+    for dialog_type in ["save", "save_as"] {
+        let (mut backend, _reads) = FileDialogBackend::showing("C:\\Users\\u\\Documents", "report");
+        backend.dialog_type = dialog_type;
+        backend.on_disk = Some((
+            "C:\\Users\\u\\Documents\\report",
+            "C:\\Users\\u\\Documents\\report.pdf",
+        ));
+        let harness = WorkerTestHarness::new(backend);
+        harness.send_event(left_click(1, 1000, ITEMS_VIEW, save_button(), false));
+
+        thread::sleep(Duration::from_millis(200));
+        let events = harness.shutdown();
+
+        let recorded: Vec<(String, String)> = file_dialogs(&events)
+            .into_iter()
+            .map(|d| (d.0, d.1))
+            .collect();
+        assert_eq!(
+            recorded,
+            vec![(
+                dialog_type.to_string(),
+                "C:\\Users\\u\\Documents\\report".to_string()
+            )]
+        );
+    }
+}
+
+fn save_button() -> ElementDescription {
+    ElementDescription {
+        tag: "Button".to_string(),
+        name: Some("Save".to_string()),
+        selector: "Pane:Desktop 1 > Window:Untitled - Notepad > Window:Save As > Button:Save"
+            .to_string(),
+        ..Default::default()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Double-click pairing (DCP-10)
+// ---------------------------------------------------------------------------
+
+/// The system's default bounds: 500 ms, a 4 x 4 rectangle.
+const BOUNDS: DoubleClickBounds = DoubleClickBounds {
+    max_interval_ms: 500,
+    width: 4,
+    height: 4,
+};
+
+fn press(time_ms: u32, x: i32, y: i32) -> ClickPress {
+    ClickPress {
+        time_ms,
+        x,
+        y,
+        window: 7,
+    }
+}
+
+#[test]
+fn a_second_press_within_the_time_and_rectangle_completes_a_double_click() {
+    let mut tracker = DoubleClickTracker::new();
+    assert!(!tracker.left_click(press(1000, 100, 100), BOUNDS));
+    assert!(tracker.left_click(press(1500, 102, 98), BOUNDS));
+}
+
+#[test]
+fn a_second_press_too_late_far_or_in_another_window_starts_a_new_pair() {
+    let mut tracker = DoubleClickTracker::new();
+    assert!(!tracker.left_click(press(1000, 100, 100), BOUNDS));
+    assert!(!tracker.left_click(press(1501, 100, 100), BOUNDS), "late");
+    assert!(
+        !tracker.left_click(press(1600, 103, 100), BOUNDS),
+        "too far on x"
+    );
+    assert!(
+        !tracker.left_click(press(1700, 103, 103), BOUNDS),
+        "too far on y"
+    );
+    let other_window = ClickPress {
+        window: 8,
+        ..press(1750, 103, 103)
+    };
+    assert!(!tracker.left_click(other_window, BOUNDS), "another window");
+    // Each press that completed nothing started a new pair.
+    assert!(tracker.left_click(
+        ClickPress {
+            window: 8,
+            ..press(1800, 103, 103)
+        },
+        BOUNDS
+    ));
+}
+
+#[test]
+fn the_press_after_a_double_click_starts_a_new_pair() {
+    let mut tracker = DoubleClickTracker::new();
+    assert!(!tracker.left_click(press(1000, 100, 100), BOUNDS));
+    assert!(tracker.left_click(press(1100, 100, 100), BOUNDS));
+    assert!(
+        !tracker.left_click(press(1200, 100, 100), BOUNDS),
+        "third press"
+    );
+    assert!(
+        tracker.left_click(press(1300, 100, 100), BOUNDS),
+        "fourth press"
+    );
+}
+
+#[test]
+fn a_broken_pair_completes_no_double_click() {
+    let mut tracker = DoubleClickTracker::new();
+    assert!(!tracker.left_click(press(1000, 100, 100), BOUNDS));
+    tracker.break_pair();
+    assert!(!tracker.left_click(press(1100, 100, 100), BOUNDS));
+}
+
+#[test]
+fn the_double_click_interval_is_measured_across_the_input_clock_wrapping() {
+    let mut tracker = DoubleClickTracker::new();
+    assert!(!tracker.left_click(press(u32::MAX - 100, 100, 100), BOUNDS));
+    assert!(tracker.left_click(press(200, 100, 100), BOUNDS));
+}
+
+/// A click that completes a double-click reaches the worker that took the
+/// click before it, even when another worker's queue is shorter; any other
+/// click takes the shortest queue.
+#[test]
+fn a_click_completing_a_double_click_routes_to_the_previous_clicks_worker() {
+    let (action_tx, _action_rx) = mpsc::channel::<ActionEvent>();
+    let received: Vec<Arc<Mutex<Vec<u64>>>> =
+        (0..3).map(|_| Arc::new(Mutex::new(Vec::new()))).collect();
+    let rec = received.clone();
+    // The stub workers record what reaches them and never shorten their
+    // queue, so each dispatch lengthens the chosen worker's queue.
+    let mut pool = WorkerPool::new(
+        3,
+        action_tx,
+        move |index, rx, _queue_len, _sender, _pending| {
+            let got = Arc::clone(&rec[index]);
+            thread::spawn(move || loop {
+                match rx.recv() {
+                    Ok(WorkerMessage::Event(raw)) => got.lock().unwrap().push(raw.sequence_id),
+                    Ok(WorkerMessage::Flush(_)) | Ok(WorkerMessage::EndTyping) => {}
+                    Ok(WorkerMessage::Shutdown) | Err(_) => break,
+                }
+            })
+        },
+    );
+
+    let click = |seq: u64, double: bool| RawEvent {
+        sequence_id: seq,
+        ..left_click(seq, 1000 + seq, ITEMS_VIEW, item_name_cell("a.txt"), double)
+    };
+    pool.dispatch(click(1, false)); // shortest queue: worker 0
+    pool.dispatch(click(2, true)); // the pair's second: worker 0 again
+    pool.dispatch(click(3, false)); // shortest queue: worker 1
+    pool.dispatch(click(4, true)); // the pair's second: worker 1 again
+    thread::sleep(Duration::from_millis(100));
+
+    let at = |i: usize| received[i].lock().unwrap().clone();
+    assert_eq!(at(0), vec![1, 2]);
+    assert_eq!(at(1), vec![3, 4]);
+    assert!(at(2).is_empty());
+    pool.shutdown();
+}
+
+/// A middle-button press, which the mouse hook dispatches as a click marked
+/// as the middle button's, confirms no dialog: a middle press on the Open
+/// button writes no file_dialog, and one on an item reads no dialog.
+#[test]
+fn regression_692_a_middle_press_on_the_open_button_records_no_file_dialog() {
+    let (backend, reads) = FileDialogBackend::showing("C:\\Users\\u\\Downloads", "license.txt");
+    let harness = WorkerTestHarness::new(backend);
+
+    let open_button = open_button();
+    let middle = |seq: u64, element: ElementDescription| RawEvent {
+        callback_params: [CLICK_IS_MIDDLE_BUTTON, 0, 0, 0],
+        ..left_click(seq, 1000 + seq, ITEMS_VIEW, element, false)
+    };
+    harness.send_event(middle(1, open_button));
+    harness.send_event(middle(2, item_name_cell("license.txt")));
+
+    thread::sleep(Duration::from_millis(200));
+    let events = harness.shutdown();
+
+    assert_eq!(
+        click_count(&events),
+        2,
+        "both presses are recorded as clicks"
+    );
+    assert!(
+        file_dialogs(&events).is_empty(),
+        "a middle press confirms nothing"
+    );
+    assert_eq!(
+        reads.load(Ordering::SeqCst),
+        0,
+        "a middle press reads no dialog"
+    );
+}
+
+/// The File name test cannot tell a folder from a file of the same name: a
+/// double-click on a folder whose name the File name already holds (typed
+/// there earlier, for example) writes a file_dialog naming that folder, as
+/// the desktop capture document's exception list states (DCP-13).
+#[test]
+fn a_double_click_on_a_folder_the_file_name_already_names_writes_a_file_dialog() {
+    let (backend, _reads) = FileDialogBackend::showing("C:\\Users\\u\\Documents", "Invoices");
+    let harness = WorkerTestHarness::new(backend);
+
+    harness.send_event(left_click(
+        1,
+        1000,
+        ITEMS_VIEW,
+        item_name_cell("Invoices"),
+        false,
+    ));
+    harness.send_event(left_click(
+        2,
+        1160,
+        ITEMS_VIEW,
+        item_name_cell("Invoices"),
+        true,
+    ));
+
+    thread::sleep(Duration::from_millis(200));
+    let events = harness.shutdown();
+
+    assert_eq!(click_count(&events), 2);
+    assert_eq!(
+        file_dialogs(&events),
+        vec![(
+            "open".to_string(),
+            "C:\\Users\\u\\Documents\\Invoices".to_string(),
+            "notepad.exe".to_string(),
+            Some(OPEN_DIALOG),
+            2,
+        )]
+    );
+}
+
+// ---------------------------------------------------------------------------
 // A keystroke's control is settled when the key is pressed
 // ---------------------------------------------------------------------------
 //
@@ -5266,21 +5946,21 @@ fn key_repeats_of(events: &[ActionEvent]) -> Vec<(String, bool)> {
         .collect()
 }
 
-/// A key-down the hook marked as a repeat (fourth callback parameter 1) is a
-/// `key` with `repeat` true; the press itself carries false. Every press is
-/// written.
+/// A key-down the hook marked as a repeat (the repeat mark in the fourth
+/// callback parameter) is a `key` with `repeat` true; the press itself carries
+/// false. Every press is written.
 #[test]
 fn regression_696_a_held_key_writes_every_press_and_marks_the_repeats() {
     let harness = WorkerTestHarness::new(MockBackend::new());
     let t = now_ms();
     // Enter pressed and held: the press, then two presses key repeat made.
-    for (seq, repeat) in [(1, 0), (2, 1), (3, 1)] {
+    for (seq, repeat) in [(1, 0), (2, KEY_REPEAT_PARAM), (3, KEY_REPEAT_PARAM)] {
         let mut raw = layout_key(seq, t, 0x0D);
         raw.callback_params[3] = repeat;
         harness.send_event(raw);
     }
     // A buffered key (a letter with no value change) keeps its mark too.
-    for (seq, repeat) in [(4, 0), (5, 1)] {
+    for (seq, repeat) in [(4, 0), (5, KEY_REPEAT_PARAM)] {
         let mut raw = layout_key(seq, t, 0x41);
         raw.callback_params[3] = repeat;
         harness.send_event(raw);
@@ -5432,7 +6112,7 @@ fn regression_696_keys_buffered_on_one_element_survive_typing_into_another() {
 // at a pointer action (docent#239)
 // ---------------------------------------------------------------------------
 
-use docent_desktop_lib::capture::held_keys::HeldPress;
+use docent_desktop_lib::capture::held_keys::{HeldKeys, HeldPress, KEY_REPEAT_PARAM};
 use docent_desktop_lib::capture::HeldKeysAtAction;
 
 /// Keys the hook found down at an event: `(key code, scan code, key-down)`.
@@ -5442,6 +6122,7 @@ fn held_presses(keys: &[(u32, u32, u64)]) -> Vec<HeldPress> {
             key_code,
             scan_code,
             press,
+            layout_char: 0,
         })
         .collect()
 }
@@ -5546,6 +6227,95 @@ fn regression_706_pointer_actions_state_modifiers_and_held_keys() {
             ("right_click", ctrl_shift, space.clone()),
             ("drag_start", ctrl_shift, space.clone()),
             ("drop", ctrl_shift, space),
+        ]
+    );
+}
+
+/// docent#691 with docent#696: the layout character and the repeat mark share
+/// the fourth callback parameter. A punctuation key pressed and then repeated
+/// is named by its layout's character both times, and only the key-down key
+/// repeat made is marked a repeat.
+#[test]
+fn regression_691_a_repeated_punctuation_key_is_named_by_its_layout_and_marked_repeat() {
+    let harness = WorkerTestHarness::new(MockBackend::new());
+    let t = now_ms();
+    // Danish layout: VK_OEM_PLUS (0xBB) enters '+'.
+    let mut press = layout_key(1, t, 0xBB);
+    press.callback_params[3] = '+' as i64;
+    harness.send_event(press);
+    let mut repeat = layout_key(2, t, 0xBB);
+    repeat.callback_params[3] = '+' as i64 | KEY_REPEAT_PARAM;
+    harness.send_event(repeat);
+    thread::sleep(Duration::from_millis(900));
+    let events = harness.shutdown();
+    assert_eq!(
+        key_repeats_of(&events),
+        vec![("+".to_string(), false), ("+".to_string(), true)]
+    );
+}
+
+/// docent#691 with docent#706: a held key is named as its own key action
+/// names it, so a punctuation key held down is named by the character its
+/// layout gave it at its key-down, on a key pressed while it is held and on
+/// the pointer actions made while it is held. Driven through the hook's
+/// record, which stamps each event at its dispatch.
+#[test]
+fn regression_691_a_held_punctuation_key_is_named_by_its_layout_character() {
+    let harness = WorkerTestHarness::new(MockBackend::new());
+    let mut record = HeldKeys::new();
+    let t = now_ms();
+    let not_down = |_| false;
+    // Danish '+' (VK_OEM_PLUS, scan code 0x0C) goes down and is dispatched.
+    assert!(!record.on_hook_message(0x0100, 0xBB, 0x0C, not_down));
+    let mut plus = layout_key(1, t, 0xBB);
+    plus.callback_params = [0x0C, 0, 0, '+' as i64];
+    record.stamp(&mut plus);
+    harness.send_event(plus);
+    // Tab pressed while it is held.
+    assert!(!record.on_hook_message(0x0100, 0x09, 0x0F, not_down));
+    let mut tab = layout_key(2, t, 0x09);
+    tab.callback_params[0] = 0x0F;
+    record.stamp(&mut tab);
+    harness.send_event(tab);
+    record.on_hook_message(0x0101, 0x09, 0x0F, not_down);
+    // A click, a drag and its drop made while it is held.
+    let mut click = make_raw_event(RawEventType::Click, 100);
+    click.sequence_id = 3;
+    click.timestamp = t;
+    record.stamp(&mut click);
+    harness.send_event(click);
+    let mut drag_start = make_raw_event(
+        RawEventType::DragStart {
+            source_coords: (10, 10),
+        },
+        100,
+    );
+    drag_start.sequence_id = 4;
+    drag_start.timestamp = t;
+    // The mouse hook reads a drag start's keys at the threshold.
+    drag_start.held = record.dispatched_down(None);
+    harness.send_event(drag_start);
+    let mut drop = make_raw_event(
+        RawEventType::Drop {
+            source_coords: (10, 10),
+        },
+        100,
+    );
+    drop.sequence_id = 5;
+    drop.timestamp = t;
+    record.stamp(&mut drop);
+    harness.send_event(drop);
+    thread::sleep(Duration::from_millis(900));
+    let events = harness.shutdown();
+    let plus_held = stated(&["+"], &[1]);
+    assert_eq!(
+        held_statements_of(&events),
+        vec![
+            ("key", PLAIN, stated(&[], &[])),
+            ("key", PLAIN, plus_held.clone()),
+            ("click", PLAIN, plus_held.clone()),
+            ("drag_start", PLAIN, plus_held.clone()),
+            ("drop", PLAIN, plus_held),
         ]
     );
 }
