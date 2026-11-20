@@ -120,6 +120,15 @@
         "docs/test/unit.md"
       ]
     },
+    "desktop-windows/e2e": {
+      "code": ["packages/desktop/tests/e2e/**"],
+      "docs": [
+        "docs/test/e2e/desktop.md",
+        "packages/desktop/tests/e2e/driver/README.md",
+        "docs/architecture/application/desktop/windows/capture-principles.md",
+        "docs/technical/session-format.md"
+      ]
+    },
     "sync": {
       "code": [
         "packages/shared/{sync-*,dispatch-*,conflict-*,connection-test}.js",
@@ -210,7 +219,12 @@
     },
     "test-infra/playwright": {
       "code": ["**/playwright*.config.js"],
-      "docs": ["docs/test/README.md", "docs/test/e2e.md", "docs/test/integration/desktop.md"]
+      "docs": [
+        "docs/test/README.md",
+        "docs/test/e2e.md",
+        "docs/test/integration/desktop.md",
+        "docs/test/e2e/desktop.md"
+      ]
     },
     "test-infra/fixtures": {
       "code": ["packages/shared/tests/fixtures/**"],
@@ -1081,6 +1095,11 @@
       "path": "packages/desktop/tests/integration/playwright.config.js",
       "reason": "The desktop integration run's configuration — the single worker, the retry budget, headless mode, and the shared teardown that merges the run's coverage. The integration-suite document states that harness contract; the specs the run collects carry their own governing set — declared per spec where its inherited governance reaches past what the desktop test area supplies, and that area's own doc set otherwise.",
       "governed-by": ["docs/test/integration/desktop.md"]
+    },
+    {
+      "path": "packages/desktop/tests/e2e/playwright.config.js",
+      "reason": "The desktop end-to-end run's configuration: the single worker the shared keyboard and foreground window need, the one traced retry, and the flaky-test failure. The desktop end-to-end suite document states that harness contract; the specs the run collects carry the desktop end-to-end area's doc set.",
+      "governed-by": ["docs/test/e2e/desktop.md"]
     },
     {
       "path": "packages/desktop/tests/integration/{package,package-lock}.json",

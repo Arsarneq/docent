@@ -174,6 +174,7 @@ The doc-closure gate ([CI gates § The lint and freshness gates](ci.md#the-lint-
 | `desktop-cross-compile`     | windows-latest **and** ubuntu matrix | ✅ the ubuntu leg only — the Windows leg needs a Windows runner                                     |
 | `desktop-rust-tests`        | windows-latest                       | ❌ no — Windows-only ([below](#the-windows-boundary))                                               |
 | `desktop-vectors-produce`   | windows-2022 (deliberately pinned)   | ❌ no — the second Windows-only job ([below](#the-windows-boundary))                                |
+| `desktop-e2e-tests`         | windows-2022 (deliberately pinned)   | ❌ no — the third Windows-only job ([below](#the-windows-boundary))                                 |
 | `desktop-corpus-diff`       | ubuntu                               | ❌ no — consumes an artifact only the Windows `desktop-rust-tests` job produces                     |
 | `desktop-vectors-diff`      | ubuntu                               | ❌ no — consumes an artifact only the Windows `desktop-vectors-produce` job produces                |
 | `zizmor`                    | ubuntu                               | unneeded — the tool runs [directly](#the-workflow-auditors-zizmor-and-actionlint)                   |
@@ -183,10 +184,11 @@ The doc-closure gate ([CI gates § The lint and freshness gates](ci.md#the-lint-
 
 ### The Windows boundary
 
-Two jobs, `desktop-rust-tests` and `desktop-vectors-produce`, synthesize real Windows UI Automation and input. That cannot run in a Linux container, nor in a Windows **container**, which is a headless Server Core with no interactive desktop. Run these two jobs, and their ubuntu diff halves, **natively on a Windows machine**:
+Three jobs, `desktop-rust-tests`, `desktop-vectors-produce` and `desktop-e2e-tests`, synthesize real Windows UI Automation and input. That cannot run in a Linux container, nor in a Windows **container**, which is a headless Server Core with no interactive desktop. Run these three jobs, and the ubuntu diff halves of the first two, **natively on a Windows machine**:
 
 - **`desktop-rust-tests`:** `npm run test:desktop:rust`. The CI job adds clippy and the coverage split; the test suites are the content. The run also writes the corpus event dumps that `desktop-corpus-diff` consumes. For that job's verdict, follow with `npm run corpus:assemble:desktop` and `npm run corpus:check:desktop`.
 - **`desktop-vectors-produce` and `desktop-vectors-diff`:** `npm run vectors:check:desktop` runs the whole produce, assemble and diff sequence on one machine. CI splits it across a Windows producer and an ubuntu differ. The committed vector is baselined on the pinned `windows-2022` image, so a diff on another Windows version can be an OS difference and not a regression.
+- **`desktop-e2e-tests`:** on a Windows machine nobody is using (the suite takes over the keyboard), build the app as the job does (`npm run build:desktop-dist`, then `cargo build --release --features tauri/custom-protocol` in `packages/desktop/src-tauri`), then `npm ci` and `npx playwright test` in `packages/desktop/tests/e2e`. [Its page](../test/e2e/desktop.md) says more.
 - **`desktop-cross-compile` (Windows leg):** from `packages/desktop/src-tauri`, run `cargo check --all-targets`, then `cargo clippy --all-targets -- -D warnings`.
 
 The Rust runs need the frontend dist directory to exist. Run `npm run build:desktop-dist`, or create an empty `packages/desktop/dist` (CI creates it empty).

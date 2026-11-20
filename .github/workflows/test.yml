@@ -1458,6 +1458,111 @@ jobs:
   # schema-shape change that a sample no longer matches fails HERE, on the PR.
   # Gated on the reference server, the schemas it validates against, and shared
   # (the validator/digest the conformance test composes through).
+  # The desktop end-to-end suite (QA's): the release build on a pinned
+  # Windows image, its panel driven over WebView2's DevTools port and other
+  # programs given real keyboard input by the suite's driver. It reports on
+  # its own until it has a green week on main; ci-gate does not wait for it
+  # yet. docs/test/e2e/desktop.md is the suite's page.
+  desktop-e2e-tests:
+    needs: [lint, changes]
+    if: |
+      github.event_name == 'push' ||
+      (github.event_name == 'pull_request' &&
+        (needs.changes.outputs.desktop == 'true' ||
+          needs.changes.outputs.shared == 'true' ||
+          needs.changes.outputs.corpus == 'true' ||
+          needs.changes.outputs.schema == 'true' ||
+          needs.changes.outputs.ciCore == 'true' ||
+          needs.changes.outputs.buildScripts == 'true')) ||
+      ((github.event_name == 'release' || github.event_name == 'workflow_dispatch') &&
+        (inputs.platform == '' || inputs.platform == 'desktop'))
+    timeout-minutes: 60
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/debug-env
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Sync shared code
+        run: npm run sync-shared
+
+      - name: Build desktop frontend dist
+        run: node scripts/build-desktop-dist.js
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: stable
+
+      # The `e2e` family: a release build, so its tree is its own, with no
+      # fallback into the test jobs' debug trees. The save posture is the
+      # desktop-vectors-produce block's.
+      - name: Restore cargo registry and build
+        id: cargo-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            packages/desktop/src-tauri/target
+          key: ${{ runner.os }}-cargo-e2e-${{ hashFiles('packages/desktop/src-tauri/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-e2e-
+
+      # The release build, as `tauri build` makes it without the installer:
+      # the frontend embedded through the custom protocol.
+      - name: Build the app
+        working-directory: packages/desktop/src-tauri
+        timeout-minutes: 30
+        run: cargo build --release --features tauri/custom-protocol
+
+      - name: Save cargo registry and build
+        if: github.ref == 'refs/heads/main' && steps.cargo-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            packages/desktop/src-tauri/target
+          key: ${{ runner.os }}-cargo-e2e-${{ hashFiles('packages/desktop/src-tauri/Cargo.lock') }}
+
+      - name: Install suite dependencies
+        working-directory: packages/desktop/tests/e2e
+        run: npm ci
+
+      - name: Keyboard driver planner tests
+        working-directory: packages/desktop/tests/e2e
+        run: node --test driver/plan.test.mjs
+
+      # The driver's own window test first: a red here means the keys do not
+      # arrive on this runner, whatever the suite then reports.
+      - name: Keyboard driver test
+        timeout-minutes: 5
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File packages/desktop/tests/e2e/driver/drive.test.ps1
+
+      - name: Run desktop end-to-end tests
+        working-directory: packages/desktop/tests/e2e
+        timeout-minutes: 15
+        run: npx playwright test
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: desktop-e2e-results
+          path: packages/desktop/tests/e2e/test-results/
+          if-no-files-found: ignore
+          retention-days: 7
+
   reference-server-tests:
     needs: [lint, changes]
     if: |
