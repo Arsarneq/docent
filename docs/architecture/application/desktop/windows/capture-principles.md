@@ -328,8 +328,13 @@ the typing already, and a program that reports the focus again on the field
 being typed into leaves its text the one `type`. A change of the window's
 title ends nothing either: a field is the same field whatever title its
 window shows (an editor that adds or drops its unsaved mark while the person
-types), so the selector's window segment is compared without the title, the
-window itself being told by the context. A pause between two keys ends nothing: how
+types). The selector holds the title, so whether two descriptions read in
+one window are of the same element is told by the element's path under the
+window's root, the root itself left out, and by the selector only where that
+path is not known. The value last recorded for an element is still kept under
+its selector, title and all: one window that shows one record after another
+under a title naming the record has the same value typed into the same field
+of the next record written. A pause between two keys ends nothing: how
 fast a person types is no part of what they typed, so text typed with pauses
 is the one `type`, as on the extension. The `type` is written with the
 sequence id of its last value change, ahead of the action that ended the

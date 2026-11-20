@@ -322,6 +322,15 @@ pub struct ElementDescription {
     /// to the name when the value is empty.
     #[serde(skip)]
     pub value: Option<String>,
+    /// The element's place under its top-level window: the path from the
+    /// window's root down to the element, the root itself left out. `None`
+    /// where the window's root was not found on the path. Internal to the
+    /// capture layer and never written: it tells whether two descriptions of
+    /// one window are of the same element, which `selector` cannot, since
+    /// the selector holds the window's title and a title changes while the
+    /// element stays (an editor's unsaved mark).
+    #[serde(skip)]
+    pub place_in_window: Option<String>,
 }
 
 // ---------------------------------------------------------------------------

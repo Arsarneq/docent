@@ -1538,6 +1538,7 @@ fn locator_rich_element() -> ElementDescription {
         // The backend emits no latency; the worker stamps it (docent#220).
         described_after_ms: None,
         value: None,
+        place_in_window: None,
     }
 }
 
@@ -4299,6 +4300,7 @@ fn a_value_change_on_the_same_element_under_a_changed_selector_is_its_type() {
 fn regression_734_typing_across_a_change_of_the_window_title_is_one_type() {
     let mut field = file_name_field("");
     field.element.selector = "Window:Untitled - Editor > Edit:Text".to_string();
+    field.element.place_in_window = Some("Edit:Text".to_string());
     let (backend, scene, _) = MovingFocusBackend::new(field);
     let harness = WorkerTestHarness::new(backend);
 
@@ -4331,6 +4333,180 @@ fn regression_734_typing_across_a_change_of_the_window_title_is_one_type() {
         vec!["type hi! on Window:Untitled - Editor > Edit:Text"],
         "got {events:?}"
     );
+}
+
+/// A top-level window is not always a `Window` to the accessibility tree: the
+/// title can sit in a segment of another kind. The field is told by its place
+/// under the window, whatever the window's segment says.
+#[test]
+fn regression_734_typing_across_a_title_change_of_a_window_of_another_kind_is_one_type() {
+    let mut field = file_name_field("");
+    field.element.selector = "Pane:Desktop 1 > Pane:doc - Editor > Edit".to_string();
+    field.element.place_in_window = Some("Edit".to_string());
+    let (backend, scene, _) = MovingFocusBackend::new(field);
+    let harness = WorkerTestHarness::new(backend);
+
+    let mut seq = 0;
+    for (text, selector) in [
+        ("a", "Pane:Desktop 1 > Pane:doc - Editor > Edit"),
+        ("ab", "Pane:Desktop 1 > Pane:doc > changed - Editor > Edit"),
+    ] {
+        seq += 1;
+        let unit = u16::from(*text.as_bytes().last().unwrap());
+        harness.send_event(in_dialog(packet_key(seq, now_ms(), unit)));
+        thread::sleep(Duration::from_millis(150));
+        {
+            let mut scene = scene.lock().unwrap();
+            scene.element.selector = selector.to_string();
+            scene.element.text = Some(text.to_string());
+            scene.element.value = Some(text.to_string());
+        }
+        seq += 1;
+        harness.send_event(in_dialog(value_change(seq, now_ms(), DIALOG)));
+        thread::sleep(Duration::from_millis(150));
+    }
+
+    thread::sleep(Duration::from_millis(900));
+    let events = harness.shutdown();
+
+    assert_eq!(
+        typed_actions_of(&events),
+        vec!["type ab on Pane:Desktop 1 > Pane:doc - Editor > Edit"],
+        "got {events:?}"
+    );
+}
+
+/// Two keys are pressed before the first value change arrives, and the title
+/// changes between them. Both are the field's typing: the first is not
+/// written as a key when the second arrives.
+#[test]
+fn regression_734_keys_buffered_across_a_title_change_are_the_field_s_one_type() {
+    let mut field = file_name_field("");
+    field.element.selector = "Window:Untitled - Editor > Edit:Text".to_string();
+    field.element.place_in_window = Some("Edit:Text".to_string());
+    let (backend, scene, _) = MovingFocusBackend::new(field);
+    let harness = WorkerTestHarness::new(backend);
+
+    harness.send_event(in_dialog(packet_key(1, now_ms(), u16::from(b'h'))));
+    thread::sleep(Duration::from_millis(100));
+    scene.lock().unwrap().element.selector = "Window:*Untitled - Editor > Edit:Text".to_string();
+    harness.send_event(in_dialog(packet_key(2, now_ms(), u16::from(b'i'))));
+    thread::sleep(Duration::from_millis(100));
+    {
+        let mut scene = scene.lock().unwrap();
+        scene.element.text = Some("hi".to_string());
+        scene.element.value = Some("hi".to_string());
+    }
+    harness.send_event(in_dialog(value_change(3, now_ms(), DIALOG)));
+
+    thread::sleep(Duration::from_millis(900));
+    let events = harness.shutdown();
+
+    let actions = typed_actions_of(&events);
+    assert_eq!(actions.len(), 1, "got {actions:?}");
+    assert!(actions[0].starts_with("type hi on "), "got {actions:?}");
+}
+
+/// Two documents of one window differ in a segment under the window's root.
+/// They are two fields: text typed into the second is not carried into the
+/// `type` pending for the first, and each keeps its own last value.
+#[test]
+fn regression_734_two_documents_of_one_window_stay_two_fields() {
+    let mut field = file_name_field("");
+    field.element.selector = "Window:Frame > Window:a.txt > Edit".to_string();
+    field.element.place_in_window = Some("Window:a.txt\u{1f}Edit".to_string());
+    let (backend, scene, _) = MovingFocusBackend::new(field);
+    let harness = WorkerTestHarness::new(backend);
+
+    let mut seq = 0;
+    for (selector, place) in [
+        (
+            "Window:Frame > Window:a.txt > Edit",
+            "Window:a.txt\u{1f}Edit",
+        ),
+        (
+            "Window:Frame > Window:b.txt > Edit",
+            "Window:b.txt\u{1f}Edit",
+        ),
+    ] {
+        {
+            let mut scene = scene.lock().unwrap();
+            // Another element: the mark on the first is not on this one.
+            scene.element.id = Some(selector.to_string());
+            scene.element.selector = selector.to_string();
+            scene.element.place_in_window = Some(place.to_string());
+            scene.element.text = Some(String::new());
+            scene.element.value = Some(String::new());
+        }
+        seq += 1;
+        harness.send_event(in_dialog(packet_key(seq, now_ms(), u16::from(b'5'))));
+        thread::sleep(Duration::from_millis(150));
+        {
+            let mut scene = scene.lock().unwrap();
+            scene.element.text = Some("5".to_string());
+            scene.element.value = Some("5".to_string());
+        }
+        seq += 1;
+        harness.send_event(in_dialog(value_change(seq, now_ms(), DIALOG)));
+        thread::sleep(Duration::from_millis(150));
+    }
+
+    thread::sleep(Duration::from_millis(900));
+    let events = harness.shutdown();
+
+    assert_eq!(
+        typed_actions_of(&events),
+        vec![
+            "type 5 on Window:Frame > Window:a.txt > Edit",
+            "type 5 on Window:Frame > Window:b.txt > Edit"
+        ],
+        "got {events:?}"
+    );
+}
+
+/// One window shows one record after another under a title that names it.
+/// The same value typed into the same field of the next record is recorded:
+/// the last value is kept for the field under the title it had.
+#[test]
+fn regression_734_the_same_value_typed_under_another_title_is_recorded() {
+    let mut field = file_name_field("");
+    field.element.selector = "Window:Order 1001 - App > Edit:Quantity".to_string();
+    field.element.place_in_window = Some("Edit:Quantity".to_string());
+    let (backend, scene, _) = MovingFocusBackend::new(field);
+    let harness = WorkerTestHarness::new(backend);
+
+    let mut seq = 0;
+    for selector in [
+        "Window:Order 1001 - App > Edit:Quantity",
+        "Window:Order 1002 - App > Edit:Quantity",
+    ] {
+        {
+            let mut scene = scene.lock().unwrap();
+            scene.element.selector = selector.to_string();
+            scene.element.text = Some(String::new());
+            scene.element.value = Some(String::new());
+        }
+        seq += 1;
+        harness.send_event(in_dialog(packet_key(seq, now_ms(), u16::from(b'5'))));
+        thread::sleep(Duration::from_millis(150));
+        {
+            let mut scene = scene.lock().unwrap();
+            scene.element.text = Some("5".to_string());
+            scene.element.value = Some("5".to_string());
+        }
+        seq += 1;
+        harness.send_event(in_dialog(value_change(seq, now_ms(), DIALOG)));
+        thread::sleep(Duration::from_millis(150));
+        // Enter saves the record and ends the typing.
+        seq += 1;
+        harness.send_event(in_dialog(layout_key(seq, now_ms(), 0x0D)));
+        thread::sleep(Duration::from_millis(150));
+    }
+
+    thread::sleep(Duration::from_millis(900));
+    let events = harness.shutdown();
+
+    assert_eq!(type_values_of(&events), vec!["5", "5"], "got {events:?}");
 }
 
 /// The person typed one character and clicked elsewhere in the same window
