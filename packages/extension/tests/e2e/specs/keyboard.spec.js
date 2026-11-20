@@ -1710,9 +1710,10 @@ test.describe('Keyboard activation', () => {
       // Listening for the chooser turns Playwright's interception of it on
       // with a request nothing waits for, and Enter opens the chooser at the
       // keydown: a press sent in the same breath can reach the page first, and
-      // the chooser then opens unintercepted (docent#724). The listener goes
-      // first, and the focus is a round trip to the page behind it, so the
-      // interception is on before the key is pressed.
+      // the chooser then opens unintercepted (docent#724). Space opens it at
+      // the release, one round trip later. The listener goes first, and the
+      // focus is a round trip to the page behind it, so the interception is on
+      // before either key is pressed.
       const chooser = testPage.waitForEvent('filechooser');
       await testPage.focus('#file');
       await testPage.keyboard.press(key);
