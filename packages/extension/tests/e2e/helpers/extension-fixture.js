@@ -229,9 +229,24 @@ export async function getPendingActions(serviceWorker) {
 
 /**
  * Clear pendingActions in chrome.storage.local via the service worker.
+ *
+ * The worker stores an action a few turns after the input that made it (a
+ * click waits for the tab's other frames to end their typing), and this
+ * clear writes past the worker's queue. So it first waits until the list has
+ * stopped growing: an action still on its way would otherwise land in the
+ * list after the clear and be taken for one the test made next.
  */
 export async function clearPendingActions(serviceWorker) {
   await serviceWorker.evaluate(async () => {
+    const count = async () =>
+      (await chrome.storage.local.get('pendingActions')).pendingActions?.length ?? 0;
+    let before = -1;
+    let now = await count();
+    while (now !== before) {
+      before = now;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      now = await count();
+    }
     await chrome.storage.local.set({ pendingActions: [], pendingCount: 0 });
   });
 }

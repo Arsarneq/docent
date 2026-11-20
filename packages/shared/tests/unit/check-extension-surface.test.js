@@ -2608,6 +2608,7 @@ describe('extractCapturePayloads — the capture-path table read by column name'
       { type: 'GET_TAB_ID', keys: [] },
       { type: 'FRAME_READY', keys: ['readyAt', 'url'] },
       { type: 'APPEND_ACTION', keys: ['action'] },
+      { type: 'POINTER_PRESSED', keys: [] },
     ]);
   });
 });
