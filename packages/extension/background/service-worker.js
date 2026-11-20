@@ -45,7 +45,7 @@ import {
   resolveActiveSteps,
 } from '../shared/lib/session.js';
 import { uuidv7 } from '../shared/lib/uuid-v7.js';
-import { redactSensitive } from '../lib/redaction-logic.js';
+import { redactSensitive, repeatsMaskedEntry } from '../lib/redaction-logic.js';
 import {
   TAB_CREATED_USER_ACTION_WINDOW,
   TAB_CLOSED_USER_ACTION_WINDOW,
@@ -542,7 +542,13 @@ async function resumeCaptureDespitePressure() {
 async function appendToPending(actions) {
   if (storagePaused) return false; // paused for storage pressure — drop new captures
   const { pendingActions } = await chrome.storage.local.get('pendingActions');
-  const updated = [...(pendingActions ?? []), ...actions];
+  // Typing into a sensitive field is one masked `type`: one that repeats the
+  // action stored just before it is not stored again (lib/redaction-logic.js).
+  const updated = [...(pendingActions ?? [])];
+  for (const action of actions) {
+    if (!repeatsMaskedEntry(updated.at(-1), action)) updated.push(action);
+  }
+  if (updated.length === (pendingActions ?? []).length) return true;
   try {
     await chrome.storage.local.set({ pendingActions: updated, pendingCount: updated.length });
   } catch (err) {

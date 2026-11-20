@@ -267,7 +267,10 @@ test.describe('Background Tab', () => {
 });
 
 test.describe('Tab Lifecycle — Ctrl+W', () => {
-  test('Ctrl+W tab close lifecycle should NOT be captured', async ({
+  // Regression: #702 — a shortcut the page is sent is a key press like any
+  // other and is written.
+  // https://github.com/Arsarneq/docent/issues/702
+  test('regression_702_a_ctrl_w_the_page_is_sent_is_written_as_the_key_alone', async ({
     testPage,
     serviceWorker,
     context,
@@ -275,9 +278,11 @@ test.describe('Tab Lifecycle — Ctrl+W', () => {
     await setTestContent(testPage, '<html><body><p>Main</p></body></html>');
     await testPage.waitForTimeout(200);
 
-    // Open a new tab, switch to it, then close it with Ctrl+W
+    // Driven here, the shortcut reaches the page and closes no tab. In a
+    // browser a person drives, the browser takes Ctrl+W before the page is
+    // sent it, and the closing tab writes its own lifecycle action.
     const newPage = await context.newPage();
-    await newPage.goto('https://example.com');
+    await setTestContent(newPage, '<html><body><p>Other</p></body></html>');
     await newPage.waitForTimeout(300);
     await clearPendingActions(serviceWorker);
 
@@ -286,8 +291,10 @@ test.describe('Tab Lifecycle — Ctrl+W', () => {
     await waitForActionsToSettle(serviceWorker, testPage);
 
     const actions = await getPendingActions(serviceWorker);
-    // Ideal: no actions. Ctrl+W is a browser shortcut; the tab closing is a side-effect.
-    expect(actions.length).toBe(0);
+    expect(actions.map((a) => [a.type, a.key, a.modifiers.ctrl, a.element.tag])).toEqual([
+      ['key', 'w', true, 'BODY'],
+    ]);
+    await newPage.close();
   });
 });
 

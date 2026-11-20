@@ -420,7 +420,7 @@ export function describeElement(el) {
     role: el.getAttribute?.('role') || null,
     type: el.getAttribute?.('type') || null,
     // Captured so the service worker can flag sensitive payment fields via the
-    // shared field-sensitivity util; the content script stays pattern-free.
+    // shared field-sensitivity util, on the description it stores.
     autocomplete: el.getAttribute?.('autocomplete') || null,
     text: isPassword ? null : (el.innerText ?? el.value ?? '').trim().slice(0, 100) || null,
     selector,
@@ -431,68 +431,170 @@ export function describeElement(el) {
 }
 
 /**
- * The keys written as a `key` action on whatever element has focus.
+ * The modifier keys that do nothing pressed alone. One pressed alone is no key
+ * press to write: an action states the modifiers held at it. The Meta key is
+ * not among them: the system acts on its press by itself, so it is written.
  */
-export const CAPTURE_KEYS = [
-  'Enter',
-  'Escape',
-  'Tab',
-  'ArrowUp',
-  'ArrowDown',
-  'ArrowLeft',
-  'ArrowRight',
-];
+export const MODIFIER_KEYS = ['Shift', 'Control', 'Alt', 'AltGraph'];
 
-/**
- * The `input` types whose value is not free text: a Space pressed on one is a
- * key press on the control (it opens a date field's picker, for example),
- * never a character of its value.
- */
-export const NON_TEXT_INPUT_TYPES = [
+/** The `input` types that hold no entry: controls recorded by what is done to them. */
+export const NON_ENTRY_INPUT_TYPES = [
+  // each recorded by its click, its key or its dialog
   'button',
   'checkbox',
-  'color',
-  'date',
-  'datetime-local',
   'file',
   'image',
-  'month',
-  'number',
   'radio',
-  'range',
   'reset',
   'submit',
-  'time',
-  'week',
 ];
 
 /**
- * Whether a Space pressed on the element is typed text: a `textarea`, an
- * `input` whose value is free text, or editable content. The text such a field
- * holds is recorded by its `type` action.
+ * Whether typing can become the element's text: a `textarea`, an `input` that
+ * holds an entry, or editable content. Only there can a typing key turn out
+ * to be text, which the field's `type` records.
  *
- * @param {object} el — DOM-like element
+ * @param {object|null} el — DOM-like element
  * @returns {boolean}
  */
-export function takesTypedText(el) {
+export function mayTakeText(el) {
+  if (!el) return false;
   if (el.isContentEditable === true) return true;
   if (el.tagName === 'TEXTAREA') return true;
-  return el.tagName === 'INPUT' && !NON_TEXT_INPUT_TYPES.includes(el.type);
+  return el.tagName === 'INPUT' && !NON_ENTRY_INPUT_TYPES.includes(el.type);
+}
+
+/** The `input` types the person fills part by part: the date and time fields. */
+export const PART_ENTRY_INPUT_TYPES = ['date', 'datetime-local', 'month', 'time', 'week'];
+
+/**
+ * Whether the element takes its text part by part and holds no value until
+ * the parts make one: the browser reports no text for a key typed into it
+ * before that, so the keys of a whole run are known to be text only together.
+ *
+ * @param {object|null} el — DOM-like element
+ * @returns {boolean}
+ */
+export function takesTextByParts(el) {
+  return !!el && el.tagName === 'INPUT' && PART_ENTRY_INPUT_TYPES.includes(el.type);
 }
 
 /**
- * The name a key press is written under, or null when the press is not
- * captured. The fixed set is captured on any element; Space is captured where
- * it is not typed text (#695), and named `Space` as the schema names it.
+ * What a key press is, by its key value (#702):
+ *
+ *   - `modifier`: Shift, Ctrl, Alt or AltGr. Pressed alone it is no press to
+ *     write: an action states the modifiers held at it;
+ *   - `composed`: a key the input method takes (`Process`, an empty key
+ *     value, or any key pressed while a composition is open), whose text
+ *     arrives as the composition;
+ *   - `character`: a key whose value is one character, or a dead key. It is
+ *     text where a field takes it, which is known only after the press (the
+ *     recorder's waiting presses), and a `key` everywhere else;
+ *   - `named`: every other key (Enter, Backspace, F2, Meta).
  *
  * @param {string} key — the event's key value
- * @param {object|null} el — the element the press lands on, when one has focus
- * @returns {string|null}
+ * @param {boolean} isComposing — whether a composition is open at the press,
+ *   or the input method took the key (the browser reports key code 229)
+ * @returns {'modifier'|'composed'|'character'|'named'}
  */
-export function capturedKeyName(key, el) {
-  if (CAPTURE_KEYS.includes(key)) return key;
-  if (key === ' ' && el && !takesTypedText(el)) return 'Space';
-  return null;
+export function keyPressKind(key, isComposing) {
+  if (MODIFIER_KEYS.includes(key)) return 'modifier';
+  if (isComposing || key === '' || key === 'Process') return 'composed';
+  return key === 'Dead' || [...key].length === 1 ? 'character' : 'named';
+}
+
+/**
+ * Whether the modifiers held make a character key a shortcut that enters no
+ * character: Meta, Ctrl without Alt, or Alt without Ctrl. Ctrl and Alt
+ * together is AltGr, which enters characters of the layout. Alt alone reaches
+ * for a menu, except on a Mac, where it is the Option key and enters
+ * characters: `altEntersCharacters` says which.
+ *
+ * @param {{ctrl: boolean, alt: boolean, meta: boolean}} modifiers
+ * @param {boolean} altEntersCharacters — whether Alt alone enters characters
+ * @returns {boolean}
+ */
+export function isShortcut(modifiers, altEntersCharacters) {
+  if (modifiers.meta) return true;
+  if (modifiers.ctrl) return !modifiers.alt;
+  return modifiers.alt && !altEntersCharacters;
+}
+
+/**
+ * The `autocomplete` tokens and the name pattern of a sensitive element: a
+ * copy of the shared rule's (`shared/lib/field-sensitivity.js`), which a
+ * content script cannot import. A test holds the two equal.
+ */
+export const SENSITIVE_AUTOCOMPLETE = [
+  // the payment fields
+  'cc-number',
+  'cc-csc',
+  'cc-exp',
+  'cc-exp-month',
+  'cc-exp-year',
+];
+export const SENSITIVE_NAME_RE =
+  /card.?number|cardnum|ccnum|credit.?card|cvv|cvc|csc|ssn|social.?security|routing|iban|sort.?code|account.?number|api.?key|secret|passw|pwd|\botp\b|tax.?id/i;
+
+/**
+ * Whether what is typed on the element is sensitive, by the shared rule the
+ * service worker applies to the element's description. The recorder applies
+ * it to the element itself, before it writes a key press: a character key
+ * pressed on such an element is never written under its own name, as a `key`
+ * or among the keys held at a later action.
+ *
+ * @param {object|null} el — DOM-like element
+ * @returns {boolean}
+ */
+export function isSensitiveElement(el) {
+  if (!el) return false;
+  const attribute = (name) => el.getAttribute?.(name) || '';
+  if (el.type === 'password' || attribute('type').toLowerCase() === 'password') return true;
+  const autocomplete = attribute('autocomplete').trim().toLowerCase();
+  if (SENSITIVE_AUTOCOMPLETE.includes(autocomplete)) return true;
+  return SENSITIVE_NAME_RE.test(attribute('name')) || SENSITIVE_NAME_RE.test(el.id || '');
+}
+
+/** The tags and roles of the controls a key presses or toggles, whatever they are named. */
+export const NON_TEXT_TAGS = ['A', 'BUTTON', 'SUMMARY'];
+export const NON_TEXT_ROLES = [
+  'button',
+  'checkbox',
+  'link',
+  'menuitem',
+  'menuitemcheckbox',
+  'menuitemradio',
+  'radio',
+  'switch',
+  'tab',
+];
+
+/**
+ * Whether a key pressed on the element presses or toggles it and enters no
+ * text: the rule the service worker applies to the element's description
+ * (`lib/redaction-logic.js`). A test holds the two equal.
+ *
+ * @param {object|null} el — DOM-like element
+ * @returns {boolean}
+ */
+export function takesNoTypedText(el) {
+  if (!el) return false;
+  const tag = String(el.tagName || '').toUpperCase();
+  if (NON_TEXT_TAGS.includes(tag)) return true;
+  const type = String(el.getAttribute?.('type') || '').toLowerCase();
+  if (tag === 'INPUT' && NON_ENTRY_INPUT_TYPES.includes(type)) return true;
+  return NON_TEXT_ROLES.includes(String(el.getAttribute?.('role') || '').toLowerCase());
+}
+
+/**
+ * The name a key press is written under: the browser's key value, a space as
+ * `Space`, as the schema names it (#695).
+ *
+ * @param {string} key — the event's key value
+ * @returns {string}
+ */
+export function keyActionName(key) {
+  return key === ' ' ? 'Space' : key;
 }
 
 // -- END MIRRORED CAPTURE LOGIC --
