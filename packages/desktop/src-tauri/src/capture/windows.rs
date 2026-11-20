@@ -43,21 +43,23 @@ use super::variant::Variant;
 use super::win32_bindings::{
     CUIAutomation, CallNextHookEx, CloseHandle, CoCreateInstance, CoInitializeEx, CoUninitialize,
     DispatchMessageW, EnumWindows, GetAncestor, GetAsyncKeyState, GetClassNameW,
-    GetCurrentThreadId, GetForegroundWindow, GetGUIThreadInfo, GetMessageW, GetParent, GetWindow,
-    GetWindowLongW, GetWindowTextW, GetWindowThreadProcessId, IUIAutomation,
-    IUIAutomationCondition, IUIAutomationElement, IUIAutomationSelectionPattern, IsWindow,
-    IsWindowVisible, PeekMessageW, PostThreadMessageW, SetProcessDpiAwarenessContext,
+    GetCurrentThreadId, GetDoubleClickTime, GetForegroundWindow, GetGUIThreadInfo,
+    GetKeyboardLayout, GetMessageW, GetParent, GetSystemMetrics, GetWindow, GetWindowLongW,
+    GetWindowTextW, GetWindowThreadProcessId, IUIAutomation, IUIAutomationCondition,
+    IUIAutomationElement, IUIAutomationSelectionPattern, IsWindow, IsWindowVisible,
+    MapVirtualKeyExW, PeekMessageW, PostThreadMessageW, SetProcessDpiAwarenessContext,
     SetWinEventHook, SetWindowsHookExW, TranslateMessage, TreeScope_Descendants, TreeScope_Subtree,
     UnhookWinEvent, UnhookWindowsHookEx, WindowFromPoint, CHILDID_SELF, CLSCTX_ALL,
     COINIT_APARTMENTTHREADED, COINIT_MULTITHREADED, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
     EVENT_OBJECT_CREATE, EVENT_OBJECT_DESTROY, EVENT_OBJECT_FOCUS, EVENT_OBJECT_SELECTION,
     EVENT_OBJECT_VALUECHANGE, EVENT_SYSTEM_FOREGROUND, GA_ROOT, GA_ROOTOWNER, GUITHREADINFO,
-    GWL_STYLE, GW_OWNER, HANDLE, HHOOK, HWINEVENTHOOK, HWND, INVALID_HANDLE_VALUE, KBDLLHOOKSTRUCT,
-    LLKHF_EXTENDED, LPARAM, LRESULT, MSG, MSLLHOOKSTRUCT, OBJID_WINDOW, PM_NOREMOVE, POINT,
-    PROPERTYID, UIA_HWND, VK_CONTROL, VK_LWIN, VK_MENU, VK_RWIN, VK_SHIFT, VT_EMPTY,
-    WH_KEYBOARD_LL, WH_MOUSE_LL, WINEVENT_OUTOFCONTEXT, WM_APP, WM_KEYDOWN, WM_LBUTTONDOWN,
-    WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MOUSEHWHEEL, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_NULL, WM_QUIT,
-    WM_RBUTTONDOWN, WM_SYSKEYDOWN, WM_USER, WPARAM, WS_CHILD,
+    GWL_STYLE, GW_OWNER, HANDLE, HHOOK, HKL, HWINEVENTHOOK, HWND, INVALID_HANDLE_VALUE,
+    KBDLLHOOKSTRUCT, LLKHF_EXTENDED, LPARAM, LRESULT, MAPVK_VK_TO_CHAR, MSG, MSLLHOOKSTRUCT,
+    OBJID_WINDOW, PM_NOREMOVE, POINT, PROPERTYID, SM_CXDOUBLECLK, SM_CYDOUBLECLK, UIA_HWND,
+    VK_CONTROL, VK_LWIN, VK_MENU, VK_RWIN, VK_SHIFT, VT_EMPTY, WH_KEYBOARD_LL, WH_MOUSE_LL,
+    WINEVENT_OUTOFCONTEXT, WM_APP, WM_KEYDOWN, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN,
+    WM_MOUSEHWHEEL, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_NULL, WM_QUIT, WM_RBUTTONDOWN, WM_SYSKEYDOWN,
+    WM_USER, WPARAM, WS_CHILD,
 };
 use windows_core::{Error, Interface, BOOL, BSTR, PWSTR};
 
@@ -65,10 +67,12 @@ use super::element_mapping::{
     map_element, truncate_text, LocatorMeasurements, MeasuredIndex, MeasuredPair,
     NativeElementProperties,
 };
+use super::scroll::KeyAttribution;
 use super::timing;
 use super::worker_pool::{
-    fallback_drain_and_seal, worker_loop, AccessibilityBackend, ControlLook, ControlNature,
-    PendingDirectory, RawEvent, RawEventType, WorkerPool, FLUSH_BARRIER_TIMEOUT,
+    fallback_drain_and_seal, worker_loop, AccessibilityBackend, ClickPress, ControlLook,
+    ControlNature, DoubleClickBounds, DoubleClickTracker, PendingDirectory, RawEvent, RawEventType,
+    WorkerPool, CLICK_COMPLETES_DOUBLE_CLICK, CLICK_IS_MIDDLE_BUTTON, FLUSH_BARRIER_TIMEOUT,
 };
 use super::{
     ActionEvent, BarrierCompletion, BarrierReport, CaptureError, CaptureLayer, ElementDescription,
@@ -359,6 +363,20 @@ fn down_dispatch_event_type(msg: u32) -> Option<RawEventType> {
     }
 }
 
+/// The `callback_params[0]` a button-down's raw event carries: the middle
+/// button's click is marked as the middle button's, so the click arm tells it
+/// from a left click (it confirms no file dialog); the right-click needs no
+/// mark.
+///
+/// Pure logic the button-down arm consumes, so the mark is unit-testable
+/// without synthesizing real mouse input.
+fn down_dispatch_click_mark(msg: u32) -> i64 {
+    match msg as i32 {
+        WM_MBUTTONDOWN => CLICK_IS_MIDDLE_BUTTON,
+        _ => 0,
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Thread-local state for Input_Thread hook callbacks
 // ---------------------------------------------------------------------------
@@ -410,6 +428,15 @@ thread_local! {
     /// Mouse-down position for drag detection. Set on WM_LBUTTONDOWN,
     /// compared against WM_LBUTTONUP to classify click vs drag.
     static INPUT_MOUSE_DOWN_POS: std::cell::Cell<Option<POINT>> = const { std::cell::Cell::new(None) };
+
+    /// The left press under way, for the double-click test at its release:
+    /// set on WM_LBUTTONDOWN, read when the release classifies as a click.
+    static INPUT_LEFT_PRESS: std::cell::Cell<Option<ClickPress>> = const { std::cell::Cell::new(None) };
+
+    /// Pairs left clicks into double-clicks (DCP-10).
+    static INPUT_DOUBLE_CLICKS: std::cell::Cell<DoubleClickTracker> = const {
+        std::cell::Cell::new(DoubleClickTracker::new())
+    };
 
     /// Set of window handles for which we've dispatched a WindowCreate event.
     /// Only emit WindowDestroy (context_close) for windows in this set —
@@ -1907,6 +1934,40 @@ unsafe extern "system" fn input_win_event_proc(
 }
 
 // ---------------------------------------------------------------------------
+// Input_Thread double-click pairing (DCP-10)
+// ---------------------------------------------------------------------------
+
+/// Record a left click by its press on the Input_Thread's pairing state, and
+/// answer whether the press completed a double-click under the system's
+/// double-click time and rectangle, read at the click: two system-parameter
+/// reads, no accessibility call.
+fn double_click_completed_by(press: ClickPress) -> bool {
+    let bounds = unsafe {
+        DoubleClickBounds {
+            max_interval_ms: GetDoubleClickTime(),
+            width: GetSystemMetrics(SM_CXDOUBLECLK),
+            height: GetSystemMetrics(SM_CYDOUBLECLK),
+        }
+    };
+    INPUT_DOUBLE_CLICKS.with(|cell| {
+        let mut tracker = cell.get();
+        let completed = tracker.left_click(press, bounds);
+        cell.set(tracker);
+        completed
+    })
+}
+
+/// Break the Input_Thread's double-click pairing: the next left click starts
+/// a new pair.
+fn double_click_break_pair() {
+    INPUT_DOUBLE_CLICKS.with(|cell| {
+        let mut tracker = cell.get();
+        tracker.break_pair();
+        cell.set(tracker);
+    });
+}
+
+// ---------------------------------------------------------------------------
 // Input_Thread low-level mouse hook callback
 // ---------------------------------------------------------------------------
 
@@ -1979,6 +2040,15 @@ unsafe extern "system" fn input_mouse_ll_proc(
                     note_input(timestamp, window_handle);
                     // Store mouse-down position for drag detection.
                     INPUT_MOUSE_DOWN_POS.with(|p| p.set(Some(pt)));
+                    // And the press itself, for the double-click test.
+                    INPUT_LEFT_PRESS.with(|p| {
+                        p.set(Some(ClickPress {
+                            time_ms: mouse_struct.time,
+                            x: pt.x,
+                            y: pt.y,
+                            window: window_handle,
+                        }))
+                    });
                     // What is held when a drag starts from here is read at
                     // the first move past the threshold.
                     INPUT_DRAG_START_KEYS.with(|k| k.borrow_mut().on_press());
@@ -2038,8 +2108,13 @@ unsafe extern "system" fn input_mouse_ll_proc(
                     note_input(timestamp, window_handle);
                     let classified =
                         classify_left_release(INPUT_MOUSE_DOWN_POS.with(|p| p.get()), pt);
+                    // The press this release ends, taken whatever the release
+                    // records, so no later release reads it.
+                    let left_press = INPUT_LEFT_PRESS.with(|p| p.take());
 
                     if let LeftRelease::DragPair { source_coords } = classified {
+                        // A drag between two clicks breaks a double-click.
+                        double_click_break_pair();
                         // Drag detected: dispatch DragStart + Drop pair. The
                         // drag start states what was held when the pointer
                         // first passed the threshold, the drop what is held
@@ -2083,6 +2158,7 @@ unsafe extern "system" fn input_mouse_ll_proc(
                         // Click detected — pre-capture the element while
                         // the window is guaranteed alive.
                         let pre_element = input_pre_capture_element(pt.x, pt.y);
+                        let double = left_press.is_some_and(double_click_completed_by);
                         input_dispatch_raw_event(RawEvent {
                             event_type: RawEventType::Click,
                             sequence_id: 0,
@@ -2094,7 +2170,16 @@ unsafe extern "system" fn input_mouse_ll_proc(
                             key_code: 0,
                             modifiers: get_modifier_state(),
                             scroll_delta: 0.0,
-                            callback_params: [0, 0, 0, 0],
+                            callback_params: [
+                                if double {
+                                    CLICK_COMPLETES_DOUBLE_CLICK
+                                } else {
+                                    0
+                                },
+                                0,
+                                0,
+                                0,
+                            ],
                             pre_captured_element: pre_element,
                             focus_epoch: 0,
                             held: Vec::new(),
@@ -2149,6 +2234,9 @@ unsafe extern "system" fn input_mouse_ll_proc(
                 // The middle and right buttons record on the press itself, each
                 // dispatching the raw event its message maps to.
                 WM_MBUTTONDOWN | WM_RBUTTONDOWN => {
+                    // Another button between two left clicks breaks a
+                    // double-click.
+                    double_click_break_pair();
                     if let Some(event_type) = down_dispatch_event_type(msg) {
                         // Record the input for correlation.
                         note_input(timestamp, window_handle);
@@ -2164,7 +2252,7 @@ unsafe extern "system" fn input_mouse_ll_proc(
                             key_code: 0,
                             modifiers: get_modifier_state(),
                             scroll_delta: 0.0,
-                            callback_params: [0, 0, 0, 0],
+                            callback_params: [down_dispatch_click_mark(msg), 0, 0, 0],
                             pre_captured_element: pre_element,
                             focus_epoch: 0,
                             held: Vec::new(),
@@ -2174,8 +2262,11 @@ unsafe extern "system" fn input_mouse_ll_proc(
                 _ => {}
             }
         } else if msg == WM_LBUTTONUP as u32 {
-            // Excluded PID — clear drag state.
+            // Excluded PID — clear drag state, and pair no double-click across
+            // the excluded window.
             INPUT_MOUSE_DOWN_POS.with(|p| p.set(None));
+            INPUT_LEFT_PRESS.with(|p| p.set(None));
+            double_click_break_pair();
         }
     }
 
@@ -2254,19 +2345,49 @@ unsafe extern "system" fn input_keyboard_ll_proc(
             let mut pid: u32 = 0;
             let thread_id = GetWindowThreadProcessId(hwnd, Some(&mut pid));
             let excluded = input_get_excluded_pid();
+            let foreground_kept = input_should_keep_event_cached(pid, excluded, hwnd);
+            let modifiers = get_modifier_state();
+            // Which window the key is attributed to (DCP-14): a key the
+            // system acts on, not the foreground window (the Windows key,
+            // Ctrl+Esc, Alt+Tab, for example: `system_takes_key`), is kept
+            // with no window over an excluded foreground window.
+            let attribution = super::scroll::keyboard_attribution(
+                kb_struct.vkCode,
+                modifiers,
+                pid,
+                input_get_included_pid(),
+                excluded,
+                foreground_kept,
+            );
 
-            if input_should_keep_event_cached(pid, excluded, hwnd) {
-                let modifiers = get_modifier_state();
+            if attribution != KeyAttribution::Dropped {
+                let layout_char = foreground_layout_char(kb_struct.vkCode, thread_id);
                 let timestamp = current_timestamp_ms();
-                let window_handle = hwnd.0 as i64;
+                let foreground_handle = hwnd.0 as i64;
+                let (window_handle, process_id) = match attribution {
+                    KeyAttribution::NoWindow => (0, 0),
+                    _ => (foreground_handle, pid),
+                };
 
-                // Record the input for correlation (plus the keyboard-only
-                // pair used by value-change correlation).
-                note_input(timestamp, window_handle);
-                INPUT_LAST_KEYBOARD_TIMESTAMP.with(|t| t.set(timestamp));
-                INPUT_LAST_KEYBOARD_WINDOW.with(|w| w.set(window_handle));
+                // Record the input for correlation. A key with no window still
+                // correlates the window changes it causes, with the foreground
+                // window it was pressed over as the input's window, so the
+                // selections of the windows it opens stay scoped out (DCP-8);
+                // it types into no window, so it is no keyboard input for
+                // value-change correlation.
+                note_input(timestamp, foreground_handle);
+                if attribution == KeyAttribution::ForegroundWindow {
+                    INPUT_LAST_KEYBOARD_TIMESTAMP.with(|t| t.set(timestamp));
+                    INPUT_LAST_KEYBOARD_WINDOW.with(|w| w.set(window_handle));
+                }
 
-                let control = focused_control_of_thread(thread_id);
+                // The control holding the keyboard focus, for the worker to
+                // settle the key on; none for a key with no window, whose
+                // focused control is the excluded window's.
+                let control = match attribution {
+                    KeyAttribution::NoWindow => 0,
+                    _ => focused_control_of_thread(thread_id),
+                };
                 input_dispatch_raw_event(RawEvent {
                     event_type: RawEventType::Keyboard,
                     sequence_id: 0,
@@ -2274,7 +2395,7 @@ unsafe extern "system" fn input_keyboard_ll_proc(
                     screen_x: 0,
                     screen_y: 0,
                     window_handle,
-                    process_id: pid,
+                    process_id,
                     key_code: kb_struct.vkCode,
                     modifiers,
                     scroll_delta: 0.0,
@@ -2287,7 +2408,9 @@ unsafe extern "system" fn input_keyboard_ll_proc(
                     // which sends no message and waits on no program.
                     // And the number of the latest focus change that named a
                     // part of that control, from this thread's own note.
-                    // Last, whether the key was already down at this
+                    // Then the character a punctuation key enters on the
+                    // foreground window's layout, read above (docent#691), and
+                    // above it whether the key was already down at this
                     // key-down: a press key repeat generated (docent#696).
                     // Above the scan code sits the hook's extended mark,
                     // which tells apart two keys that share a key code.
@@ -2300,7 +2423,12 @@ unsafe extern "system" fn input_keyboard_ll_proc(
                             },
                         control,
                         INPUT_PART_FOCUS.with(|note| note.borrow().of(control)),
-                        i64::from(repeat),
+                        i64::from(layout_char)
+                            | if repeat {
+                                super::held_keys::KEY_REPEAT_PARAM
+                            } else {
+                                0
+                            },
                     ],
                     pre_captured_element: None,
                     focus_epoch: 0,
@@ -2310,13 +2438,42 @@ unsafe extern "system" fn input_keyboard_ll_proc(
             // After the key's own dispatch, so the key keeps the epoch it was
             // pressed under. Outside the exclusion gate: a focus-moving key
             // pressed in an excluded window moves the focus all the same.
-            if super::worker_pool::key_may_move_focus(kb_struct.vkCode, get_modifier_state()) {
+            if super::worker_pool::key_may_move_focus(kb_struct.vkCode, modifiers) {
                 focus_epoch_advance_by_person();
             }
         }
     }
 
     CallNextHookEx(None, n_code, w_param, l_param)
+}
+
+/// What the keyboard layout of the foreground window's thread (`thread_id`,
+/// the thread `GetWindowThreadProcessId` names) gives punctuation key `vk`,
+/// for the worker to name the key by (`worker_pool::punctuation_key_name`
+/// states the value); 0 for every other key, and where no thread or layout is
+/// known. The layout is read at the keypress, so a later switch of layout does
+/// not rename the key. Called on the keyboard hook: two user32 reads, no
+/// accessibility call, lock or allocation.
+unsafe fn foreground_layout_char(vk: u32, thread_id: u32) -> u32 {
+    // Thread 0 would ask for this thread's own layout, not the window's.
+    if thread_id == 0 || !super::worker_pool::is_punctuation_key(vk) {
+        return 0;
+    }
+    layout_char(vk, GetKeyboardLayout(thread_id))
+}
+
+/// The character `vk` enters with no modifier on keyboard layout `hkl`, with
+/// the dead-key flag in bit 31, as `MapVirtualKeyExW(MAPVK_VK_TO_CHAR)` gives
+/// it (0 where the layout gives none). The read takes no key-state array: it
+/// answers with the key's own character on the layout's base table, never
+/// what the modifiers held at the keypress make of it, and it touches no
+/// dead-key state, so a dead key pressed before it still composes with the
+/// next key.
+unsafe fn layout_char(vk: u32, hkl: HKL) -> u32 {
+    if hkl.0.is_null() {
+        return 0;
+    }
+    MapVirtualKeyExW(vk, MAPVK_VK_TO_CHAR as u32, Some(hkl))
 }
 
 // ---------------------------------------------------------------------------
@@ -2764,7 +2921,62 @@ unsafe fn build_tree_path_with_root(
 // File dialog helpers (used by WindowsAccessibilityBackend)
 // ---------------------------------------------------------------------------
 
-/// Find a child Edit element by AutomationId and return its value.
+/// The condition matching a control of `control_type_id` whose AutomationId is
+/// `automation_id`. Both tests ride one condition, so a search over a file
+/// dialog returns only the controls it names, never every control of the type
+/// (the item view holds an Edit per item).
+unsafe fn type_and_automation_id_condition(
+    uia: &IUIAutomation,
+    control_type_id: i32,
+    automation_id: &str,
+) -> Option<IUIAutomationCondition> {
+    let type_condition = uia
+        .CreatePropertyCondition(
+            UIA_ControlTypePropertyId,
+            Variant::from(control_type_id).as_raw(),
+        )
+        .ok()?;
+    let id_condition = uia
+        .CreatePropertyCondition(
+            UIA_AutomationIdPropertyId,
+            bstr_variant(automation_id).as_raw(),
+        )
+        .ok()?;
+    uia.CreateAndCondition(&type_condition, &id_condition).ok()
+}
+
+/// The Value of the first Edit under `parent` with AutomationId
+/// `automation_id`, as it is — empty for an empty box; none when no such
+/// Edit exists. Its Name is the label beside the box ("File name:"), never
+/// its content.
+unsafe fn edit_value_by_automation_id(
+    uia: &IUIAutomation,
+    parent: &IUIAutomationElement,
+    automation_id: &str,
+) -> Option<String> {
+    use super::uia_core_api::UIA_EditControlTypeId;
+    use super::win32_bindings::TreeScope_Descendants;
+
+    let condition = type_and_automation_id_condition(uia, UIA_EditControlTypeId.0, automation_id)?;
+    let edit = parent.FindFirst(TreeScope_Descendants, &condition).ok()?;
+    Some(get_string_property(&edit, UIA_ValueValuePropertyId))
+}
+
+/// The text of a file dialog's File name box: the Edit an Open dialog gives
+/// AutomationId 1148 (the cmb13 combo box's id), else the one a Save dialog
+/// gives 1001 (the edt1 id) — the first that exists, by its Value; none when
+/// neither exists or the box is empty.
+unsafe fn file_name_box_text(
+    uia: &IUIAutomation,
+    dialog_element: &IUIAutomationElement,
+) -> Option<String> {
+    ["1148", "1001"]
+        .into_iter()
+        .find_map(|id| edit_value_by_automation_id(uia, dialog_element, id))
+        .filter(|text| !text.is_empty())
+}
+
+/// Find a child Edit element by AutomationId and return its non-empty Value.
 pub(crate) unsafe fn find_child_value_by_automation_id(
     uia: &IUIAutomation,
     parent: &IUIAutomationElement,
@@ -2773,13 +2985,8 @@ pub(crate) unsafe fn find_child_value_by_automation_id(
     use super::uia_core_api::UIA_EditControlTypeId;
     use super::win32_bindings::TreeScope_Descendants;
 
-    // Create a condition to find Edit controls.
-    let edit_condition = uia
-        .CreatePropertyCondition(
-            UIA_ControlTypePropertyId,
-            Variant::from(UIA_EditControlTypeId.0).as_raw(),
-        )
-        .ok()?;
+    let edit_condition =
+        type_and_automation_id_condition(uia, UIA_EditControlTypeId.0, target_automation_id)?;
 
     let all_edits = parent
         .FindAll(TreeScope_Descendants, &edit_condition)
@@ -2788,17 +2995,9 @@ pub(crate) unsafe fn find_child_value_by_automation_id(
     let count = all_edits.Length().ok()?;
     for i in 0..count {
         if let Ok(child) = all_edits.GetElement(i) {
-            let auto_id = get_string_property(&child, UIA_AutomationIdPropertyId);
-            if auto_id == target_automation_id {
-                let value = get_string_property(&child, UIA_ValueValuePropertyId);
-                if !value.is_empty() {
-                    return Some(value);
-                }
-                // Fall back to the Name property.
-                let name = get_string_property(&child, UIA_NamePropertyId);
-                if !name.is_empty() {
-                    return Some(name);
-                }
+            let value = get_string_property(&child, UIA_ValueValuePropertyId);
+            if !value.is_empty() {
+                return Some(value);
             }
         }
     }
@@ -2820,13 +3019,10 @@ pub(crate) unsafe fn read_file_dialog_directory(
     }
 
     // Strategy 2: Look for a ToolBar with AutomationId "1001" — the breadcrumb
-    // bar. Its Name property often contains the current path.
-    let toolbar_condition = uia
-        .CreatePropertyCondition(
-            UIA_ControlTypePropertyId,
-            Variant::from(UIA_ToolBarControlTypeId.0).as_raw(),
-        )
-        .ok()?;
+    // bar. Its Name is the current path behind a label ("Address: " on an
+    // English system), which is not part of the path.
+    let toolbar_condition =
+        type_and_automation_id_condition(uia, UIA_ToolBarControlTypeId.0, "1001")?;
 
     let toolbars = dialog_element
         .FindAll(TreeScope_Descendants, &toolbar_condition)
@@ -2835,17 +3031,112 @@ pub(crate) unsafe fn read_file_dialog_directory(
     let count = toolbars.Length().ok()?;
     for i in 0..count {
         if let Ok(tb) = toolbars.GetElement(i) {
-            let auto_id = get_string_property(&tb, UIA_AutomationIdPropertyId);
-            if auto_id == "1001" {
-                let name = get_string_property(&tb, UIA_NamePropertyId);
-                if !name.is_empty() && name.contains('\\') {
-                    return Some(name);
-                }
+            let name = get_string_property(&tb, UIA_NamePropertyId);
+            if let Some(path) = super::element_mapping::path_in_address_label(&name) {
+                return Some(path.to_string());
             }
         }
     }
 
     None
+}
+
+/// The most folder entries [`file_on_disk`] looks at for one File name text;
+/// past it the text is decided to name no one file, so the cost of the
+/// lookup stays bounded in a folder of any size.
+const FILE_DIALOG_CANDIDATE_LIMIT: usize = 64;
+
+/// The file on disk a file dialog's shown path names (see
+/// [`AccessibilityBackend::file_on_disk`]). The files the text can be shown
+/// for are the ones the folder lists under the text followed by an extension
+/// (`<text>.*`, which also lists `<text>` itself), each with the name the
+/// shell displays for it ([`shell_display_name`]); the typed path itself
+/// counts where it is a file.
+fn file_on_disk(shown_path: &str) -> Option<String> {
+    use super::win32_bindings::{
+        FindClose, FindExInfoBasic, FindExSearchNameMatch, FindFirstFileExW, FindNextFileW,
+        FILE_ATTRIBUTE_DIRECTORY, WIN32_FIND_DATAW,
+    };
+
+    // A path that is not a full one (no folder was read, or the text is
+    // relative) would resolve against this process's working directory.
+    if !super::element_mapping::is_full_path(shown_path) {
+        return None;
+    }
+    let (directory, text) = shown_path.rsplit_once('\\')?;
+    let typed_path_is_file = std::path::Path::new(shown_path).is_file();
+    let mut listed = Vec::new();
+    // A text holding a wildcard is a filter the dialog applies, not a name.
+    if !text.is_empty() && !text.contains(['*', '?']) {
+        let pattern: Vec<u16> = format!("{shown_path}.*")
+            .encode_utf16()
+            .chain(Some(0))
+            .collect();
+        let mut data = WIN32_FIND_DATAW::default();
+        let find = unsafe {
+            FindFirstFileExW(
+                windows_core::PCWSTR(pattern.as_ptr()),
+                FindExInfoBasic,
+                &mut data as *mut WIN32_FIND_DATAW as *mut core::ffi::c_void,
+                FindExSearchNameMatch,
+                None,
+                0,
+            )
+        };
+        if find != INVALID_HANDLE_VALUE {
+            let mut seen = 0;
+            let mut complete = false;
+            while seen < FILE_DIALOG_CANDIDATE_LIMIT {
+                seen += 1;
+                if data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY as u32 == 0 {
+                    let path = format!("{directory}\\{}", wide_until_nul(&data.cFileName));
+                    if let Some(display) = shell_display_name(&path) {
+                        listed.push((display, path));
+                    }
+                }
+                if !unsafe { FindNextFileW(find, &mut data) }.as_bool() {
+                    complete = true;
+                    break;
+                }
+            }
+            unsafe {
+                let _ = FindClose(find);
+            }
+            if !complete {
+                return None;
+            }
+        }
+    }
+    super::element_mapping::chosen_file_on_disk(shown_path, typed_path_is_file, &listed)
+}
+
+/// The name the shell displays for the file at `path`, as a folder view
+/// shows it (`SHGFI_DISPLAYNAME`): without its extension where the system
+/// hides extensions.
+fn shell_display_name(path: &str) -> Option<String> {
+    use super::win32_bindings::{SHGetFileInfoW, SHFILEINFOW, SHGFI_DISPLAYNAME};
+
+    let wide: Vec<u16> = path.encode_utf16().chain(Some(0)).collect();
+    let mut info = SHFILEINFOW::default();
+    let found = unsafe {
+        SHGetFileInfoW(
+            windows_core::PCWSTR(wide.as_ptr()),
+            0,
+            Some(&mut info),
+            std::mem::size_of::<SHFILEINFOW>() as u32,
+            SHGFI_DISPLAYNAME as u32,
+        )
+    };
+    (found != 0).then(|| wide_until_nul(&info.szDisplayName))
+}
+
+/// The text in a fixed UTF-16 buffer, up to its first NUL.
+fn wide_until_nul(buffer: &[u16]) -> String {
+    let len = buffer
+        .iter()
+        .position(|unit| *unit == 0)
+        .unwrap_or(buffer.len());
+    String::from_utf16_lossy(&buffer[..len])
 }
 
 // ---------------------------------------------------------------------------
@@ -3223,7 +3514,9 @@ impl AccessibilityBackend for WindowsAccessibilityBackend {
 
     fn read_file_dialog_path(&self, window_handle: i64) -> Option<(String, String)> {
         let uia = self.uia.as_ref()?;
-        let hwnd = HWND(window_handle as *mut _);
+        // A click names the control under the pointer (the Open button, the
+        // item view), a child of the dialog: the dialog is its root window.
+        let hwnd = HWND(self.root_window_handle(window_handle) as *mut _);
 
         // Check if the window is a file dialog (class name #32770).
         let class_name = unsafe { get_class_name(hwnd) };
@@ -3248,25 +3541,22 @@ impl AccessibilityBackend for WindowsAccessibilityBackend {
         unsafe {
             let dialog_element = uia.ElementFromHandle(UIA_HWND(hwnd.0)).ok()?;
 
-            // Read the filename from the "File name:" edit (AutomationId "1001").
-            let filename = find_child_value_by_automation_id(uia, &dialog_element, "1001")?;
-            if filename.is_empty() {
-                return None;
-            }
+            // The File name box's text: the name as the dialog shows it,
+            // without the extension where the system hides extensions.
+            let filename = file_name_box_text(uia, &dialog_element)?;
 
             // Try to read the current directory from the breadcrumb/address bar.
             let directory = read_file_dialog_directory(uia, &dialog_element);
 
-            let file_path = match directory {
-                Some(dir) if !dir.is_empty() => {
-                    let dir = dir.trim_end_matches('\\');
-                    format!("{dir}\\{filename}")
-                }
-                _ => filename,
-            };
+            let file_path =
+                super::element_mapping::typed_file_path(directory.as_deref(), &filename);
 
             Some((dialog_type.to_string(), file_path))
         }
+    }
+
+    fn file_on_disk(&self, shown_path: &str) -> Option<String> {
+        file_on_disk(shown_path)
     }
 
     fn root_window_handle(&self, window_handle: i64) -> i64 {
@@ -3344,11 +3634,107 @@ impl AccessibilityBackend for WindowsAccessibilityBackend {
 mod tests {
     use super::{
         control_type_name, get_parent_pid, get_process_exe_name, is_descendant_of,
-        is_password_value, is_recognized_by_exe_name, windows_should_keep_event,
-        GetCurrentThreadId, Variant, BSTR, VT_EMPTY,
+        is_password_value, is_recognized_by_exe_name, layout_char, windows_should_keep_event,
+        GetCurrentThreadId, MapVirtualKeyExW, Variant, BSTR, HKL, VT_EMPTY,
     };
     use crate::capture::uia_core_api::UiaGetReservedNotSupportedValue;
     use crate::capture::win32_bindings::VARIANT;
+    use crate::capture::win32_bindings::{
+        GetKeyboardLayoutList, LoadKeyboardLayoutW, UnloadKeyboardLayout, KLF_NOTELLSHELL,
+        MAPVK_VSC_TO_VK,
+    };
+    use crate::capture::worker_pool::{is_punctuation_key, punctuation_key_name};
+
+    // -- a punctuation key's layout character (docent#691) --------------------
+
+    /// A keyboard layout loaded for a test, by its layout id, and unloaded
+    /// when the test ends unless it was loaded before.
+    struct LoadedLayout {
+        hkl: HKL,
+        unload: bool,
+    }
+
+    impl LoadedLayout {
+        fn load(id: &str, language: usize) -> Self {
+            let wide: Vec<u16> = id.encode_utf16().chain(Some(0)).collect();
+            // SAFETY: the list is read into a buffer of the size the first call
+            // reports, and the id is a NUL-terminated UTF-16 string that lives
+            // across the call.
+            unsafe {
+                let mut loaded = vec![HKL::default(); GetKeyboardLayoutList(0, None) as usize];
+                let n = GetKeyboardLayoutList(loaded.len() as i32, Some(loaded.as_mut_ptr()));
+                loaded.truncate(n.max(0) as usize);
+                let hkl = LoadKeyboardLayoutW(
+                    windows_core::PCWSTR(wide.as_ptr()),
+                    KLF_NOTELLSHELL as u32,
+                );
+                assert!(!hkl.0.is_null(), "layout {id} must load");
+                // The language half of the handle: the layout asked for, not a
+                // substitute.
+                assert_eq!(hkl.0 as usize & 0xFFFF, language, "layout {id}");
+                LoadedLayout {
+                    hkl,
+                    unload: !loaded.contains(&hkl),
+                }
+            }
+        }
+
+        /// The virtual-key code this layout gives the key at `scan_code`.
+        fn vk_at(&self, scan_code: u32) -> u32 {
+            // SAFETY: a read of a loaded layout's tables.
+            unsafe { MapVirtualKeyExW(scan_code, MAPVK_VSC_TO_VK as u32, Some(self.hkl)) }
+        }
+
+        /// The key name the worker gives `vk` from what this layout reads.
+        fn name(&self, vk: u32) -> String {
+            // SAFETY: a read of a loaded layout's tables.
+            punctuation_key_name(vk, i64::from(unsafe { layout_char(vk, self.hkl) }))
+        }
+    }
+
+    impl Drop for LoadedLayout {
+        fn drop(&mut self) {
+            if self.unload {
+                // SAFETY: a layout this test loaded and no longer uses.
+                unsafe {
+                    let _ = UnloadKeyboardLayout(self.hkl);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn layout_char_reads_what_the_danish_layout_gives_a_punctuation_key() {
+        let danish = LoadedLayout::load("00000406", 0x0406);
+        // VK_OEM_PLUS, the key right of 0, enters `+` (`=` on the US layout).
+        // SAFETY: a read of a loaded layout's tables.
+        assert_eq!(unsafe { layout_char(0xBB, danish.hkl) }, u32::from('+'));
+        assert_eq!(danish.name(0xBB), "+");
+        // The key right of L (scan code 0x27) enters `æ`, named in upper case.
+        let ae = danish.vk_at(0x27);
+        assert!(is_punctuation_key(ae), "vk {ae:#x}");
+        assert_eq!(danish.name(ae), "Æ");
+        // The key right of `+` (scan code 0x0D) is the dead acute accent.
+        let acute = danish.vk_at(0x0D);
+        assert!(is_punctuation_key(acute), "vk {acute:#x}");
+        // SAFETY: a read of a loaded layout's tables.
+        let read = unsafe { layout_char(acute, danish.hkl) };
+        assert_ne!(read & 0x8000_0000, 0, "the dead-key flag");
+        assert_eq!(danish.name(acute), "´");
+    }
+
+    #[test]
+    fn layout_char_reads_what_the_us_layout_gives_a_punctuation_key() {
+        let us = LoadedLayout::load("00000409", 0x0409);
+        assert_eq!(us.name(0xBB), "=");
+        assert_eq!(us.name(0xDE), "'");
+    }
+
+    #[test]
+    fn layout_char_reads_nothing_from_no_layout() {
+        // SAFETY: a null layout is answered without a call.
+        assert_eq!(unsafe { layout_char(0xBB, HKL::default()) }, 0);
+    }
 
     // -- the held-key record's message numbers ---------------------------------
 
@@ -3493,10 +3879,10 @@ mod tests {
     // different answer.
 
     use super::{
-        classify_left_release, down_dispatch_event_type, input_should_keep_event_cached, is_drag,
-        scope_filter_decision, AtomicU32, LeftRelease, RawEventType, DRAG_THRESHOLD_PX, HWND,
-        INPUT_INCLUDED_PID, INPUT_PID_CACHE, POINT, WM_LBUTTONDOWN, WM_MBUTTONDOWN, WM_MOUSEWHEEL,
-        WM_RBUTTONDOWN,
+        classify_left_release, down_dispatch_click_mark, down_dispatch_event_type,
+        input_should_keep_event_cached, is_drag, scope_filter_decision, AtomicU32, LeftRelease,
+        RawEventType, CLICK_IS_MIDDLE_BUTTON, DRAG_THRESHOLD_PX, HWND, INPUT_INCLUDED_PID,
+        INPUT_PID_CACHE, POINT, WM_LBUTTONDOWN, WM_MBUTTONDOWN, WM_MOUSEWHEEL, WM_RBUTTONDOWN,
     };
     use std::cell::{Cell, RefCell};
     use std::collections::HashMap;
@@ -4015,6 +4401,17 @@ mod tests {
         assert!(down_dispatch_event_type(WM_MOUSEWHEEL as u32).is_none());
     }
 
+    #[test]
+    fn regression_692_the_middle_buttons_click_is_marked_as_the_middle_buttons() {
+        // https://github.com/Arsarneq/docent/issues/692 — a middle press on a
+        // file dialog's Open button recorded a file_dialog.
+        assert_eq!(
+            down_dispatch_click_mark(WM_MBUTTONDOWN as u32),
+            CLICK_IS_MIDDLE_BUTTON
+        );
+        assert_eq!(down_dispatch_click_mark(WM_RBUTTONDOWN as u32), 0);
+    }
+
     // -- flush-barrier fallback drain (truthful completion) ----------------
     //
     // These hand-wire a WindowsCapture whose input thread can never serve a
@@ -4330,5 +4727,476 @@ mod tests {
         assert_eq!(control_type_name(50038), "Separator");
         assert_eq!(control_type_name(50039), "SemanticZoom");
         assert_eq!(control_type_name(50040), "AppBar");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// The file-dialog read against a real common Open dialog
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod file_dialog_read_tests {
+    //! The backend's file-dialog read (DCP-6) run against a real common Open
+    //! dialog this process opens with `GetOpenFileNameW` on a thread of its
+    //! own, showing a folder the test creates, with the File name preset — no
+    //! other application and no synthesized input. The dialog is modal on its
+    //! thread; a guard closes it however the test ends.
+
+    use super::super::win32_bindings::{
+        FindWindowW, GetDlgItem, GetOpenFileNameW, GetSaveFileNameW, PostMessageW, OFN_EXPLORER,
+        OFN_FILEMUSTEXIST, OPENFILENAMEW, WM_CLOSE,
+    };
+    use super::*;
+    use windows_core::PCWSTR;
+
+    /// The file the dialog's folder holds and its File name names.
+    const FILE: &str = "docent-692-known.txt";
+
+    fn wide(s: &str) -> Vec<u16> {
+        s.encode_utf16().chain(Some(0)).collect()
+    }
+
+    /// Closes the dialog when dropped, so a failed assertion leaves no modal
+    /// window behind for the rest of the suite.
+    struct CloseOnDrop(isize);
+
+    impl Drop for CloseOnDrop {
+        fn drop(&mut self) {
+            if self.0 != 0 {
+                unsafe {
+                    let _ = PostMessageW(
+                        Some(HWND(self.0 as *mut _)),
+                        WM_CLOSE as u32,
+                        WPARAM(0),
+                        LPARAM(0),
+                    );
+                }
+            }
+        }
+    }
+
+    /// Poll `f` until it answers `Some` or `timeout` passes.
+    fn poll<T>(timeout: Duration, mut f: impl FnMut() -> Option<T>) -> Option<T> {
+        let start = Instant::now();
+        loop {
+            if let Some(v) = f() {
+                return Some(v);
+            }
+            if start.elapsed() > timeout {
+                return None;
+            }
+            thread::sleep(Duration::from_millis(100));
+        }
+    }
+
+    /// Walk `read_file_dialog_path`'s steps with the helpers it calls and
+    /// report each one's answer, then every Edit, ComboBox and ToolBar under
+    /// the dialog with its ControlType, AutomationId, Name, Value and
+    /// ClassName. Test diagnostics only: it decides nothing.
+    unsafe fn diagnose_file_dialog_read(
+        backend: &WindowsAccessibilityBackend,
+        window: i64,
+    ) -> String {
+        use super::super::uia_core_api::UIA_EditControlTypeId;
+        use super::super::win32_bindings::TreeScope_Descendants;
+        use std::fmt::Write as _;
+
+        let mut out = String::from("file-dialog read diagnosis:\n");
+        let root = backend.root_window_handle(window);
+        let hwnd = HWND(root as *mut _);
+        let _ = writeln!(out, "  window {window:#x}, root {root:#x}");
+        let _ = writeln!(
+            out,
+            "  step class: {:?} (wants \"#32770\")",
+            get_class_name(hwnd)
+        );
+        let _ = writeln!(out, "  step title: {:?}", get_window_title(hwnd));
+        let Some(uia) = backend.uia.as_ref() else {
+            let _ = writeln!(out, "  step uia: no IUIAutomation (init not run)");
+            return out;
+        };
+        let dialog = match uia.ElementFromHandle(UIA_HWND(hwnd.0)) {
+            Ok(el) => el,
+            Err(e) => {
+                let _ = writeln!(out, "  step ElementFromHandle: error {e}");
+                return out;
+            }
+        };
+        let _ = writeln!(
+            out,
+            "  step File name edit Value (Edit 1148, Edit 1001): {:?}, {:?}",
+            edit_value_by_automation_id(uia, &dialog, "1148"),
+            edit_value_by_automation_id(uia, &dialog, "1001")
+        );
+        let _ = writeln!(
+            out,
+            "  step directory: {:?}",
+            read_file_dialog_directory(uia, &dialog)
+        );
+        let all = match uia
+            .CreateTrueCondition()
+            .and_then(|c| dialog.FindAll(TreeScope_Descendants, &c))
+        {
+            Ok(all) => all,
+            Err(e) => {
+                let _ = writeln!(out, "  descendants: FindAll error {e}");
+                return out;
+            }
+        };
+        let count = all.Length().unwrap_or(0);
+        let _ = writeln!(
+            out,
+            "  descendants: {count} (Edit, ComboBox and ToolBar listed)"
+        );
+        let wanted = [
+            UIA_EditControlTypeId.0,
+            50003, // UIA_ComboBoxControlTypeId (control_type_name's table)
+            UIA_ToolBarControlTypeId.0,
+        ];
+        for i in 0..count {
+            let Ok(el) = all.GetElement(i) else { continue };
+            let control_type = get_i32_property(&el, UIA_ControlTypePropertyId);
+            if !wanted.contains(&control_type) {
+                continue;
+            }
+            let _ = writeln!(
+                out,
+                "    {} ({control_type}) id={:?} name={:?} value={:?} class={:?}",
+                control_type_name(control_type),
+                get_string_property(&el, UIA_AutomationIdPropertyId),
+                get_string_property(&el, UIA_NamePropertyId),
+                get_string_property(&el, UIA_ValueValuePropertyId),
+                get_string_property(&el, UIA_ClassNamePropertyId),
+            );
+        }
+        out
+    }
+
+    /// Which common dialog [`open_test_dialog`] opens.
+    #[derive(Clone, Copy)]
+    enum DialogKind {
+        Open,
+        SaveAs,
+    }
+
+    /// A common dialog open on a thread of its own, showing a folder made for
+    /// it; dropping it closes the dialog, joins its thread and removes the
+    /// folder.
+    struct TestDialog {
+        /// The folder, by its long path as the dialog shows it.
+        dir: String,
+        made: std::path::PathBuf,
+        /// One of the dialog's child windows, as a click names one.
+        child: i64,
+        guard: Option<CloseOnDrop>,
+        thread: Option<JoinHandle<()>>,
+    }
+
+    impl Drop for TestDialog {
+        fn drop(&mut self) {
+            drop(self.guard.take());
+            if let Some(thread) = self.thread.take() {
+                let _ = thread.join();
+            }
+            let _ = std::fs::remove_dir_all(&self.made);
+        }
+    }
+
+    /// Open a `kind` dialog titled after `tag`, on a folder holding `files`,
+    /// with its File name preset to `preset`, and wait for it to appear.
+    fn open_test_dialog(kind: DialogKind, tag: &str, files: &[&str], preset: &str) -> TestDialog {
+        // The folder, by its long path: the temp path can be a short (8.3)
+        // one, and the dialog shows the long one.
+        let made = std::env::temp_dir().join(format!("docent-692-{tag}-{}", std::process::id()));
+        std::fs::create_dir_all(&made).unwrap();
+        for file in files {
+            std::fs::write(made.join(file), b"692").unwrap();
+        }
+        let canonical = std::fs::canonicalize(&made).unwrap();
+        let dir = canonical.to_string_lossy();
+        let dir = dir.strip_prefix(r"\\?\").unwrap_or(&dir).to_string();
+        let title = match kind {
+            DialogKind::Open => format!("Docent read test {tag} {} - Open", std::process::id()),
+            DialogKind::SaveAs => {
+                format!("Docent read test {tag} {} - Save As", std::process::id())
+            }
+        };
+
+        let thread = {
+            let dir = dir.clone();
+            let title = title.clone();
+            let preset = preset.to_string();
+            thread::spawn(move || unsafe {
+                let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED as u32);
+                let dir_w = wide(&dir);
+                let title_w = wide(&title);
+                let filter: Vec<u16> = "Text files\0*.txt\0\0".encode_utf16().collect();
+                let mut file = [0u16; 260];
+                for (slot, unit) in file.iter_mut().zip(preset.encode_utf16()) {
+                    *slot = unit;
+                }
+                let mut ofn = OPENFILENAMEW {
+                    lStructSize: std::mem::size_of::<OPENFILENAMEW>() as u32,
+                    lpstrFilter: PCWSTR(filter.as_ptr()),
+                    lpstrFile: PWSTR(file.as_mut_ptr()),
+                    nMaxFile: file.len() as u32,
+                    lpstrInitialDir: PCWSTR(dir_w.as_ptr()),
+                    lpstrTitle: PCWSTR(title_w.as_ptr()),
+                    ..Default::default()
+                };
+                // Each returns once the dialog is closed (cancelled: no file).
+                match kind {
+                    DialogKind::Open => {
+                        ofn.Flags = (OFN_EXPLORER | OFN_FILEMUSTEXIST) as u32;
+                        let _ = GetOpenFileNameW(&mut ofn);
+                    }
+                    DialogKind::SaveAs => {
+                        ofn.Flags = OFN_EXPLORER as u32;
+                        let _ = GetSaveFileNameW(&mut ofn);
+                    }
+                }
+                CoUninitialize();
+            })
+        };
+
+        let title_w = wide(&title);
+        let dialog = poll(Duration::from_secs(20), || {
+            let h = unsafe { FindWindowW(windows_core::w!("#32770"), PCWSTR(title_w.as_ptr())) };
+            (!h.0.is_null()).then_some(h.0 as isize)
+        });
+        let mut opened = TestDialog {
+            dir,
+            made,
+            child: 0,
+            guard: dialog.map(CloseOnDrop),
+            thread: Some(thread),
+        };
+        let dialog = dialog.expect("the common dialog did not appear");
+
+        // The Open or Save button (IDOK); the File name combo box (cmb13)
+        // where a dialog shows its button windowless.
+        opened.child = [1, 0x047C]
+            .into_iter()
+            .map(|id| unsafe { GetDlgItem(Some(HWND(dialog as *mut _)), id) })
+            .find(|h| !h.0.is_null())
+            .expect("the dialog has neither an OK button nor a File name box window")
+            .0 as i64;
+        assert_ne!(
+            opened.child, dialog as i64,
+            "the read is given a child window"
+        );
+        opened
+    }
+
+    /// Read the dialog until the read, passed through what the worker records
+    /// for its type, is `expected`; print the diagnosis and fail otherwise.
+    fn assert_recorded(backend: &WindowsAccessibilityBackend, child: i64, expected: (&str, &str)) {
+        let mut last = None;
+        let matched = poll(Duration::from_secs(20), || {
+            last = backend.read_file_dialog_path(child).map(|(kind, shown)| {
+                // The worker's emission (handle_click): only an Open dialog's
+                // text is looked up on disk.
+                let path = if kind == "open" {
+                    backend.file_on_disk(&shown).unwrap_or(shown)
+                } else {
+                    shown
+                };
+                (kind, path)
+            });
+            match &last {
+                Some((kind, path)) if kind == expected.0 && path == expected.1 => Some(()),
+                _ => None,
+            }
+        });
+        if matched.is_none() {
+            // Diagnostic only: report where the read stops and the dialog's
+            // tree, so a failing run shows what the dialog holds.
+            eprintln!("{}", unsafe { diagnose_file_dialog_read(backend, child) });
+            eprintln!(
+                "  shell display name of {}: {:?}",
+                expected.1,
+                shell_display_name(expected.1)
+            );
+        }
+        assert!(matched.is_some(), "read {last:?}, expected {expected:?}");
+    }
+
+    /// A read given one of an Open dialog's child windows — its Open button,
+    /// which is what a click names — resolves the dialog as that window's
+    /// root and returns the dialog type from the title and the folder the
+    /// dialog shows joined with its File name, which names the file on disk
+    /// whether or not the system hides its extension; once the dialog has
+    /// closed, a read from the same window returns none.
+    #[test]
+    fn a_file_dialog_read_from_its_open_button_names_the_folder_and_the_file() {
+        let mut opened = open_test_dialog(DialogKind::Open, "open", &[FILE], FILE);
+        let child = opened.child;
+        let mut backend = WindowsAccessibilityBackend::new();
+        backend.init().unwrap();
+        assert_eq!(
+            backend.root_window_handle(child),
+            opened.guard.as_ref().unwrap().0 as i64
+        );
+
+        let expected = format!("{}\\{FILE}", opened.dir);
+        assert_recorded(&backend, child, ("open", &expected));
+
+        drop(opened.guard.take());
+        if let Some(thread) = opened.thread.take() {
+            thread.join().unwrap();
+        }
+        assert_eq!(
+            backend.read_file_dialog_path(child),
+            None,
+            "a closed dialog reads as none"
+        );
+        backend.cleanup();
+    }
+
+    /// An empty File name box reads as no file: the box's label ("File
+    /// name:", its Name) is not its text. Read once the dialog's folder and
+    /// box are both readable, so the none is the box's and not a dialog
+    /// still loading.
+    #[test]
+    fn a_file_dialog_with_an_empty_file_name_box_reads_as_none() {
+        let opened = open_test_dialog(DialogKind::Open, "empty", &[FILE], "");
+        let mut backend = WindowsAccessibilityBackend::new();
+        backend.init().unwrap();
+        let root = HWND(backend.root_window_handle(opened.child) as *mut _);
+        let loaded = poll(Duration::from_secs(20), || unsafe {
+            let uia = backend.uia.as_ref()?;
+            let dialog = uia.ElementFromHandle(UIA_HWND(root.0)).ok()?;
+            read_file_dialog_directory(uia, &dialog)?;
+            edit_value_by_automation_id(uia, &dialog, "1148")
+                .or_else(|| edit_value_by_automation_id(uia, &dialog, "1001"))
+        });
+        if loaded.is_none() {
+            eprintln!("{}", unsafe {
+                diagnose_file_dialog_read(&backend, opened.child)
+            });
+        }
+        assert_eq!(loaded.as_deref(), Some(""), "the File name box is empty");
+        assert_eq!(backend.read_file_dialog_path(opened.child), None);
+        backend.cleanup();
+    }
+
+    /// A Save As dialog's read returns `save_as` and the folder joined with
+    /// the File name text as shown — the file to be written, which need not
+    /// exist and is not looked up on disk.
+    #[test]
+    fn a_save_as_dialog_read_names_the_folder_and_the_text() {
+        let opened = open_test_dialog(DialogKind::SaveAs, "save", &[FILE], "docent-692-new");
+        let mut backend = WindowsAccessibilityBackend::new();
+        backend.init().unwrap();
+        let expected = format!("{}\\docent-692-new", opened.dir);
+        assert_recorded(&backend, opened.child, ("save_as", &expected));
+        backend.cleanup();
+    }
+
+    /// The lookup on a real folder, on a thread set up as a worker's (COM
+    /// initialised). The shell's display name of a file is its name or its
+    /// stem, as the system shows or hides extensions, and the answers are
+    /// asserted for whichever it is: a stem names its one file; a name typed
+    /// with its extension names that file even beside another file shown
+    /// under the same text; a text two files are shown as names neither;
+    /// a text more files than the candidate limit are listed under names
+    /// none, where fewer resolve; and a path that is not a full one is not
+    /// looked up.
+    #[test]
+    fn the_file_a_text_names_is_looked_up_on_disk_within_a_bound() {
+        let com = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED as u32) }.is_ok();
+        let made = std::env::temp_dir().join(format!("docent-692-lookup-{}", std::process::id()));
+        std::fs::create_dir_all(&made).unwrap();
+        let canonical = std::fs::canonicalize(&made).unwrap();
+        let dir = canonical.to_string_lossy();
+        let dir = dir.strip_prefix(r"\\?\").unwrap_or(&dir).to_string();
+        for name in ["solo.txt", "pair.txt", "pair.log", "few.txt", "many.txt"] {
+            std::fs::write(canonical.join(name), b"692").unwrap();
+        }
+        for n in 0..3 {
+            std::fs::write(canonical.join(format!("few.txt.{n}")), b"692").unwrap();
+        }
+        for n in 0..FILE_DIALOG_CANDIDATE_LIMIT {
+            std::fs::write(canonical.join(format!("many.txt.{n}")), b"692").unwrap();
+        }
+        let path = |name: &str| format!("{dir}\\{name}");
+
+        // The shell answers, with the name or the stem.
+        let display = shell_display_name(&path("solo.txt"));
+        assert!(
+            matches!(display.as_deref(), Some("solo" | "solo.txt")),
+            "display name of solo.txt: {display:?}"
+        );
+        let hides = display.as_deref() == Some("solo");
+        let stem_names = |name: &str| hides.then(|| path(name));
+        assert_eq!(file_on_disk(&path("solo")), stem_names("solo.txt"));
+        assert_eq!(file_on_disk(&path("few")), stem_names("few.txt"));
+        // Where extensions are hidden, many.txt alone displays as "many":
+        // only the bound leaves it unnamed.
+        assert_eq!(file_on_disk(&path("many")), None);
+
+        assert_eq!(file_on_disk(&path("pair.txt")), Some(path("pair.txt")));
+        assert_eq!(file_on_disk(&path("pair.log")), Some(path("pair.log")));
+        // The shell shows an extension of a type with no registered handler
+        // whatever the setting, so "pair" names both files only where both
+        // are shown as it.
+        let pair_shown = |name: &str| shell_display_name(&path(name)).as_deref() == Some("pair");
+        let pair_expected = match (pair_shown("pair.txt"), pair_shown("pair.log")) {
+            (true, false) => Some(path("pair.txt")),
+            (false, true) => Some(path("pair.log")),
+            _ => None,
+        };
+        assert_eq!(file_on_disk(&path("pair")), pair_expected);
+        assert_eq!(file_on_disk(&path("absent")), None);
+        assert_eq!(file_on_disk(&path("pair*")), None, "a filter");
+        assert_eq!(file_on_disk("pair.txt"), None, "no folder");
+        assert_eq!(file_on_disk(r"sub\pair.txt"), None, "a relative path");
+
+        let _ = std::fs::remove_dir_all(&made);
+        if com {
+            unsafe { CoUninitialize() };
+        }
+    }
+}
+
+#[cfg(test)]
+mod input_thread_helper_tests {
+    //! The Input_Thread's own helpers, run with the system's real values.
+
+    use super::*;
+
+    /// Pairing on the Input_Thread's state with the system's double-click
+    /// bounds: a second press at the same point and time completes a
+    /// double-click, the press after it starts a new pair, and a broken pair
+    /// completes none. Each test thread has its own pairing state.
+    #[test]
+    fn the_input_threads_pairing_reads_the_systems_double_click_bounds() {
+        let press = |time_ms| ClickPress {
+            time_ms,
+            x: 10,
+            y: 10,
+            window: 42,
+        };
+        assert!(!double_click_completed_by(press(1000)));
+        assert!(double_click_completed_by(press(1000)));
+        assert!(!double_click_completed_by(press(1000)), "third press");
+        double_click_break_pair();
+        assert!(!double_click_completed_by(press(1000)), "after the break");
+        // Later than any double-click time the system allows (5000 ms max).
+        assert!(!double_click_completed_by(press(1000 + 6000)));
+    }
+
+    /// The layout read's guards: thread 0, which would name this thread's own
+    /// layout, and a key that is no punctuation key read nothing.
+    #[test]
+    fn the_foreground_layout_read_reads_nothing_for_thread_zero_or_a_non_punctuation_key() {
+        unsafe {
+            assert_eq!(foreground_layout_char(0xBE, 0), 0, "thread 0");
+            assert_eq!(
+                foreground_layout_char(0x41, GetCurrentThreadId()),
+                0,
+                "a letter key"
+            );
+        }
     }
 }
