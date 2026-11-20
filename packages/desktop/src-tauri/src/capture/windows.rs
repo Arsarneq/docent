@@ -407,6 +407,12 @@ thread_local! {
     /// deduplicate foreground events (click-based + WinEvent-based).
     static INPUT_LAST_FOREGROUND_HWND: std::cell::Cell<i64> = const { std::cell::Cell::new(0) };
 
+    /// The contexts this capture session has introduced (DCP-7): an event in
+    /// a window not introduced yet has a foreground event dispatched before
+    /// it. Cleared with the thread's other state when the session ends.
+    static INPUT_CONTEXTS: std::cell::RefCell<super::worker_pool::ContextIntroductions> =
+        std::cell::RefCell::new(super::worker_pool::ContextIntroductions::default());
+
     /// Mouse-down position for drag detection. Set on WM_LBUTTONDOWN,
     /// compared against WM_LBUTTONUP to classify click vs drag.
     static INPUT_MOUSE_DOWN_POS: std::cell::Cell<Option<POINT>> = const { std::cell::Cell::new(None) };
@@ -1278,6 +1284,7 @@ fn input_thread_main(
     INPUT_FLUSH_REQUESTS.with(|q| *q.borrow_mut() = None);
     INPUT_FOREGROUND_PID.with(|p| p.set(0));
     INPUT_LAST_FOREGROUND_HWND.with(|p| p.set(0));
+    INPUT_CONTEXTS.with(|c| *c.borrow_mut() = Default::default());
     INPUT_MOUSE_DOWN_POS.with(|p| p.set(None));
     INPUT_OPENED_WINDOWS.with(|s| s.borrow_mut().clear());
     INPUT_PID_CACHE.with(|c| c.borrow_mut().clear());
@@ -1321,9 +1328,49 @@ fn focus_epoch_advance_by_person() {
     );
 }
 
-/// Assign a sequence ID and dispatch a `RawEvent` to the bridge thread.
-/// Called from hook callbacks on the Input_Thread.
-fn input_dispatch_raw_event(mut event: RawEvent) {
+/// Dispatch a `RawEvent` to the bridge thread, after the foreground event
+/// that introduces its window's context where the session has not introduced
+/// it (DCP-7, `ContextIntroductions`). Called from hook callbacks on the
+/// Input_Thread.
+fn input_dispatch_raw_event(event: RawEvent) {
+    let root = if event.window_handle == 0 {
+        0
+    } else {
+        let hwnd = HWND(event.window_handle as *mut _);
+        let root = unsafe { GetAncestor(hwnd, GA_ROOT as u32) };
+        if root.0.is_null() {
+            event.window_handle
+        } else {
+            root.0 as i64
+        }
+    };
+    if INPUT_CONTEXTS.with(|c| c.borrow_mut().switch_before(&event, root)) {
+        // The switch a correlated activation of this window would have
+        // dispatched; a late activation of it is then deduplicated.
+        INPUT_LAST_FOREGROUND_HWND.with(|h| h.set(root));
+        let mut process_id: u32 = 0;
+        unsafe { GetWindowThreadProcessId(HWND(root as *mut _), Some(&mut process_id)) };
+        input_send_raw_event(RawEvent {
+            event_type: RawEventType::Foreground,
+            sequence_id: 0,
+            timestamp: event.timestamp,
+            screen_x: 0,
+            screen_y: 0,
+            window_handle: root,
+            process_id,
+            key_code: 0,
+            modifiers: (false, false, false, false),
+            scroll_delta: 0.0,
+            callback_params: [0, 0, 0, 0],
+            pre_captured_element: None,
+            focus_epoch: 0,
+        });
+    }
+    input_send_raw_event(event);
+}
+
+/// Assign a sequence ID and send a `RawEvent` to the bridge thread.
+fn input_send_raw_event(mut event: RawEvent) {
     event.focus_epoch = FOCUS_EPOCH.load(Ordering::SeqCst);
     // Assign monotonic sequence ID.
     let seq_id = INPUT_SEQUENCE_COUNTER.with(|c| {
@@ -2297,11 +2344,22 @@ pub(crate) unsafe fn uia_element_to_description(
     uia: &IUIAutomation,
     element: &IUIAutomationElement,
 ) -> Option<ElementDescription> {
-    let (mut props, control_type_id, window_root) = gather_native_properties(uia, element);
+    uia_element_to_description_in_window(uia, element).map(|(description, _)| description)
+}
+
+/// [`uia_element_to_description`], together with the top-level window handle
+/// the description resolved for the element (`0` when it resolved none): the
+/// handle a context id is made of.
+pub(crate) unsafe fn uia_element_to_description_in_window(
+    uia: &IUIAutomation,
+    element: &IUIAutomationElement,
+) -> Option<(ElementDescription, i64)> {
+    let (mut props, control_type_id, window_root, window_handle) =
+        gather_native_properties(uia, element);
     if let Some(root) = window_root {
         props.measurements = measure_candidates(uia, &root, element, control_type_id, &props);
     }
-    Some(map_element(&props))
+    Some((map_element(&props), window_handle))
 }
 
 /// Convert a UIA element to an `ElementDescription` WITHOUT measuring match
@@ -2313,7 +2371,8 @@ pub(crate) unsafe fn uia_element_to_description_unmeasured(
     uia: &IUIAutomation,
     element: &IUIAutomationElement,
 ) -> Option<ElementDescription> {
-    let (props, _control_type_id, _window_root) = gather_native_properties(uia, element);
+    let (props, _control_type_id, _window_root, _window_handle) =
+        gather_native_properties(uia, element);
     Some(map_element(&props))
 }
 
@@ -2321,12 +2380,18 @@ pub(crate) unsafe fn uia_element_to_description_unmeasured(
 /// the original six plus ClassName, FrameworkId, LabeledBy-name, and the
 /// provider-reported set ordinals), plus the tree path annotated with the
 /// window-root position. Returns the raw control-type id (measurement
-/// conditions match on it) and the top-level window element (the measurement
-/// scope), when resolvable.
+/// conditions match on it), the top-level window element (the measurement
+/// scope), when resolvable, and the top-level window handle (`0` when none
+/// resolved).
 unsafe fn gather_native_properties(
     uia: &IUIAutomation,
     element: &IUIAutomationElement,
-) -> (NativeElementProperties, i32, Option<IUIAutomationElement>) {
+) -> (
+    NativeElementProperties,
+    i32,
+    Option<IUIAutomationElement>,
+    i64,
+) {
     let control_type_id = get_i32_property(element, UIA_ControlTypePropertyId);
     let automation_id = get_string_property(element, UIA_AutomationIdPropertyId);
     let name = get_string_property(element, UIA_NamePropertyId);
@@ -2340,7 +2405,8 @@ unsafe fn gather_native_properties(
     let size_of_set = get_i32_property(element, UIA_SizeOfSetPropertyId);
     let level = get_i32_property(element, UIA_LevelPropertyId);
 
-    let (tree_path, window_root_offset, window_root) = build_tree_path_with_root(uia, element);
+    let (tree_path, window_root_offset, window_root, window_handle) =
+        build_tree_path_with_root(uia, element);
 
     let props = NativeElementProperties {
         tag: control_type_name(control_type_id).to_string(),
@@ -2359,7 +2425,7 @@ unsafe fn gather_native_properties(
         window_root_offset,
         measurements: Default::default(),
     };
-    (props, control_type_id, window_root)
+    (props, control_type_id, window_root, window_handle)
 }
 
 /// Read one property of a UIA element as an owned [`Variant`]. This is the one
@@ -2567,11 +2633,17 @@ unsafe fn top_level_hwnd(native_hwnd: i32) -> i64 {
 /// scope. When no hwnd-backed node is seen within the walk cap, the offset
 /// and scope are `None` — locator measurement is skipped and the `tree_path`
 /// entry is omitted, so the recorded value never contradicts the schema's
-/// "from the window root".
+/// "from the window root". The top-level handle itself is returned last (`0`
+/// when none was seen).
 unsafe fn build_tree_path_with_root(
     uia: &IUIAutomation,
     element: &IUIAutomationElement,
-) -> (Vec<String>, Option<usize>, Option<IUIAutomationElement>) {
+) -> (
+    Vec<String>,
+    Option<usize>,
+    Option<IUIAutomationElement>,
+    i64,
+) {
     let mut path = Vec::new();
     // Pre-reverse index of the node identified as the top-level window.
     let mut root_pre_index: Option<usize> = None;
@@ -2646,7 +2718,7 @@ unsafe fn build_tree_path_with_root(
         None
     };
 
-    (path, window_root_offset, window_root)
+    (path, window_root_offset, window_root, root_hwnd)
 }
 
 // ---------------------------------------------------------------------------
@@ -2997,6 +3069,12 @@ impl AccessibilityBackend for WindowsAccessibilityBackend {
         let uia = self.uia.as_ref()?;
         let focused = unsafe { uia.GetFocusedElement().ok()? };
         unsafe { uia_element_to_description(uia, &focused) }
+    }
+
+    fn focused_element_in_window(&self) -> Option<(ElementDescription, i64)> {
+        let uia = self.uia.as_ref()?;
+        let focused = unsafe { uia.GetFocusedElement().ok()? };
+        unsafe { uia_element_to_description_in_window(uia, &focused) }
     }
 
     fn focused_element_marked(&self) -> Option<ElementDescription> {

@@ -921,6 +921,14 @@ pub trait AccessibilityBackend: Send + 'static {
     /// Query the currently focused element.
     fn focused_element(&self) -> Option<ElementDescription>;
 
+    /// Query the currently focused element together with the top-level window
+    /// it is in, both read in one description; the window is `0` when the
+    /// description resolved none. A focus action is recorded under the
+    /// context of that window (DCP-7).
+    fn focused_element_in_window(&self) -> Option<(ElementDescription, i64)> {
+        self.focused_element().map(|element| (element, 0))
+    }
+
     /// The current focus epoch: the Input_Thread's count of focus changes,
     /// in the two halves [`RawEvent::focus_epoch`] describes (not one plain
     /// number: compare for equality, or with `person_moved_focus_between`).
@@ -1683,6 +1691,50 @@ impl PartFocusNote {
     }
 }
 
+/// The Input_Thread's record of the contexts a capture session has
+/// introduced, by top-level window handle (DCP-7). A raw event that is to be
+/// dispatched in a window whose context the session has not introduced has a
+/// `context_switch` into that window dispatched before it, so the context's
+/// first action follows its establishment (core CP-17, session-format SF-10).
+/// Kept and read on the Input_Thread only.
+#[derive(Debug, Default)]
+pub struct ContextIntroductions {
+    introduced: std::collections::HashSet<i64>,
+}
+
+impl ContextIntroductions {
+    /// Whether a `context_switch` into `root` is dispatched before `event`,
+    /// whose window's top-level window is `root`; noting what `event`
+    /// introduces.
+    ///
+    /// - A `context_switch` or `context_open` (a foreground or window-create
+    ///   event) introduces its window and needs no switch; a close introduces
+    ///   nothing.
+    /// - A lone Shift, Ctrl or Alt press, which the worker drops (DCP-13),
+    ///   and an event with no window, count for nothing.
+    /// - Any other event is an action. One before any switch or open is in
+    ///   the session's first context, which needs no introduction; one in a
+    ///   window not introduced yet takes the switch, and the window is
+    ///   introduced from then on.
+    pub fn switch_before(&mut self, event: &RawEvent, root: i64) -> bool {
+        if root == 0 {
+            return false;
+        }
+        match event.event_type {
+            RawEventType::Foreground | RawEventType::WindowCreate => {
+                self.introduced.insert(root);
+                false
+            }
+            RawEventType::WindowDestroy | RawEventType::MouseDown | RawEventType::MouseUp => false,
+            RawEventType::Keyboard if is_modifier_only_key(&key_name(event)) => false,
+            _ => {
+                let first = self.introduced.is_empty();
+                self.introduced.insert(root) && !first
+            }
+        }
+    }
+}
+
 /// The window handle of the control a value change is about, when the control
 /// reported it about itself (its own client object, not a child element and
 /// not a scroll bar); `0` otherwise.
@@ -2222,11 +2274,21 @@ fn handle_focus<B: AccessibilityBackend>(
     last_focus_selector: &mut String,
     window_rect: Option<WindowRect>,
 ) {
-    let mut element = match backend.focused_element() {
-        Some(el) => el,
+    let (mut element, element_window) = match backend.focused_element_in_window() {
+        Some(found) => found,
         None => return, // Can't resolve focused element — skip.
     };
     stamp_described_after(&mut element, raw.timestamp);
+    // The element is the one focused when it is described, which need not be
+    // in the window the focus event named: a dialog that closed as the focus
+    // went back to its owner, for one (docent#709). The focus is recorded in
+    // the context of the element's own window (DCP-7), the event's where the
+    // description resolved no window.
+    let (context_id, window_rect) = if element_window != 0 && Some(element_window) != context_id {
+        (Some(element_window), backend.window_rect(element_window))
+    } else {
+        (context_id, window_rect)
+    };
 
     // Focus deduplication: skip if same selector as last focus event.
     if element.selector == *last_focus_selector {
