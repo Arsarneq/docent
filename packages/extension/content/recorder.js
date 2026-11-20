@@ -1189,8 +1189,8 @@
   // The browser does not mark every composition end it sends itself as
   // trusted, so the mark cannot be asked for, and a page can send the event
   // while the person composes. The start tells the two apart: the browser's is
-  // trusted, and composing text that arrives after an end with no start
-  // between says the end was not the browser's. That end is then taken back,
+  // trusted, and with no start since an end, more composing text or a key
+  // pressed inside the composition says the end was not the browser's. That end is then taken back,
   // and the composition goes on as if it had not come.
   //
   // The composition last opened: its field, the text it showed last, the
@@ -1212,8 +1212,21 @@
       written: undefined,
       composedOn: false,
       ended: false,
+      endedByEvent: false,
       undoEnd: null,
     };
+  }
+
+  /**
+   * The composition in `field` goes on although a `compositionend` came for
+   * it, with no start since: the end was not the browser's and is taken back.
+   */
+  function takeBackEnd(field) {
+    if (composition?.field !== field || !composition.endedByEvent) return;
+    composition.ended = false;
+    composition.endedByEvent = false;
+    composition.undoEnd?.();
+    composition.undoEnd = null;
   }
 
   /** Text was composed in a field: note it for the composition's end. */
@@ -1221,12 +1234,10 @@
     const field = e.target;
     if (!takesEntry(field)) return;
     if (composition?.field !== field) openComposition(field);
-    if (composition.ended) {
-      // No start came since the end: the end was not the browser's.
-      composition.ended = false;
-      composition.undoEnd?.();
-      composition.undoEnd = null;
-    }
+    takeBackEnd(field);
+    // Composing text after a composition left with no end, and no start
+    // since, is the composition going on too.
+    composition.ended = false;
     composition.text = e.data ?? '';
     if (composition.written !== undefined && composition.text !== composition.written) {
       composition.composedOn = true;
@@ -1260,7 +1271,6 @@
   function closeCompositionLeft(field) {
     if (composition?.field !== field || composition.ended) return;
     composition.ended = true;
-    composition.undoEnd = null;
   }
 
   /** The open composition ended: its text, if it entered any, is a new entry. */
@@ -1268,6 +1278,7 @@
     const ended = composition;
     if (ended?.field !== field || ended.ended) return;
     ended.ended = true;
+    ended.endedByEvent = true;
     if (ended.text === '') return;
     if (ended.written !== undefined && !ended.composedOn) return;
     const wasMadeAgain = entryMadeAgain.has(field);
@@ -1599,12 +1610,11 @@
       // and the browser's `change` for it comes only while it handles the
       // press (Enter's submission, the blur Tab causes), or later. Noted here
       // as it stands, it is written ahead of the key (#703).
+      // A key pressed inside a composition says it is still open.
+      if (e.isComposing && fieldInFocus) takeBackEnd(fieldInFocus);
       const entry =
         fieldInFocus &&
-        takesEntry(fieldInFocus) &&
-        fieldsEditedByKey.has(fieldInFocus) &&
-        (fieldInFocus.value !== fieldValueAtFocus.get(fieldInFocus) ||
-          entryMadeAgain.has(fieldInFocus)) &&
+        hasUnwrittenEntry(fieldInFocus) &&
         entryLastWritten.get(fieldInFocus) !== fieldInFocus.value
           ? { value: fieldInFocus.value }
           : null;
@@ -1622,6 +1632,10 @@
       }
       // No press to write: a modifier alone, and a key the input method takes.
       if (kind === 'modifier' || kind === 'composed') return;
+      // A key the input method does not take: no composition is open any
+      // more, also where the browser sent no end for it (a page that took
+      // the composing text out). What it showed is in `entry` above.
+      if (fieldInFocus) closeCompositionLeft(fieldInFocus);
       // A key pressed while the Meta key is held may never be seen released.
       if (e.metaKey && e.key !== 'Meta') downUnderMeta.add(e.code);
       const key = keyActionName(e.key);

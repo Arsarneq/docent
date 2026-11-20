@@ -4671,6 +4671,35 @@ fn regression_751_a_paste_reported_after_the_next_key_is_recorded() {
     assert_eq!(type_values_of(&events), vec!["h", "h"], "got {events:?}");
 }
 
+/// The stated limit of the paste key: one that pasted nothing still waits for
+/// the field's next value change, and a repeated report is taken for its text.
+#[test]
+fn regression_751_a_paste_key_that_pasted_nothing_takes_the_next_report_for_its_text() {
+    let (backend, scene, _) = MovingFocusBackend::new(file_name_field(""));
+    let harness = WorkerTestHarness::new(backend);
+
+    harness.send_event(in_dialog(packet_key(1, now_ms(), u16::from(b'h'))));
+    thread::sleep(Duration::from_millis(150));
+    {
+        let mut scene = scene.lock().unwrap();
+        scene.element.text = Some("h".to_string());
+        scene.element.value = Some("h".to_string());
+    }
+    harness.send_event(in_dialog(value_change(2, now_ms(), DIALOG)));
+    thread::sleep(Duration::from_millis(150));
+    // Ctrl+V with nothing to paste: the program reports no change for it.
+    let mut paste = layout_key(3, now_ms(), 0x56);
+    paste.modifiers = (true, false, false, false);
+    harness.send_event(in_dialog(paste));
+    thread::sleep(Duration::from_millis(150));
+    harness.send_event(in_dialog(value_change(4, now_ms(), DIALOG)));
+
+    thread::sleep(Duration::from_millis(900));
+    let events = harness.shutdown();
+
+    assert_eq!(type_values_of(&events), vec!["h", "h"], "got {events:?}");
+}
+
 /// A paste key stands for one value change: the same value reported again
 /// after it is a repeated report, as after typing.
 #[test]

@@ -284,10 +284,8 @@ phase, for exactly these DOM events, on `document` unless the item names
   held is not entered again by the end, unless other text was composed after
   that write. The event counts only for a field with a composition open. The
   browser does not mark every composition end of its own as trusted, so the
-  mark is not asked for; an end followed by more composing text with no
-  start between was not the browser's, and is taken back. A composition
-  whose text is removed with an editing key gets no end from the browser: it
-  is over, with nothing entered, at the `input` that removes it. An open
+  mark is not asked for; an end followed, with no start between, by more composing text or by a key pressed inside the composition was not the browser's, and is taken back. A composition
+  whose text is removed with an editing key gets no end from the browser: it is over at the next `input` that carries no composing text, with nothing entered, or at the next key the input method does not take, where the text it showed is typing that key ends. An open
   composition is forgotten when a recording ends or begins
 - `blur` — a `contenteditable` host typed into lost the focus, which it also
   does when the window does: its `type` is written; an `input` or `textarea`

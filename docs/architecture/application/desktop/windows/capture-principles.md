@@ -643,7 +643,8 @@ with a caveat):
   over itself, a value undone and typed again), and so is the first value
   change of a field after a paste key pressed in it (Ctrl+V, Ctrl+Shift+V or
   Shift+Insert: the same text pasted over itself), also where other keys
-  were pressed before the program reported it. A value set twice to the same text with neither
+  were pressed before the program reported it; a paste key that pasted
+  nothing leaves the field's next value change taken for its text. A value set twice to the same text with neither
   key (the same text pasted over itself from a menu) is one value change the
   worker cannot tell from a repeated report, and for a password field, whose
   value is the mask, so is every value change after the first that neither a

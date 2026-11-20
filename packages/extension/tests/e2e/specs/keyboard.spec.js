@@ -1108,6 +1108,53 @@ test.describe('Every key press that is not text', () => {
       });
     }
 
+    test('regression_744_a_composition_end_a_page_sends_is_taken_back_when_the_text_is_then_removed', async ({
+      testPage,
+      serviceWorker,
+      context,
+    }) => {
+      // The person goes on in the composition with a key, which shows the
+      // page's end was not the browser's; the text is then removed.
+      await holds(testPage, 'x');
+      await testPage.focus('#text');
+      await testPage.keyboard.press('End');
+      const ime = await inputMethod(context, testPage);
+      await ime.compose('に');
+      await testPage.evaluate(() => {
+        document
+          .querySelector('#text')
+          .dispatchEvent(
+            new window.CompositionEvent('compositionend', { bubbles: true, data: 'に' }),
+          );
+      });
+      await testPage.keyboard.press('Backspace');
+      await blur(testPage);
+      expect(await written(serviceWorker, testPage)).toEqual([['key', 'End']]);
+    });
+
+    test('regression_744_composing_text_a_page_removes_is_an_entry_ahead_of_the_next_key', async ({
+      testPage,
+      serviceWorker,
+      context,
+    }) => {
+      // The page takes the text out again, and the browser drops the
+      // composition with no end. As with a typed character the page removes,
+      // the field's entry stands ahead of the key that ends the typing.
+      await testPage.evaluate(() => {
+        document.querySelector('#text').addEventListener('input', (e) => {
+          e.target.value = e.target.value.replace(/[^0-9]/g, '');
+        });
+      });
+      await testPage.focus('#text');
+      const ime = await inputMethod(context, testPage);
+      await ime.compose('に');
+      await testPage.keyboard.press('Tab');
+      expect(await written(serviceWorker, testPage)).toEqual([
+        ['type', ''],
+        ['key', 'Tab'],
+      ]);
+    });
+
     test('regression_744_text_being_composed_is_written_at_a_press_also_where_it_equals_the_value_at_focus', async ({
       testPage,
       serviceWorker,
