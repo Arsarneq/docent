@@ -298,7 +298,8 @@ and a right or middle press, or a drag, between two left clicks breaks the
 pair. The mark changes no action: a double-click is recorded as its two
 `click` actions
 ([docent#236](https://github.com/Arsarneq/docent/issues/236)). The file-dialog
-proxy reads it (DCP-6, DCP-13).
+proxy reads it (DCP-6, DCP-13). A middle-button press's `click` is marked as
+the middle button's, and the proxy reads only left clicks.
 
 ---
 
@@ -445,9 +446,15 @@ with a caveat):
   (120 per detent), and the floor is `SCROLL_MIN_DISTANCE_PX` in
   `src/capture/timing.rs`, whose `_PX` suffix is historical
 - A file dialog confirmed from the keyboard (Enter on the filename field)
-  produces no `file_dialog` action — the proxy triggers only on a click of
-  the dialog's Save/Open button and on a double-click on a file in its item
-  view (DCP-6)
+  produces no `file_dialog` action — the proxy triggers only on a left click
+  of the dialog's Save/Open button and on a left double-click on a file in its
+  item view (DCP-6); a middle press on either confirms nothing in the proxy
+  (DCP-10)
+- A file dialog whose confirm button is named other than "Save" or "Open", or
+  whose window title contains none of "save as", "save" or "open" — both tests
+  English-only, so a localized dialog — produces no `file_dialog` action; the
+  title test applies to the double-click as well, the button-name test to the
+  button only
 - A file confirmed by a double-click in a file dialog's item view — captured
   with a caveat: the second press closes the dialog, so the dialog is read at
   the double-click's first click, which selected the file. The `file_dialog`
@@ -455,8 +462,11 @@ with a caveat):
   item and that read found the dialog's File name equal to the item's name,
   which selecting a file puts there. A double-click on a folder, whose
   selection leaves the File name as it was, navigates the dialog and records
-  none; none is recorded either when the read fails as the dialog closes, or
-  finds the File name not yet filled
+  none — unless the File name already held that folder's name (typed there
+  earlier, for example), when a `file_dialog` naming the folder is written
+  though the dialog navigated; a departure (core CP-18). None is recorded
+  either when the read fails as the dialog closes, or finds the File name not
+  yet filled
 - A `type` whose value equals the typing worker's last for the same element
   (its selector within its window) — not written, the keys buffered for it
   discarded with it, and for a password field, whose value is the mask, every
