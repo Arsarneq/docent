@@ -1853,10 +1853,11 @@ struct WorkerState {
     last_focus_selector: String,
     /// The value of the field typed into last, as last taken for its `type`.
     last_value: Option<LastValue>,
-    /// The last keystroke was a paste key (see [`is_paste_key`]) and no value
-    /// change has been taken for it yet: the next one is the pasted text,
-    /// also where it repeats the field's value.
-    paste_key_pending: bool,
+    /// The field a paste key (see [`is_paste_key`]) was pressed in, until a
+    /// value change is taken for that field: that one is the pasted text,
+    /// also where it repeats the field's value. A program can report the
+    /// paste after the keys that follow it, so no later key ends the wait.
+    pasted_into: Option<LastValue>,
     last_drag_element: Option<ElementDescription>,
     /// The file the last click selected in a file dialog's item view, read
     /// from the dialog at that click, for the click that completes a
@@ -1880,7 +1881,7 @@ impl WorkerState {
         Self {
             last_focus_selector: String::new(),
             last_value: None,
-            paste_key_pending: false,
+            pasted_into: None,
             last_drag_element: None,
             file_pick: None,
             typing_focus: None,
@@ -2853,7 +2854,7 @@ fn handle_value_change<B: AccessibilityBackend>(
             context_id,
             pending,
             &mut state.last_value,
-            std::mem::take(&mut state.paste_key_pending),
+            &mut state.pasted_into,
             window_rect,
             element,
             value,
@@ -2951,7 +2952,7 @@ fn handle_value_change<B: AccessibilityBackend>(
         context_id,
         pending,
         &mut state.last_value,
-        std::mem::take(&mut state.paste_key_pending),
+        &mut state.pasted_into,
         window_rect,
         element,
         value,
@@ -2968,7 +2969,7 @@ fn record_type_value(
     context_id: Option<i64>,
     pending: &SharedPendingBuffers,
     last_value: &mut Option<LastValue>,
-    pasted: bool,
+    pasted_into: &mut Option<LastValue>,
     window_rect: Option<WindowRect>,
     mut element: ElementDescription,
     value: String,
@@ -2993,10 +2994,13 @@ fn record_type_value(
     // no typing key and no paste key pressed for it, is the same change
     // reported again (a program that reports one change twice) and adds
     // nothing. With a typing key buffered it is typing: the person typed the
-    // same text over itself. The first value change after a paste key is the
-    // pasted text: the same text pasted over itself.
+    // same text over itself. The first value change of a field after a paste
+    // key pressed in it is the pasted text: the same text pasted over itself.
     // Only the field typed into last is remembered, so a value the field held
     // in an earlier typing run is never what a later one is compared with.
+    let pasted = pasted_into
+        .take_if(|field| field.is_of(context_id, &element))
+        .is_some();
     let repeats_last = buffers.pending_keys.is_empty()
         && !pasted
         && last_value
@@ -3340,7 +3344,9 @@ fn handle_keyboard<B: AccessibilityBackend>(
     // The gap to the moment this worker settled the key's element.
     stamp_described_after(&mut element, raw.timestamp);
     let key_element = element.clone();
-    state.paste_key_pending = is_paste_key(raw);
+    if is_paste_key(raw) {
+        state.pasted_into = Some(LastValue::of(context_id, &element, ""));
+    }
     state.last_key = Some(LastKey {
         context_id,
         selector: element.selector.clone(),

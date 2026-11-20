@@ -4635,6 +4635,42 @@ fn regression_751_the_same_text_pasted_over_itself_is_recorded() {
     }
 }
 
+/// The pasted text can be reported after the next key: it is the paste's
+/// value change all the same.
+#[test]
+fn regression_751_a_paste_reported_after_the_next_key_is_recorded() {
+    let (backend, scene, _) = MovingFocusBackend::new(file_name_field(""));
+    let harness = WorkerTestHarness::new(backend);
+    let ctrl = (true, false, false, false);
+    let none = (false, false, false, false);
+
+    let mut paste = layout_key(1, now_ms(), 0x56);
+    paste.modifiers = ctrl;
+    harness.send_event(in_dialog(paste));
+    thread::sleep(Duration::from_millis(150));
+    {
+        let mut scene = scene.lock().unwrap();
+        scene.element.text = Some("h".to_string());
+        scene.element.value = Some("h".to_string());
+    }
+    harness.send_event(in_dialog(value_change(2, now_ms(), DIALOG)));
+    thread::sleep(Duration::from_millis(150));
+    // Select all, paste the same text, and press Home before the program
+    // reports the paste.
+    for (seq, code, modifiers) in [(3, 0x41, ctrl), (4, 0x56, ctrl), (5, 0x24, none)] {
+        let mut key = layout_key(seq, now_ms(), code);
+        key.modifiers = modifiers;
+        harness.send_event(in_dialog(key));
+        thread::sleep(Duration::from_millis(150));
+    }
+    harness.send_event(in_dialog(value_change(6, now_ms(), DIALOG)));
+
+    thread::sleep(Duration::from_millis(900));
+    let events = harness.shutdown();
+
+    assert_eq!(type_values_of(&events), vec!["h", "h"], "got {events:?}");
+}
+
 /// A paste key stands for one value change: the same value reported again
 /// after it is a repeated report, as after typing.
 #[test]

@@ -641,13 +641,16 @@ with a caveat):
   twice) — not written; a value the person types is written each time it is
   typed, also where it equals the one written before (the same text typed
   over itself, a value undone and typed again), and so is the first value
-  change after a paste key (Ctrl+V, Ctrl+Shift+V or Shift+Insert: the same
-  text pasted over itself). A value set twice to the same text with neither
+  change of a field after a paste key pressed in it (Ctrl+V, Ctrl+Shift+V or
+  Shift+Insert: the same text pasted over itself), also where other keys
+  were pressed before the program reported it. A value set twice to the same text with neither
   key (the same text pasted over itself from a menu) is one value change the
   worker cannot tell from a repeated report, and for a password field, whose
   value is the mask, so is every value change after the first that neither a
   text-entering keystroke nor a paste key accompanies; a departure (core
-  CP-18)
+  CP-18), and for the paste from a menu one from the extension, which writes
+  it (core CP-19;
+  [docent#751](https://github.com/Arsarneq/docent/issues/751))
 - A focus whose selector equals the worker's last — not written; a departure
   (core CP-18)
 - A focus or value change on an element the accessibility layer cannot

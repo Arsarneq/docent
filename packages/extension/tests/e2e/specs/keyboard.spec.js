@@ -757,7 +757,7 @@ test.describe('Every key press that is not text', () => {
   // Text composed by an input method (docent#744). One composition that ends
   // with text is one act of entering text: what the field holds after it is
   // an entry, written as plain typing writes it. A composition given up
-  // enters nothing. The cases are the rows of the issue's decision table.
+  // enters nothing.
   test.describe('Text composed by an input method', () => {
     /** Drive the browser's input method from outside, on the field in focus. */
     const inputMethod = async (context, testPage) => {
@@ -1069,6 +1069,64 @@ test.describe('Every key press that is not text', () => {
       });
       await blur(testPage);
       expect(await written(serviceWorker, testPage)).toEqual([['key', 'a']]);
+    });
+
+    for (const [name, endFirst] of [
+      ['after_the_press', false],
+      ['ahead_of_the_press', true],
+    ]) {
+      test(`regression_744_a_composition_end_a_page_sends_${name}_writes_the_text_once`, async ({
+        testPage,
+        serviceWorker,
+        context,
+      }) => {
+        // The page's event ends nothing: the person composes on, and the
+        // text written at the press is the text confirmed.
+        await testPage.evaluate(() => {
+          document.querySelector('#btn').addEventListener('mousedown', (e) => e.preventDefault());
+        });
+        await testPage.focus('#text');
+        const ime = await inputMethod(context, testPage);
+        const pageEndsIt = () =>
+          testPage.evaluate(() => {
+            document
+              .querySelector('#text')
+              .dispatchEvent(
+                new window.CompositionEvent('compositionend', { bubbles: true, data: 'に' }),
+              );
+          });
+        await ime.compose('に');
+        if (endFirst) await pageEndsIt();
+        await testPage.click('#btn');
+        if (!endFirst) await pageEndsIt();
+        await ime.confirm('に');
+        await blur(testPage);
+        expect(await written(serviceWorker, testPage)).toEqual([
+          ['type', 'に'],
+          ['click', undefined],
+        ]);
+      });
+    }
+
+    test('regression_744_text_being_composed_is_written_at_a_press_also_where_it_equals_the_value_at_focus', async ({
+      testPage,
+      serviceWorker,
+      context,
+    }) => {
+      // As where it differs: the press ends the typing so far.
+      await holds(testPage, 'に');
+      await testPage.focus('#text');
+      const ime = await inputMethod(context, testPage);
+      await testPage.keyboard.press('Control+a');
+      await ime.compose('に');
+      await testPage.click('#text');
+      await ime.confirm('に');
+      await blur(testPage);
+      expect(await written(serviceWorker, testPage)).toEqual([
+        ['key', 'a'],
+        ['type', 'に'],
+        ['click', undefined],
+      ]);
     });
 
     test('regression_751_the_same_text_pasted_over_itself_is_written_again', async ({

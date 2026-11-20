@@ -272,15 +272,23 @@ phase, for exactly these DOM events, on `document` unless the item names
   text it shows; text the browser names as pasted, and text inserted in a
   field between a key the input method took there and the next key press,
   make what the field holds a new entry, as text typed does
+- `compositionstart` — the browser opened a composition in a field, which
+  writes nothing by itself. While the composition is open, the text it shows
+  is typing not yet ended: a pointer press, a step commit or a stop writes
+  the field's entry with it, as with typed text
 - `compositionend` — the end of the composition open for the field, which
   writes nothing by itself: a composition that ends with text makes what the
   field holds a new entry, written where a typed one is and also where it
   equals the value at focus or the entry written before, and a composition
   given up makes none. Text an entry written during the composition already
   held is not entered again by the end, unless other text was composed after
-  that write. The event counts only for a field with a composition open, and
-  an open composition is forgotten when its field takes the focus and when a
-  recording ends or begins
+  that write. The event counts only for a field with a composition open. The
+  browser does not mark every composition end of its own as trusted, so the
+  mark is not asked for; an end followed by more composing text with no
+  start between was not the browser's, and is taken back. A composition
+  whose text is removed with an editing key gets no end from the browser: it
+  is over, with nothing entered, at the `input` that removes it. An open
+  composition is forgotten when a recording ends or begins
 - `blur` — a `contenteditable` host typed into lost the focus, which it also
   does when the window does: its `type` is written; an `input` or `textarea`
   lost the focus holding an entry not yet written: the entry is written, also
@@ -606,11 +614,10 @@ with a caveat):
   is written as an entry the person made, also where the key itself entered
   nothing; the browser's events do not tell the two inserts apart; a
   departure (core CP-18)
-- A `compositionend` a page sends for a field while the person composes in
-  it — ends the composition here with the text it showed then, so that text
-  counts as entered also where the person then gives the composition up; the
-  browser does not mark every composition end of its own as trusted, so the
-  mark cannot be asked for; a departure (core CP-18)
+- The same text pasted over itself with no paste key (from a menu) —
+  written, the browser naming the paste, where the desktop, which knows a
+  paste by its key, writes none; a departure from the desktop (core CP-19;
+  [docent#751](https://github.com/Arsarneq/docent/issues/751))
 - A value set again, by other means than typing, composing or pasting, to
   the entry last written for the field since it took the focus or, where
   none was, to what it held at focus (text dragged onto itself, for example)
