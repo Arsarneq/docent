@@ -1104,10 +1104,15 @@ jobs:
         with:
           toolchain: stable
 
-      # The `vectors` family: the same paths and the same fallback and save
-      # posture as the desktop-rust-tests cargo cache, under a family segment
-      # of its own so this job's tree and that job's stop overwriting each
-      # other under one key. That block carries the reasoning for both.
+      # The `vectors` family: the same paths and the same save posture as the
+      # desktop-rust-tests cargo cache, under a family segment of its own so
+      # this job's tree and that job's stop overwriting each other under one
+      # key. That block carries the reasoning both share. Two things differ
+      # from it on purpose: this key names no toolchain, and the bare
+      # `<runner.os>-cargo-` fallback stays, as a warm start from a sibling's
+      # registry. Nothing walks this tree for test binaries the way
+      # `cargo llvm-cov` walks that job's, so a leftover from another
+      # toolchain here costs space and not correctness.
       - name: Restore cargo registry and build
         id: cargo-cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -1297,7 +1302,8 @@ jobs:
       # The `xcompile` family keeps its fallback inside its own family, as
       # `mutation` does: this one by the isolation argued below, and `mutation`
       # on its own ground, where a path list no other family shares makes any
-      # wider prefix dead weight. Its key shape, its
+      # wider prefix dead weight. Its key shape (less the toolchain segment
+      # that block alone carries, for its coverage steps), its
       # split, and its save's gate are the desktop-rust-tests block's, which
       # carries the reasoning the cargo families share (`rust-tests`, `vectors`
       # and `mutation` beside this one); the key-families table naming every

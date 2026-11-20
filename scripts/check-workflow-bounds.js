@@ -209,11 +209,16 @@ export const TOOLCHAIN_ACTION = 'dtolnay/rust-toolchain';
 /** A toolchain segment in a key: that action's `cachekey` output, by step id. */
 const TOOLCHAIN_SEGMENT_RE = /\$\{\{\s*steps\.([A-Za-z0-9_-]+)\.outputs\.cachekey\s*\}\}/;
 
-/** A run step measuring coverage over the cargo tree it builds into. */
-const COVERAGE_RUN_RE = /\bcargo\s+llvm-cov\b/;
+/**
+ * A run step measuring coverage over the cargo tree it builds into: the cargo
+ * subcommand, with or without a `+<toolchain>` override, or the binary called
+ * as a command of its own. Its install (`cargo install cargo-llvm-cov`) is
+ * neither, since the name there follows `install` rather than opening a command.
+ */
+const COVERAGE_RUN_RE = /(^|[;&|(]\s*)(cargo(\s+\+\S+)?\s+llvm-cov|cargo-llvm-cov(\.exe)?)(\s|$)/m;
 
-/** A cached path that is a cargo target tree. */
-const TARGET_TREE_RE = /(^|\/)target\/?$/;
+/** A cached path inside a cargo target tree: a `target` segment anywhere in it. */
+const TARGET_TREE_RE = /(^|\/)target(\/|$)/;
 
 /**
  * The pathspec the tracked listing is taken over, and the filter its answer is
@@ -1076,14 +1081,22 @@ export function fallbackReachProblems(families) {
  */
 function toolchainFactsOf(steps) {
   const measuresCoverage = steps.some(
-    (step) => typeof step.run === 'string' && COVERAGE_RUN_RE.test(step.run),
+    (step) => typeof step.run === 'string' && COVERAGE_RUN_RE.test(step.run.trim()),
+  );
+  // Only a step that runs before the job's first cache step, on every run, has
+  // written its output by the time a key reads it: a later or skippable one
+  // leaves the segment empty, and an empty segment names no toolchain.
+  const firstCache = steps.findIndex(
+    (step) => typeof step.uses === 'string' && CACHE_USES[usesAction(step.uses)] !== undefined,
   );
   const toolchainSteps = steps
     .filter(
-      (step) =>
+      (step, index) =>
         typeof step.uses === 'string' &&
         usesAction(step.uses) === TOOLCHAIN_ACTION &&
-        typeof step.id === 'string',
+        typeof step.id === 'string' &&
+        step.if === undefined &&
+        (firstCache === -1 || index < firstCache),
     )
     .map((step) => step.id);
   return { measuresCoverage, toolchainSteps };
@@ -1102,8 +1115,10 @@ function toolchainFactsOf(steps) {
  *      `target` tree names the toolchain in its family prefix: the `cachekey`
  *      output of one of the job's own {@link TOOLCHAIN_ACTION} steps, by id;
  *   2. a family naming that segment names a step that IS such a step in its
- *      job — any other id expands to nothing, and the key stops naming a
- *      toolchain while still reading as though it did;
+ *      job, with no `if:` of its own and ahead of the job's first cache step —
+ *      any other id, a step that may be skipped, or one that runs after the
+ *      restore expands to nothing there, and the key stops naming a toolchain
+ *      while still reading as though it did;
  *   3. every restore key of such a family carries the segment too: a fallback
  *      without it reaches this family's older entries whatever toolchain wrote
  *      them, which is the reach the segment exists to close.
@@ -1133,7 +1148,7 @@ export function toolchainKeyProblems(families) {
       continue;
     }
     if (!toolchainSteps.includes(segment[1])) {
-      problems.push(`${where} keys on \`steps.${segment[1]}.outputs.cachekey\`, but the job states no \`${TOOLCHAIN_ACTION}\` step with the id \`${segment[1]}\` — the segment expands to nothing and the key names no toolchain`); // prettier-ignore
+      problems.push(`${where} keys on \`steps.${segment[1]}.outputs.cachekey\`, but the job states no \`${TOOLCHAIN_ACTION}\` step with the id \`${segment[1]}\` that runs unconditionally before its first cache step — the segment expands to nothing and the key names no toolchain`); // prettier-ignore
     }
     for (const key of entry.restoreKeys) {
       if (TOOLCHAIN_SEGMENT_RE.exec(key)?.[0] === segment[0]) continue;
