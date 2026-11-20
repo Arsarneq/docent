@@ -177,7 +177,7 @@ classifies, by group:
 
 - **Element identity:** `locators[]`, the element description fields, and
   `selector`.
-- **Interaction parameters:** `value`, `key`, `modifiers` and `repeat`, coordinates
+- **Interaction parameters:** `value`, `key`, `modifiers`, `repeat` and `held_keys`, coordinates
   together with their recorded geometry context (`window_rect`; a viewport
   size is not recorded today, docent#135).
 - **Ordering and targeting:** the action array order, `context_id`, and the

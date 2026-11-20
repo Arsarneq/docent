@@ -53,11 +53,11 @@ use super::win32_bindings::{
     EVENT_OBJECT_CREATE, EVENT_OBJECT_DESTROY, EVENT_OBJECT_FOCUS, EVENT_OBJECT_SELECTION,
     EVENT_OBJECT_VALUECHANGE, EVENT_SYSTEM_FOREGROUND, GA_ROOT, GA_ROOTOWNER, GUITHREADINFO,
     GWL_STYLE, GW_OWNER, HANDLE, HHOOK, HWINEVENTHOOK, HWND, INVALID_HANDLE_VALUE, KBDLLHOOKSTRUCT,
-    LPARAM, LRESULT, MSG, MSLLHOOKSTRUCT, OBJID_WINDOW, PM_NOREMOVE, POINT, PROPERTYID, UIA_HWND,
-    VK_CONTROL, VK_LWIN, VK_MENU, VK_RWIN, VK_SHIFT, VT_EMPTY, WH_KEYBOARD_LL, WH_MOUSE_LL,
-    WINEVENT_OUTOFCONTEXT, WM_APP, WM_KEYDOWN, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN,
-    WM_MOUSEHWHEEL, WM_MOUSEWHEEL, WM_NULL, WM_QUIT, WM_RBUTTONDOWN, WM_SYSKEYDOWN, WM_USER,
-    WPARAM, WS_CHILD,
+    LLKHF_EXTENDED, LPARAM, LRESULT, MSG, MSLLHOOKSTRUCT, OBJID_WINDOW, PM_NOREMOVE, POINT,
+    PROPERTYID, UIA_HWND, VK_CONTROL, VK_LWIN, VK_MENU, VK_RWIN, VK_SHIFT, VT_EMPTY,
+    WH_KEYBOARD_LL, WH_MOUSE_LL, WINEVENT_OUTOFCONTEXT, WM_APP, WM_KEYDOWN, WM_LBUTTONDOWN,
+    WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MOUSEHWHEEL, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_NULL, WM_QUIT,
+    WM_RBUTTONDOWN, WM_SYSKEYDOWN, WM_USER, WPARAM, WS_CHILD,
 };
 use windows_core::{Error, Interface, BOOL, BSTR, PWSTR};
 
@@ -450,6 +450,12 @@ thread_local! {
     /// correlates in time with the Ctrl+O or click that opened the dialog,
     /// but fires in a root window the user has not acted in yet.
     static INPUT_LAST_INPUT_WINDOW: std::cell::Cell<i64> = const { std::cell::Cell::new(0) };
+
+    /// The modifiers held and the keys that were down when the pointer first
+    /// passed the drag threshold after the left button's press: what a drag
+    /// start, dispatched at the release, states.
+    static INPUT_DRAG_START_KEYS: std::cell::RefCell<super::held_keys::DragStartKeys> =
+        const { std::cell::RefCell::new(super::held_keys::DragStartKeys::new()) };
 
     /// The keys that are down, as the keyboard hook saw them go down and up
     /// (seeded from the keyboard's state when the hook is installed). A
@@ -1347,6 +1353,8 @@ fn input_dispatch_raw_event(mut event: RawEvent) {
             .unwrap_or(0)
     });
     event.sequence_id = seq_id;
+    // The keys that are down at this event, for the actions that state them.
+    INPUT_HELD_KEYS.with(|held| held.borrow_mut().stamp(&mut event));
 
     // Send to bridge thread.
     INPUT_RAW_SENDER.with(|s| {
@@ -1626,6 +1634,7 @@ unsafe extern "system" fn input_win_event_proc(
                 callback_params: [id_object as i64, id_child as i64, 0, 0],
                 pre_captured_element: None,
                 focus_epoch: 0,
+                held: Vec::new(),
             });
         }
 
@@ -1666,6 +1675,7 @@ unsafe extern "system" fn input_win_event_proc(
                 callback_params: [id_object as i64, id_child as i64, 0, 0],
                 pre_captured_element: None,
                 focus_epoch: 0,
+                held: Vec::new(),
             });
             // Track this window so we only emit context_close for it.
             INPUT_OPENED_WINDOWS.with(|s| s.borrow_mut().insert(window_handle));
@@ -1728,6 +1738,7 @@ unsafe extern "system" fn input_win_event_proc(
                         callback_params: [id_object as i64, id_child as i64, 0, 0],
                         pre_captured_element: None,
                         focus_epoch: 0,
+                        held: Vec::new(),
                     });
                 }
             }
@@ -1768,6 +1779,7 @@ unsafe extern "system" fn input_win_event_proc(
                 callback_params: [id_object as i64, id_child as i64, 0, 0],
                 pre_captured_element: None,
                 focus_epoch: 0,
+                held: Vec::new(),
             });
         }
 
@@ -1821,6 +1833,7 @@ unsafe extern "system" fn input_win_event_proc(
                 callback_params: [id_object as i64, id_child as i64, 0, 0],
                 pre_captured_element: None,
                 focus_epoch: 0,
+                held: Vec::new(),
             });
         }
 
@@ -1885,6 +1898,7 @@ unsafe extern "system" fn input_win_event_proc(
                 callback_params: [id_object as i64, id_child as i64, 0, 0],
                 pre_captured_element: None,
                 focus_epoch: 0,
+                held: Vec::new(),
             });
         }
 
@@ -1921,6 +1935,19 @@ unsafe extern "system" fn input_mouse_ll_proc(
             focus_epoch_advance_by_person();
         }
 
+        // A drag starts where the pointer first passes the threshold from a
+        // kept left press; what is held there is the drag start's to state.
+        // Over any window: the keys are the keyboard's, wherever the pointer
+        // is.
+        if msg == WM_MOUSEMOVE as u32 {
+            if let Some(down) = INPUT_MOUSE_DOWN_POS.with(|p| p.get()) {
+                INPUT_DRAG_START_KEYS.with(|k| {
+                    k.borrow_mut()
+                        .on_move(is_drag(down, pt), || input_keys_held())
+                });
+            }
+        }
+
         // Use WindowFromPoint for PID exclusion — determines WHETHER to capture
         // the event by checking if the click target is Docent's own window.
         // Previously used GetForegroundWindow, which incorrectly filtered events
@@ -1952,6 +1979,9 @@ unsafe extern "system" fn input_mouse_ll_proc(
                     note_input(timestamp, window_handle);
                     // Store mouse-down position for drag detection.
                     INPUT_MOUSE_DOWN_POS.with(|p| p.set(Some(pt)));
+                    // What is held when a drag starts from here is read at
+                    // the first move past the threshold.
+                    INPUT_DRAG_START_KEYS.with(|k| k.borrow_mut().on_press());
                     // Set click timestamp on mousedown (not just mouseup) because
                     // EVENT_OBJECT_SELECTION can fire between mousedown and mouseup.
                     INPUT_LAST_CLICK_TIMESTAMP.with(|t| t.set(timestamp));
@@ -1996,6 +2026,7 @@ unsafe extern "system" fn input_mouse_ll_proc(
                                     callback_params: [0, 0, 0, 0],
                                     pre_captured_element: None,
                                     focus_epoch: 0,
+                                    held: Vec::new(),
                                 });
                             }
                         }
@@ -2009,7 +2040,12 @@ unsafe extern "system" fn input_mouse_ll_proc(
                         classify_left_release(INPUT_MOUSE_DOWN_POS.with(|p| p.get()), pt);
 
                     if let LeftRelease::DragPair { source_coords } = classified {
-                        // Drag detected: dispatch DragStart + Drop pair.
+                        // Drag detected: dispatch DragStart + Drop pair. The
+                        // drag start states what was held when the pointer
+                        // first passed the threshold, the drop what is held
+                        // now.
+                        let (down_modifiers, down_held) = INPUT_DRAG_START_KEYS
+                            .with(|k| k.borrow_mut().at_release(|| input_keys_held()));
                         input_dispatch_raw_event(RawEvent {
                             event_type: RawEventType::DragStart { source_coords },
                             sequence_id: 0,
@@ -2019,11 +2055,12 @@ unsafe extern "system" fn input_mouse_ll_proc(
                             window_handle,
                             process_id: pid,
                             key_code: 0,
-                            modifiers: (false, false, false, false),
+                            modifiers: down_modifiers,
                             scroll_delta: 0.0,
                             callback_params: [0, 0, 0, 0],
                             pre_captured_element: None,
                             focus_epoch: 0,
+                            held: down_held,
                         });
 
                         input_dispatch_raw_event(RawEvent {
@@ -2035,11 +2072,12 @@ unsafe extern "system" fn input_mouse_ll_proc(
                             window_handle,
                             process_id: pid,
                             key_code: 0,
-                            modifiers: (false, false, false, false),
+                            modifiers: get_modifier_state(),
                             scroll_delta: 0.0,
                             callback_params: [0, 0, 0, 0],
                             pre_captured_element: None,
                             focus_epoch: 0,
+                            held: Vec::new(),
                         });
                     } else {
                         // Click detected — pre-capture the element while
@@ -2054,11 +2092,12 @@ unsafe extern "system" fn input_mouse_ll_proc(
                             window_handle,
                             process_id: pid,
                             key_code: 0,
-                            modifiers: (false, false, false, false),
+                            modifiers: get_modifier_state(),
                             scroll_delta: 0.0,
                             callback_params: [0, 0, 0, 0],
                             pre_captured_element: pre_element,
                             focus_epoch: 0,
+                            held: Vec::new(),
                         });
                         INPUT_LAST_CLICK_TIMESTAMP.with(|t| t.set(timestamp));
                     }
@@ -2084,6 +2123,7 @@ unsafe extern "system" fn input_mouse_ll_proc(
                         callback_params: [0, 0, 0, 0],
                         pre_captured_element: None,
                         focus_epoch: 0,
+                        held: Vec::new(),
                     });
                 }
                 WM_MOUSEHWHEEL => {
@@ -2103,6 +2143,7 @@ unsafe extern "system" fn input_mouse_ll_proc(
                         callback_params: [1, 0, 0, 0], // 1 = horizontal axis
                         pre_captured_element: None,
                         focus_epoch: 0,
+                        held: Vec::new(),
                     });
                 }
                 // The middle and right buttons record on the press itself, each
@@ -2121,11 +2162,12 @@ unsafe extern "system" fn input_mouse_ll_proc(
                             window_handle,
                             process_id: pid,
                             key_code: 0,
-                            modifiers: (false, false, false, false),
+                            modifiers: get_modifier_state(),
                             scroll_delta: 0.0,
                             callback_params: [0, 0, 0, 0],
                             pre_captured_element: pre_element,
                             focus_epoch: 0,
+                            held: Vec::new(),
                         });
                     }
                 }
@@ -2138,6 +2180,15 @@ unsafe extern "system" fn input_mouse_ll_proc(
     }
 
     CallNextHookEx(None, n_code, w_param, l_param)
+}
+
+/// The modifiers held and the keys that are down now, as a pointer action
+/// states them.
+unsafe fn input_keys_held() -> super::held_keys::KeysHeld {
+    (
+        get_modifier_state(),
+        INPUT_HELD_KEYS.with(|held| held.borrow().dispatched_down(None)),
+    )
 }
 
 /// The window handle of the control that holds the keyboard focus in the
@@ -2184,7 +2235,10 @@ unsafe extern "system" fn input_keyboard_ll_proc(
         repeat = INPUT_HELD_KEYS.with(|held| {
             held.borrow_mut().on_hook_message(
                 w_param.0 as u32,
-                kb_struct.vkCode,
+                super::held_keys::key_of(
+                    kb_struct.vkCode,
+                    kb_struct.flags & LLKHF_EXTENDED as u32 != 0,
+                ),
                 kb_struct.scanCode,
                 |vk| GetAsyncKeyState(vk as i32) < 0,
             )
@@ -2235,14 +2289,22 @@ unsafe extern "system" fn input_keyboard_ll_proc(
                     // part of that control, from this thread's own note.
                     // Last, whether the key was already down at this
                     // key-down: a press key repeat generated (docent#696).
+                    // Above the scan code sits the hook's extended mark,
+                    // which tells apart two keys that share a key code.
                     callback_params: [
-                        i64::from(kb_struct.scanCode),
+                        i64::from(kb_struct.scanCode)
+                            | if kb_struct.flags & LLKHF_EXTENDED as u32 != 0 {
+                                super::held_keys::KEY_EXTENDED_PARAM
+                            } else {
+                                0
+                            },
                         control,
                         INPUT_PART_FOCUS.with(|note| note.borrow().of(control)),
                         i64::from(repeat),
                     ],
                     pre_captured_element: None,
                     focus_epoch: 0,
+                    held: Vec::new(),
                 });
             }
             // After the key's own dispatch, so the key keeps the epoch it was
@@ -3989,6 +4051,7 @@ mod tests {
                     meta: false,
                 },
                 repeat: false,
+                held: crate::capture::HeldKeysAtAction::default(),
                 element: ElementDescription {
                     tag: "Edit".to_string(),
                     selector: "win > edit".to_string(),

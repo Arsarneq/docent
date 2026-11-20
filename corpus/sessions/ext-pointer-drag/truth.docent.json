@@ -23,6 +23,13 @@
             {
               "type": "drag_start",
               "timestamp": 1783348354382,
+              "modifiers": {
+                "ctrl": false,
+                "shift": false,
+                "alt": false,
+                "meta": false
+              },
+              "held_keys": [],
               "element": {
                 "autocomplete": null,
                 "id": "thumb",
@@ -69,6 +76,13 @@
               "timestamp": 1783348354682,
               "x": 421,
               "y": 21,
+              "modifiers": {
+                "ctrl": false,
+                "shift": false,
+                "alt": false,
+                "meta": false
+              },
+              "held_keys": [],
               "element": {
                 "autocomplete": null,
                 "id": "thumb",

@@ -18,8 +18,8 @@ use super::action_mapping::PASSWORD_MASK;
 use super::coordinate;
 use super::scroll::{RawScrollEvent, ScrollAccumulator};
 use super::{
-    ActionEvent, ActionPayload, CaptureError, CaptureMode, ElementDescription, Modifiers,
-    WindowRect,
+    ActionEvent, ActionPayload, CaptureError, CaptureMode, ElementDescription, HeldKeysAtAction,
+    Modifiers, WindowRect,
 };
 
 /// Maximum total time [`WorkerPool::shutdown`] waits for all worker threads to
@@ -114,7 +114,9 @@ pub struct RawEvent {
     /// number of the latest focus change that named a part of that control
     /// (see [`PartFocusNote`]), and the fourth `1` on a key-down for a key that
     /// was already down (a press key repeat generated while the key was held),
-    /// `0` on the press itself (see [`super::held_keys::HeldKeys`]). On other
+    /// `0` on the press itself (see [`super::held_keys::HeldKeys`]). The bit
+    /// above the scan code ([`super::held_keys::KEY_EXTENDED_PARAM`]) is the
+    /// hook's extended mark for the key. On other
     /// platforms: unused or
     /// platform-defined.
     pub callback_params: [i64; 4],
@@ -141,6 +143,13 @@ pub struct RawEvent {
     /// and foreground changes programs reported, which reach the Input_Thread
     /// a moment after they happen. See [`person_moved_focus_between`].
     pub focus_epoch: u64,
+    /// The keys that were down when the Input_Thread dispatched this event
+    /// and whose key-down it had dispatched, in the order they went down,
+    /// without the modifier keys and without a keystroke's own key (see
+    /// [`super::held_keys::HeldKeys::dispatched_down`]). Filled for the
+    /// keystrokes and the pointer events an action's `held_keys` is written
+    /// from; empty otherwise.
+    pub held: Vec<super::held_keys::HeldPress>,
 }
 
 // ---------------------------------------------------------------------------
@@ -1214,14 +1223,45 @@ const UNIDENTIFIED_KEY: &str = "Unidentified";
 /// character) is `Unidentified`. Every other code goes through
 /// [`vk_to_key_name`].
 fn key_name(raw: &RawEvent) -> String {
-    if raw.key_code != VK_PACKET {
-        return vk_to_key_name(raw.key_code);
+    key_name_of(raw.key_code, raw.callback_params[0])
+}
+
+/// [`key_name`] for a key by its code and its scan code.
+fn key_name_of(key_code: u32, scan_code: i64) -> String {
+    if key_code != VK_PACKET {
+        return vk_to_key_name(key_code);
     }
-    let unit = (raw.callback_params[0] & 0xFFFF) as u32;
+    let unit = (scan_code & 0xFFFF) as u32;
     match char::from_u32(unit) {
         Some(' ') => vk_to_key_name(0x20),
         Some(c) if !c.is_control() => c.to_string(),
         _ => UNIDENTIFIED_KEY.to_string(),
+    }
+}
+
+/// The modifier keys held at a raw event, as its action states them.
+fn modifiers_of(raw: &RawEvent) -> Modifiers {
+    Modifiers {
+        ctrl: raw.modifiers.0,
+        shift: raw.modifiers.1,
+        alt: raw.modifiers.2,
+        meta: raw.modifiers.3,
+    }
+}
+
+/// The keys that were down at a raw event, as its action states them.
+///
+/// Each key is named as its own `key` action names it. The hook's record
+/// lists no modifier key, so every key here has such a name.
+fn held_at(raw: &RawEvent) -> HeldKeysAtAction {
+    let (held_keys, held_presses) = raw
+        .held
+        .iter()
+        .map(|k| (key_name_of(k.key_code, i64::from(k.scan_code)), k.press))
+        .unzip();
+    HeldKeysAtAction {
+        held_keys,
+        held_presses,
     }
 }
 
@@ -2203,12 +2243,16 @@ fn handle_click<B: AccessibilityBackend>(
         ActionPayload::RightClick {
             x: screen_x,
             y: screen_y,
+            modifiers: modifiers_of(raw),
+            held: held_at(raw),
             element: element_desc.clone(),
         }
     } else {
         ActionPayload::Click {
             x: screen_x,
             y: screen_y,
+            modifiers: modifiers_of(raw),
+            held: held_at(raw),
             element: element_desc.clone(),
         }
     };
@@ -2792,13 +2836,9 @@ fn handle_keyboard<B: AccessibilityBackend>(
         sequence_id: Some(raw.sequence_id),
         payload: ActionPayload::Key {
             key: key.clone(),
-            modifiers: Modifiers {
-                ctrl: raw.modifiers.0,
-                shift: raw.modifiers.1,
-                alt: raw.modifiers.2,
-                meta: raw.modifiers.3,
-            },
+            modifiers: modifiers_of(raw),
             repeat: is_repeat(raw),
+            held: held_at(raw),
             element,
         },
     };
@@ -2894,7 +2934,11 @@ fn handle_drag_start<B: AccessibilityBackend>(
         frame_src: None,
         window_rect,
         sequence_id: Some(raw.sequence_id),
-        payload: ActionPayload::DragStart { element },
+        payload: ActionPayload::DragStart {
+            modifiers: modifiers_of(raw),
+            held: held_at(raw),
+            element,
+        },
     });
 }
 
@@ -2927,6 +2971,8 @@ fn handle_drop<B: AccessibilityBackend>(
         payload: ActionPayload::Drop {
             x: raw.screen_x as f64,
             y: raw.screen_y as f64,
+            modifiers: modifiers_of(raw),
+            held: held_at(raw),
             element,
             source_element,
         },
@@ -3052,6 +3098,7 @@ mod tests {
                     meta: false,
                 },
                 repeat: false,
+                held: HeldKeysAtAction::default(),
                 element: ElementDescription {
                     tag: "Edit".to_string(),
                     id: None,
@@ -3292,6 +3339,7 @@ mod tests {
             callback_params: [0; 4],
             pre_captured_element: None,
             focus_epoch: 0,
+            held: Vec::new(),
         };
 
         pool.dispatch(key()); // worker 0 takes the typing role and wedges
@@ -3518,6 +3566,7 @@ mod tests {
             callback_params: [0; 4],
             pre_captured_element: None,
             focus_epoch: 0,
+            held: Vec::new(),
         }
     }
 
@@ -3537,6 +3586,7 @@ mod tests {
             callback_params: [0; 4],
             pre_captured_element: None,
             focus_epoch: 0,
+            held: Vec::new(),
         }
     }
 

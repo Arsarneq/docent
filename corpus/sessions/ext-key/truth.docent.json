@@ -23,6 +23,13 @@
             {
               "capture_mode": "dom",
               "context_id": 1465699258,
+              "modifiers": {
+                "ctrl": false,
+                "shift": false,
+                "alt": false,
+                "meta": false
+              },
+              "held_keys": [],
               "element": {
                 "autocomplete": null,
                 "id": "field",
@@ -75,6 +82,7 @@
             {
               "capture_mode": "dom",
               "context_id": 1465699258,
+              "held_keys": [],
               "element": {
                 "autocomplete": null,
                 "id": "field",
@@ -133,6 +141,7 @@
             {
               "capture_mode": "dom",
               "context_id": 1465699258,
+              "held_keys": [],
               "element": {
                 "autocomplete": null,
                 "id": "field",
@@ -186,6 +195,124 @@
               },
               "repeat": false,
               "timestamp": 1783348332827,
+              "type": "key"
+            },
+            {
+              "capture_mode": "dom",
+              "context_id": 1465699258,
+              "held_keys": [],
+              "element": {
+                "autocomplete": null,
+                "id": "field",
+                "locators": [
+                  {
+                    "match_count": 1,
+                    "match_index": 0,
+                    "strategy": "id",
+                    "value": "field"
+                  },
+                  {
+                    "attribute": "data-testid",
+                    "match_count": 1,
+                    "match_index": 0,
+                    "strategy": "test_id",
+                    "value": "field"
+                  },
+                  {
+                    "match_count": 1,
+                    "match_index": 0,
+                    "strategy": "name",
+                    "value": "field"
+                  },
+                  {
+                    "match_count": 1,
+                    "match_index": 0,
+                    "strategy": "tag_name",
+                    "value": "input"
+                  },
+                  {
+                    "match_count": 1,
+                    "match_index": 0,
+                    "strategy": "css",
+                    "value": "#field"
+                  }
+                ],
+                "name": "field",
+                "role": null,
+                "selector": "#field",
+                "tag": "INPUT",
+                "text": null,
+                "type": "text"
+              },
+              "frame_src": null,
+              "key": "ArrowDown",
+              "modifiers": {
+                "alt": false,
+                "ctrl": false,
+                "meta": false,
+                "shift": false
+              },
+              "repeat": false,
+              "timestamp": 1783348332847,
+              "type": "key"
+            },
+            {
+              "capture_mode": "dom",
+              "context_id": 1465699258,
+              "held_keys": ["ArrowDown"],
+              "element": {
+                "autocomplete": null,
+                "id": "field",
+                "locators": [
+                  {
+                    "match_count": 1,
+                    "match_index": 0,
+                    "strategy": "id",
+                    "value": "field"
+                  },
+                  {
+                    "attribute": "data-testid",
+                    "match_count": 1,
+                    "match_index": 0,
+                    "strategy": "test_id",
+                    "value": "field"
+                  },
+                  {
+                    "match_count": 1,
+                    "match_index": 0,
+                    "strategy": "name",
+                    "value": "field"
+                  },
+                  {
+                    "match_count": 1,
+                    "match_index": 0,
+                    "strategy": "tag_name",
+                    "value": "input"
+                  },
+                  {
+                    "match_count": 1,
+                    "match_index": 0,
+                    "strategy": "css",
+                    "value": "#field"
+                  }
+                ],
+                "name": "field",
+                "role": null,
+                "selector": "#field",
+                "tag": "INPUT",
+                "text": null,
+                "type": "text"
+              },
+              "frame_src": null,
+              "key": "Enter",
+              "modifiers": {
+                "alt": false,
+                "ctrl": false,
+                "meta": false,
+                "shift": false
+              },
+              "repeat": false,
+              "timestamp": 1783348332867,
               "type": "key"
             }
           ],

@@ -636,6 +636,19 @@
   let capturedKeyEventInTask = false;
   // The physical keys whose latest keydown was written, by `code`.
   const capturedKeysDown = new Set();
+  // The physical keys that are down, by `code`, in the order they went down:
+  // each with the name its `key` action carries when the keydown it is down by
+  // was written, and null when that keydown was not (text typed into a field,
+  // a key outside the captured set). The keydown a key is down by is its
+  // press, or the first of its repeats this document saw when it did not see
+  // the press; later repeats change nothing.
+  const keysDown = new Map();
+  /**
+   * The names of the keys that are down by a written keydown, other than the
+   * key `code` itself: what an action's `held_keys` states (#706).
+   */
+  const heldKeys = (code) =>
+    [...keysDown].filter(([held, name]) => held !== code && name !== null).map(([, name]) => name);
   // The value each text field held when it took focus, or after the entry
   // last written for it: what a `change` is measured against, so a captured
   // key can tell an entry not yet written from one that is.
@@ -646,6 +659,13 @@
   const fieldsEditedByKey = new WeakSet();
   // The entry last written for each field, so the same entry is not written twice.
   const entryLastWritten = new WeakMap();
+  /** The modifiers held at a trusted key, mouse or drag event (#239). */
+  const modifiersOf = (e) => ({
+    ctrl: e.ctrlKey,
+    shift: e.shiftKey,
+    alt: e.altKey,
+    meta: e.metaKey,
+  });
   let lastTabKeyTimestamp = 0;
   let lastSelectTimestamp = 0;
   let lastFileInputClickEl = null;
@@ -739,6 +759,8 @@
         timestamp: Date.now(),
         x: e.clientX,
         y: e.clientY,
+        modifiers: modifiersOf(e),
+        held_keys: heldKeys(),
         element: describeElement(el),
       });
       markUserAction();
@@ -760,6 +782,8 @@
         timestamp: Date.now(),
         x: e.clientX,
         y: e.clientY,
+        modifiers: modifiersOf(e),
+        held_keys: heldKeys(),
         element: describeElement(el),
       });
       markUserAction();
@@ -825,6 +849,13 @@
       if (!e.isTrusted) return;
       // Every keydown restates whether this physical key's press is a written one.
       capturedKeysDown.delete(e.code);
+      // This keydown is the one the key is down by when it is the press, or the
+      // first keydown of the key this document sees.
+      const downByThis = !e.repeat || !keysDown.has(e.code);
+      if (downByThis) {
+        keysDown.delete(e.code);
+        keysDown.set(e.code, null);
+      }
       // A field focused before the recording began has no value noted yet: the
       // one it holds now is what the first keystroke is about to change.
       const fieldInFocus = document.activeElement;
@@ -845,7 +876,9 @@
       const el = document.activeElement;
       // Allow Tab even when body is focused — the user pressed Tab to navigate.
       if (!el || (el === document.body && key !== 'Tab')) return;
+      const held = heldKeys(e.code);
       capturedKeysDown.add(e.code);
+      if (downByThis) keysDown.set(e.code, key);
       markCapturedKeyEvent();
       // The entry the person made in the field is complete before this press, and
       // the browser's `change` for it comes only while it handles the press
@@ -858,13 +891,9 @@
         type: 'key',
         timestamp: Date.now(),
         key,
-        modifiers: {
-          ctrl: e.ctrlKey,
-          shift: e.shiftKey,
-          alt: e.altKey,
-          meta: e.metaKey,
-        },
+        modifiers: modifiersOf(e),
         repeat: e.repeat,
+        held_keys: held,
         element: describeElement(el),
       });
       markUserAction();
@@ -889,9 +918,25 @@
   document.addEventListener(
     'keyup',
     (e) => {
-      if (!active) return;
       if (!e.isTrusted) return;
-      if (capturedKeysDown.delete(e.code)) markCapturedKeyEvent();
+      // A release ends the key's time among the held keys whether or not the
+      // recording is on: a key released while it is off is not down after it.
+      keysDown.delete(e.code);
+      const captured = capturedKeysDown.delete(e.code);
+      if (active && captured) markCapturedKeyEvent();
+    },
+    { capture: true, passive: true },
+  );
+
+  // A key released while the window does not have the focus sends its keyup
+  // elsewhere, so nothing is known to be down once the window loses it. A key
+  // still held when the focus returns is down again by its next repeat.
+  window.addEventListener(
+    'blur',
+    (e) => {
+      if (!e.isTrusted || e.target !== window) return;
+      capturedKeysDown.clear();
+      keysDown.clear();
     },
     { capture: true, passive: true },
   );
@@ -1022,12 +1067,19 @@
   document.addEventListener(
     'dragstart',
     (e) => {
-      if (!active) return;
       if (!e.isTrusted) return;
+      const held = heldKeys();
+      // The browser sends the page no key events during a drag, so a key
+      // released in that time is never seen to go up: from the start of the
+      // drag nothing is known to be down.
+      keysDown.clear();
+      if (!active) return;
       dragSource = e.target;
       appendAction({
         type: 'drag_start',
         timestamp: Date.now(),
+        modifiers: modifiersOf(e),
+        held_keys: held,
         element: describeElement(e.target),
       });
       markUserAction();
@@ -1055,9 +1107,14 @@
       // Allow drop if we have an active drag source from a trusted dragstart,
       // even if the drop event itself is untrusted (Playwright simulation).
       if (!e.isTrusted && !dragSource) return;
+      // No key is known to be down at the end of a drag, wherever it started:
+      // the page was sent no key events while it lasted.
+      keysDown.clear();
       appendAction({
         type: 'drop',
         timestamp: Date.now(),
+        modifiers: modifiersOf(e),
+        held_keys: heldKeys(),
         element: describeElement(e.target),
         source_element: dragSource ? describeElement(dragSource) : null,
         x: e.clientX,

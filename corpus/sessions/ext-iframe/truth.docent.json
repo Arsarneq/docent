@@ -23,6 +23,13 @@
             {
               "capture_mode": "dom",
               "context_id": 1997042541,
+              "modifiers": {
+                "ctrl": false,
+                "shift": false,
+                "alt": false,
+                "meta": false
+              },
+              "held_keys": [],
               "element": {
                 "autocomplete": null,
                 "id": "top-btn",
@@ -75,6 +82,13 @@
             {
               "capture_mode": "dom",
               "context_id": 1997042541,
+              "modifiers": {
+                "ctrl": false,
+                "shift": false,
+                "alt": false,
+                "meta": false
+              },
+              "held_keys": [],
               "element": {
                 "autocomplete": null,
                 "id": "frame-btn",

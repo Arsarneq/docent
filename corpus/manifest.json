@@ -31,7 +31,7 @@
       "page": "page.html",
       "script": "script.js",
       "knownDiffIssues": [],
-      "notes": "captured control keys on a focused input (Enter, Escape)"
+      "notes": "captured control keys on a focused input (Enter, Escape), and Enter pressed while ArrowDown is held"
     },
     {
       "id": "ext-navigate",

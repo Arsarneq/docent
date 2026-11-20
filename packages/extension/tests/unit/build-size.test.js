@@ -126,6 +126,19 @@
  *     and test in `lib/active-recording.js`, shared by both; the control
  *     commands answer a refused pause, resume or create with fixed texts; the
  *     rest landed earlier inside the previous budget; no new dependency.
+ *   - Raised to 764KB for the keys held at an action and the modifiers of a
+ *     pointer action (docent#706, docent#239): measured 759,127 B
+ *     (`node_modules` inside the checkout); margin 23,209 B; growth since
+ *     735,856 B (the header's recorded size):
+ *     `shared/generated/validate-extension.js` +12,459 B (+12,109 B in this
+ *     change, +350 B before it), `content/recorder.js` +9,266 B (+1,206 B in
+ *     this change, +8,060 B before it), `content/recorder-logic.js` +1,666 B,
+ *     `lib/capture-timing.js` −120 B. Deliberate: the validator is generated
+ *     from the schema, which states `held_keys` on five action types and
+ *     `modifiers` on four more, and each statement is validation code per
+ *     action type; the recorder keeps the written keys that are down and
+ *     writes both fields; the rest landed earlier inside the previous budget;
+ *     no new dependency.
  *
  * Requires `npm run sync-shared` to have been run first.
  */
@@ -176,7 +189,7 @@ function formatSize(bytes) {
 
 const extensionExcludes = ['node_modules', 'tests', '.git', 'coverage'];
 
-const JS_BUDGET_KB = 741;
+const JS_BUDGET_KB = 764;
 
 /** The headroom rule's figures for a measured size: the next budget and its margin. */
 function nextBudget(bytes) {

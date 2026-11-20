@@ -23,6 +23,13 @@
             {
               "capture_mode": "dom",
               "context_id": 34779661,
+              "modifiers": {
+                "ctrl": false,
+                "shift": false,
+                "alt": false,
+                "meta": false
+              },
+              "held_keys": [],
               "element": {
                 "autocomplete": null,
                 "id": "email",
@@ -138,6 +145,13 @@
             {
               "capture_mode": "dom",
               "context_id": 34779661,
+              "modifiers": {
+                "ctrl": false,
+                "shift": false,
+                "alt": false,
+                "meta": false
+              },
+              "held_keys": [],
               "element": {
                 "autocomplete": null,
                 "id": "elsewhere",
