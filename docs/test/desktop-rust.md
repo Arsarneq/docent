@@ -104,7 +104,9 @@ The crate's build expects `packages/desktop/dist/` to exist (the Tauri build
 script reads it); `npm run build:desktop-dist` produces it — CI creates it
 empty for test runs. A full local `cargo test` includes the real-input suites
 (hands off the machine while they run) and `file_dialog_test`, which launches
-Notepad and a real file dialog.
+Notepad and a real file dialog. On Windows the `windows` module's in-module
+tests open a common Open dialog of their own too, on a thread of the test
+process with no input synthesized, and close it themselves; they run in CI.
 
 ## Classification and CI
 

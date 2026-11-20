@@ -4339,3 +4339,199 @@ mod tests {
         assert_eq!(control_type_name(50040), "AppBar");
     }
 }
+
+// ---------------------------------------------------------------------------
+// The file-dialog read against a real common Open dialog
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod file_dialog_read_tests {
+    //! The backend's file-dialog read (DCP-6) run against a real common Open
+    //! dialog this process opens with `GetOpenFileNameW` on a thread of its
+    //! own, showing a folder the test creates, with the File name preset — no
+    //! other application and no synthesized input. The dialog is modal on its
+    //! thread; a guard closes it however the test ends.
+
+    use super::super::win32_bindings::{
+        FindWindowW, GetDlgItem, GetOpenFileNameW, PostMessageW, OFN_EXPLORER, OFN_FILEMUSTEXIST,
+        OPENFILENAMEW, WM_CLOSE,
+    };
+    use super::*;
+    use windows_core::PCWSTR;
+
+    /// The file the dialog's folder holds and its File name names.
+    const FILE: &str = "docent-692-known.txt";
+
+    fn wide(s: &str) -> Vec<u16> {
+        s.encode_utf16().chain(Some(0)).collect()
+    }
+
+    /// Closes the dialog when dropped, so a failed assertion leaves no modal
+    /// window behind for the rest of the suite.
+    struct CloseOnDrop(isize);
+
+    impl Drop for CloseOnDrop {
+        fn drop(&mut self) {
+            if self.0 != 0 {
+                unsafe {
+                    let _ = PostMessageW(
+                        Some(HWND(self.0 as *mut _)),
+                        WM_CLOSE as u32,
+                        WPARAM(0),
+                        LPARAM(0),
+                    );
+                }
+            }
+        }
+    }
+
+    /// Poll `f` until it answers `Some` or `timeout` passes.
+    fn poll<T>(timeout: Duration, mut f: impl FnMut() -> Option<T>) -> Option<T> {
+        let start = Instant::now();
+        loop {
+            if let Some(v) = f() {
+                return Some(v);
+            }
+            if start.elapsed() > timeout {
+                return None;
+            }
+            thread::sleep(Duration::from_millis(100));
+        }
+    }
+
+    /// A read given one of the dialog's child windows — its Open button,
+    /// which is what a click names — resolves the dialog as that window's
+    /// root and returns the dialog type from the title and the folder the
+    /// dialog shows joined with its File name; once the dialog has closed, a
+    /// read from the same window returns none.
+    #[test]
+    fn a_file_dialog_read_from_its_open_button_names_the_folder_and_the_file() {
+        // The folder, by its long path: the temp path can be a short (8.3)
+        // one, and the dialog shows the long one.
+        let made = std::env::temp_dir().join(format!("docent-692-{}", std::process::id()));
+        std::fs::create_dir_all(&made).unwrap();
+        std::fs::write(made.join(FILE), b"692").unwrap();
+        let canonical = std::fs::canonicalize(&made).unwrap();
+        let dir = canonical.to_string_lossy();
+        let dir = dir.strip_prefix(r"\\?\").unwrap_or(&dir).to_string();
+        let title = format!("Docent read test {} - Open", std::process::id());
+
+        let dialog_thread = {
+            let dir = dir.clone();
+            let title = title.clone();
+            thread::spawn(move || unsafe {
+                let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED as u32);
+                let dir_w = wide(&dir);
+                let title_w = wide(&title);
+                let filter: Vec<u16> = "Text files\0*.txt\0\0".encode_utf16().collect();
+                let mut file = [0u16; 260];
+                for (slot, unit) in file.iter_mut().zip(FILE.encode_utf16()) {
+                    *slot = unit;
+                }
+                let mut ofn = OPENFILENAMEW {
+                    lStructSize: std::mem::size_of::<OPENFILENAMEW>() as u32,
+                    lpstrFilter: PCWSTR(filter.as_ptr()),
+                    lpstrFile: PWSTR(file.as_mut_ptr()),
+                    nMaxFile: file.len() as u32,
+                    lpstrInitialDir: PCWSTR(dir_w.as_ptr()),
+                    lpstrTitle: PCWSTR(title_w.as_ptr()),
+                    Flags: (OFN_EXPLORER | OFN_FILEMUSTEXIST) as u32,
+                    ..Default::default()
+                };
+                // Returns once the dialog is closed (cancelled: no file).
+                let _ = GetOpenFileNameW(&mut ofn);
+                CoUninitialize();
+            })
+        };
+
+        let title_w = wide(&title);
+        let dialog = poll(Duration::from_secs(20), || {
+            let h = unsafe { FindWindowW(windows_core::w!("#32770"), PCWSTR(title_w.as_ptr())) };
+            (!h.0.is_null()).then_some(h.0 as isize)
+        })
+        .expect("the common Open dialog did not appear");
+        let guard = CloseOnDrop(dialog);
+
+        // The Open button (IDOK); the File name combo box (cmb13) where a
+        // dialog shows its button windowless.
+        let child = [1, 0x047C]
+            .into_iter()
+            .map(|id| unsafe { GetDlgItem(Some(HWND(dialog as *mut _)), id) })
+            .find(|h| !h.0.is_null())
+            .expect("the dialog has neither an Open button nor a File name box window")
+            .0 as i64;
+        assert_ne!(child, dialog as i64, "the read is given a child window");
+
+        let mut backend = WindowsAccessibilityBackend::new();
+        backend.init().unwrap();
+        assert_eq!(backend.root_window_handle(child), dialog as i64);
+
+        let expected = format!("{dir}\\{FILE}");
+        let mut last = None;
+        let matched = poll(Duration::from_secs(20), || {
+            last = backend.read_file_dialog_path(child);
+            match &last {
+                Some((kind, path)) if kind == "open" && path.eq_ignore_ascii_case(&expected) => {
+                    Some(())
+                }
+                _ => None,
+            }
+        });
+        assert!(
+            matched.is_some(),
+            "read {last:?}, expected (\"open\", {expected:?})"
+        );
+
+        drop(guard);
+        dialog_thread.join().unwrap();
+        assert_eq!(
+            backend.read_file_dialog_path(child),
+            None,
+            "a closed dialog reads as none"
+        );
+        backend.cleanup();
+        let _ = std::fs::remove_dir_all(&made);
+    }
+}
+
+#[cfg(test)]
+mod input_thread_helper_tests {
+    //! The Input_Thread's own helpers, run with the system's real values.
+
+    use super::*;
+
+    /// Pairing on the Input_Thread's state with the system's double-click
+    /// bounds: a second press at the same point and time completes a
+    /// double-click, the press after it starts a new pair, and a broken pair
+    /// completes none. Each test thread has its own pairing state.
+    #[test]
+    fn the_input_threads_pairing_reads_the_systems_double_click_bounds() {
+        let press = |time_ms| ClickPress {
+            time_ms,
+            x: 10,
+            y: 10,
+            window: 42,
+        };
+        assert!(!double_click_completed_by(press(1000)));
+        assert!(double_click_completed_by(press(1000)));
+        assert!(!double_click_completed_by(press(1000)), "third press");
+        double_click_break_pair();
+        assert!(!double_click_completed_by(press(1000)), "after the break");
+        // Later than any double-click time the system allows (5000 ms max).
+        assert!(!double_click_completed_by(press(1000 + 6000)));
+    }
+
+    /// The layout read's guards: thread 0, which would name this thread's own
+    /// layout, and a key that is no punctuation key read nothing.
+    #[test]
+    fn the_foreground_layout_read_reads_nothing_for_thread_zero_or_a_non_punctuation_key() {
+        unsafe {
+            assert_eq!(foreground_layout_char(0xBE, 0), 0, "thread 0");
+            assert_eq!(
+                foreground_layout_char(0x41, GetCurrentThreadId()),
+                0,
+                "a letter key"
+            );
+        }
+    }
+}

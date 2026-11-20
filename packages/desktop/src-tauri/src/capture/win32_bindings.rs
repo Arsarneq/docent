@@ -166,6 +166,11 @@ pub unsafe fn GetCurrentThreadId() -> u32 {
     unsafe { GetCurrentThreadId() }
 }
 #[inline]
+pub unsafe fn GetDlgItem(hdlg: Option<HWND>, niddlgitem: i32) -> HWND {
+    windows_core::link!("user32.dll" "system" fn GetDlgItem(hdlg : HWND, niddlgitem : i32) -> HWND);
+    unsafe { GetDlgItem(hdlg.unwrap_or(core::mem::zeroed()) as _, niddlgitem) }
+}
+#[inline]
 pub unsafe fn GetDoubleClickTime() -> u32 {
     windows_core::link!("user32.dll" "system" fn GetDoubleClickTime() -> u32);
     unsafe { GetDoubleClickTime() }
@@ -221,6 +226,11 @@ where
             nsize,
         )
     }
+}
+#[inline]
+pub unsafe fn GetOpenFileNameW(param0: *mut OPENFILENAMEW) -> windows_core::BOOL {
+    windows_core::link!("comdlg32.dll" "system" fn GetOpenFileNameW(param0 : *mut OPENFILENAMEW) -> windows_core::BOOL);
+    unsafe { GetOpenFileNameW(param0 as _) }
 }
 #[inline]
 pub unsafe fn GetParent(hwnd: HWND) -> HWND {
@@ -318,6 +328,23 @@ pub unsafe fn PeekMessageW(
             wmsgfiltermin,
             wmsgfiltermax,
             wremovemsg,
+        )
+    }
+}
+#[inline]
+pub unsafe fn PostMessageW(
+    hwnd: Option<HWND>,
+    msg: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+) -> windows_core::BOOL {
+    windows_core::link!("user32.dll" "system" fn PostMessageW(hwnd : HWND, msg : u32, wparam : WPARAM, lparam : LPARAM) -> windows_core::BOOL);
+    unsafe {
+        PostMessageW(
+            hwnd.unwrap_or(core::mem::zeroed()) as _,
+            msg,
+            wparam,
+            lparam,
         )
     }
 }
@@ -4256,6 +4283,9 @@ pub const LBS_NOTIFY: i32 = 1;
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub struct LPARAM(pub isize);
+pub type LPOFNHOOKPROC = Option<
+    unsafe extern "system" fn(param0: HWND, param1: u32, param2: WPARAM, param3: LPARAM) -> usize,
+>;
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub struct LRESULT(pub isize);
@@ -4288,6 +4318,68 @@ pub const NavigateDirection_Parent: NavigateDirection = 0;
 pub const NavigateDirection_PreviousSibling: NavigateDirection = 2;
 pub const OBJID_CLIENT: i32 = -4;
 pub const OBJID_WINDOW: i32 = 0;
+pub const OFN_EXPLORER: i32 = 524288;
+pub const OFN_FILEMUSTEXIST: i32 = 4096;
+#[repr(C, packed(1))]
+#[cfg(target_arch = "x86")]
+#[derive(Clone, Copy, Default)]
+pub struct OPENFILENAMEW {
+    pub lStructSize: u32,
+    pub hwndOwner: HWND,
+    pub hInstance: HINSTANCE,
+    pub lpstrFilter: windows_core::PCWSTR,
+    pub lpstrCustomFilter: windows_core::PWSTR,
+    pub nMaxCustFilter: u32,
+    pub nFilterIndex: u32,
+    pub lpstrFile: windows_core::PWSTR,
+    pub nMaxFile: u32,
+    pub lpstrFileTitle: windows_core::PWSTR,
+    pub nMaxFileTitle: u32,
+    pub lpstrInitialDir: windows_core::PCWSTR,
+    pub lpstrTitle: windows_core::PCWSTR,
+    pub Flags: u32,
+    pub nFileOffset: u16,
+    pub nFileExtension: u16,
+    pub lpstrDefExt: windows_core::PCWSTR,
+    pub lCustData: LPARAM,
+    pub lpfnHook: LPOFNHOOKPROC,
+    pub lpTemplateName: windows_core::PCWSTR,
+    pub pvReserved: *mut core::ffi::c_void,
+    pub dwReserved: u32,
+    pub FlagsEx: u32,
+}
+#[repr(C)]
+#[cfg(any(
+    target_arch = "aarch64",
+    target_arch = "arm64ec",
+    target_arch = "x86_64"
+))]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct OPENFILENAMEW {
+    pub lStructSize: u32,
+    pub hwndOwner: HWND,
+    pub hInstance: HINSTANCE,
+    pub lpstrFilter: windows_core::PCWSTR,
+    pub lpstrCustomFilter: windows_core::PWSTR,
+    pub nMaxCustFilter: u32,
+    pub nFilterIndex: u32,
+    pub lpstrFile: windows_core::PWSTR,
+    pub nMaxFile: u32,
+    pub lpstrFileTitle: windows_core::PWSTR,
+    pub nMaxFileTitle: u32,
+    pub lpstrInitialDir: windows_core::PCWSTR,
+    pub lpstrTitle: windows_core::PCWSTR,
+    pub Flags: u32,
+    pub nFileOffset: u16,
+    pub nFileExtension: u16,
+    pub lpstrDefExt: windows_core::PCWSTR,
+    pub lCustData: LPARAM,
+    pub lpfnHook: LPOFNHOOKPROC,
+    pub lpTemplateName: windows_core::PCWSTR,
+    pub pvReserved: *mut core::ffi::c_void,
+    pub dwReserved: u32,
+    pub FlagsEx: u32,
+}
 pub type OrientationType = i32;
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -4539,6 +4631,7 @@ pub type WINEVENTPROC = Option<
 >;
 pub const WINEVENT_OUTOFCONTEXT: i32 = 0;
 pub const WM_APP: i32 = 32768;
+pub const WM_CLOSE: i32 = 16;
 pub const WM_GETOBJECT: i32 = 61;
 pub const WM_KEYDOWN: i32 = 256;
 pub const WM_LBUTTONDOWN: i32 = 513;
