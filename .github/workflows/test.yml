@@ -796,6 +796,7 @@ jobs:
       - uses: ./.github/actions/debug-env
 
       - name: Install Rust toolchain
+        id: toolchain
         uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
           toolchain: stable
@@ -845,7 +846,8 @@ jobs:
       # Each writing job owns a KEY FAMILY of its own: `rust-tests` here, and
       # `vectors`, `xcompile` and `mutation` at the writing jobs the guide's
       # key-families table names beside it (docs/guides/ci.md §What the caches
-      # key on). A key is `<runner.os>-cargo-<family>-<lockfile hash>`, so the
+      # key on). A key is `<runner.os>-cargo-<family>-<lockfile hash>` (this
+      # family adds the toolchain before the hash; see below), so the
       # runner's OS separates the platforms a family spans (only `xcompile`
       # spans more than one) and the family segment separates the jobs sharing
       # one platform, each of which builds a differently-shaped target tree.
@@ -857,13 +859,26 @@ jobs:
       # new. Candidates come only from entries saved under the SAME path list,
       # so what a prefix can reach is this platform's other registry-and-build
       # entries, never the single-file tool caches beside them — those are
-      # stored as distinct caches. This family lists its own prefix first and
-      # then the bare `<runner.os>-cargo-` prefix, so a lockfile bump
-      # warm-starts from this job's own previous tree and, failing that, from a
-      # sibling family's. What either reliably supplies is a populated
-      # registry; the target directory it carries was built by whichever job
-      # saved it, so cargo revalidates that rather than trusting it. The floor
-      # is the cold start a bare key gives.
+      # stored as distinct caches. A sibling family's prefix is a warm start:
+      # it supplies a populated registry, and the target directory it carries
+      # was built by whichever job saved it, so cargo revalidates that rather
+      # than trusting it. The floor is the cold start a bare key gives.
+      #
+      # THIS family alone keys on the toolchain as well (docent#700): the
+      # `cachekey` output of the toolchain step above sits in its prefix, and
+      # its one fallback is that same prefix, so a lockfile bump warm-starts
+      # from this job's own tree under the same toolchain and a toolchain move
+      # starts cold. The coverage steps below are why: `cargo llvm-cov`
+      # reports on every test binary under its target directory whose name
+      # matches a workspace target, and its clean (`cargo clean --package`)
+      # reaches only the files the current toolchain's layout names. A tree
+      # another toolchain built keeps that toolchain's test binaries, and their
+      # mappings, built from older source, would join the report as never-hit
+      # lines. The bare `<runner.os>-cargo-` prefix the sibling families fall
+      # back to would match this family's own older keys too, so it is not
+      # listed here. The sibling families' trees are never walked that way, so
+      # a leftover there costs space and not correctness, and they keep the
+      # shorter key.
       #
       # The restore and the save are SPLIT so the save can be gated. It writes
       # only from `main`, and only when the restore was not an exact hit:
@@ -888,10 +903,9 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             packages/desktop/src-tauri/target
-          key: ${{ runner.os }}-cargo-rust-tests-${{ hashFiles('packages/desktop/src-tauri/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-rust-tests-${{ steps.toolchain.outputs.cachekey }}-${{ hashFiles('packages/desktop/src-tauri/Cargo.lock') }}
           restore-keys: |
-            ${{ runner.os }}-cargo-rust-tests-
-            ${{ runner.os }}-cargo-
+            ${{ runner.os }}-cargo-rust-tests-${{ steps.toolchain.outputs.cachekey }}-
 
       - name: Create frontend dist directory
         working-directory: packages/desktop
@@ -984,7 +998,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             packages/desktop/src-tauri/target
-          key: ${{ runner.os }}-cargo-rust-tests-${{ hashFiles('packages/desktop/src-tauri/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-rust-tests-${{ steps.toolchain.outputs.cachekey }}-${{ hashFiles('packages/desktop/src-tauri/Cargo.lock') }}
 
       - name: Upload Rust coverage reports
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7

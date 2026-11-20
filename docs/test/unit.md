@@ -571,7 +571,9 @@ machinery under `scripts/`.
   different path lists, two family names nesting inside one exact path list and one name stated
   twice there over one hash input, each family's own prefix first in its restore keys with a
   fallback reaching an entry under a shared stem refused and one reaching a different stem left
-  alone, a split save stating no gate read as unconditional, the guide subsection those cells are
+  alone, a coverage job's cached `target` tree keyed on its own toolchain step's `cachekey` in the
+  family prefix and in every fallback, with a job measuring nothing or caching no `target` tree left
+  alone (#700), a split save stating no gate read as unconditional, the guide subsection those cells are
   read from cut by the shared heading slice so a heading stated more than once yields its first run,
   and a key's version segment, install pin and guide version held to one another. And the shapes it
   refuses on its own exit code rather than passing vacuously, with
