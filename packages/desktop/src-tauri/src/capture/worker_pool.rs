@@ -1266,18 +1266,24 @@ pub(crate) const fn is_punctuation_key(vk: u32) -> bool {
     matches!(vk, 0xBA..=0xC2 | 0xDB..=0xDF | 0xE1..=0xE4 | 0xE6)
 }
 
+/// The private-use range the keyboard layout tables keep for their own
+/// markers (`WCH_NONE` `0xF000`, `WCH_DEAD` `0xF001`, `WCH_LGTR` `0xF002`, for
+/// example): a value there names no character a key enters.
+const LAYOUT_TABLE_MARKERS: std::ops::RangeInclusive<char> = '\u{F000}'..='\u{F0FF}';
+
 /// Name a punctuation key by `layout_char`, the value the keyboard hook read
 /// for it from the keyboard layout of the foreground window's thread: the
 /// character the key enters with no modifier in the low 16 bits, and the
 /// dead-key flag in bit 31, which the name leaves out (a dead key is named by
 /// the accent it carries). A letter is named in its upper case, as the letter
 /// keys are, where that is one character; a space is `Space`; a value that is
-/// no character (0 where the layout gives the key none, a control character,
-/// a surrogate half) leaves the key to its code's name, `VK_0x..`.
+/// no character (0 where the layout gives the key none or no layout was read,
+/// a control character, a surrogate half, or one of the layout tables' own
+/// markers in `0xF000`-`0xF0FF`) leaves the key to its code's name, `VK_0x..`.
 pub(crate) fn punctuation_key_name(vk: u32, layout_char: i64) -> String {
     match char::from_u32((layout_char & 0xFFFF) as u32) {
         Some(' ') => vk_to_key_name(0x20),
-        Some(c) if !c.is_control() => {
+        Some(c) if !c.is_control() && !LAYOUT_TABLE_MARKERS.contains(&c) => {
             let mut upper = c.to_uppercase();
             match (upper.next(), upper.next()) {
                 (Some(u), None) => u.to_string(),
@@ -3535,6 +3541,15 @@ mod tests {
         // A control character or a surrogate half is no character either.
         assert_eq!(name_with_layout_char(0xBB, 0x1B), "VK_0xBB");
         assert_eq!(name_with_layout_char(0xBB, 0xD800), "VK_0xBB");
+        // Nor is a layout table's own marker (WCH_NONE, WCH_DEAD, WCH_LGTR).
+        for marker in [0xF000, 0xF001, 0xF002, 0xF0FF] {
+            assert_eq!(
+                name_with_layout_char(0xBB, marker),
+                "VK_0xBB",
+                "{marker:#x}"
+            );
+        }
+        assert_eq!(name_with_layout_char(0xBB, 0xF100), "\u{F100}");
         // A space is named as the space bar is.
         assert_eq!(name_with_layout_char(0xBB, ' ' as i64), "Space");
     }

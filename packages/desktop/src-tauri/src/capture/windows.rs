@@ -2295,9 +2295,11 @@ unsafe fn foreground_layout_char(vk: u32, thread_id: u32) -> u32 {
 
 /// The character `vk` enters with no modifier on keyboard layout `hkl`, with
 /// the dead-key flag in bit 31, as `MapVirtualKeyExW(MAPVK_VK_TO_CHAR)` gives
-/// it (0 where the layout gives none). Unlike `ToUnicodeEx`, the read leaves
-/// the keyboard state alone, so a dead key pressed before it still composes
-/// with the next key.
+/// it (0 where the layout gives none). The read takes no key-state array: it
+/// answers with the key's own character on the layout's base table, never
+/// what the modifiers held at the keypress make of it, and it touches no
+/// dead-key state, so a dead key pressed before it still composes with the
+/// next key.
 unsafe fn layout_char(vk: u32, hkl: HKL) -> u32 {
     if hkl.0.is_null() {
         return 0;
