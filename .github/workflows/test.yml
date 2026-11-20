@@ -1540,8 +1540,7 @@ jobs:
         run: npm ci
 
       - name: Keyboard driver planner tests
-        working-directory: packages/desktop/tests/e2e
-        run: node --test driver/plan.test.mjs
+        run: node --test --import ./packages/shared/tests/support/git-env-preload.js packages/desktop/tests/e2e/driver/plan.test.mjs
 
       # The driver's own window test first: a red here means the keys do not
       # arrive on this runner, whatever the suite then reports.
