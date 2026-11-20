@@ -378,6 +378,382 @@ test.describe('Every key press that is not text', () => {
     ]);
   });
 
+  test('regression_736_the_same_text_typed_over_itself_is_written_again', async ({
+    testPage,
+    serviceWorker,
+  }) => {
+    // The field holds the same text after the second typing as after the
+    // first; the person typed it twice all the same.
+    await testPage.focus('#text');
+    await testPage.keyboard.type('h');
+    await testPage.keyboard.press('Control+a');
+    await testPage.keyboard.type('h');
+    await testPage.keyboard.press('Tab');
+    expect(await written(serviceWorker, testPage)).toEqual([
+      ['type', 'h'],
+      ['key', 'a'],
+      ['type', 'h'],
+      ['key', 'Tab'],
+    ]);
+  });
+
+  test('regression_736_a_value_typed_undone_and_typed_again_is_written_again', async ({
+    testPage,
+    serviceWorker,
+  }) => {
+    await testPage.focus('#text');
+    await testPage.keyboard.type('h');
+    await testPage.keyboard.press('Control+z');
+    await testPage.keyboard.type('h');
+    await testPage.keyboard.press('Tab');
+    expect(await written(serviceWorker, testPage)).toEqual([
+      ['type', 'h'],
+      ['key', 'z'],
+      ['type', 'h'],
+      ['key', 'Tab'],
+    ]);
+  });
+
+  test('regression_736_text_typed_again_in_a_field_come_back_to_is_written_again', async ({
+    testPage,
+    serviceWorker,
+  }) => {
+    // No entry was written since the field took the focus again; the text
+    // removed and typed again is an entry the person made all the same.
+    await testPage.focus('#text');
+    await testPage.keyboard.type('h');
+    await testPage.keyboard.press('Tab');
+    await testPage.keyboard.press('Shift+Tab');
+    await testPage.keyboard.press('Backspace');
+    await testPage.keyboard.type('h');
+    await testPage.keyboard.press('Tab');
+    expect(await written(serviceWorker, testPage)).toEqual([
+      ['type', 'h'],
+      ['key', 'Tab'],
+      ['key', 'Tab'],
+      ['key', 'Backspace'],
+      ['type', 'h'],
+      ['key', 'Tab'],
+    ]);
+  });
+
+  test('regression_736_text_typed_over_what_the_page_set_is_written', async ({
+    testPage,
+    serviceWorker,
+  }) => {
+    await testPage.evaluate(() => {
+      document.querySelector('#text').value = 'h';
+    });
+    await testPage.focus('#text');
+    await testPage.keyboard.press('Control+a');
+    await testPage.keyboard.type('h');
+    await testPage.keyboard.press('Tab');
+    expect(await written(serviceWorker, testPage)).toEqual([
+      ['key', 'a'],
+      ['type', 'h'],
+      ['key', 'Tab'],
+    ]);
+  });
+
+  test('regression_736_text_typed_again_is_written_when_the_field_loses_the_focus', async ({
+    testPage,
+    serviceWorker,
+  }) => {
+    // The field loses the focus with no key and no pointer press (the page
+    // moves it, the person switches window), holding what it held when it
+    // took the focus: the browser sends no `change` for it.
+    await testPage.focus('#text');
+    await testPage.keyboard.type('h');
+    await testPage.keyboard.press('Tab');
+    await testPage.keyboard.press('Shift+Tab');
+    await testPage.keyboard.press('Control+a');
+    await testPage.keyboard.type('h');
+    await testPage.evaluate(() => {
+      const el = document.querySelector('#text');
+      el.blur();
+      el.focus();
+    });
+    await testPage.keyboard.press('Tab');
+    expect(await written(serviceWorker, testPage)).toEqual([
+      ['type', 'h'],
+      ['key', 'Tab'],
+      ['key', 'Tab'],
+      ['key', 'a'],
+      ['type', 'h'],
+      ['key', 'Tab'],
+    ]);
+  });
+
+  test('regression_736_a_composition_given_up_makes_no_entry', async ({
+    testPage,
+    serviceWorker,
+    context,
+  }) => {
+    // The input method showed text and the person gave it up: nothing was
+    // entered, and the field's value is not written as an entry.
+    await testPage.focus('#text');
+    const session = await context.newCDPSession(testPage);
+    const processKey = (type) =>
+      session.send('Input.dispatchKeyEvent', {
+        type,
+        key: 'Process',
+        code: 'KeyN',
+        windowsVirtualKeyCode: 229,
+      });
+    await processKey('rawKeyDown');
+    await session.send('Input.imeSetComposition', {
+      text: 'に',
+      selectionStart: 1,
+      selectionEnd: 1,
+    });
+    await processKey('keyUp');
+    await processKey('rawKeyDown');
+    await session.send('Input.imeSetComposition', { text: '', selectionStart: 0, selectionEnd: 0 });
+    await processKey('keyUp');
+    await testPage.keyboard.press('Tab');
+    expect(await written(serviceWorker, testPage)).toEqual([['key', 'Tab']]);
+  });
+
+  test('regression_736_text_typed_again_after_an_entry_written_in_the_same_focus_is_written_at_focus_loss', async ({
+    testPage,
+    serviceWorker,
+  }) => {
+    // An entry is written ahead of a key while the field keeps the focus, and
+    // the text typed after it equals what the field held when it took the
+    // focus: the browser sends no `change`, and the entry is written all the
+    // same when the field loses the focus.
+    await testPage.focus('#text');
+    await testPage.keyboard.type('h');
+    await testPage.keyboard.press('Tab');
+    await testPage.keyboard.press('Shift+Tab');
+    await testPage.keyboard.press('Control+a');
+    await testPage.keyboard.type('x');
+    await testPage.keyboard.press('Control+a');
+    await testPage.keyboard.type('h');
+    await testPage.evaluate(() => {
+      const el = document.querySelector('#text');
+      el.blur();
+      el.focus();
+    });
+    await testPage.keyboard.press('Tab');
+    expect(await written(serviceWorker, testPage)).toEqual([
+      ['type', 'h'],
+      ['key', 'Tab'],
+      ['key', 'Tab'],
+      ['key', 'a'],
+      ['type', 'x'],
+      ['key', 'a'],
+      ['type', 'h'],
+      ['key', 'Tab'],
+    ]);
+  });
+
+  for (const [name, giveUp, after] of [
+    [
+      'removed',
+      { key: 'Backspace', code: 'Backspace', windowsVirtualKeyCode: 8 },
+      (page) => page.keyboard.press('Tab'),
+    ],
+    [
+      'given_up_in_the_input_method',
+      { key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 229 },
+      (page) => page.evaluate(() => document.activeElement.blur()),
+    ],
+  ]) {
+    test(`regression_736_a_dead_key_shown_as_a_composition_and_${name}_makes_no_entry`, async ({
+      testPage,
+      serviceWorker,
+      context,
+    }) => {
+      await testPage.focus('#text');
+      const session = await context.newCDPSession(testPage);
+      const dead = { key: 'Dead', code: 'Quote', windowsVirtualKeyCode: 222 };
+      await session.send('Input.dispatchKeyEvent', { type: 'rawKeyDown', ...dead });
+      await session.send('Input.imeSetComposition', {
+        text: '´',
+        selectionStart: 1,
+        selectionEnd: 1,
+      });
+      await session.send('Input.dispatchKeyEvent', { type: 'keyUp', ...dead });
+      await session.send('Input.dispatchKeyEvent', { type: 'rawKeyDown', ...giveUp });
+      await session.send('Input.imeSetComposition', {
+        text: '',
+        selectionStart: 0,
+        selectionEnd: 0,
+      });
+      await session.send('Input.dispatchKeyEvent', { type: 'keyUp', ...giveUp });
+      await after(testPage);
+      const types = (await written(serviceWorker, testPage)).filter(([type]) => type === 'type');
+      expect(types).toEqual([]);
+    });
+  }
+
+  test('regression_736_text_still_being_composed_at_a_pointer_press_is_written_once', async ({
+    testPage,
+    serviceWorker,
+    context,
+  }) => {
+    // The press writes the entry as it stands, and the browser then ends the
+    // composition with the same text: that text is written already.
+    await testPage.focus('#text');
+    const session = await context.newCDPSession(testPage);
+    await session.send('Input.dispatchKeyEvent', {
+      type: 'rawKeyDown',
+      key: 'Process',
+      code: 'KeyN',
+      windowsVirtualKeyCode: 229,
+    });
+    await session.send('Input.imeSetComposition', {
+      text: 'に',
+      selectionStart: 1,
+      selectionEnd: 1,
+    });
+    await testPage.click('#btn');
+    expect(await written(serviceWorker, testPage)).toEqual([
+      ['type', 'に'],
+      ['click', undefined],
+    ]);
+  });
+
+  test('regression_736_an_entry_left_at_what_the_field_held_is_written_when_the_field_loses_the_focus', async ({
+    testPage,
+    serviceWorker,
+  }) => {
+    // Text typed and removed again leaves the field holding what it held at
+    // focus: the browser sends no `change`, and the entry after the removal
+    // is written when the field loses the focus.
+    await testPage.evaluate(() => {
+      document.querySelector('#text').value = 'h';
+    });
+    await testPage.focus('#text');
+    await testPage.keyboard.press('End');
+    await testPage.keyboard.type('x');
+    await testPage.keyboard.press('Backspace');
+    await testPage.evaluate(() => document.activeElement.blur());
+    expect(await written(serviceWorker, testPage)).toEqual([
+      ['key', 'End'],
+      ['type', 'hx'],
+      ['key', 'Backspace'],
+      ['type', 'h'],
+    ]);
+  });
+
+  test('regression_736_text_written_while_being_composed_is_no_new_entry_when_confirmed_as_it_was', async ({
+    testPage,
+    serviceWorker,
+    context,
+  }) => {
+    // A pointer press in the field writes the entry while the composition
+    // is open; the person then confirms the same text.
+    await testPage.focus('#text');
+    const session = await context.newCDPSession(testPage);
+    const key229 = async (key) => {
+      const press = { key, code: key === 'Enter' ? 'Enter' : 'KeyN', windowsVirtualKeyCode: 229 };
+      await session.send('Input.dispatchKeyEvent', { type: 'rawKeyDown', ...press });
+      await session.send('Input.dispatchKeyEvent', { type: 'keyUp', ...press });
+    };
+    await key229('Process');
+    await session.send('Input.imeSetComposition', {
+      text: 'に',
+      selectionStart: 1,
+      selectionEnd: 1,
+    });
+    await testPage.click('#text');
+    await key229('Enter');
+    await session.send('Input.insertText', { text: 'に' });
+    await testPage.evaluate(() => document.activeElement.blur());
+    expect(await written(serviceWorker, testPage)).toEqual([
+      ['type', 'に'],
+      ['click', undefined],
+    ]);
+  });
+
+  test('regression_736_text_written_while_being_composed_and_composed_further_is_a_new_entry', async ({
+    testPage,
+    serviceWorker,
+    context,
+  }) => {
+    await testPage.focus('#text');
+    const session = await context.newCDPSession(testPage);
+    const key229 = async (key) => {
+      const press = { key, code: key === 'Enter' ? 'Enter' : 'KeyN', windowsVirtualKeyCode: 229 };
+      await session.send('Input.dispatchKeyEvent', { type: 'rawKeyDown', ...press });
+      await session.send('Input.dispatchKeyEvent', { type: 'keyUp', ...press });
+    };
+    await key229('Process');
+    await session.send('Input.imeSetComposition', {
+      text: 'に',
+      selectionStart: 1,
+      selectionEnd: 1,
+    });
+    await testPage.click('#text');
+    await key229('Process');
+    await session.send('Input.imeSetComposition', {
+      text: 'にほ',
+      selectionStart: 2,
+      selectionEnd: 2,
+    });
+    await key229('Enter');
+    await session.send('Input.insertText', { text: 'にほ' });
+    await testPage.evaluate(() => document.activeElement.blur());
+    expect(await written(serviceWorker, testPage)).toEqual([
+      ['type', 'に'],
+      ['click', undefined],
+      ['type', 'にほ'],
+    ]);
+  });
+
+  test('regression_736_a_key_the_page_cancels_and_enters_itself_makes_a_new_entry', async ({
+    testPage,
+    serviceWorker,
+  }) => {
+    // An input mask: the page cancels the key and puts the character in the
+    // field itself. The character removed and typed again is written again.
+    await testPage.evaluate(() => {
+      document.querySelector('#text').addEventListener('keydown', (e) => {
+        if (/^[0-9]$/.test(e.key)) {
+          e.preventDefault();
+          e.target.value += e.key;
+        }
+      });
+    });
+    await testPage.focus('#text');
+    await testPage.keyboard.type('1');
+    await testPage.keyboard.press('Backspace');
+    await testPage.keyboard.type('1');
+    await testPage.keyboard.press('Tab');
+    expect(await written(serviceWorker, testPage)).toEqual([
+      ['type', '1'],
+      ['key', 'Backspace'],
+      ['type', '1'],
+      ['key', 'Tab'],
+    ]);
+  });
+
+  test('regression_736_a_key_that_entered_no_text_makes_no_new_entry', async ({
+    testPage,
+    serviceWorker,
+  }) => {
+    // The field's entry is written, then a character key is pressed that the
+    // page cancels: nothing was entered, and the entry is not written again.
+    await testPage.focus('#text');
+    await testPage.keyboard.type('h');
+    await testPage.keyboard.press('Control+a');
+    await testPage.evaluate(() => {
+      document
+        .querySelector('#text')
+        .addEventListener('keydown', (e) => e.key === 'x' && e.preventDefault());
+    });
+    await testPage.keyboard.press('x');
+    await testPage.keyboard.press('Tab');
+    expect(await written(serviceWorker, testPage)).toEqual([
+      ['type', 'h'],
+      ['key', 'a'],
+      ['key', 'x'],
+      ['key', 'Tab'],
+    ]);
+  });
+
   test('regression_702_a_letter_in_a_field_that_takes_no_text_is_a_key', async ({
     testPage,
     serviceWorker,
