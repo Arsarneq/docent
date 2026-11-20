@@ -2448,16 +2448,19 @@ fn handle_keyboard<B: AccessibilityBackend>(
     // Otherwise the focused element is asked for, and taken only while the
     // key's window is still in front; a key whose window closed or was left
     // names no element rather than whatever has focus at this moment.
-    // A key attributed to no window (desktop capture DCP-14): a key the shell
+    // A key attributed to no window (desktop capture DCP-14): a key the system
     // takes while the foreground window is excluded. Whatever is focused is
     // that excluded window's, so nothing is asked of the backend; the key is
     // no keystroke of any window, so the typing state is left as it is.
     if raw.window_handle == 0 {
-        let element = ElementDescription {
+        let mut element = ElementDescription {
             tag: "Unknown".to_string(),
             selector: String::new(),
             ..Default::default()
         };
+        // Stamped like every constructed stand-in (session format,
+        // `described_after_ms`).
+        stamp_described_after(&mut element, raw.timestamp);
         let event = ActionEvent {
             timestamp: raw.timestamp,
             context_id: None,
@@ -3306,7 +3309,7 @@ mod tests {
 
     #[test]
     fn a_key_attributed_to_no_window_names_no_element_and_no_window() {
-        // The hook attributes a key the shell takes to no window when the
+        // The hook attributes a key the system takes to no window when the
         // self-capture exclusion excludes the foreground window (DCP-14): the
         // worker must not describe whatever is focused (a window of Docent's
         // own), only write the nameless stand-in with no context.
@@ -3329,6 +3332,9 @@ mod tests {
                 assert_eq!(element.selector, "");
                 assert_eq!(element.name, None);
                 assert!(element.locators.is_empty());
+                // A constructed stand-in carries the describe stamp like every
+                // other (session format, `described_after_ms`; docent#220).
+                assert!(element.described_after_ms.is_some());
             }
             _ => panic!("expected Key payload"),
         }
