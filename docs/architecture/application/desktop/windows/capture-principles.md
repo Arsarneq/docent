@@ -173,12 +173,12 @@ each captured directly with its window's activation recorded beside it (core
 CP-17), and actions outside the hooks' visibility, captured by proxy (core
 CP-7):
 
-| User action               | Captured as                         |
-| ------------------------- | ----------------------------------- |
-| Click a different window  | `context_switch` beside the `click` |
-| Alt+Tab                   | `context_switch` beside the `key`   |
-| Click title bar close (X) | `context_close`                     |
-| File dialog selection     | `file_dialog`                       |
+| User action               | Captured as                                          |
+| ------------------------- | ---------------------------------------------------- |
+| Click a different window  | `context_switch` beside the `click` or `right_click` |
+| Alt+Tab                   | `context_switch` beside the `key`                    |
+| Click title bar close (X) | `context_close`                                      |
+| File dialog selection     | `file_dialog`                                        |
 
 ---
 
@@ -188,14 +188,14 @@ CP-7):
 programmatic ones using **input correlation**: WinEvent callbacks MUST be
 dispatched only when correlated with a preceding low-level input event.
 
-| WinEvent                   | Correlation source  | Additional filter                                                                                                                                                                   |
-| -------------------------- | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `EVENT_SYSTEM_FOREGROUND`  | Any low-level input | Skipped when its root window is the one the last dispatched switch named (a click into a different window dispatches its switch at button-down)                                     |
-| `EVENT_OBJECT_FOCUS`       | Any low-level input | Suppressed while the left button is held or within `CLICK_REDUNDANCY_MS` of a click (redundant)                                                                                     |
-| `EVENT_OBJECT_CREATE`      | Any low-level input | A real, visible top-level window with no parent (no `WS_CHILD` style; `GetParent` returns nothing — for a popup window that is its owner); within `WINDOW_LIFECYCLE_CORRELATION_MS` |
-| `EVENT_OBJECT_DESTROY`     | Any low-level input | A titled, unowned top-level window whose open was dispatched and whose root is not the foreground window; within `WINDOW_LIFECYCLE_CORRELATION_MS`                                  |
-| `EVENT_OBJECT_VALUECHANGE` | Keyboard input only | Same root window as keyboard                                                                                                                                                        |
-| `EVENT_OBJECT_SELECTION`   | Any low-level input | Same root window as the input; suppressed while the left button is held or within `CLICK_REDUNDANCY_MS` of a click (redundant)                                                      |
+| WinEvent                   | Correlation source  | Additional filter                                                                                                                                                                                                                                          |
+| -------------------------- | ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `EVENT_SYSTEM_FOREGROUND`  | Any low-level input | Skipped when its root window is the one the last switch into the window in front named (a left, right or middle press into a different window dispatches its switch at button-down, before the press; the switches that introduce a window count as below) |
+| `EVENT_OBJECT_FOCUS`       | Any low-level input | Suppressed while the left button is held or within `CLICK_REDUNDANCY_MS` of a click (redundant)                                                                                                                                                            |
+| `EVENT_OBJECT_CREATE`      | Any low-level input | A real, visible top-level window with no parent (no `WS_CHILD` style; `GetParent` returns nothing — for a popup window that is its owner); within `WINDOW_LIFECYCLE_CORRELATION_MS`                                                                        |
+| `EVENT_OBJECT_DESTROY`     | Any low-level input | A titled, unowned top-level window whose open was dispatched and whose root is not the foreground window; within `WINDOW_LIFECYCLE_CORRELATION_MS`                                                                                                         |
+| `EVENT_OBJECT_VALUECHANGE` | Keyboard input only | Same root window as keyboard                                                                                                                                                                                                                               |
+| `EVENT_OBJECT_SELECTION`   | Any low-level input | Same root window as the input; suppressed while the left button is held or within `CLICK_REDUNDANCY_MS` of a click (redundant)                                                                                                                             |
 
 Both click gates treat a focus or selection event as an effect of the left
 press, which the press's own action records (a `click`, or the
@@ -219,28 +219,37 @@ window the recording already introduced (the window behind one closed by its
 title-bar close button, which DCP-6 records as a `context_close`, for example). Recording them
 is a capture gap against core CP-17.
 
-A window that comes in front with no switch recorded for it — its activation
-classified as programmatic by the foreground row (late after its input, or
-after input the scope filters dropped, as the exceptions list) — is
-introduced at the first action taken in it, the action core CP-17 lets
-establish a context taken for an effect: the Input_Thread keeps, per capture
-session, the top-level windows whose context it introduced, which are each
-window it dispatched a `context_switch` or a `context_open` for and, when the
-session's first dispatched action precedes every such switch and open, that
-action's window (the session's first context); an event to be dispatched in a
-top-level window outside that set has a `context_switch` into that window
-dispatched before it, with the event's timestamp, and the window joins the
-set. A close introduces nothing, and a lone Shift, Ctrl or Alt press, which
-the worker drops (DCP-13), counts for nothing. A window introduced once takes
-no further switch when actions return to it. Three cases stay open. A capture
-session started again later in a recording begins in its first context with
-no switch, whether or not the recording's earlier sessions introduced that
-context. A switch dispatched before an event the worker then does not write (a
-focus whose selector equals the worker's last, for example) is written all the
-same. And the Input_Thread reads an event's top-level window when it
-dispatches the event, a worker when it describes it: an event whose window is
-gone by then takes that window's own handle as its context, which no switch
-introduced.
+A window can receive an action with no switch recorded for it: one that came
+in front while the foreground row classified its activation as programmatic
+(late after its input, or after input the scope filters dropped, as the
+exceptions list), or an inactive window under a wheel or a drop. Under core
+CP-17 the first action taken in such a window establishes its context. The
+Input_Thread keeps, per capture session, the top-level windows whose context it
+introduced: each window it dispatched a `context_switch` or a `context_open`
+for and, when the session's first dispatched action precedes every such
+switch and open, that action's window (the session's first context). An event
+to be dispatched in a top-level window outside that set has a
+`context_switch` into that window dispatched before it, with the event's
+timestamp, and the window joins the set. A close introduces nothing, and a
+lone Shift, Ctrl or Alt press, which the worker drops (DCP-13), counts for
+nothing. A window introduced once takes no further switch when actions return
+to it, and an action in a window introduced earlier carries that window's
+`context_id` with no switch before it (after a wheel over an inactive window,
+a key in the window in front, for example). The foreground row's
+deduplication compares with the last switch into the window in front: a
+switch dispatched this way into the window in front counts as its activation,
+so a late activation of it is not written again, while one into an inactive
+window does not, so a later click into that window or its activation is
+written. Four cases stay open. A capture session started again later in a
+recording begins in its first context with no switch, whether or not the
+recording's earlier sessions introduced that context. A switch dispatched
+before an event the worker then does not write (a focus whose selector equals
+the worker's last, for example) is written all the same. The Input_Thread
+reads an event's top-level window when it dispatches the event, a worker when
+it describes it: an event whose window is gone by then takes that window's own
+handle as its context, which no switch introduced. And the switch before an
+action in an inactive window records that window's context, not an activation
+the person made.
 
 A focus is recorded on the element focused when a worker describes it, and in
 the context of the top-level window that element is in, as its description

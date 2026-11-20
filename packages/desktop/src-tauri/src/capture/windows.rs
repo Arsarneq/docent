@@ -403,13 +403,12 @@ thread_local! {
     static INPUT_PART_FOCUS: std::cell::RefCell<super::worker_pool::PartFocusNote> =
         std::cell::RefCell::new(super::worker_pool::PartFocusNote::default());
 
-    /// Root window handle of the last dispatched foreground event. Used to
-    /// deduplicate foreground events (click-based + WinEvent-based).
-    static INPUT_LAST_FOREGROUND_HWND: std::cell::Cell<i64> = const { std::cell::Cell::new(0) };
-
     /// The contexts this capture session has introduced (DCP-7): an event in
     /// a window not introduced yet has a foreground event dispatched before
-    /// it. Cleared with the thread's other state when the session ends.
+    /// it. With them the root window of the last switch into the window in
+    /// front, which deduplicates foreground events (click-based and
+    /// WinEvent-based). Cleared with the thread's other state when the
+    /// session ends.
     static INPUT_CONTEXTS: std::cell::RefCell<super::worker_pool::ContextIntroductions> =
         std::cell::RefCell::new(super::worker_pool::ContextIntroductions::default());
 
@@ -1283,7 +1282,6 @@ fn input_thread_main(
     INPUT_INCLUDED_PID.with(|p| *p.borrow_mut() = None);
     INPUT_FLUSH_REQUESTS.with(|q| *q.borrow_mut() = None);
     INPUT_FOREGROUND_PID.with(|p| p.set(0));
-    INPUT_LAST_FOREGROUND_HWND.with(|p| p.set(0));
     INPUT_CONTEXTS.with(|c| *c.borrow_mut() = Default::default());
     INPUT_MOUSE_DOWN_POS.with(|p| p.set(None));
     INPUT_OPENED_WINDOWS.with(|s| s.borrow_mut().clear());
@@ -1333,21 +1331,9 @@ fn focus_epoch_advance_by_person() {
 /// it (DCP-7, `ContextIntroductions`). Called from hook callbacks on the
 /// Input_Thread.
 fn input_dispatch_raw_event(event: RawEvent) {
-    let root = if event.window_handle == 0 {
-        0
-    } else {
-        let hwnd = HWND(event.window_handle as *mut _);
-        let root = unsafe { GetAncestor(hwnd, GA_ROOT as u32) };
-        if root.0.is_null() {
-            event.window_handle
-        } else {
-            root.0 as i64
-        }
-    };
-    if INPUT_CONTEXTS.with(|c| c.borrow_mut().switch_before(&event, root)) {
-        // The switch a correlated activation of this window would have
-        // dispatched; a late activation of it is then deduplicated.
-        INPUT_LAST_FOREGROUND_HWND.with(|h| h.set(root));
+    let root = input_root_of(event.window_handle);
+    let foreground_root = input_root_of(unsafe { GetForegroundWindow() }.0 as i64);
+    if INPUT_CONTEXTS.with(|c| c.borrow_mut().switch_before(&event, root, foreground_root)) {
         let mut process_id: u32 = 0;
         unsafe { GetWindowThreadProcessId(HWND(root as *mut _), Some(&mut process_id)) };
         input_send_raw_event(RawEvent {
@@ -1367,6 +1353,20 @@ fn input_dispatch_raw_event(event: RawEvent) {
         });
     }
     input_send_raw_event(event);
+}
+
+/// The top-level (`GA_ROOT`) window of `window_handle`: the handle itself
+/// when it has none, `0` for no window.
+fn input_root_of(window_handle: i64) -> i64 {
+    if window_handle == 0 {
+        return 0;
+    }
+    let root = unsafe { GetAncestor(HWND(window_handle as *mut _), GA_ROOT as u32) };
+    if root.0.is_null() {
+        window_handle
+    } else {
+        root.0 as i64
+    }
 }
 
 /// Assign a sequence ID and send a `RawEvent` to the bridge thread.
@@ -1639,11 +1639,9 @@ unsafe extern "system" fn input_win_event_proc(
 
             // Deduplicate: if the click-based handler already dispatched a
             // foreground event for this same root window, skip.
-            let last_fg = INPUT_LAST_FOREGROUND_HWND.with(|h| h.get());
-            if root_handle == last_fg {
+            if !INPUT_CONTEXTS.with(|c| c.borrow_mut().activation_switches(root_handle)) {
                 return; // Already dispatched by click handler.
             }
-            INPUT_LAST_FOREGROUND_HWND.with(|h| h.set(root_handle));
 
             input_dispatch_raw_event(RawEvent {
                 event_type: RawEventType::Foreground,
@@ -1929,6 +1927,44 @@ unsafe extern "system" fn input_win_event_proc(
 // Input_Thread low-level mouse hook callback
 // ---------------------------------------------------------------------------
 
+/// A press on `point_hwnd` while `fg_hwnd` is in front: when it lands in a
+/// different top-level window, proactively dispatch a Foreground event for
+/// that window (`ContextIntroductions::press_switches` decides), before the
+/// press itself is dispatched. Some window classes (e.g. STATIC) don't fire
+/// EVENT_SYSTEM_FOREGROUND on activation, so the switch is detected here to
+/// guarantee the context_switch, and the activation the press causes is then
+/// deduplicated.
+unsafe fn input_press_switch(point_hwnd: HWND, fg_hwnd: HWND, timestamp: u64) {
+    if point_hwnd.0.is_null() {
+        return;
+    }
+    let clicked_handle = input_root_of(point_hwnd.0 as i64);
+    let fg_handle = input_root_of(fg_hwnd.0 as i64);
+    if !INPUT_CONTEXTS.with(|c| c.borrow_mut().press_switches(clicked_handle, fg_handle)) {
+        return;
+    }
+    // Different root window — user is switching context.
+    let clicked_root = HWND(clicked_handle as *mut _);
+    let mut clicked_pid: u32 = 0;
+    GetWindowThreadProcessId(clicked_root, Some(&mut clicked_pid));
+    INPUT_FOREGROUND_PID.with(|p| p.set(clicked_pid));
+    input_dispatch_raw_event(RawEvent {
+        event_type: RawEventType::Foreground,
+        sequence_id: 0,
+        timestamp,
+        screen_x: 0,
+        screen_y: 0,
+        window_handle: clicked_handle,
+        process_id: clicked_pid,
+        key_code: 0,
+        modifiers: (false, false, false, false),
+        scroll_delta: 0.0,
+        callback_params: [0, 0, 0, 0],
+        pre_captured_element: None,
+        focus_epoch: 0,
+    });
+}
+
 /// Low-level mouse hook for the Input_Thread. Captures raw mouse data,
 /// performs click-vs-drag classification, and dispatches `RawEvent`s.
 /// Makes the thread's one accessibility call — the `ElementFromPoint`
@@ -1989,50 +2025,7 @@ unsafe extern "system" fn input_mouse_ll_proc(
                     // EVENT_OBJECT_SELECTION can fire between mousedown and mouseup.
                     INPUT_LAST_CLICK_TIMESTAMP.with(|t| t.set(timestamp));
 
-                    // If clicking on a different top-level window, proactively
-                    // dispatch a Foreground event. Some window classes (e.g.
-                    // STATIC) don't fire EVENT_SYSTEM_FOREGROUND on activation,
-                    // so we detect the switch here to guarantee context_switch.
-                    if !point_hwnd.0.is_null() {
-                        let clicked_root = GetAncestor(point_hwnd, GA_ROOT as u32);
-                        let fg_root = GetAncestor(fg_hwnd, GA_ROOT as u32);
-                        let clicked_root_h = if clicked_root.0.is_null() {
-                            point_hwnd
-                        } else {
-                            clicked_root
-                        };
-                        let fg_root_h = if fg_root.0.is_null() {
-                            fg_hwnd
-                        } else {
-                            fg_root
-                        };
-                        if clicked_root_h != fg_root_h {
-                            let clicked_handle = clicked_root_h.0 as i64;
-                            let last_fg = INPUT_LAST_FOREGROUND_HWND.with(|h| h.get());
-                            if clicked_handle != last_fg {
-                                // Different root window — user is switching context.
-                                INPUT_LAST_FOREGROUND_HWND.with(|h| h.set(clicked_handle));
-                                let mut clicked_pid: u32 = 0;
-                                GetWindowThreadProcessId(clicked_root_h, Some(&mut clicked_pid));
-                                INPUT_FOREGROUND_PID.with(|p| p.set(clicked_pid));
-                                input_dispatch_raw_event(RawEvent {
-                                    event_type: RawEventType::Foreground,
-                                    sequence_id: 0,
-                                    timestamp,
-                                    screen_x: 0,
-                                    screen_y: 0,
-                                    window_handle: clicked_handle,
-                                    process_id: clicked_pid,
-                                    key_code: 0,
-                                    modifiers: (false, false, false, false),
-                                    scroll_delta: 0.0,
-                                    callback_params: [0, 0, 0, 0],
-                                    pre_captured_element: None,
-                                    focus_epoch: 0,
-                                });
-                            }
-                        }
-                    }
+                    input_press_switch(point_hwnd, fg_hwnd, timestamp);
                 }
                 WM_LBUTTONUP => {
                     // A release is input too: selections completed at the end
@@ -2144,6 +2137,9 @@ unsafe extern "system" fn input_mouse_ll_proc(
                     if let Some(event_type) = down_dispatch_event_type(msg) {
                         // Record the input for correlation.
                         note_input(timestamp, window_handle);
+                        // The press activates the window it lands in: its
+                        // switch goes before the press, as a left press's.
+                        input_press_switch(point_hwnd, fg_hwnd, timestamp);
                         let pre_element = input_pre_capture_element(pt.x, pt.y);
                         input_dispatch_raw_event(RawEvent {
                             event_type,

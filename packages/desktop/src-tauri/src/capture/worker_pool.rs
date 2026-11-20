@@ -1696,13 +1696,39 @@ impl PartFocusNote {
 /// dispatched in a window whose context the session has not introduced has a
 /// `context_switch` into that window dispatched before it, so the context's
 /// first action follows its establishment (core CP-17, session-format SF-10).
-/// Kept and read on the Input_Thread only.
+/// Beside it, the window of the last switch into the window in front, which a
+/// foreground change into the same window does not repeat. Kept and read on
+/// the Input_Thread only.
 #[derive(Debug, Default)]
 pub struct ContextIntroductions {
     introduced: std::collections::HashSet<i64>,
+    last_switch: i64,
 }
 
 impl ContextIntroductions {
+    /// A button press in `pressed_root` while `foreground_root` is in front:
+    /// whether the press switches into another window, which it does when
+    /// the two differ and [`activation_switches`](Self::activation_switches)
+    /// writes it. Dispatched at the press, before the press itself, so the
+    /// press finds the window introduced and the activation it causes is not
+    /// written again.
+    pub fn press_switches(&mut self, pressed_root: i64, foreground_root: i64) -> bool {
+        pressed_root != foreground_root && self.activation_switches(pressed_root)
+    }
+
+    /// A foreground change into `root` that the Input_Thread is to dispatch
+    /// as a `context_switch` (a correlated activation, or a click into
+    /// another window): whether it is written, which it is unless the last
+    /// switch into the window in front named `root` already. Notes `root` as
+    /// that window when it is.
+    pub fn activation_switches(&mut self, root: i64) -> bool {
+        if root == self.last_switch {
+            return false;
+        }
+        self.last_switch = root;
+        true
+    }
+
     /// Whether a `context_switch` into `root` is dispatched before `event`,
     /// whose window's top-level window is `root`; noting what `event`
     /// introduces.
@@ -1716,7 +1742,21 @@ impl ContextIntroductions {
     ///   the session's first context, which needs no introduction; one in a
     ///   window not introduced yet takes the switch, and the window is
     ///   introduced from then on.
-    pub fn switch_before(&mut self, event: &RawEvent, root: i64) -> bool {
+    ///
+    /// `foreground_root` is the top-level window in front when `event` is
+    /// dispatched. A switch into it stands for its activation, which a late
+    /// foreground change then does not repeat; a switch into any other window
+    /// (an inactive window under a wheel or a drop) leaves the window in
+    /// front's activation to be written when it comes.
+    pub fn switch_before(&mut self, event: &RawEvent, root: i64, foreground_root: i64) -> bool {
+        let switched = self.introduces(event, root);
+        if switched && root == foreground_root {
+            self.last_switch = root;
+        }
+        switched
+    }
+
+    fn introduces(&mut self, event: &RawEvent, root: i64) -> bool {
         if root == 0 {
             return false;
         }

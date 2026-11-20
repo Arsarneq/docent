@@ -4746,30 +4746,30 @@ const VK_LSHIFT: u32 = 0xA0;
 fn regression_708_a_key_in_a_dialog_whose_activation_was_not_recorded_is_introduced_by_a_switch() {
     let mut contexts = ContextIntroductions::default();
     // Typing in Notepad, the session's first context.
-    assert!(!contexts.switch_before(&key_in(NOTEPAD, 0x41), NOTEPAD));
-    assert!(!contexts.switch_before(&key_in(NOTEPAD, 0x42), NOTEPAD));
+    assert!(!contexts.switch_before(&key_in(NOTEPAD, 0x41), NOTEPAD, NOTEPAD));
+    assert!(!contexts.switch_before(&key_in(NOTEPAD, 0x42), NOTEPAD, NOTEPAD));
     // Ctrl+Shift+S in Notepad.
-    assert!(!contexts.switch_before(&key_in(NOTEPAD, VK_LCONTROL), NOTEPAD));
-    assert!(!contexts.switch_before(&key_in(NOTEPAD, VK_LSHIFT), NOTEPAD));
+    assert!(!contexts.switch_before(&key_in(NOTEPAD, VK_LCONTROL), NOTEPAD, NOTEPAD));
+    assert!(!contexts.switch_before(&key_in(NOTEPAD, VK_LSHIFT), NOTEPAD, NOTEPAD));
     let save_as = event_in(
         RawEventType::Keyboard,
         NOTEPAD,
         0x53,
         (true, true, false, false),
     );
-    assert!(!contexts.switch_before(&save_as, NOTEPAD));
+    assert!(!contexts.switch_before(&save_as, NOTEPAD, NOTEPAD));
     // The dialog's activation correlated with nothing: no foreground event
     // was dispatched. Its first key is introduced by a switch.
-    assert!(contexts.switch_before(&key_in(DIALOG, 0x46), DIALOG));
+    assert!(contexts.switch_before(&key_in(DIALOG, 0x46), DIALOG, DIALOG));
     // Its next keys, its value change and its Enter take none.
-    assert!(!contexts.switch_before(&key_in(DIALOG, 0x47), DIALOG));
+    assert!(!contexts.switch_before(&key_in(DIALOG, 0x47), DIALOG, DIALOG));
     let value_change = event_in(RawEventType::ValueChange, DIALOG, 0, NO_MODIFIERS);
-    assert!(!contexts.switch_before(&value_change, DIALOG));
-    assert!(!contexts.switch_before(&key_in(DIALOG, 0x0D), DIALOG));
+    assert!(!contexts.switch_before(&value_change, DIALOG, DIALOG));
+    assert!(!contexts.switch_before(&key_in(DIALOG, 0x0D), DIALOG, DIALOG));
     // Back in Notepad, introduced already: no switch.
     let focus = event_in(RawEventType::Focus, NOTEPAD, 0, NO_MODIFIERS);
-    assert!(!contexts.switch_before(&focus, NOTEPAD));
-    assert!(!contexts.switch_before(&key_in(NOTEPAD, 0x43), NOTEPAD));
+    assert!(!contexts.switch_before(&focus, NOTEPAD, NOTEPAD));
+    assert!(!contexts.switch_before(&key_in(NOTEPAD, 0x43), NOTEPAD, NOTEPAD));
 }
 
 /// A window that the session introduced by a dispatched `context_switch` or
@@ -4778,21 +4778,21 @@ fn regression_708_a_key_in_a_dialog_whose_activation_was_not_recorded_is_introdu
 #[test]
 fn a_window_introduced_by_a_switch_or_an_open_takes_no_further_switch() {
     let mut contexts = ContextIntroductions::default();
-    assert!(!contexts.switch_before(&key_in(NOTEPAD, 0x41), NOTEPAD));
+    assert!(!contexts.switch_before(&key_in(NOTEPAD, 0x41), NOTEPAD, NOTEPAD));
     let switch = event_in(RawEventType::Foreground, DIALOG, 0, NO_MODIFIERS);
-    assert!(!contexts.switch_before(&switch, DIALOG));
-    assert!(!contexts.switch_before(&key_in(DIALOG, 0x46), DIALOG));
+    assert!(!contexts.switch_before(&switch, DIALOG, DIALOG));
+    assert!(!contexts.switch_before(&key_in(DIALOG, 0x46), DIALOG, DIALOG));
     let open = event_in(RawEventType::WindowCreate, OTHER_WINDOW, 0, NO_MODIFIERS);
-    assert!(!contexts.switch_before(&open, OTHER_WINDOW));
+    assert!(!contexts.switch_before(&open, OTHER_WINDOW, OTHER_WINDOW));
     let click = event_in(RawEventType::Click, OTHER_WINDOW, 0, NO_MODIFIERS);
-    assert!(!contexts.switch_before(&click, OTHER_WINDOW));
+    assert!(!contexts.switch_before(&click, OTHER_WINDOW, OTHER_WINDOW));
     // A click is the first action of a window nothing introduced.
     let click = event_in(RawEventType::Click, 777, 0, NO_MODIFIERS);
-    assert!(contexts.switch_before(&click, 777));
+    assert!(contexts.switch_before(&click, 777, 777));
     // A close introduces nothing and asks for no switch.
     let close = event_in(RawEventType::WindowDestroy, 778, 0, NO_MODIFIERS);
-    assert!(!contexts.switch_before(&close, 778));
-    assert!(contexts.switch_before(&key_in(778, 0x41), 778));
+    assert!(!contexts.switch_before(&close, 778, 778));
+    assert!(contexts.switch_before(&key_in(778, 0x41), 778, 778));
 }
 
 /// A lone Shift, Ctrl or Alt press is dropped by the worker (DCP-13), so it
@@ -4801,13 +4801,13 @@ fn a_window_introduced_by_a_switch_or_an_open_takes_no_further_switch() {
 #[test]
 fn a_lone_modifier_press_introduces_no_window() {
     let mut contexts = ContextIntroductions::default();
-    assert!(!contexts.switch_before(&key_in(DIALOG, VK_LSHIFT), DIALOG));
+    assert!(!contexts.switch_before(&key_in(DIALOG, VK_LSHIFT), DIALOG, DIALOG));
     // Notepad's key is the session's first action.
-    assert!(!contexts.switch_before(&key_in(NOTEPAD, 0x41), NOTEPAD));
-    assert!(!contexts.switch_before(&key_in(DIALOG, VK_LSHIFT), DIALOG));
-    assert!(contexts.switch_before(&key_in(DIALOG, 0x46), DIALOG));
+    assert!(!contexts.switch_before(&key_in(NOTEPAD, 0x41), NOTEPAD, NOTEPAD));
+    assert!(!contexts.switch_before(&key_in(DIALOG, VK_LSHIFT), DIALOG, DIALOG));
+    assert!(contexts.switch_before(&key_in(DIALOG, 0x46), DIALOG, DIALOG));
     // An event with no window takes none.
-    assert!(!contexts.switch_before(&key_in(0, 0x46), 0));
+    assert!(!contexts.switch_before(&key_in(0, 0x46), 0, 0));
 }
 
 /// Regression for docent#709: when Notepad's Save As dialog closed on Enter,
@@ -4842,4 +4842,173 @@ fn regression_709_a_focus_after_its_dialog_closed_carries_the_context_of_its_ele
         vec![(Some(NOTEPAD), "Notepad > Document:Text editor".to_string())],
         "got {events:?}"
     );
+}
+
+/// A window an action lands in without being in front (the window under a
+/// wheel) is introduced, but its switch does not stand for the activation of
+/// the window in front: a later click or correlated activation into that
+/// window is still written.
+#[test]
+fn a_switch_into_an_inactive_window_does_not_swallow_its_later_activation() {
+    const B: i64 = 555;
+    let mut contexts = ContextIntroductions::default();
+    // Notepad in front and introduced.
+    assert!(!contexts.switch_before(&key_in(NOTEPAD, 0x41), NOTEPAD, NOTEPAD));
+    // A wheel over inactive B: B is introduced by a switch.
+    let wheel = event_in(RawEventType::Scroll, B, 0, NO_MODIFIERS);
+    assert!(contexts.switch_before(&wheel, B, NOTEPAD));
+    // A key in Notepad, still in front: no switch.
+    assert!(!contexts.switch_before(&key_in(NOTEPAD, 0x42), NOTEPAD, NOTEPAD));
+    // The person clicks into B (or B's activation correlates): written.
+    assert!(contexts.activation_switches(B));
+    // And not twice.
+    assert!(!contexts.activation_switches(B));
+}
+
+/// A switch dispatched before an action in the window in front stands for
+/// that window's activation: a late foreground change into it is not
+/// written again.
+#[test]
+fn a_switch_into_the_window_in_front_stands_for_its_late_activation() {
+    let mut contexts = ContextIntroductions::default();
+    assert!(!contexts.switch_before(&key_in(NOTEPAD, 0x41), NOTEPAD, NOTEPAD));
+    assert!(contexts.switch_before(&key_in(DIALOG, 0x46), DIALOG, DIALOG));
+    assert!(!contexts.activation_switches(DIALOG));
+    // Back to Notepad by a correlated activation: written.
+    assert!(contexts.activation_switches(NOTEPAD));
+}
+
+/// The session's first context counts only before every switch and open: an
+/// action after a switch into one window, in another window, takes a switch.
+#[test]
+fn an_action_after_a_switch_is_not_the_sessions_first_context() {
+    let mut contexts = ContextIntroductions::default();
+    let switch = event_in(RawEventType::Foreground, NOTEPAD, 0, NO_MODIFIERS);
+    assert!(!contexts.switch_before(&switch, NOTEPAD, NOTEPAD));
+    assert!(contexts.switch_before(&key_in(DIALOG, 0x46), DIALOG, DIALOG));
+}
+
+/// A backend whose focused element is in `window` (0: the description
+/// resolved none), with a rectangle of its own for every window handle.
+struct FocusWindowBackend {
+    window: i64,
+}
+
+fn rect_of(window_handle: i64) -> docent_desktop_lib::capture::WindowRect {
+    docent_desktop_lib::capture::WindowRect {
+        x: window_handle as i32,
+        y: 7,
+        width: 640,
+        height: 480,
+    }
+}
+
+impl AccessibilityBackend for FocusWindowBackend {
+    fn init(&mut self) -> Result<(), CaptureError> {
+        Ok(())
+    }
+    fn cleanup(&mut self) {}
+    fn element_at_point(&self, _x: i32, _y: i32) -> Option<ElementDescription> {
+        None
+    }
+    fn focused_element(&self) -> Option<ElementDescription> {
+        Some(scene_element(
+            "Document",
+            "Notepad > Document:Text editor",
+            None,
+        ))
+    }
+    fn focused_element_in_window(&self) -> Option<(ElementDescription, i64)> {
+        Some((self.focused_element()?, self.window))
+    }
+    fn window_title(&self, _window_handle: i64) -> String {
+        String::new()
+    }
+    fn process_name(&self, _window_handle: i64) -> String {
+        "test.exe".to_string()
+    }
+    fn read_file_dialog_path(&self, _window_handle: i64) -> Option<(String, String)> {
+        None
+    }
+    fn root_window_handle(&self, window_handle: i64) -> i64 {
+        window_handle
+    }
+    fn window_rect(&self, window_handle: i64) -> Option<docent_desktop_lib::capture::WindowRect> {
+        Some(rect_of(window_handle))
+    }
+    fn selected_item_name(&self, _window_handle: i64) -> Option<(ElementDescription, String)> {
+        None
+    }
+}
+
+/// The context and rectangle of the focus written for one focus event named
+/// `DIALOG`, with the focused element in `window`.
+fn focus_written_with_element_in(
+    window: i64,
+) -> Vec<(Option<i64>, Option<docent_desktop_lib::capture::WindowRect>)> {
+    let harness = WorkerTestHarness::new(FocusWindowBackend { window });
+    let mut focus = make_raw_event(RawEventType::Focus, DIALOG);
+    focus.sequence_id = 1;
+    harness.send_event(focus);
+    thread::sleep(Duration::from_millis(100));
+    harness
+        .shutdown()
+        .into_iter()
+        .filter(|e| matches!(e.payload, ActionPayload::Focus { .. }))
+        .map(|e| (e.context_id, e.window_rect))
+        .collect()
+}
+
+/// A focus takes the rectangle of the window its element is in, with its
+/// context.
+#[test]
+fn a_focus_takes_the_rectangle_of_its_elements_window() {
+    assert_eq!(
+        focus_written_with_element_in(NOTEPAD),
+        vec![(Some(NOTEPAD), Some(rect_of(NOTEPAD)))]
+    );
+}
+
+/// Where the element's description resolved no window, the focus keeps the
+/// context and rectangle of the window the event named.
+#[test]
+fn a_focus_whose_element_resolved_no_window_keeps_the_events_window() {
+    assert_eq!(
+        focus_written_with_element_in(0),
+        vec![(Some(DIALOG), Some(rect_of(DIALOG)))]
+    );
+}
+
+/// A right or middle press into an inactive window not introduced yet writes
+/// one switch into it: the switch dispatched at the press, before the press,
+/// and neither the press nor the activation it causes adds another.
+#[test]
+fn a_right_press_into_an_inactive_window_writes_one_switch() {
+    const B: i64 = 556;
+    for event_type in [RawEventType::RightClick, RawEventType::Click] {
+        let mut contexts = ContextIntroductions::default();
+        assert!(!contexts.switch_before(&key_in(NOTEPAD, 0x41), NOTEPAD, NOTEPAD));
+        let mut switches = 0;
+        if contexts.press_switches(B, NOTEPAD) {
+            switches += 1;
+            let switch = event_in(RawEventType::Foreground, B, 0, NO_MODIFIERS);
+            assert!(!contexts.switch_before(&switch, B, NOTEPAD));
+        }
+        let press = event_in(event_type, B, 0, NO_MODIFIERS);
+        if contexts.switch_before(&press, B, NOTEPAD) {
+            switches += 1;
+        }
+        // The press activates B; its foreground change correlates.
+        if contexts.activation_switches(B) {
+            switches += 1;
+        }
+        assert_eq!(switches, 1);
+    }
+}
+
+/// A press in the window in front switches nothing.
+#[test]
+fn a_press_in_the_window_in_front_switches_nothing() {
+    let mut contexts = ContextIntroductions::default();
+    assert!(!contexts.press_switches(NOTEPAD, NOTEPAD));
 }
