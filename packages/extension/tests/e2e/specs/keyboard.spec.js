@@ -1707,11 +1707,16 @@ test.describe('Keyboard activation', () => {
       testPage,
       serviceWorker,
     }) => {
+      // Listening for the chooser turns Playwright's interception of it on
+      // with a request nothing waits for, and Enter opens the chooser at the
+      // keydown: a press sent in the same breath can reach the page first, and
+      // the chooser then opens unintercepted (docent#724). The listener goes
+      // first, and the focus is a round trip to the page behind it, so the
+      // interception is on before the key is pressed.
+      const chooser = testPage.waitForEvent('filechooser');
       await testPage.focus('#file');
-      const [fileChooser] = await Promise.all([
-        testPage.waitForEvent('filechooser'),
-        testPage.keyboard.press(key),
-      ]);
+      await testPage.keyboard.press(key);
+      const fileChooser = await chooser;
       await fileChooser.setFiles({
         name: 'test.txt',
         mimeType: 'text/plain',

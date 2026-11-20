@@ -336,6 +336,7 @@ test.describe('Local control channel through the Reference MCP Server', () => {
 
   test('with the grant, writes the document of the Export button to the folder, and the panel imports it', async ({
     context,
+    serviceWorker,
     panelPage,
     server,
     site,
@@ -345,19 +346,16 @@ test.describe('Local control channel through the Reference MCP Server', () => {
     await expect(panelPage.locator('#control-channel-export')).toContainText('Export is allowed');
     expect((await call(server, 'status')).export_allowed).toBe(true);
 
-    // Record for real: a page open before the recording starts, and a click on
-    // it once capture runs. The click is repeated until the recorder, injected
-    // when the recording starts, has reported one.
+    // Record for real: a page open before the recording starts, and one click
+    // on it once the recorder the recording injects has reported itself ready.
+    await installReadyProbe(serviceWorker);
     const sitePage = await context.newPage();
     await sitePage.goto(site);
     expect((await call(server, 'project_create', { name: 'Checkout: happy/path' })).ok).toBe(true);
     expect((await call(server, 'recording_create', { name: 'Flow' })).ok).toBe(true);
-    await expect
-      .poll(async () => {
-        await sitePage.click('#add');
-        return (await call(server, 'status')).pending_actions;
-      })
-      .toBeGreaterThan(0);
+    await waitForFrameReady(serviceWorker, site);
+    await sitePage.click('#add');
+    await expect.poll(async () => (await call(server, 'status')).pending_actions).toBe(1);
     expect((await call(server, 'step_commit', { narration: 'Add it' })).ok).toBe(true);
 
     const exported = await call(server, 'project_export');
@@ -392,8 +390,7 @@ test.describe('Local control channel through the Reference MCP Server', () => {
     const clicks = document.recordings[0].steps[0].actions.filter(
       (action) => action.type === 'click',
     );
-    expect(clicks.length).toBeGreaterThan(0);
-    expect(clicks[0].element.text).toBe(SITE_BUTTON);
+    expect(clicks.map((click) => click.element.text)).toEqual([SITE_BUTTON]);
     // The document went to the file and stayed out of the tool results.
     expect(server.stdout().includes(SITE_BUTTON)).toBe(false);
 
