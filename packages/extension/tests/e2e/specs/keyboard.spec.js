@@ -9,6 +9,7 @@
  * - Synthetic keyboard events (programmatic dispatch) are NOT captured
  */
 
+import { PREDICATES } from '../../../../../scripts/sufficiency-lint.js';
 import {
   test,
   expect,
@@ -626,5 +627,298 @@ test.describe('Keys that scroll', () => {
     const actions = await getPendingActions(serviceWorker);
     expect(actions.map((a) => a.type)).toEqual(['key', 'scroll']);
     expect(actions[0].key).toBe('Space');
+  });
+});
+
+// Regression: #703 — Enter pressed in a field after typing was written before
+// the text it submitted: the `type` comes from the field's `change`, which the
+// browser sends while it handles the key, after the key was written. Read in
+// order, the file said Enter was pressed on an empty field and the text was
+// typed afterwards. The text is written first, as the person did it, and the
+// `change` that follows writes nothing again.
+// https://github.com/Arsarneq/docent/issues/703
+test.describe('The entry a key ends', () => {
+  const PAGE_HTML = /* html */ `<!DOCTYPE html>
+  <html><body>
+    <form id="form" onsubmit="return false">
+      <input id="q" type="text">
+      <input id="secret" type="password">
+      <button id="submit" type="submit">Go</button>
+    </form>
+    <textarea id="area"></textarea>
+    <input id="prefilled" type="text" value="start">
+    <button id="elsewhere">Elsewhere</button>
+  </body></html>`;
+
+  const summary = (actions) =>
+    actions.map((a) =>
+      a.type === 'key' || a.type === 'type'
+        ? [a.type, a.key ?? a.value, a.element?.selector]
+        : [a.type, a.element?.selector],
+    );
+
+  test.beforeEach(async ({ testPage, serviceWorker }) => {
+    await setTestContent(testPage, PAGE_HTML);
+    await testPage.waitForTimeout(200);
+    await clearPendingActions(serviceWorker);
+  });
+
+  test('regression_703_text_typed_before_Enter_is_written_before_the_Enter', async ({
+    testPage,
+    serviceWorker,
+  }) => {
+    await testPage.click('#q');
+    await testPage.keyboard.type('hello corpus');
+    await testPage.keyboard.press('Enter');
+    await waitForActionsToSettle(serviceWorker, testPage);
+
+    const actions = await getPendingActions(serviceWorker);
+    expect(summary(actions)).toEqual([
+      ['click', '#q'],
+      ['type', 'hello corpus', '#q'],
+      ['key', 'Enter', '#q'],
+    ]);
+    expect(actions[1].timestamp).toBeLessThanOrEqual(actions[2].timestamp);
+  });
+
+  test('regression_703_text_typed_before_Tab_is_written_before_the_Tab', async ({
+    testPage,
+    serviceWorker,
+  }) => {
+    await testPage.click('#q');
+    await testPage.keyboard.type('hello');
+    await testPage.keyboard.press('Tab');
+    await waitForActionsToSettle(serviceWorker, testPage);
+
+    const actions = await getPendingActions(serviceWorker);
+    expect(summary(actions)).toEqual([
+      ['click', '#q'],
+      ['type', 'hello', '#q'],
+      ['key', 'Tab', '#q'],
+    ]);
+  });
+
+  test('regression_703_a_password_entry_is_masked_ahead_of_the_Enter', async ({
+    testPage,
+    serviceWorker,
+  }) => {
+    await testPage.click('#secret');
+    await testPage.keyboard.type('hunter2');
+    await testPage.keyboard.press('Enter');
+    await waitForActionsToSettle(serviceWorker, testPage);
+
+    const actions = await getPendingActions(serviceWorker);
+    expect(summary(actions)).toEqual([
+      ['click', '#secret'],
+      ['type', '••••••••', '#secret'],
+      ['key', 'Enter', '#secret'],
+    ]);
+    expect(actions[1].element.redacted).toBe(true);
+  });
+
+  test('regression_703_an_entry_is_written_once_when_the_field_is_left_afterwards', async ({
+    testPage,
+    serviceWorker,
+  }) => {
+    await testPage.click('#q');
+    await testPage.keyboard.type('once');
+    await testPage.keyboard.press('Enter');
+    await testPage.click('#elsewhere');
+    await waitForActionsToSettle(serviceWorker, testPage);
+
+    const actions = await getPendingActions(serviceWorker);
+    expect(summary(actions)).toEqual([
+      ['click', '#q'],
+      ['type', 'once', '#q'],
+      ['key', 'Enter', '#q'],
+      ['click', '#elsewhere'],
+    ]);
+  });
+
+  test('regression_703_text_added_to_a_prefilled_field_is_written_before_the_Enter', async ({
+    testPage,
+    serviceWorker,
+  }) => {
+    await testPage.click('#prefilled');
+    await testPage.keyboard.press('End');
+    await testPage.keyboard.type('ed');
+    await testPage.keyboard.press('Enter');
+    await waitForActionsToSettle(serviceWorker, testPage);
+
+    const actions = await getPendingActions(serviceWorker);
+    expect(summary(actions)).toEqual([
+      ['click', '#prefilled'],
+      ['type', 'started', '#prefilled'],
+      ['key', 'Enter', '#prefilled'],
+    ]);
+  });
+
+  test('regression_703_Enter_in_a_textarea_ends_the_text_before_it_and_the_rest_follows', async ({
+    testPage,
+    serviceWorker,
+  }) => {
+    await testPage.click('#area');
+    await testPage.keyboard.type('ab');
+    await testPage.keyboard.press('Enter');
+    await testPage.keyboard.type('cd');
+    await testPage.click('#elsewhere');
+    await waitForActionsToSettle(serviceWorker, testPage);
+
+    const actions = await getPendingActions(serviceWorker);
+    expect(summary(actions)).toEqual([
+      ['click', '#area'],
+      ['type', 'ab', '#area'],
+      ['key', 'Enter', '#area'],
+      ['type', 'ab\ncd', '#area'],
+      ['click', '#elsewhere'],
+    ]);
+  });
+
+  test('regression_703_an_entry_is_written_once_when_a_key_that_commits_nothing_follows', async ({
+    testPage,
+    serviceWorker,
+  }) => {
+    await testPage.click('#q');
+    await testPage.keyboard.type('foo');
+    await testPage.keyboard.press('ArrowLeft');
+    await testPage.keyboard.press('Escape');
+    await testPage.keyboard.press('Tab');
+    await testPage.click('#elsewhere');
+    await waitForActionsToSettle(serviceWorker, testPage);
+
+    const actions = await getPendingActions(serviceWorker);
+    expect(summary(actions).filter((a) => a[0] === 'type')).toEqual([['type', 'foo', '#q']]);
+  });
+
+  test('regression_703_a_value_the_page_sets_is_not_written_as_an_entry', async ({
+    testPage,
+    serviceWorker,
+  }) => {
+    await testPage.click('#q');
+    await testPage.evaluate(() => {
+      document.getElementById('q').value = 'set by page';
+    });
+    await testPage.keyboard.press('Enter');
+    await waitForActionsToSettle(serviceWorker, testPage);
+
+    const actions = await getPendingActions(serviceWorker);
+    expect(summary(actions)).toEqual([
+      ['click', '#q'],
+      ['key', 'Enter', '#q'],
+    ]);
+  });
+
+  test('regression_703_a_field_the_page_clears_on_Enter_writes_no_empty_entry', async ({
+    testPage,
+    serviceWorker,
+  }) => {
+    await testPage.evaluate(() => {
+      document.getElementById('q').addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') e.target.value = '';
+      });
+    });
+    await testPage.click('#q');
+    await testPage.keyboard.type('hi');
+    await testPage.keyboard.press('Enter');
+    await testPage.keyboard.press('Tab');
+    await waitForActionsToSettle(serviceWorker, testPage);
+
+    const actions = await getPendingActions(serviceWorker);
+    expect(summary(actions).filter((a) => a[0] === 'type')).toEqual([['type', 'hi', '#q']]);
+  });
+
+  test('regression_703_a_key_pressed_with_no_entry_before_it_writes_no_type', async ({
+    testPage,
+    serviceWorker,
+  }) => {
+    await testPage.click('#prefilled');
+    await testPage.keyboard.press('Enter');
+    await testPage.keyboard.press('Escape');
+    await waitForActionsToSettle(serviceWorker, testPage);
+
+    const actions = await getPendingActions(serviceWorker);
+    expect(summary(actions)).toEqual([
+      ['click', '#prefilled'],
+      ['key', 'Enter', '#prefilled'],
+      ['key', 'Escape', '#prefilled'],
+    ]);
+  });
+});
+
+// Regression: #704 — a native select's list closed from the keyboard was
+// written as a `click` on the select at a point nobody pointed at. The browser
+// sends that click when the list closes; the keys pressed inside the open list
+// do not reach the page, so the closing leaves no other trace.
+// https://github.com/Arsarneq/docent/issues/704
+test.describe('A native select closed from the keyboard', () => {
+  const PAGE_HTML = /* html */ `<!DOCTYPE html>
+  <html><body>
+    <select id="sel"><option>Red</option><option>Green</option><option selected>Blue</option></select>
+  </body></html>`;
+
+  test.beforeEach(async ({ testPage, serviceWorker }) => {
+    await setTestContent(testPage, PAGE_HTML);
+    await testPage.waitForTimeout(200);
+    await clearPendingActions(serviceWorker);
+  });
+
+  test('regression_704_closing_the_list_with_Enter_writes_no_click', async ({
+    testPage,
+    serviceWorker,
+  }) => {
+    // The last option is chosen, so ArrowDown changes nothing and no `select`
+    // is written either: the closing click is the only trace the list leaves.
+    await testPage.focus('#sel');
+    await testPage.keyboard.press('Space');
+    await testPage.keyboard.press('ArrowDown');
+    await testPage.keyboard.press('Enter');
+    await waitForActionsToSettle(serviceWorker, testPage);
+
+    const actions = await getPendingActions(serviceWorker);
+    expect(actions.map((a) => [a.type, a.key ?? null, a.element?.selector])).toEqual([
+      ['key', 'Space', '#sel'],
+    ]);
+  });
+
+  test('regression_704_a_pointer_click_on_the_select_is_still_written', async ({
+    testPage,
+    serviceWorker,
+  }) => {
+    await testPage.click('#sel');
+    await testPage.keyboard.press('Escape');
+    await waitForActionsToSettle(serviceWorker, testPage);
+
+    const actions = await getPendingActions(serviceWorker);
+    expect(actions.map((a) => [a.type, a.element?.selector])).toEqual([['click', '#sel']]);
+  });
+});
+
+// Regression: #705 — Tab pressed on a page where nothing has focus was written
+// with the body as its element and no locators, which the sufficiency lint
+// fails. The body is described as any element is.
+// https://github.com/Arsarneq/docent/issues/705
+test.describe('Tab with nothing focused', () => {
+  test('regression_705_the_body_is_described_with_locators', async ({
+    testPage,
+    serviceWorker,
+  }) => {
+    await setTestContent(
+      testPage,
+      /* html */ `<!DOCTYPE html><html><body><p>Intro</p><input id="first" type="text"></body></html>`,
+    );
+    await testPage.waitForTimeout(200);
+    await clearPendingActions(serviceWorker);
+    await testPage.evaluate(() => document.activeElement?.blur());
+    await testPage.keyboard.press('Tab');
+    await waitForActionsToSettle(serviceWorker, testPage);
+
+    const actions = await getPendingActions(serviceWorker);
+    const tab = actions.find((a) => a.type === 'key');
+    expect(tab.key).toBe('Tab');
+    expect(tab.element.tag).toBe('BODY');
+    expect(tab.element.selector).toBe('body');
+    expect(tab.element.locators.length).toBeGreaterThan(0);
+    const predicate = PREDICATES.find((p) => p.id === 'element-locators');
+    expect(predicate.check(tab)).toBeNull();
   });
 });

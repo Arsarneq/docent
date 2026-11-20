@@ -134,7 +134,10 @@ the capture phase, for exactly these DOM events:
   click the browser derives from a captured key press (Enter or Space on a
   button, an arrow key in a radio group, for example) is that key's effect
   (core CP-6) and writes nothing: it carries no pointer, and the browser sends
-  it while it handles one of that key's events
+  it while it handles one of that key's events; the click a native `select`
+  sends when its list closes from the keyboard is an effect of the same kind
+  and writes nothing (the keys pressed inside the open list do not reach the
+  page, so the closing leaves no other trace)
 - `contextmenu` — the right-click, its element picked as for `click`
 - `keydown` — the keys in the captured keyboard set: Enter, Escape, Tab and
   the four arrow keys on the focused element, and Space on a focused element
@@ -145,7 +148,11 @@ the capture phase, for exactly these DOM events:
   each press is written with whether the browser's key repeat generated it:
   holding a key down is the person's input (core CP-5), and each repeated
   press is that hold as the browser reports it, written and marked so that it
-  is told from a separate physical press
+  is told from a separate physical press; a press made while an `input` or
+  `textarea` holds an entry not yet written writes that entry's `type` first,
+  the entry being complete before the press that follows it; a value the page
+  set, with no key pressed in the field, is not an entry, and an entry already
+  written writes nothing again when the browser commits the field
 - `keypress` — the character event of a captured key press, which writes
   nothing: with `keydown` and `keyup` it marks the task in which the browser
   derives a click from the key
@@ -155,7 +162,9 @@ the capture phase, for exactly these DOM events:
   and a file chosen through the OS dialog; a checkbox or radio toggle is
   recorded by the `click` or the `key` that made it, so its `change` writes
   nothing
-- `focusin` — a focus move, recorded only when it follows a Tab key press
+- `focusin` — a focus move, recorded only when it follows a Tab key press; the
+  value an `input` or `textarea` holds when it takes focus is noted, so an
+  entry made since can be told from one already written
 - `dragstart` — the start of a drag, which names the drag source
 - `dragover` — the target tracking the browser requires before a drop can fire
 - `drop` — the end of a drag, paired with the source the drag started from
@@ -348,7 +357,13 @@ with a caveat):
   key's events (an activation an assistive technology sends, or one a key
   outside the captured set causes, an `accesskey` shortcut for example) —
   written as a `click` with the coordinates its event carries, though no
-  pointer was at that point; a departure (core CP-18)
+  pointer was at that point; a departure (core CP-18). A native `select` is
+  the exception: a click with no pointer on one is not written, whatever sent
+  it, an activation an assistive technology sends to a `select` included
+- A value entered with no key pressed in the field since it took focus (a
+  paste from the context menu, a drop, an autofill) — its `type` is written
+  when the browser commits it, which can follow a captured key pressed after
+  it; a departure (core CP-18)
 - A captured key whose press also scrolls (an arrow key, or Space on a focused
   element it does not activate, a link for example) — written as the `key`
   and, where the scroll clears the floor (core CP-16), as a `scroll` too: one
