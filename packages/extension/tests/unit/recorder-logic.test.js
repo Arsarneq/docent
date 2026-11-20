@@ -19,6 +19,7 @@ import { SCROLL_DEBOUNCE, SCROLL_MIN_DISTANCE_PX } from '../../lib/capture-timin
 import {
   selectorFor,
   describeElement,
+  declaredLanguage,
   buildLocators,
   matchStats,
   cssEscape,
@@ -517,6 +518,54 @@ describe('buildLocators (#132)', () => {
   });
 });
 
+// ─── declaredLanguage (docent#142) ────────────────────────────────────────────
+
+describe('declaredLanguage', () => {
+  it("returns the element's own lang attribute", () => {
+    const el = createElement('button', { attrs: { lang: 'da' } });
+    assert.equal(declaredLanguage(el), 'da');
+  });
+
+  it('takes the nearest declaring ancestor, not the outermost', () => {
+    const html = createElement('html', { attrs: { lang: 'da' } });
+    const section = createElement('section', { parent: html, attrs: { lang: 'en-GB' } });
+    const div = createElement('div', { parent: section });
+    const el = createElement('button', { parent: div });
+    assert.equal(declaredLanguage(el), 'en-GB');
+  });
+
+  it('returns null when nothing at or above the element declares one', () => {
+    const html = createElement('html');
+    const el = createElement('button', { parent: html });
+    assert.equal(declaredLanguage(el), null);
+  });
+
+  it('writes an empty declaration as written and does not look past it', () => {
+    const html = createElement('html', { attrs: { lang: 'da' } });
+    const el = createElement('p', { parent: html, attrs: { lang: '' } });
+    assert.equal(declaredLanguage(el), '');
+  });
+
+  it('writes the attribute as the application wrote it, unvalidated', () => {
+    const el = createElement('p', { attrs: { lang: 'Dansk ' } });
+    assert.equal(declaredLanguage(el), 'Dansk ');
+  });
+
+  it('crosses from a shadow tree to its host', () => {
+    const html = createElement('html', { attrs: { lang: 'da' } });
+    const host = createElement('x-card', { parent: html });
+    const inner = createElement('button');
+    inner.parentNode = { host };
+    assert.equal(declaredLanguage(inner), 'da');
+  });
+
+  it('stops at the top of its own document', () => {
+    const html = createElement('html');
+    html.parentNode = {};
+    assert.equal(declaredLanguage(html), null);
+  });
+});
+
 // ─── describeElement ──────────────────────────────────────────────────────────
 
 describe('describeElement', () => {
@@ -529,6 +578,18 @@ describe('describeElement', () => {
     assert.equal(desc.role, 'button');
     assert.equal(desc.text, 'Click me');
     assert.equal(desc.selector, '#btn');
+  });
+
+  it('states the declared language of the element', () => {
+    const html = createElement('html', { attrs: { lang: 'da' } });
+    const el = createElement('button', { parent: html, text: 'Gem' });
+    assert.equal(describeElement(el).language, 'da');
+  });
+
+  it('writes a null language when none is declared', () => {
+    const desc = describeElement(createElement('button', { text: 'Save' }));
+    assert.ok('language' in desc);
+    assert.equal(desc.language, null);
   });
 
   it('returns null for empty optional fields', () => {

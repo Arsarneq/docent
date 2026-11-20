@@ -325,7 +325,7 @@ another element, the pointer is pressed (a click, a right-click or a drag),
 another window comes to the front, the step is committed or the recording
 stops. A focus event ends nothing: the key that moved the focus has ended
 the typing already, and a program that reports the focus again on the field
-being typed into leaves its text the one `type`. A pause between two keys ends nothing: how
+being typed into leaves its text the one `type`. A change of the top-level window's title ends nothing either: a field is the same field whatever title its window shows (an editor that adds or drops its unsaved mark while the person types). The selector holds the title, so whether two descriptions read in one window are of the same element is told by the element's path under the window's root, the root itself left out, and by the selector only where that path is not known. A title held by an element under the root (a document's own window inside an application's frame) is part of that path and still tells two fields apart, so a change of such a title does end the typing; a departure (core CP-18). The panel joins the masked typing of a sensitive field by the same path, read from the `tree_path` locator, where a root title that itself holds the path separator leaves the fields apart. A pause between two keys ends nothing: how
 fast a person types is no part of what they typed, so text typed with pauses
 is the one `type`, as on the extension. The `type` is written with the
 sequence id of its last value change, ahead of the action that ended the
@@ -370,7 +370,13 @@ keypad's Enter, an arrow key and the keypad key that moves the same way with
 Num Lock off) are told apart by that mark, as the browser tells them apart by
 their `code`; the keyboard's state at the hook's install names a code and not
 which of such keys is down, and the first of them to send a key-down is taken
-as the one held. Each `key` also carries
+as the one held. Each `key` carries `code`, the physical key by the name a
+browser gives a key with the hook's scan code and extended mark (the W3C UI
+Events `code` values, by the scan-code table Chromium publishes), so one
+physical key has one name on both platforms whatever the keyboard layout. A
+keystroke injected as a character carries none, and neither does a key whose
+scan code the table has no name for (zero among them, which software sending
+a key by its virtual-key code alone can give). Each `key` also carries
 `held_keys`: the keys that were down at the press, other than the modifiers
 and the key itself, each a key whose own key-down is a `key` action, by the
 name that action carries, in the order they went down. The hook's record
@@ -487,9 +493,11 @@ resolved to, its `name` that container's name — or, when nothing resolved, a
 description whose `name` is the text of the action's attributed window (DCP-14).
 Of the fields an accessibility-described desktop element can carry,
 the ones it never carries are exactly the locators, the provider facts
-(`position_in_set`, `size_of_set`, `level`, `framework_id`) and the describe
+(`position_in_set`, `size_of_set`, `level`, `framework_id`, and `language`, which it states as null) and the describe
 latency: coordinate mode records where the user acted and in which window, not
 which element the accessibility layer resolved (core CP-18).
+
+The language facts are read from Windows as it reports them. An element's `language` is the UIA Culture of the nearest element that reports one, asked of the element and then of each ancestor up to its top-level window inside the walk that builds the tree path, and written as the locale name Windows gives that culture. An ancestor's culture is taken only when the walk confirmed the window root, since until then nothing shows the ancestor is inside the window, and a culture that names no language of its own (the user, system and custom defaults, which stand for the machine's setting, and the invariant locale) counts as none. An element with no reported culture states `language` as null. The culture is read when the element is described, and it is the provider's answer at that moment: a provider can report an element's culture later than the rest of its description. Chromium content has been seen to describe one field three times within a tenth of a second, same path each time, with no culture the first time and `en` the next two, so within one recording the same element can state null and then its language. `preferred_languages` is the user's preferred UI languages as Windows lists them, read when the action is built, and null when Windows could not be read ([Session Format — Shown text](../../../../technical/session-format.md#shown-text)).
 
 A keystroke and a value change belong to the element that had focus when they happened, and a worker describes them later, by which time focus can have moved on. The input thread therefore counts focus changes and stamps each event with the count at its dispatch, in two parts: what the person did that can move the focus (a mouse-down, a key from the closed table of keys that are not plain typing keys), counted on the hooks at the moment of the input, and the focus and foreground changes programs reported, which arrive a moment after they happen. A keystroke is recorded on the element described under its own count, however late it is processed. While that description is the worker's latest, the keystroke's window is the foreground window and the count has not moved, the worker first confirms that the focused element is that very element, and describes afresh when a program moved the focus without reporting it. When no element was described under its count, the focused element is taken only while the keystroke's window is still the foreground window and the person has not moved the focus since. Otherwise, and when the window gives no focused element, nothing can be said about the element the keystroke went to: the action names no element (tag `Unknown`, empty selector, no locator candidates) instead of whatever has focus by then. The extension reads a key's element from the key's own event; the keyboard hook is handed a key without the element it went to, and the element is described afterwards, so the difference comes from the platforms themselves (core CP-19). Such an action does not say where its key went, and the sufficiency lint fails it for carrying no locator candidates ([docent#713](https://github.com/Arsarneq/docent/issues/713)). A keystroke that names no element and enters text is also held to the password rule above, since nothing shows its field was not a password field: it is recorded as a masked `type` on no element, never as a `key` carrying its character. A value change is the `type` of the element its keystrokes were recorded on. It writes no `type` and supersedes no buffered key (DCP-9) when its window is no longer the foreground window, when the window's last keystroke named no element, or when the focused element is not the element that keystroke was recorded on; that is judged on the element itself where the worker's latest description is still that keystroke's, and on the selector otherwise. A `type` already pending is then written ahead of the buffered keys. What such a value change would have recorded beyond the keys (pasted text, a composed character) is not recorded. Three cases stay open. Where a program moves the focus by itself and reports it late or not at all, a keystroke stamped before the report reaches the input thread is recorded on the element described under the old count when it is processed after its window was left, and the first keystroke under a count is recorded on the focused element of its window as the worker finds it. And the person's input is counted before the program has acted on it, so a keystroke described in between is recorded on the element that still had focus. A key that moves the focus itself (Tab) is recorded on the element it was pressed in when that element was described under its count, and otherwise on the focused element as the worker finds it.
 
@@ -628,11 +636,17 @@ with a caveat):
   as a .docx), so the extension the dialog adds for the chosen file type is
   not recorded; a departure (core CP-18). A dialog whose File name box is
   empty records no `file_dialog`
-- A `type` whose value equals the typing worker's last for the same element
-  (its selector within its window) — not written, the keys buffered for it
-  discarded with it, and for a password field, whose value is the mask, every
-  value change after the first that no text-entering keystroke accompanies (a
-  paste, for example); a departure (core CP-18)
+- A value change that repeats the value just taken for the field typed into
+  last, with no typing key pressed for it (a program that reports one change
+  twice) — not written; a value the person types is written each time it is
+  typed, also where it equals the one written before (the same text typed
+  over itself, a value undone and typed again). A value set twice to the same
+  text with no typing key (the same text pasted over itself) is one value
+  change the worker cannot tell from a repeated report, and for a password
+  field, whose value is the mask, so is every value change after the first
+  that no text-entering keystroke accompanies (a paste, for example); a
+  departure (core CP-18;
+  [docent#751](https://github.com/Arsarneq/docent/issues/751))
 - A focus whose selector equals the worker's last — not written; a departure
   (core CP-18)
 - A focus or value change on an element the accessibility layer cannot

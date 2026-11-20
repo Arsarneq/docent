@@ -33,6 +33,7 @@
               "element": {
                 "autocomplete": null,
                 "id": "open-b",
+                "language": "en",
                 "locators": [
                   {
                     "match_count": 1,
@@ -77,12 +78,14 @@
               "timestamp": 1783348336984,
               "type": "click",
               "x": 32,
-              "y": 16
+              "y": 16,
+              "preferred_languages": ["en-US"]
             },
             {
               "capture_mode": "dom",
               "context_id": 1095744703,
               "opener_context_id": 1095744702,
+              "preferred_languages": ["en-US"],
               "source": null,
               "timestamp": 1783348337017,
               "type": "context_open"
@@ -91,6 +94,7 @@
               "capture_mode": "dom",
               "context_id": 1095744703,
               "nav_type": "link",
+              "preferred_languages": ["en-US"],
               "timestamp": 1783348337051,
               "type": "navigate",
               "url": "http://127.0.0.1:41730/ext-tab-open/b.html"

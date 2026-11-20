@@ -1,12 +1,6 @@
 # JavaScript unit tests
 
-The unit layer of Docent's JavaScript suites: the shared modules in
-`packages/shared`, the desktop frontend in `packages/desktop`, and the Chrome
-extension in `packages/extension`, each with its own `tests/unit` directory.
-They run on Node's built-in test runner against pure modules, injected fakes,
-and composed schemas — and, for the machinery and size-budget suites, against
-the committed tree and the built artifacts themselves — with no browser, no
-Tauri backend, and no network involved.
+The unit layer of Docent's JavaScript suites: the shared modules in `packages/shared`, the desktop frontend in `packages/desktop`, and the Chrome extension in `packages/extension`, each with its own `tests/unit` directory. They run on Node's built-in test runner against pure modules, injected fakes, and composed schemas, with no browser, no Tauri backend, and no network involved. The machinery and size-budget suites also run against the committed tree and the built artifacts themselves.
 
 Where to look:
 
@@ -18,63 +12,21 @@ Where to look:
 | Know whether a suite runs the shipped code or a copy of it | The paragraph right after this table, and [CONTRIBUTING § Single-source logic](../../.github/CONTRIBUTING.md#single-source-logic)                                                                                         |
 | See how this layer sits beneath the others                 | [The test pyramid](strategy/test-pyramid.md)                                                                                                                                                                              |
 
-Where a suite does not run the shipped code it describes — a content script and
-a panel that awaits at the top level cannot be imported under the runner, nor
-can a module-private function — the suite drives an extracted module, a copy of
-the shipped text, or a replica reshaped from it. The service worker imports
-under the runner behind a fake `chrome` global, which is how the background
-sync-host and navigation-proxy suites drive it. The copies
-named in
-[CONTRIBUTING § Single-source logic](../../.github/CONTRIBUTING.md#single-source-logic)
-carry parity guards that hold them to the text that ships. Reshaped from the
-shipped code, and pinning only themselves where they stand in for it or seed it,
-are: in the extension tree, the
-worker's replicated handlers beyond its append chokepoint, its
-frame-registration fixture, the panel suite's simulated send, cancel and
-export handlers and the capture-timing suite's recent-action decision; in the
-shared tree, the settings state-machine suite's panel settings logic and, as
-fixture seeds, the sync suites' allowlisted projections (their baseline and
-payload builders); and in the desktop tree, the
-settings suite's save and load and the import suite's stand-in validator. Where a suite holds the module's output to one
-of those projections, the projection serves as an oracle there, and a drift
-fails the comparison.
+Where a suite does not run the shipped code it describes, it drives an extracted module, a copy of the shipped text, or a replica reshaped from it. A content script and a panel that awaits at the top level cannot be imported under the runner, nor can a module-private function. The service worker imports under the runner behind a fake `chrome` global, which is how the background sync-host and navigation-proxy suites drive it. The copies named in [CONTRIBUTING § Single-source logic](../../.github/CONTRIBUTING.md#single-source-logic) carry parity guards that hold them to the text that ships. The following are reshaped from the shipped code, and pin only themselves where they stand in for it or seed it:
 
-Every tree is discovered the same way: a `node --test` glob over the test files
-at the top of its `tests/unit` directory. A file joins its suite by matching
-`*.test.js` there: a helper beside the tests is outside the suite because its
-name does not match, and a file one directory deeper is outside it because the
-glob reads only the top level. Every runner invocation the root and extension
-manifests' scripts state — `node`, its own flags, `--test` — and every direct
-one in the test workflow carries `--import` of
-`packages/shared/tests/support/git-env-preload.js`, which each test file's
-process loads ahead of the file (the runner forwards the flag to every process
-it spawns): it drops every `GIT_*` name from that process's environment before
-the file loads, so a caller's exported git variable (a hook's, a parent git
-process's, a CI step's) reaches no suite those invocations run; the per-case
-helpers — a child's scrubbed environment, the in-process scrub, a deliberate
-poison — stay in `child-env.js` for the suites that read, spawn or poison on
-purpose, and the harness locks in `check-cli-smoke.test.js` hold the preload
-and its wiring on each of those surfaces. ESLint reads every JavaScript file
-under each package's
-`tests` directory, through `npm run lint:js` and the pre-push hook
-alike, with each runtime's globals declared in `eslint.config.js`. The commands
-that run each suite live in the [contributing
-guide](../../.github/CONTRIBUTING.md#running-tests); how this layer sits beneath
-the others is in [the test pyramid](strategy/test-pyramid.md), and how its
-coverage reaches Codecov is in [coverage reporting](strategy/coverage.md).
+- In the extension tree: the worker's replicated handlers beyond its append chokepoint, its frame-registration fixture, the panel suite's simulated send, cancel and export handlers, and the capture-timing suite's recent-action decision.
+- In the shared tree: the settings state-machine suite's panel settings logic and, as fixture seeds, the sync suites' allowlisted projections (their baseline and payload builders).
+- In the desktop tree: the settings suite's save and load, and the import suite's stand-in validator.
 
-The tables below enumerate each tree, and
-[`check-test-inventory.js`](../../scripts/check-test-inventory.js) holds them to
-the directories they describe on every pull request: a test file with no row, or
-a row naming something the tree's discovery does not select, fails the build.
-Each row is one line. Its Covers cell states what the file covers in at most 300
-characters; a file whose coverage takes more keeps its summary there and ends the
-cell with a link to a section headed by the file's name after its tree's table,
-where the rest stands as bullets. The tables are written unpadded under a
-`<!-- prettier-ignore -->` marker, so editing a row changes that line alone. The
-same check holds this shape: the cap, the compact form, each Covers link reaching
-its own file's section, and each such section linked from its file's row, one per
-file, under that file's tree.
+Where a suite holds the module's output to one of those projections, the projection serves as an oracle there, and a drift fails the comparison.
+
+Every tree is discovered the same way: a `node --test` glob over the test files at the top of its `tests/unit` directory. A file joins its suite by matching `*.test.js` there. A helper beside the tests is outside the suite because its name does not match. A file one directory deeper is outside it because the glob reads only the top level.
+
+Every runner invocation the root and extension manifests' scripts state (`node`, its own flags, `--test`), and every direct one in the test workflow, carries `--import` of `packages/shared/tests/support/git-env-preload.js`. Each test file's process loads it ahead of the file, because the runner forwards the flag to every process it spawns. It drops every `GIT_*` name from that process's environment before the file loads. So a caller's exported git variable (a hook's, a parent git process's, a CI step's) reaches no suite those invocations run. The per-case helpers (a child's scrubbed environment, the in-process scrub, a deliberate poison) stay in `child-env.js` for the suites that read, spawn or poison on purpose. The harness locks in `check-cli-smoke.test.js` hold the preload and its wiring on each of those surfaces.
+
+ESLint reads every JavaScript file under each package's `tests` directory, through `npm run lint:js` and the pre-push hook alike, with each runtime's globals declared in `eslint.config.js`. The commands that run each suite live in the [contributing guide](../../.github/CONTRIBUTING.md#running-tests). How this layer sits beneath the others is in [the test pyramid](strategy/test-pyramid.md), and how its coverage reaches Codecov is in [coverage reporting](strategy/coverage.md).
+
+The tables below enumerate each tree. [`check-test-inventory.js`](../../scripts/check-test-inventory.js) holds them to the directories they describe on every pull request: a test file with no row, or a row naming something the tree's discovery does not select, fails the build. Each row is one line. Its Covers cell states what the file covers in at most 300 characters. A file whose coverage takes more keeps its summary there and ends the cell with a link to a section headed by the file's name after its tree's table, where the rest stands as bullets. The tables are written unpadded under a `<!-- prettier-ignore -->` marker, so editing a row changes that line alone. The same check holds this shape: the cap, the compact form, each Covers link reaching its own file's section, and each such section linked from its file's row, one per file, under that file's tree.
 
 ## Shared modules
 
@@ -204,428 +156,352 @@ machinery under `scripts/`.
 
 ### `check-adapter-surface.test.js`
 
-- the derivation of the concrete adapters from the filename rule and the test trees and contract
-  file it leaves out, its refusals and the below-two red, the diff against the seam document's own
-  link targets, both held directions between the typedef and each derived adapter's default-exported
-  literal, the platform-specific member it admits, the decoy literals beside it, the key and value
-  positions a template literal can stand in, the extractors' refusals, and the command line run over
-  a scratch repository the derivation can read;
-- its tree reads and its spawns run clear of the `GIT_*` environment through the shared suites' one
-  child-environment home, which a regression case holds under a poisoned index.
+- The derivation of the concrete adapters from the filename rule, and the test trees and contract file it leaves out.
+- The derivation's refusals and the below-two red.
+- The diff against the seam document's own link targets.
+- Both held directions between the typedef and each derived adapter's default-exported literal, the platform-specific member it admits, and the decoy literals beside it.
+- The key and value positions a template literal can stand in.
+- The extractors' refusals.
+- The command line, run over a scratch repository the derivation can read.
+- Its tree reads and its spawns run clear of the `GIT_*` environment through the shared suites' one child-environment home, which a regression case holds under a poisoned index.
 
 ### `check-area-map.test.js`
 
-- each way the map can rot, the pattern semantics that make its coverage total, the necessity an
-  exception and a declaration each earn file by file, the place an area earns by supplying what the
-  rest of the map does not, the read and compile boundaries' refusals, the shared segment compiler
-  held to the map's own semantics and admission, the declared and expanded governing sets, the
-  per-file explanation mode, and the brace expansion held to its one home, reached through the
-  compile idiom.
+- Each way the map can rot.
+- The pattern semantics that make its coverage total.
+- The necessity an exception and a declaration each earn, file by file.
+- The place an area earns by supplying what the rest of the map does not.
+- The read and compile boundaries' refusals.
+- The shared segment compiler, held to the map's own semantics and admission.
+- The declared and expanded governing sets.
+- The per-file explanation mode.
+- The brace expansion, held to its one home, reached through the compile idiom.
 
 ### `check-ci-filter.test.js`
 
-- each way the workflow's filter split can drift, the exported literal/glob matcher read through by
-  every case that splits an entry, the locator contract both filter-map readers reach the filter
-  step by, the reader the command line and this suite share
-- each input observed on its own, and the closure together with the wrapper's own call by a source
-  lock over the check's text
-- each held flag's holdings map
-- `SUITE_HELD_HOLDINGS` and the per-flag maps in `HELD_FLAG_HOLDINGS`
-- held to its filter in both directions, the duplicate-entry leg, each heavy job whose own closure
-  is non-empty held to gating on `buildScripts`, the redundancy between the ciCore legs, the command
-  model form by form, the closure walk over a synthetic tree on disk
-- the npm-run chain and its cycle guard, a flagged `node` entry, the import and spawn edges, an
-  entry outside `scripts/`, the forms read as no invocation, and the `scripts/`-relative
-  over-include
-- a real-tree lock over the committed workflow, the CI guide's flag bullets and flag-exception
-  sentence held to citing the holdings maps and to naming no file a filter lists, each holder
-  suite's header held to naming the map it points at, and the step reader this check and
-  `check-doc-closure.js` share
-- the job's own steps whole and in order, and the empty list for an absent job, a job stating no
-  steps, and a `steps:` block that is not a list, a string and the mapping shape a bare walk ends
-  its run on alike.
+- Each way the workflow's filter split can drift.
+- The exported literal/glob matcher, read through by every case that splits an entry.
+- The locator contract both filter-map readers reach the filter step by.
+- The reader the command line and this suite share: each input observed on its own, and the closure together with the wrapper's own call by a source lock over the check's text.
+- Each held flag's holdings map (`SUITE_HELD_HOLDINGS` and the per-flag maps in `HELD_FLAG_HOLDINGS`), held to its filter in both directions.
+- The duplicate-entry leg.
+- Each heavy job whose own closure is non-empty, held to gating on `buildScripts`.
+- The redundancy between the ciCore legs.
+- The command model, form by form.
+- The closure walk over a synthetic tree on disk: the npm-run chain and its cycle guard, a flagged `node` entry, the import and spawn edges, an entry outside `scripts/`, the forms read as no invocation, and the `scripts/`-relative over-include.
+- A real-tree lock over the committed workflow.
+- The CI guide's flag bullets and flag-exception sentence, held to citing the holdings maps and to naming no file a filter lists.
+- Each holder suite's header, held to naming the map it points at.
+- The step reader this check and `check-doc-closure.js` share:
+  - The job's own steps, whole and in order.
+  - The empty list for an absent job, a job stating no steps, and a `steps:` block that is not a list (a string and the mapping shape a bare walk ends its run on alike).
 
 ### `check-clause-governance.test.js`
 
-- a cited path owes the clause's own doc and a cited pattern owes it for every file it names,
-  reported one finding per pattern, with a recorded exception keyed by the citation token, so one
-  granted to a pattern answers for the whole set that token names, a cited governing doc owing
-  itself alone, and the shared tokenizer's own citations held from both sides
-- recorded where the clause's doc sits outside its declared governance, reported stale where it sits
-  inside.
+- A cited path owes the clause's own doc, and a cited pattern owes it for every file it names, reported one finding per pattern.
+- A recorded exception is keyed by the citation token, so one granted to a pattern answers for the whole set that token names.
+- A cited governing doc owes itself alone.
+- The shared tokenizer's own citations, held from both sides: recorded where the clause's doc sits outside its declared governance, reported stale where it sits inside.
 
 ### `check-clause-registry.test.js`
 
-- marker and row agreement, citation resolvability including patterns and the shared split-and-edge
-  shape, the closed row grammar, cases resolved against a cited JavaScript or Rust file's
-  declarators, the runnable-check predicate, the server-binding floor — a `check-exists` row that
-  pins its clause on the reference server's suite names the reference server, and the reference
-  server's suite directory it keys on is held to the tree — the lock surfaces, the map's and
-  fixtures' citations, read failures under the tree's own subject, the refusal the read of the
-  registry itself raises and the one its surface red states for a map it cannot use, each naming
-  what it found
-- a file it could not read, text that is not JSON, or text that is JSON but not the map object — and
-  the built fix block.
+- Marker and row agreement.
+- Citation resolvability, including patterns and the shared split-and-edge shape.
+- The closed row grammar.
+- Cases resolved against a cited JavaScript or Rust file's declarators.
+- The runnable-check predicate.
+- The server-binding floor: a `check-exists` row that pins its clause on the reference server's suite names the reference server, and the reference server's suite directory it keys on is held to the tree.
+- The lock surfaces.
+- The map's and fixtures' citations.
+- Read failures under the tree's own subject.
+- The refusal the read of the registry itself raises, and the one its surface red states for a map it cannot use. Each names what it found: a file it could not read, text that is not JSON, or text that is JSON but not the map object.
+- The built fix block.
 
 ### `check-cli-smoke.test.js`
 
-- every invocation here is deterministic-green against it and pins every variable its target reads
-  itself and, from the shared suites' one child-environment home
-  (`packages/shared/tests/support/child-env.js`), runs clear of the `GIT_*` environment a spawned
-  git answers to — which is the property a case is admitted on;
-- the harness locks beside them prove that home holds for every suite importing it: the child scrub,
-  the environment-pinning helper putting back what it pinned
-- a name that carried a value, one that did not, and the path where its body throws — and the
-  in-process route running its work with no `GIT_*` name set and putting each one back;
-- the runner-level preload beside that home: that every runner invocation of the root and extension
-  manifests' scripts and of the test workflow's direct steps — `node`, its own flags, `--test` — is
-  followed by `--import` of it, and that it strips a poisoned environment from a test process the
-  runner spawns, the control without it red;
-- the red paths stay with each script's own unit tests.
+- Every invocation here is deterministic-green against the committed tree, pins every variable its target reads itself and, from the shared suites' one child-environment home (`packages/shared/tests/support/child-env.js`), runs clear of the `GIT_*` environment a spawned git answers to. That is the property a case is admitted on.
+- The harness locks beside them prove that home holds for every suite importing it:
+  - The child scrub.
+  - The environment-pinning helper putting back what it pinned: a name that carried a value, one that did not, and the path where its body throws.
+  - The in-process route running its work with no `GIT_*` name set and putting each one back.
+- The runner-level preload beside that home: every runner invocation of the root and extension manifests' scripts and of the test workflow's direct steps (`node`, its own flags, `--test`) is followed by `--import` of it, and it strips a poisoned environment from a test process the runner spawns, the control without it red.
+- The red paths stay with each script's own unit tests.
 
 ### `check-clippy-invocation.test.js`
 
-- the run lines read out of the workflow, the gates row read through the doc-closure reader, the
-  stated spans a fenced or multi-line one never joins, each disagreement between the three, the
-  register held from both sides, the refusals
-- a workflow stating no clippy step, a clippy step carrying a quote, a guide whose gates table
-  states no Clippy row, a read or a parse that throws, and a guide listing narrowed below the guides
-  the scan must read — and a real-tree lock.
+- The run lines read out of the workflow.
+- The gates row, read through the doc-closure reader.
+- The stated spans a fenced or multi-line one never joins.
+- Each disagreement between the three.
+- The register, held from both sides.
+- The refusals:
+  - A workflow stating no clippy step.
+  - A clippy step carrying a quote.
+  - A guide whose gates table states no Clippy row.
+  - A read or a parse that throws.
+  - A guide listing narrowed below the guides the scan must read.
+- A real-tree lock.
 
 ### `check-command-surface.test.js`
 
-- every red-path family, the derived channel's emit, listen, and clause-prose sides — that prose
-  read for the channel's absence and for a foreign channel-shaped token standing beside it, the
-  event row refused where it states a channel that read cannot see, with the token shape's near
-  misses, its grant exemptions, the same-shape tokens that name no channel at all, and the residue
-  the two shapes leave between them pinned against both readers, and a partial rename over the real
-  document, the grant enumeration read as the clause section's list
-- held both ways against the capability files, an item whose first backticked token is not a grant
-  refused by name in one line, a grant listed in two items refused as a duplicate, a list whose
-  every item is refused still running every other leg, and every other grant mention held to
-  membership in it, over synthetic text and over the real document with an item removed
-- the comment and fence strippers beside the strings-blanked anchor view, and a real-tree lock.
+- Every red-path family.
+- The derived channel's emit, listen, and clause-prose sides:
+  - That prose, read for the channel's absence and for a foreign channel-shaped token standing beside it.
+  - The event row, refused where it states a channel that read cannot see, with the token shape's near misses, its grant exemptions, the same-shape tokens that name no channel at all, and the residue the two shapes leave between them pinned against both readers.
+  - A partial rename over the real document.
+- The grant enumeration, read as the clause section's list:
+  - Held both ways against the capability files.
+  - An item whose first backticked token is not a grant, refused by name in one line.
+  - A grant listed in two items, refused as a duplicate.
+  - A list whose every item is refused still running every other leg.
+  - Every other grant mention held to membership in it, over synthetic text and over the real document with an item removed.
+- The comment and fence strippers beside the strings-blanked anchor view.
+- A real-tree lock.
 
 ### `check-doc-closure.test.js`
 
-- each closure leg of the guides and the job partition
-- the registered script-key citations, held in both directions
-- the runner cells, read through each table's own grammar, and the act verdicts against the
-  boundaries the workflow states
-- the diagnosis for a workflow with no top-level `jobs:` key: its wording lives in this check alone,
-  and another check that acts on the condition asks `isJobAnchorProblem` instead of repeating the
-  words
-- a real-tree lock.
+- Each closure leg of the guides and the job partition.
+- The registered script-key citations, held in both directions.
+- The runner cells, read through each table's own grammar, and the act verdicts against the boundaries the workflow states.
+- The diagnosis for a workflow with no top-level `jobs:` key. Its wording lives in this check alone, and another check that acts on the condition asks `isJobAnchorProblem` instead of repeating the words.
+- A real-tree lock.
 
 ### `check-docs-disposition.test.js`
 
-- its red paths, each declared class that skips the sections and the head-repository derivation
-  deciding the release-automation one, and the welds onto the committed surfaces it reads
-- both publish workflows to the automation branch and to one generated body apiece, CONTRIBUTING's
-  exemption paragraph to the fields the exemption reads and to citing the release-output surface by
-  its home, the governance line CONTRIBUTING fences and the PR template scaffolds to the constant
-  the check builds its own output from, the per-doc grammar CONTRIBUTING fences and the template
-  scaffolds to the same forms the check's own red output renders from, the clause example's anchor
-  to a clause the registry carries as judgment-only, the mutation cadence to the workflow schedule
-  that is the fact
-- its trigger set and each cron field read on its own, the cron's comment included — and to each
-  prose surface restating it at that surface's own site, each scheduled workflow's guide cell,
-  section and cron comment welded to that workflow's own cron, the cron-derived cadence word bound
-  to the shipped one, every section cut by the shared heading slice, so a fenced heading neither
-  opens a section nor ends one, a line written directly under the heading is a line of it, and a
-  bare `##` marker whose title sits on the next line states no section, each reader of a section's
-  interior taking that same code-block-blanked view, so an illustration written inside a code block,
-  fenced or indented, credits no document, states no governance line and marks no change record
-- a line indented four spaces under the heading crediting no document in the per-doc lines, where
-  the same line at the margin does — while a line under a fence run inside a `<details>` block
-  written with no blank line after its opener is a line the body shows and is counted as one, each
-  of those readings answering the same for a body delivered with CRLF endings as for one written
-  with LF, and the lines the red output prints for pasting taken off it and pasted back as live
-  lines, and the scope a changed file resolves to when its name carries a non-ASCII byte held beside
-  the ASCII sibling it must answer alike, and the shipped template audited as-is so its guidance
-  comments stay inert;
-- and the refusal it prints for each governance-data file it reads — for the map, one that no longer
-  fits the shape read through it and one whose text is not JSON;
-- for the registry, one whose text is not JSON and one it cannot read at all.
+- Its red paths.
+- Each declared class that skips the sections, and the head-repository derivation deciding the release-automation one.
+- The welds onto the committed surfaces it reads:
+  - Both publish workflows to the automation branch and to one generated body apiece.
+  - CONTRIBUTING's exemption paragraph to the fields the exemption reads, and to citing the release-output surface by its home.
+  - The governance line CONTRIBUTING fences and the PR template scaffolds, to the constant the check builds its own output from.
+  - The per-doc grammar CONTRIBUTING fences and the template scaffolds, to the same forms the check's own red output renders from.
+  - The clause example's anchor, to a clause the registry carries as judgment-only.
+  - The mutation cadence, to the workflow schedule that is the fact (its trigger set and each cron field read on its own, the cron's comment included), and to each prose surface restating it at that surface's own site.
+  - Each scheduled workflow's guide cell, section and cron comment, welded to that workflow's own cron.
+  - The cron-derived cadence word, bound to the shipped one.
+- Every section is cut by the shared heading slice, so a fenced heading neither opens a section nor ends one, a line written directly under the heading is a line of it, and a bare `##` marker whose title sits on the next line states no section.
+- Each reader of a section's interior takes that same code-block-blanked view, so an illustration written inside a code block, fenced or indented, credits no document, states no governance line and marks no change record. A line indented four spaces under the heading credits no document in the per-doc lines, where the same line at the margin does. A line under a fence run inside a `<details>` block written with no blank line after its opener, by contrast, is a line the body shows and is counted as one.
+- Each of those readings answers the same for a body delivered with CRLF endings as for one written with LF.
+- The lines the red output prints for pasting, taken off it and pasted back as live lines.
+- The scope a changed file resolves to when its name carries a non-ASCII byte, held beside the ASCII sibling it must answer alike.
+- The shipped template, audited as-is so its guidance comments stay inert.
+- The refusal it prints for each governance-data file it reads:
+  - For the map, one that no longer fits the shape read through it and one whose text is not JSON.
+  - For the registry, one whose text is not JSON and one it cannot read at all.
 
 ### `check-extension-surface.test.js`
 
-- the manifest's permissions, the dispatcher read over the derived background population
-- one switch, standing in the service worker — and the literal shapes its type reads accept, the
-  asymmetric capture-path pair beside the population's own machinery guards (the table held forward
-  to the service worker's guards, held back from every guard the population makes), the panel's
-  literal sends against their documented enumerations, the clause's own sender statement held
-  present in the clause's scope
-- the absent, duplicated (in a paragraph of its own and inside the one the claim already sits in),
-  moved-out, and fenced readings, with the fail-closed form pinned
-- the capture-path payload weld over the derived content population — that population's own
-  machinery guard, which answers a file list naming nothing on its own line, the callee grammar the
-  send scan reads
-- the receiver written bare and written under each global-object qualifier, the step forms plain,
-  optional, computed and optional computed, and the optional call, each read as one site;
-- the alias of the receiver, the unqualified and the destructured callee, the platform object
-  reached through another object or a private field, and a `sendMessage` on a port or a wrapper
-  receiver, each locked as contributing none
-- the types its sends state diffed both ways against the table, and the hold per send site, each
-  site held to the whole row so two copies of one send meet it together and two sites that differ
-  are each named
-- the Payload cell grammar and each near miss it refuses, the shapes a key position can stand in
-  that hide a name
-- a method, an accessor under a bare or quoted name, a generator — and the keys no cell could state,
-  the column-name locks holding each spelled column to a name its own header carries, and that
-  clause's payload statement and the recorder paragraph's own existence claim each held present the
-  same way, and the introspection handle's member surface: the anchored freeze the members are read
-  from and each refusal around it, the member diff in both directions, the reach test against the
-  worker's own module-scope bindings with the identifiers a healthy tree leaves outside it pinned
-  green, the per-member weld holding each row and its member's body to one another in both
-  directions, the cell grammar the Reaches column is read by and each near miss it refuses, the
-  grammar sentence and the clause's own closure sentence each held present in the clause's scope
-  exactly once, and the mention count over the production population that keeps the handle out of
-  every module but the one that assigns it;
-- the panel population's own machinery guard, which answers a file list naming nothing in place of
-  the quiet-send line;
-- the agreement lock holding each of the wrapper's population arguments to the derivation it is
-  assigned from rather than to a spelling;
-- and the one key test both object scans read, spelled once where the predicate is defined and
-  reached by a call at each scan.
+- The manifest's permissions.
+- The dispatcher, read over the derived background population (one switch, standing in the service worker), and the literal shapes its type reads accept.
+- The asymmetric capture-path pair beside the population's own machinery guards (the table held forward to the service worker's guards, held back from every guard the population makes).
+- The panel's literal sends against their documented enumerations.
+- The clause's own sender statement, held present in the clause's scope: the absent, duplicated (in a paragraph of its own and inside the one the claim already sits in), moved-out, and fenced readings, with the fail-closed form pinned.
+- The capture-path payload weld over the derived content population:
+  - That population's own machinery guard, which answers a file list naming nothing on its own line.
+  - The callee grammar the send scan reads: the receiver written bare and written under each global-object qualifier, the step forms plain, optional, computed and optional computed, and the optional call, each read as one site; and the alias of the receiver, the unqualified and the destructured callee, the platform object reached through another object or a private field, and a `sendMessage` on a port or a wrapper receiver, each locked as contributing none.
+  - The types its sends state, diffed both ways against the table.
+  - The hold per send site, each site held to the whole row, so two copies of one send meet it together and two sites that differ are each named.
+  - The Payload cell grammar and each near miss it refuses.
+  - The shapes a key position can stand in that hide a name (a method, an accessor under a bare or quoted name, a generator), and the keys no cell could state.
+  - The column-name locks, holding each spelled column to a name its own header carries.
+  - That clause's payload statement and the recorder paragraph's own existence claim, each held present the same way.
+- The introspection handle's member surface:
+  - The anchored freeze the members are read from, and each refusal around it.
+  - The member diff in both directions.
+  - The reach test against the worker's own module-scope bindings, with the identifiers a healthy tree leaves outside it pinned green.
+  - The per-member weld holding each row and its member's body to one another in both directions.
+  - The cell grammar the Reaches column is read by, and each near miss it refuses.
+  - The grammar sentence and the clause's own closure sentence, each held present in the clause's scope exactly once.
+  - The mention count over the production population that keeps the handle out of every module but the one that assigns it.
+- The panel population's own machinery guard, which answers a file list naming nothing in place of the quiet-send line.
+- The agreement lock holding each of the wrapper's population arguments to the derivation it is assigned from rather than to a spelling.
+- The one key test both object scans read, spelled once where the predicate is defined and reached by a call at each scan.
 
 ### `check-fresh-clone-setup.test.js`
 
-- the Chrome Extension block read from fixture documents
-- one bash block, comment and blank lines dropped, a `#` line inside the fence neither ending the
-  section nor kept;
-- two blocks, a block fenced `sh`, a missing clone line, a missing section and each refused line
-  shape refused, the admitted shapes kept — and the committed guide's commands;
-- the script built from them
-- the trap's quoting, one group and status per line, the clone pointed at the checkout, the schema
-  copy's test and the green sentinel last;
-- and the run path in process
-- drift at a failing line or a missing schema copy, green, and the machinery verdicts (a failing
-  clone, a status or signal no line owns, an early exit, a failed lookup, temporary directory or
-  document, a bare `--doc`), each run leaving no temporary directory behind under a path carrying a
-  space
-- with one spawned entry-point dry run over the committed guide.
+- The Chrome Extension block, read from fixture documents and from the committed guide:
+  - One bash block, comment and blank lines dropped, and a `#` line inside the fence neither ending the section nor kept.
+  - Two blocks, a block fenced `sh`, a missing clone line, a missing section and each refused line shape refused, and the admitted shapes kept.
+  - The committed guide's commands.
+- The script built from them: the trap's quoting, one group and status per line, the clone pointed at the checkout, the schema copy's test and the green sentinel last.
+- The run path in process: drift at a failing line or a missing schema copy, green, and the machinery verdicts (a failing clone, a status or signal no line owns, an early exit, a failed lookup, temporary directory or document, a bare `--doc`). Each run leaves no temporary directory behind under a path carrying a space. With it, one spawned entry-point dry run over the committed guide.
 
 ### `check-no-release-outputs.test.js`
 
-- a feature branch touches no release output, the automation branch carries nothing else, the
-  head-ref derivation and the mode switch over each shape the CI inputs arrive in, each guard step's
-  own env block held to the event fields that derivation reads, the automation branch's name held to
-  the contributor-facing documents that spell it out, the paths it reads from the diff and from the
-  working tree taken as git writes them, so a name carrying a byte outside ASCII reaches the guard
-  whole, and the status records the drift reading takes, a rename among them, whose trailing entry
-  is the name the file had rather than a record of its own.
+- A feature branch touches no release output, and the automation branch carries nothing else.
+- The head-ref derivation and the mode switch, over each shape the CI inputs arrive in.
+- Each guard step's own env block, held to the event fields that derivation reads.
+- The automation branch's name, held to the contributor-facing documents that spell it out.
+- The paths it reads from the diff and from the working tree, taken as git writes them, so a name carrying a byte outside ASCII reaches the guard whole.
+- The status records the drift reading takes, a rename among them, whose trailing entry is the name the file had rather than a record of its own.
 
 ### `check-npm-advisories.test.js`
 
-- the verdicts are driven through the gate with fixture reports fed through its audit seam, the list
-  and date rules and the report reader are exercised directly, and the audit command is reached only
-  through its spawn seam, so the suite never runs npm. Each npm root is judged on its own, and the
-  audited roots are held to the tracked lockfiles and to Dependabot's npm entries.
+- The verdicts are driven through the gate, with fixture reports fed through its audit seam.
+- The list and date rules and the report reader are exercised directly.
+- The audit command is reached only through its spawn seam, so the suite never runs npm.
+- Each npm root is judged on its own.
+- The audited roots are held to the tracked lockfiles and to Dependabot's npm entries.
 
 ### `check-pin-history.test.js`
 
-- the references grouped into pins by upstream, a subdirectory action under its repository and local
-  and tag references passed over;
-- each verdict the command line takes
-- the green line stating its counts, a pin ahead of or diverged from its base, a compare answering
-  404, an upstream whose repository answers 404, and the machinery verdicts (a status outside those
-  the probe reads, a network failure, a lookup naming no default branch, a compare status it does
-  not read, a scan that read no pin), the rate limit, which stops the probe and is reported once
-  with the remedy that fits an anonymous or an authenticated run, and a machinery failure on one
-  upstream reported beside a pin problem another upstream showed;
-- the compare made against the base the lookup returned;
-- the real reader's request shape over an injected `fetch`;
-- and a real-tree case holding the scan to reading pins from the committed workflows.
+- The references grouped into pins by upstream, a subdirectory action under its repository, and local and tag references passed over.
+- Each verdict the command line takes:
+  - The green line stating its counts.
+  - A pin ahead of or diverged from its base.
+  - A compare answering 404, and an upstream whose repository answers 404.
+  - The machinery verdicts (a status outside those the probe reads, a network failure, a lookup naming no default branch, a compare status it does not read, a scan that read no pin).
+  - The rate limit, which stops the probe and is reported once with the remedy that fits an anonymous or an authenticated run.
+  - A machinery failure on one upstream, reported beside a pin problem another upstream showed.
+- The compare made against the base the lookup returned.
+- The real reader's request shape over an injected `fetch`.
+- A real-tree case holding the scan to reading pins from the committed workflows.
 
 ### `check-proptest-seeds.test.js`
 
-- a reviewed file passing with its counts stated, a header-only file passing with zero seed lines,
-  zero files passing with the count stated, an altered or truncated header reported once at its
-  first diverging line with the seed lines from it on still audited, a seed out of form (wrong
-  length or case) red with its line quoted, a seed line carrying no review note and one whose note
-  is not in the reviewed form each red naming file:line with the line quoted, a line of no seed
-  shape, a review note dated on no calendar day and one with no reason each red, the closing advice
-  pinned for each problem kind and joined when several redden, an unreadable file as the machinery
-  verdict, CRLF line endings read as the same lines, a seed file in proptest's in-crate layout (a
-  `.txt` file under `proptest-regressions/`) passing when reviewed and redding naming file:line when
-  not, and a real-tree case holding the committed seed files to passing.
+- A reviewed file passing with its counts stated.
+- A header-only file passing with zero seed lines.
+- Zero files passing with the count stated.
+- An altered or truncated header reported once at its first diverging line, with the seed lines from it on still audited.
+- A seed out of form (wrong length or case), red with its line quoted.
+- A seed line carrying no review note, and one whose note is not in the reviewed form, each red naming file:line with the line quoted.
+- A line of no seed shape, a review note dated on no calendar day, and one with no reason, each red.
+- The closing advice pinned for each problem kind, and joined when several redden.
+- An unreadable file as the machinery verdict.
+- CRLF line endings read as the same lines.
+- A seed file in proptest's in-crate layout (a `.txt` file under `proptest-regressions/`), passing when reviewed and redding naming file:line when not.
+- A real-tree case holding the committed seed files to passing.
 
 ### `check-schema-echo.test.js`
 
-- each echo of the composed schemas in both directions (the sync protocol's payload tables against
-  the schema root and the project and recording defs among them, with their selection refusals, the
-  sync document read empty or not at all, and the coverage leg over that document's `Field`-headed
-  tables in both directions), the register leg's two refusals
-- a pattern citation, and a Markdown-reaching token naming no path the leg can match
-- its reading of emphasis and of separator-carrying prose, the command line's machinery and drift
-  exit codes over copied trees, and a real-tree lock.
+- Each echo of the composed schemas in both directions:
+  - The sync protocol's payload tables against the schema root and the project and recording defs among them, with their selection refusals.
+  - The sync document read empty or not at all.
+  - The coverage leg over that document's `Field`-headed tables in both directions.
+- The register leg's two refusals (a pattern citation, and a Markdown-reaching token naming no path the leg can match), and its reading of emphasis and of separator-carrying prose.
+- The command line's machinery and drift exit codes over copied trees.
+- A real-tree lock.
 
 ### `check-test-inventory.test.js`
 
-- the inventory, coverage-list, and kill-set red paths, the row-shape class over an opted-in
-  inventory (the Covers cap, the compact form, the detail links and headings, a mixed-case file
-  name's anchor, one file's detail sections in two trees, a heading-shaped line in a code block),
-  the mutate-scope agreement and dead modules, the registration closure, the undiscovered-binary
-  admission by either route, the kill-set membership legs
-- the specifier classification and its refusal, the dynamic-import edge and its computed non-edge,
-  the property precedence and the mixed residue, both directions of both engines' test-surface leg,
-  the in-module entry's presence, the import-aware integration classifier, the module leg and its
-  empty-expansion refusal, the `pub use` guard, the `cfg(test)` reading each side of the Rust walk
-  is compiled with
-- the outer attribute's item, the inner attribute's block and its file-level form, a gate a comment
-  or a string merely quotes, the re-export count taken over the whole source either way, and the
-  crate module and the integration target read as each is built
-- the one refusal each distinct refusal text states (the file, and the specifier where one is
-  involved) however many walks meet it, and the allowlist held from both sides
-- the shared tokenizer's token streams and its reading of regular-expression literals, the
-  blanked-literal view that renders the same scan in both of its readings, the Rust comment-stripped
-  view, the lone-literal reader, the declarator read that answers where a token stream states a test
-  case and with what title, the shared doc-scan primitives
-- the subsection tag, whole-header selection, the column and whole-span readers, the column reader's
-  named form
-- a header cell addressed by its name, matched against the trimmed header, and its refusal of a name
-  no header cell carries
-- the fence model's reading, which is CommonMark's own (a lone carriage return read as part of its
-  line — the reading's one departure) (a code block wherever CommonMark opens one — in a block
-  quote, on a list-marker line, at the indents each container allows — blanked line for line, so a
-  nested example stays fenced, an info string carrying a backtick opens none, a raw HTML block's own
-  text stays live, and an unclosed fence runs to the end of the block that holds it), and the one
-  heading slice both readers cut a section with
-- the object-literal walk, the brace-bounded case collector, and the source-scanning welds read over
-  the real tree
-- the self-path derivation (its binding leg over the scripts and the shared suites less its own
-  file, its hand-copy scan over the scripts), the literal-to-pattern escape (no tracked check or
-  shared unit suite re-spells the class, and every caller among them takes the primitive from its
-  home), and the quotepath policy stated in one docblock with no second copy under `scripts/`, with
-  the reading it names driven over a name carrying a non-ASCII byte, a name holding a newline where
-  the platform can write one, and a name padded with spaces, each held against the reading git gives
-  without it, read from the repository the caller names and answering with nothing where git names
-  nothing, and the return shape of each audit the check declares with `export function` held to its
-  own `@returns` tag
-- plus the real-tree locks, among them the desktop integration suite's `describe > test` paths held
-  distinct across its directory, which is the whole of that lock: where a full path is stated by
-  more than one file elsewhere in the tree, the repetition is what the tree means
-- the platform adapters' suites under the same titles, a dispatch suite's payload cases stated
-  beside another's, check suites' same-named real-tree locks — and a bare title repeats wider again.
+- The inventory, coverage-list, and kill-set red paths.
+- The row-shape class over an opted-in inventory (the Covers cap, the compact form, the detail links and headings, a mixed-case file name's anchor, one file's detail sections in two trees, a heading-shaped line in a code block).
+- The mutate-scope agreement and dead modules.
+- The registration closure.
+- The undiscovered-binary admission by either route.
+- The kill-set membership legs:
+  - The specifier classification and its refusal.
+  - The dynamic-import edge and its computed non-edge.
+  - The property precedence and the mixed residue.
+  - Both directions of both engines' test-surface leg.
+  - The in-module entry's presence.
+  - The import-aware integration classifier.
+  - The module leg and its empty-expansion refusal.
+  - The `pub use` guard.
+  - The `cfg(test)` reading each side of the Rust walk is compiled with: the outer attribute's item, the inner attribute's block and its file-level form, a gate a comment or a string merely quotes, the re-export count taken over the whole source either way, and the crate module and the integration target read as each is built.
+  - The one refusal each distinct refusal text states (the file, and the specifier where one is involved) however many walks meet it, and the allowlist held from both sides.
+- The shared tokenizer's token streams and its reading of regular-expression literals.
+- The blanked-literal view that renders the same scan in both of its readings.
+- The Rust comment-stripped view.
+- The lone-literal reader.
+- The declarator read that answers where a token stream states a test case and with what title.
+- The shared doc-scan primitives:
+  - The subsection tag, whole-header selection, and the column and whole-span readers.
+  - The column reader's named form: a header cell addressed by its name, matched against the trimmed header, and its refusal of a name no header cell carries.
+  - The fence model's reading, which is CommonMark's own except for one departure: a lone carriage return is read as part of its line. A code block opens wherever CommonMark opens one (in a block quote, on a list-marker line, at the indents each container allows) and is blanked line for line. So a nested example stays fenced, an info string carrying a backtick opens none, a raw HTML block's own text stays live, and an unclosed fence runs to the end of the block that holds it.
+  - The one heading slice both readers cut a section with.
+- The object-literal walk, the brace-bounded case collector, and the source-scanning welds read over the real tree.
+- The self-path derivation: its binding leg over the scripts and the shared suites less its own file, and its hand-copy scan over the scripts.
+- The literal-to-pattern escape: no tracked check or shared unit suite re-spells the class, and every caller among them takes the primitive from its home.
+- The quotepath policy, stated in one docblock with no second copy under `scripts/`. The reading it names is driven over three names: one carrying a non-ASCII byte, one holding a newline where the platform can write one, and one padded with spaces. Each is held against the reading git gives without it, read from the repository the caller names and answering with nothing where git names nothing.
+- The return shape of each audit the check declares with `export function`, held to its own `@returns` tag.
+- The real-tree locks. Among them, the desktop integration suite's `describe > test` paths are held distinct across its directory, which is the whole of that lock. Where a full path is stated by more than one file elsewhere in the tree, the repetition is what the tree means: the platform adapters' suites under the same titles, a dispatch suite's payload cases stated beside another's, check suites' same-named real-tree locks. A bare title repeats wider again.
 
 ### `check-tracked-ignored.test.js`
 
-- the two questions put to git
-- the ignore question and the index-mode one, each with the flags it deliberately carries and omits
-  — and the reading of their answers, including the mode question's own refusals, an answer naming
-  no entry and a record the read does not model, against the ignore question's empty answer as its
-  green, and the link verdict that names a path and its mode and never the link's target.
+- The two questions put to git, the ignore question and the index-mode one, each with the flags it deliberately carries and omits.
+- The reading of their answers, including the mode question's own refusals, an answer naming no entry and a record the read does not model, against the ignore question's empty answer as its green.
+- The link verdict, which names a path and its mode and never the link's target.
 
 ### `check-verification-inventory.test.js`
 
-- each inventory against what it describes, the strict-flip watch, the job-suite leg
-- the named job's own steps resolved to the argument set their commands state, continuations joined
-  first, through the root manifest's scripts where a step names one and from the step's own command
-  text where it spells the invocation out, with the registered glob taken off the discovery
-  descriptor rather than spelled, the carrying command held on either side of the `npm run` to one
-  plain command, standing alone on the only command line it states as an invocation this reading
-  models with the flags of that invocation it admits
-- named in the check — and a `--test` plain but for `--import` of the git-environment preload, the
-  one flag the argument reader admits after it (held in `check-test-inventory.test.js`), the refusal
-  naming the shape, the word or the flag it found
-- a flag outside the sets the check names being refused rather than read, a command after a `cd`
-  left unread and the step it stands in named beside the finding where what follows the `cd` could
-  have carried a suite, a `working-directory` that moves the command, stated for the step, the job
-  or the workflow root, refused so another manifest's same-named script cannot answer for the root
-  one, a segment stating a modelled invocation somewhere other than its own head, a script key this
-  reader cannot read, a run-verb flag that answers that key from another package's manifest, a verb
-  that runs a manifest script and this reading does not resolve, or an argument list that could not
-  be read whole each refused by name, an `npm run` the root manifest defines no script for and a
-  command the argument reader will not model refused by name beside them, a carrying command that
-  does not stand alone and a step carrying the suite under a condition, a truthy or
-  expression-valued tolerance or an environment key this reading cannot evaluate refused beside the
-  suite-absent finding, the tolerance and that key stated above the step refused as the job's, and
-  the job, the scan and the registration each refused by name
-- the exit-code contract, and the leg set the check exports held to its header docblock both ways
-  and rendered into its success line.
+- Each inventory against what it describes.
+- The strict-flip watch.
+- The job-suite leg, with the named job's own steps resolved to the argument set their commands state:
+  - Continuations are joined first.
+  - A step resolves through the root manifest's scripts where it names one, and from its own command text where it spells the invocation out.
+  - The registered glob is taken off the discovery descriptor rather than spelled.
+  - The carrying command is held, on either side of the `npm run`, to one plain command, standing alone on the only command line it states as an invocation this reading models, with the flags of that invocation it admits (named in the check) and a `--test` plain but for `--import` of the git-environment preload, the one flag the argument reader admits after it (held in `check-test-inventory.test.js`). The refusal names the shape, the word or the flag it found.
+  - A flag outside the sets the check names, refused rather than read.
+  - A command after a `cd`, left unread, with the step it stands in named beside the finding where what follows the `cd` could have carried a suite.
+  - A `working-directory` that moves the command, stated for the step, the job or the workflow root, refused so another manifest's same-named script cannot answer for the root one.
+  - Each refused by name: a segment stating a modelled invocation somewhere other than its own head, a script key this reader cannot read, a run-verb flag that answers that key from another package's manifest, a verb that runs a manifest script and this reading does not resolve, or an argument list that could not be read whole.
+  - Refused by name beside them: an `npm run` the root manifest defines no script for, and a command the argument reader will not model.
+  - Refused beside the suite-absent finding: a carrying command that does not stand alone, a step carrying the suite under a condition, and a truthy or expression-valued tolerance or an environment key this reading cannot evaluate.
+  - The tolerance and that key, stated above the step, refused as the job's.
+  - The job, the scan and the registration, each refused by name.
+- The exit-code contract.
+- The leg set the check exports, held to its header docblock both ways and rendered into its success line.
 
 ### `check-version-sync.test.js`
 
-- each committed table read row by row against the schema versions the leaf delta files carry, so a
-  swapped pair, a duplicated row, a missing one, and a version that is only a substring of the
-  stated one each red;
-- and the platform roster the check shares with the release-time scripts that have no suite of their
-  own
-- the version-table writer and the manual bumper
-- read by each from the schema builder that states it, the writer refusing a key the roster no
-  longer states and the bumper accepting exactly the keys it does, with the builder's chain roster
-  and its surface roster held to the same key set so a platform stated in one of them cannot ship
-  without the other.
+- Each committed table, read row by row against the schema versions the leaf delta files carry. A swapped pair, a duplicated row, a missing one, and a version that is only a substring of the stated one each red.
+- The platform roster the check shares with the release-time scripts that have no suite of their own (the version-table writer and the manual bumper), read by each from the schema builder that states it:
+  - The writer refuses a key the roster no longer states.
+  - The bumper accepts exactly the keys it does.
+  - The builder's chain roster and its surface roster are held to the same key set, so a platform stated in one of them cannot ship without the other.
 
 ### `check-workflow-bounds.test.js`
 
-- the bound each job states, the reusable-workflow caller the platform bounds elsewhere, the steps'
-  bounds summed below the job's own with an unbounded step outside it, the workflow-file boundary it
-  reads through, and the one read a run gives each workflow
-- both leg sets over it, and the refusal order an unshared read would raise;
-- then the CI guide's key-families and pinned-tools tables both ways
-- a cache no row describes, a row describing none, an identity cell that is not one backticked name,
-  each cell read by the column that names it and held against the surface answering for it (the
-  local-CI guide's own subsection for the doc-mention column), a restore and its save stating
-  different path lists, two family names nesting inside one exact path list and one name stated
-  twice there over one hash input, each family's own prefix first in its restore keys with a
-  fallback reaching an entry under a shared stem refused and one reaching a different stem left
-  alone, a coverage job's cached `target` tree keyed on its own toolchain step's `cachekey` in the
-  family prefix and in every fallback, that step the toolchain action itself, unconditional and ahead of
-  the first cache step, with a job measuring nothing or caching no `target` tree left
-  alone (#700), a split save stating no gate read as unconditional, the guide subsection those cells are
-  read from cut by the shared heading slice so a heading stated more than once yields its first run,
-  and a key's version segment, install pin and guide version held to one another. And the shapes it
-  refuses on its own exit code rather than passing vacuously, with
-  [`check-workflow-bounds.js`](../../scripts/check-workflow-bounds.js) the home of the complete set:
-  an input it cannot read, that reads empty or will not parse;
-- a block that is not the map or list it reads there, through each seam a job is reached by;
-- a bound that is not a literal positive number;
-- a cache step stating no path list or key;
-- a key group it cannot pair or a key it cannot split;
-- two entries claiming one identity;
-- a table selected other than once or stating no row, one stating no column a cell is read by name
-  from, one stating a column no claim answers for, or one whose header states a column name more
-  than once;
-- a class or subsection yielding nothing
-- among them;
-- with the CLI's verdicts over committed copies, and a real-tree lock.
+- The bound each job states, the reusable-workflow caller the platform bounds elsewhere, and the steps' bounds summed below the job's own, with an unbounded step outside it.
+- The workflow-file boundary it reads through, and the one read a run gives each workflow: both leg sets over it, and the refusal order an unshared read would raise.
+- The CI guide's key-families and pinned-tools tables, both ways:
+  - A cache no row describes, and a row describing none.
+  - An identity cell that is not one backticked name.
+  - Each cell read by the column that names it and held against the surface answering for it (the local-CI guide's own subsection for the doc-mention column).
+  - A restore and its save stating different path lists.
+  - Two family names nesting inside one exact path list, and one name stated twice there over one hash input.
+  - Each family's own prefix first in its restore keys, with a fallback reaching an entry under a shared stem refused and one reaching a different stem left alone.
+  - A coverage job's cached `target` tree, keyed on its own toolchain step's `cachekey` in the family prefix and in every fallback. That step is the toolchain action itself, unconditional and ahead of the first cache step. A job measuring nothing or caching no `target` tree is left alone (#700).
+  - A split save stating no gate, read as unconditional.
+  - The guide subsection those cells are read from, cut by the shared heading slice so a heading stated more than once yields its first run.
+  - A key's version segment, install pin and guide version, held to one another.
+- The shapes it refuses on its own exit code rather than passing vacuously. [`check-workflow-bounds.js`](../../scripts/check-workflow-bounds.js) is the home of the complete set. Among them:
+  - An input it cannot read, that reads empty or will not parse.
+  - A block that is not the map or list it reads there, through each seam a job is reached by.
+  - A bound that is not a literal positive number.
+  - A cache step stating no path list or key.
+  - A key group it cannot pair or a key it cannot split.
+  - Two entries claiming one identity.
+  - A table selected other than once or stating no row, one stating no column a cell is read by name from, one stating a column no claim answers for, or one whose header states a column name more than once.
+  - A class or subsection yielding nothing.
+- The CLI's verdicts over committed copies.
+- A real-tree lock.
 
 ### `conformance-vectors.test.js`
 
-- per-candidate match counts and committed-field equalities, per platform
-- lock (5) re-deriving every eligible candidate's recorded `match_count` and `match_index`
-- plus, beside the meta-schema case, a per-vector case holding each vector's `element_facts` +
-  `locators` to the element check (the platform element definition and the locator pair rule).
+- Per-candidate match counts and committed-field equalities, per platform; lock (5) re-derives every eligible candidate's recorded `match_count` and `match_index`.
+- Beside the meta-schema case, a per-vector case holding each vector's `element_facts` + `locators` to the element check (the platform element definition and the locator pair rule).
 
 ### `digest-unrecognized-fields.property.test.js`
 
-- unrecognized top-level server fields are dropped before hashing so they can never shift content
-  identity, and an allowlisted field's presence is copied rather than defaulted (an absent
-  `metadata` and an empty one stay distinct), while its value is canonicalized.
+- Unrecognized top-level server fields are dropped before hashing, so they can never shift content identity.
+- An allowlisted field's presence is copied rather than defaulted (an absent `metadata` and an empty one stay distinct), while its value is canonicalized.
 
 ### `lint-glob-quoting.test.js`
 
-- none single-quoted, each glob double-quoted and resolving to files;
-- the pre-push hook's ESLint call reaches every tree `lint:js` does except the ones the CI guide
-  names as CI's alone, its rustfmt call runs only when a pushed file is one rustfmt reads, and every
-  tracked JavaScript file under `packages/` is reached by `lint:js`
-  or ignored by the configuration.
+- No script's argument is single-quoted; each glob is double-quoted and resolves to files.
+- The pre-push hook's ESLint call reaches every tree `lint:js` does, except the ones the CI guide names as CI's alone.
+- The hook's rustfmt call runs only when a pushed file is one rustfmt reads.
+- Every tracked JavaScript file under `packages/` is reached by `lint:js` or ignored by the configuration.
 
 ### `vector-meta-schema.test.js`
 
-- its shipped outcome equals the meta-schema's const;
-- its validator (`metaSchemaErrors`) names each seeded violation;
-- the vector emitters stamp that outcome and reproduce each committed vector from inputs rebuilt
-  from it;
-- its element check (`elementCheckErrors`) returns exactly the errors of each seeded element mutant
-  on both platforms;
-- and the desktop assembler, over seeded dumps that include one for every committed desktop vector,
-  holds its exit code and messages
-- the produce-stage meta-schema and element-check gates, and the completeness rule that fails a run
-  in which a committed desktop vector is not reproduced (a drifted element id or tag, a renamed
-  fixture) while a fixture with no committed vectors bootstraps.
+- Its shipped outcome equals the meta-schema's const.
+- Its validator (`metaSchemaErrors`) names each seeded violation.
+- The vector emitters stamp that outcome and reproduce each committed vector from inputs rebuilt from it.
+- Its element check (`elementCheckErrors`) returns exactly the errors of each seeded element mutant on both platforms.
+- The desktop assembler, over seeded dumps that include one for every committed desktop vector, holds its exit code and messages: the produce-stage meta-schema and element-check gates, and the completeness rule. That rule fails a run in which a committed desktop vector is not reproduced (a drifted element id or tag, a renamed fixture), while a fixture with no committed vectors bootstraps.
 
 ## Desktop application
 
@@ -654,18 +530,11 @@ application has its own suite, documented in
 
 ### `integration-suite-locks.test.js`
 
-- its specs read the shared shapes from the fixture rather than re-declaring them, and reach the
-  mock's invoke record only where the lock allows
-- on a comment-stripped view, every mention of `_getInvokeCalls` over the spec files is held to the
-  one settle probe the lock names, and `_clearInvokeCalls` to no mention anywhere, the probe
-  included (the scan reads the spec files only, and escaped spellings and computed names are
-  unseen);
-- the fixture's shared-helpers section and the suite guide's shared-helpers section, the fixture's
-  read from its rule-line heading to the next, the guide's from its bold lead-in to the next bold
-  lead-in or heading, name every helper the fixture declares with `export function` or
-  `export const`, the mock-server installer excepted;
-- the guide's configuration sentence states the values `playwright.config.js` sets;
-- and the tree keeps plain UTF-8 without a byte-order mark or double-encoded text.
+- Its specs read the shared shapes from the fixture rather than re-declaring them.
+- Its specs reach the mock's invoke record only where the lock allows. On a comment-stripped view, every mention of `_getInvokeCalls` over the spec files is held to the one settle probe the lock names, and `_clearInvokeCalls` to no mention anywhere, the probe included. The scan reads the spec files only, and escaped spellings and computed names are unseen.
+- The fixture's shared-helpers section and the suite guide's shared-helpers section name every helper the fixture declares with `export function` or `export const`, the mock-server installer excepted. The fixture's section is read from its rule-line heading to the next, and the guide's from its bold lead-in to the next bold lead-in or heading.
+- The guide's configuration sentence states the values `playwright.config.js` sets.
+- The tree keeps plain UTF-8 without a byte-order mark or double-encoded text.
 
 ## Chrome extension
 
@@ -709,20 +578,17 @@ half of the extension is documented in
 
 ### `control-commands.test.js`
 
-- the state each command needs, and the refusals when it is missing;
-- the export of the open project as the Export button builds it, an export only with the grant;
-- a pause, a resume or a create the service worker refused, answered with a fixed text;
-- the storage and re-record notice codes;
-- and results of identifiers, names, counts, flags and codes.
+- The state each command needs, and the refusals when it is missing.
+- The export of the open project as the Export button builds it, an export only with the grant.
+- A pause, a resume or a create the service worker refused, answered with a fixed text.
+- The storage and re-record notice codes.
+- Results of identifiers, names, counts, flags and codes.
 
 ### `service-worker.test.js`
 
-- the panel protocol, import and export, the trusted-sender gate, redaction, and storage-failure
-  recovery;
-- through the shipped worker's listener, each project- and recording-scoped message found by the
-  ids it carries, or refused unless it names the active project and recording;
-- the end of typing the worker asks the frames for: every frame asked ahead of a step commit and a
-  stop, within the bound; a pointer press relayed to the tab's other frames, with what the pressing
-  frame writes next stored behind their answers; and a tab whose registration is gone reseeded
-  first;
-- and capture stopped once no recording is active.
+- Through the shipped worker's listener, each project- and recording-scoped message found by the ids it carries, or refused unless it names the active project and recording.
+- The end of typing the worker asks the frames for:
+  - Every frame asked ahead of a step commit and a stop, within the bound.
+  - A pointer press relayed to the tab's other frames, with what the pressing frame writes next stored behind their answers.
+  - A tab whose registration is gone reseeded first.
+- Capture stopped once no recording is active.

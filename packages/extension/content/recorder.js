@@ -514,6 +514,26 @@
   }
 
   /**
+   * The language the application declares for an element (session-format's
+   * `language` row states the rule): the `lang` attribute of the nearest element
+   * at or above `el` that carries one, as written, the empty value included. A
+   * shadow tree's top takes its host's declaration, as HTML resolves a node's
+   * language; the walk ends at the top of the element's own document.
+   *
+   * @param {object} el — DOM-like element
+   * @returns {string|null} the attribute's value, or null when none declares one
+   */
+  function declaredLanguage(el) {
+    let node = el;
+    while (node) {
+      const lang = node.getAttribute?.('lang');
+      if (lang != null) return lang;
+      node = node.parentElement ?? node.parentNode?.host ?? null;
+    }
+    return null;
+  }
+
+  /**
    * Describe a DOM element for capture output, including its locator
    * candidates. The selector is derived once and reused as the css entry.
    *
@@ -533,6 +553,7 @@
       // Captured so the service worker can flag sensitive payment fields via the
       // shared field-sensitivity util, on the description it stores.
       autocomplete: el.getAttribute?.('autocomplete') || null,
+      language: declaredLanguage(el),
       text: isPassword ? null : (el.innerText ?? el.value ?? '').trim().slice(0, 100) || null,
       selector,
       // Password value is masked at the type site; mark the element redacted.
@@ -751,6 +772,7 @@
     fieldValueAtFocus.set(el, value);
     fieldsEditedByKey.delete(el);
     entryLastWritten.set(el, value);
+    entryMadeAgain.delete(el);
     return sent;
   }
 
@@ -828,7 +850,11 @@
    * @returns {boolean}
    */
   function hasUnwrittenEntry(el) {
-    return takesEntry(el) && fieldsEditedByKey.has(el) && el.value !== fieldValueAtFocus.get(el);
+    return (
+      takesEntry(el) &&
+      fieldsEditedByKey.has(el) &&
+      (el.value !== fieldValueAtFocus.get(el) || entryMadeAgain.has(el))
+    );
   }
 
   /**
@@ -933,7 +959,7 @@
   function noteTextEntered(field) {
     if (takesEntry(field)) {
       fieldsEditedByKey.add(field);
-      entryLastWritten.delete(field);
+      noteEntryMadeAgain(field);
       return;
     }
     // Editable content inside a shadow root is not taken for a host, as at
@@ -1024,11 +1050,11 @@
 
   /** The browser entered text: the waiting presses it stands for were text. */
   function pendingKeysBecameText(e) {
-    if (pendingKeys.length === 0) return;
-    const target = e.composedPath?.()[0] ?? e.target;
     const typed = e.inputType === 'insertText';
     // A dead key's character can come as a composition's text.
     const composed = e.inputType === 'insertCompositionText';
+    if (pendingKeys.length === 0) return;
+    const target = e.composedPath?.()[0] ?? e.target;
     const waiting = pendingKeys.length;
     pendingKeys = pendingKeys.filter((press) => {
       if (press.byParts) return press.field !== target && press.el !== e.target;
@@ -1037,9 +1063,11 @@
     // The text can land in another field than the one the key was pressed in
     // (the page moved the focus): what that field holds is an entry the
     // person made.
+    // Text still being composed (a dead key's accent shown) may yet be given
+    // up, and is not taken for entered here.
     if (pendingKeys.length < waiting && takesEntry(e.target)) {
       fieldsEditedByKey.add(e.target);
-      entryLastWritten.delete(e.target);
+      if (typed) noteEntryMadeAgain(e.target);
     }
     releaseHeldBehindPendingKeys();
   }
@@ -1112,6 +1140,17 @@
   const fieldsEditedByKey = new WeakSet();
   // The entry last written for each field, so the same entry is not written twice.
   const entryLastWritten = new WeakMap();
+  // Fields in which text was entered since their entry was last written or
+  // they took the focus: what such a field holds is a new entry also where it
+  // equals the one written or the value at focus (the same text typed over
+  // itself, a value undone or removed and typed again).
+  const entryMadeAgain = new WeakSet();
+
+  /** Text was entered in `field`: what it holds is a new entry. */
+  function noteEntryMadeAgain(field) {
+    entryMadeAgain.add(field);
+    entryLastWritten.delete(field);
+  }
   /** The modifiers held at a trusted key, mouse or drag event (#239). */
   const modifiersOf = (e) => ({
     ctrl: e.ctrlKey,
@@ -1409,18 +1448,22 @@
         fieldInFocus &&
         takesEntry(fieldInFocus) &&
         fieldsEditedByKey.has(fieldInFocus) &&
-        fieldInFocus.value !== fieldValueAtFocus.get(fieldInFocus) &&
+        (fieldInFocus.value !== fieldValueAtFocus.get(fieldInFocus) ||
+          entryMadeAgain.has(fieldInFocus)) &&
         entryLastWritten.get(fieldInFocus) !== fieldInFocus.value
           ? { value: fieldInFocus.value }
           : null;
       // A key that can become the field's text (a character key that is no
-      // shortcut, or a key the input method takes) makes what the field holds
-      // an entry the person made, and a new one even where it ends up equal to
-      // the one written last.
+      // shortcut, or a key the input method takes) is a key pressed in the
+      // field. Whether it makes what the field holds a new entry is known
+      // when its text arrives (`noteEntryMadeAgain`): a key the page cancels
+      // enters nothing, and the entry written before it is not written again.
+      // Text an input method composes is not followed: what the field holds
+      // after it is written where it differs from the entry last written
+      // since the focus or, where none was, from what it held at focus.
       const entersText = mayBeText || kind === 'composed';
       if (entersText && fieldInFocus && takesEntry(fieldInFocus)) {
         fieldsEditedByKey.add(fieldInFocus);
-        entryLastWritten.delete(fieldInFocus);
       }
       // No press to write: a modifier alone, and a key the input method takes.
       if (kind === 'modifier' || kind === 'composed') return;
@@ -1455,6 +1498,8 @@
           key,
           modifiers,
           repeat: e.repeat,
+          // The physical key, where the browser names one.
+          ...(e.code ? { code: e.code } : {}),
           held_keys: heldKeys(e.code),
           element: describeElement(el),
         },
@@ -1606,19 +1651,37 @@
         // intent is captured by the click — the type was already captured earlier (or will
         // be captured when the user explicitly tabs/clicks away without submitting).
         // Event order: mousedown(submit) → blur(input) → change(input) → click(submit)
-        if (
-          lastMousedownEl &&
-          lastMousedownEl !== el &&
-          Date.now() - lastMousedownTime < 100 &&
-          pressesSubmitOfItsForm(el, lastMousedownEl)
-        ) {
-          return;
-        }
+        if (blurFollowsPressOnSubmitOf(el)) return;
         writeEntry(el);
       }
     },
     { capture: true, passive: true },
   );
+
+  /** Whether `el` loses the focus to a press on a submit control of its own form. */
+  function blurFollowsPressOnSubmitOf(el) {
+    return (
+      !!lastMousedownEl &&
+      lastMousedownEl !== el &&
+      Date.now() - lastMousedownTime < 100 &&
+      pressesSubmitOfItsForm(el, lastMousedownEl)
+    );
+  }
+
+  /**
+   * A field loses the focus holding an entry not yet written: it is written
+   * here. The browser's `change` cannot be waited for: it sends none where the
+   * field holds what it held before the first edit since it took the focus,
+   * which an entry made again does. Where it sends one, it comes first and
+   * leaves no entry unwritten.
+   */
+  function writeEntryAtBlur(e) {
+    if (!active || !e.isTrusted) return;
+    const el = e.target;
+    if (!hasUnwrittenEntry(el) || entryLastWritten.get(el) === el.value) return;
+    if (blurFollowsPressOnSubmitOf(el)) return;
+    writeEntry(el);
+  }
 
   // ─── Focus capture ────────────────────────────────────────────────────────────
   // Records focus only when correlated with a preceding Tab key press within
@@ -1634,6 +1697,7 @@
         fieldValueAtFocus.set(e.target, e.target.value);
         fieldsEditedByKey.delete(e.target);
         entryLastWritten.delete(e.target);
+        entryMadeAgain.delete(e.target);
       }
       if (document.visibilityState === 'hidden') return;
       const el = e.target;
@@ -1813,8 +1877,8 @@
   document.addEventListener(
     'blur',
     (e) => {
-      if (e.target !== editableTypedInto) return;
-      writeEditableEntry();
+      if (e.target === editableTypedInto) writeEditableEntry();
+      writeEntryAtBlur(e);
     },
     { capture: true, passive: true },
   );

@@ -31,6 +31,7 @@
                 "width": 600,
                 "height": 400
               },
+              "preferred_languages": ["en-US"],
               "type": "context_switch",
               "source": "corpus_capture-806379f16d469119.exe",
               "title": "Docent Corpus Session"
@@ -46,6 +47,7 @@
                 "width": 600,
                 "height": 400
               },
+              "preferred_languages": ["en-US"],
               "type": "click",
               "x": 500,
               "y": 400,
@@ -65,6 +67,7 @@
                 "text": "Docent Corpus Session",
                 "selector": "Pane:Desktop 1 > Text:Docent Corpus Session",
                 "framework_id": "Win32",
+                "language": null,
                 "locators": [
                   {
                     "strategy": "role_name",
@@ -94,6 +97,7 @@
                 "width": 600,
                 "height": 400
               },
+              "preferred_languages": ["en-US"],
               "type": "click",
               "x": 500,
               "y": 400,
@@ -113,6 +117,7 @@
                 "text": "Docent Corpus Session",
                 "selector": "Pane:Desktop 1 > Text:Docent Corpus Session",
                 "framework_id": "Win32",
+                "language": null,
                 "locators": [
                   {
                     "strategy": "role_name",

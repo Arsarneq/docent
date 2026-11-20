@@ -11,6 +11,8 @@ pub mod action_mapping;
 pub mod coordinate;
 pub mod element_mapping;
 pub mod held_keys;
+pub mod language;
+pub mod physical_key;
 pub mod scroll;
 pub mod timing;
 pub mod worker_pool;
@@ -280,6 +282,9 @@ pub enum LocatorEntry {
 ///   (Windows UIA PositionInSet/SizeOfSet/Level); absent when not reported.
 /// - `framework_id`: per-element UI-framework identity (Windows UIA
 ///   FrameworkId, e.g. "Win32"/"WPF"/"XAML"); absent when not reported.
+/// - `language`: the language the application declares for the element, as
+///   the platform names it; null when the provider reports none and on a
+///   description that carries no provider facts.
 /// - `locators`: locator candidates (docent#139); omitted entirely when none
 ///   were observed (e.g. coordinate mode, fallback descriptions).
 /// - `described_after_ms`: observed input→describe latency (docent#220). 0 =
@@ -305,6 +310,7 @@ pub struct ElementDescription {
     pub level: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub framework_id: Option<String>,
+    pub language: Option<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub locators: Vec<LocatorEntry>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -316,6 +322,15 @@ pub struct ElementDescription {
     /// to the name when the value is empty.
     #[serde(skip)]
     pub value: Option<String>,
+    /// The element's place under its top-level window: the path from the
+    /// window's root down to the element, the root itself left out. `None`
+    /// where the window's root was not found on the path. Internal to the
+    /// capture layer and never written: it tells whether two descriptions of
+    /// one window are of the same element, which `selector` cannot, since
+    /// the selector holds the window's title and a title changes while the
+    /// element stays (an editor's unsaved mark).
+    #[serde(skip)]
+    pub place_in_window: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -402,6 +417,12 @@ pub enum ActionPayload {
         /// True on a press key repeat generated while the key was held down,
         /// false on the press itself.
         repeat: bool,
+        /// The physical key that was pressed, named by the W3C UI Events
+        /// `code` values. `None` (left out of the file) where the keystroke
+        /// has no physical key the table names: an injected character, a key
+        /// whose scan code the table has no name for (zero among them).
+        #[serde(skip_serializing_if = "Option::is_none")]
+        code: Option<&'static str>,
         #[serde(flatten)]
         held: HeldKeysAtAction,
         element: ElementDescription,
@@ -476,6 +497,10 @@ pub struct ActionEvent {
     /// Always `None` for desktop actions (no iframes in native apps).
     pub frame_src: Option<String>,
     pub window_rect: Option<WindowRect>,
+    /// The user's ordered language preference as the platform lists it, read
+    /// when the action is built ([`language::preferred_languages`]). `None`
+    /// (exported as null) when the platform could not be read.
+    pub preferred_languages: Option<Vec<String>>,
     /// Monotonic sequence number for frontend reorder buffer.
     /// Internal to Rust-frontend communication; stripped before export.
     #[serde(skip_serializing_if = "Option::is_none")]

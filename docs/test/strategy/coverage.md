@@ -1,7 +1,6 @@
 # Test strategy — coverage reporting
 
-How Docent's test coverage reaches Codecov, and how it is sliced. The layers it
-reports on are described in [the test pyramid](test-pyramid.md).
+How Docent's test coverage reaches Codecov, and how it is sliced. [The test pyramid](test-pyramid.md) describes the layers it reports on.
 
 Each rule carries a stable identifier (**COV-n**) so other documents, reviews,
 and checks can cite it precisely. Identifiers are never renumbered; a retired

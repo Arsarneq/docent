@@ -33,6 +33,7 @@
               "element": {
                 "autocomplete": null,
                 "id": "drag",
+                "language": "en",
                 "locators": [
                   {
                     "match_count": 1,
@@ -75,7 +76,8 @@
               },
               "frame_src": null,
               "timestamp": 1783348343594,
-              "type": "drag_start"
+              "type": "drag_start",
+              "preferred_languages": ["en-US"]
             },
             {
               "capture_mode": "dom",
@@ -90,6 +92,7 @@
               "element": {
                 "autocomplete": null,
                 "id": "drop",
+                "language": "en",
                 "locators": [
                   {
                     "match_count": 1,
@@ -134,6 +137,7 @@
               "source_element": {
                 "autocomplete": null,
                 "id": "drag",
+                "language": "en",
                 "locators": [
                   {
                     "match_count": 1,
@@ -177,7 +181,8 @@
               "timestamp": 1783348343600,
               "type": "drop",
               "x": 198,
-              "y": 70
+              "y": 70,
+              "preferred_languages": ["en-US"]
             }
           ],
           "deleted": false,
