@@ -54,7 +54,7 @@ travel different channels with no mutual ordering.
 The barrier does not wait on sequence numbers. The ids delivered to the frontend
 are legitimately a **subset** of those the input thread assigned — the workers
 drop or coalesce input, for example: lone Shift, Ctrl or Alt presses are
-dropped, a typing burst coalesces to one action carrying only its last id, and a
+dropped, the typing in a field is one action carrying only its last id, and a
 scroll flushed with no arriving event (the periodic tick or a buffer drain)
 carries no id at all — so "wait until the highest id assigned has arrived" is
 both unsatisfiable in normal use and unable to tell a filtered id from a late
@@ -250,8 +250,28 @@ such a control a `key` too, whatever the control is named. Keys buffered on one 
 typing key arrives for another element, so typing into the second supersedes
 none of them.
 If a value-change event arrives (producing a `type` action), the buffered
-keys are discarded (superseded). If no value-change arrives (non-editable
-control like Calculator), the keys are emitted individually. A keystroke
+keys are discarded (superseded). If no value-change arrives within 500 ms of
+the last buffered key (non-editable control like Calculator), the keys are
+emitted individually. The `type` itself is held for the field and carried
+forward to each new value, and it is written when the typing in the field
+ends: a key that is no typing key is pressed, a typing key is pressed in
+another element, the pointer is pressed (a click, a right-click or a drag),
+another window comes to the front, the step is committed or the recording
+stops. A focus event ends nothing: the key that moved the focus has ended
+the typing already, and a program that reports the focus again on the field
+being typed into leaves its text the one `type`. A pause between two keys ends nothing: how
+fast a person types is no part of what they typed, so text typed with pauses
+is the one `type`, as on the extension. The `type` is written with the
+sequence id of its last value change, ahead of the action that ended the
+typing; a value change that reaches the recorder only after that action starts the
+field's next `type`, behind it: a program slow to take the last key, and
+also a value change the click itself caused within a second of the last key
+(a button that clears the field, a suggestion that fills it), which the
+extension does not write, a value the page set being no entry; a departure
+from the extension (core CP-19;
+[docent#710](https://github.com/Arsarneq/docent/issues/710)). Its value is the value the element holds, an empty string for a
+field that was emptied; an element that has no value gives a value change no
+`type`, and its keys stay the record. A keystroke
 injected as Unicode (`VK_PACKET`, the path of IME results, remote-desktop
 stacks, software keyboards and automation) is printable input whatever it
 carries: the hook passes on its scan code, which is the injected UTF-16 code

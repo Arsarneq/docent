@@ -97,8 +97,9 @@ pub struct NativeElementProperties {
     pub localized_control_type: String,
     /// Whether the element is a password field.
     pub is_password: bool,
-    /// The element's text value. May be empty.
-    pub value: String,
+    /// The value the element holds: `Some("")` for a field that holds
+    /// nothing, `None` for an element that has no value to hold.
+    pub value: Option<String>,
     /// The accessibility tree path segments leading to this element.
     /// Each entry is `"Tag:Name"` (or just `"Tag"` when the name is empty).
     /// The last entry is the element itself.
@@ -164,6 +165,9 @@ pub(crate) fn truncate_text(s: &str) -> String {
 /// - `element_type` is `Some("password")` when `is_password` is true.
 /// - `text` is `None` for password fields; otherwise the `value` (or `name`
 ///   as fallback) truncated to 100 characters, or `None` if both are empty.
+/// - `value` (internal, never written) is the value truncated alike, empty
+///   for a field that holds nothing; `None` for a password field and for an
+///   element that has no value.
 /// - `selector` is built from `tree_path` segments joined with `" > "`.
 pub fn map_element(props: &NativeElementProperties) -> ElementDescription {
     let tag = props.tag.clone();
@@ -183,8 +187,9 @@ pub fn map_element(props: &NativeElementProperties) -> ElementDescription {
         None
     } else {
         // Prefer the value; fall back to the name.
-        let raw = if !props.value.is_empty() {
-            &props.value
+        let held = props.value.as_deref().unwrap_or("");
+        let raw = if !held.is_empty() {
+            held
         } else if !props.name.is_empty() {
             &props.name
         } else {
@@ -192,6 +197,14 @@ pub fn map_element(props: &NativeElementProperties) -> ElementDescription {
         };
         non_empty_mapped(raw, truncate_text)
     };
+
+    // The value itself, cut as the text is: an empty one is kept, since a
+    // field that holds nothing is not an element with no value.
+    let value = props
+        .value
+        .as_deref()
+        .filter(|_| !props.is_password)
+        .map(truncate_text);
 
     let selector = build_selector(&props.tree_path);
 
@@ -211,6 +224,7 @@ pub fn map_element(props: &NativeElementProperties) -> ElementDescription {
         // Stamped by the worker at the describe site (docent#220) — the
         // mapping layer has no clock and no event timestamp.
         described_after_ms: None,
+        value,
     }
 }
 
@@ -377,7 +391,7 @@ mod tests {
             name: "Save".into(),
             localized_control_type: "button".into(),
             is_password: false,
-            value: String::new(),
+            value: Some(String::new()),
             tree_path: vec!["Window:Notepad".into(), "Button:Save".into()],
             ..Default::default()
         };
@@ -401,7 +415,7 @@ mod tests {
             name: "Search".into(),
             localized_control_type: "edit".into(),
             is_password: false,
-            value: "hello world".into(),
+            value: Some("hello world".into()),
             tree_path: vec!["Window:App".into(), "Edit:Search".into()],
             ..Default::default()
         };
@@ -412,6 +426,60 @@ mod tests {
     }
 
     #[test]
+    fn an_empty_field_has_the_empty_value_and_its_name_as_text() {
+        let el = map_element(&NativeElementProperties {
+            tag: "Edit".into(),
+            name: "Search".into(),
+            value: Some(String::new()),
+            ..Default::default()
+        });
+        assert_eq!(el.value, Some(String::new()));
+        assert_eq!(el.text, Some("Search".into()));
+    }
+
+    #[test]
+    fn a_field_with_text_has_it_as_its_value() {
+        let el = map_element(&NativeElementProperties {
+            tag: "Edit".into(),
+            name: "Search".into(),
+            value: Some("docent".into()),
+            ..Default::default()
+        });
+        assert_eq!(el.value, Some("docent".into()));
+    }
+
+    #[test]
+    fn an_element_with_no_value_has_none() {
+        let el = map_element(&NativeElementProperties {
+            tag: "Button".into(),
+            name: "Save".into(),
+            ..Default::default()
+        });
+        assert_eq!(el.value, None);
+    }
+
+    #[test]
+    fn a_password_field_has_no_value() {
+        let el = map_element(&NativeElementProperties {
+            tag: "Edit".into(),
+            is_password: true,
+            value: Some("secret".into()),
+            ..Default::default()
+        });
+        assert_eq!(el.value, None);
+    }
+
+    #[test]
+    fn a_long_value_is_cut_as_the_text_is() {
+        let el = map_element(&NativeElementProperties {
+            tag: "Edit".into(),
+            value: Some("a".repeat(150)),
+            ..Default::default()
+        });
+        assert_eq!(el.value, el.text);
+    }
+
+    #[test]
     fn password_field_hides_text() {
         let props = NativeElementProperties {
             tag: "Edit".into(),
@@ -419,7 +487,7 @@ mod tests {
             name: "Password".into(),
             localized_control_type: "edit".into(),
             is_password: true,
-            value: "s3cret!".into(),
+            value: Some("s3cret!".into()),
             tree_path: vec!["Window:Login".into(), "Edit:Password".into()],
             ..Default::default()
         };
@@ -437,7 +505,7 @@ mod tests {
             name: String::new(),
             localized_control_type: String::new(),
             is_password: false,
-            value: String::new(),
+            value: Some(String::new()),
             tree_path: vec![],
             ..Default::default()
         };
@@ -461,7 +529,7 @@ mod tests {
             name: String::new(),
             localized_control_type: "edit".into(),
             is_password: false,
-            value: long_value,
+            value: Some(long_value),
             tree_path: vec!["Window:App".into(), "Edit".into()],
             ..Default::default()
         };
@@ -504,7 +572,7 @@ mod tests {
             name: "Country".into(),
             localized_control_type: "combo box".into(),
             is_password: false,
-            value: "Norway".into(),
+            value: Some("Norway".into()),
             tree_path: vec![
                 "Window:Settings".into(),
                 "Group:Region".into(),
@@ -533,7 +601,7 @@ mod tests {
             name: "Click here".into(),
             localized_control_type: "hyperlink".into(),
             is_password: false,
-            value: String::new(),
+            value: Some(String::new()),
             tree_path: vec!["Window:Browser".into(), "Hyperlink:Click here".into()],
             ..Default::default()
         };
@@ -552,7 +620,7 @@ mod tests {
             name: "Documents".into(),
             localized_control_type: "tree item".into(),
             is_password: false,
-            value: String::new(),
+            value: Some(String::new()),
             tree_path: vec![
                 "Window:Explorer".into(),
                 "Tree:Folders".into(),
@@ -782,7 +850,7 @@ mod tests {
     fn password_element_keeps_identity_locators_and_no_text() {
         let mut props = full_props();
         props.is_password = true;
-        props.value = "secret".to_string();
+        props.value = Some("secret".to_string());
         let el = map_element(&props);
         assert_eq!(el.text, None);
         assert!(el

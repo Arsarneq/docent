@@ -232,11 +232,13 @@ export const PREDICATES = [
     },
   },
   {
-    id: 'type-value-nonempty',
+    // An empty value is a fact (the field was emptied), so it passes; a
+    // `type` with no value says nothing about the field.
+    id: 'type-value-present',
     class: 'fail',
-    title: 'type actions carry the entered value (unless redacted)',
+    title: 'type actions carry the value the field held (unless redacted)',
     appliesTo: (a) => a.type === 'type' && !(hasElement(a) && a.element.redacted === true),
-    check: (a) => (a.value === '' ? 'type action with an empty value' : null),
+    check: (a) => (typeof a.value === 'string' ? null : 'type action with no value'),
   },
   {
     id: 'masking-honesty',

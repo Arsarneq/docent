@@ -138,6 +138,7 @@ proptest! {
                             wc.fetch_add(1, Ordering::SeqCst);
                         }
                         Ok(WorkerMessage::Flush(_)) => {}
+                        Ok(WorkerMessage::EndTyping) => {}
                         Ok(WorkerMessage::Shutdown) => break,
                         Err(_) => break,
                     }
@@ -233,6 +234,7 @@ proptest! {
                             }
                         }
                         Ok(WorkerMessage::Flush(_)) => {}
+                        Ok(WorkerMessage::EndTyping) => {}
                         Ok(WorkerMessage::Shutdown) => break,
                         Err(_) => break,
                     }
@@ -339,6 +341,7 @@ proptest! {
                             events.lock().unwrap().push(event_name.to_string());
                         }
                         Ok(WorkerMessage::Flush(_)) => {}
+                        Ok(WorkerMessage::EndTyping) => {}
                         Ok(WorkerMessage::Shutdown) => break,
                         Err(_) => break,
                     }
@@ -516,7 +519,8 @@ impl AccessibilityBackend for MockBackend {
             name: Some("Text Field".to_string()),
             role: Some("editable text".to_string()),
             element_type: None,
-            text: Some(text),
+            text: Some(text.clone()),
+            value: Some(text),
             selector: self.selector.clone(),
             ..Default::default()
         })
@@ -726,9 +730,9 @@ proptest! {
 
     /// Type coalescing
     ///
-    /// For any sequence of rapid value-change events for the same element
-    /// within the debounce interval, the worker emits exactly one `type`
-    /// ActionEvent with the final value.
+    /// For any sequence of value-change events for the same element, the
+    /// worker emits exactly one `type` ActionEvent with the final value,
+    /// when the typing ends (here at the stop).
     #[test]
     fn type_coalescing_produces_one_event_per_keystroke_sequence(
         keystroke_count in 2usize..20,
@@ -747,14 +751,13 @@ proptest! {
         let backend = MockBackend::with_focused_values(values);
         let harness = WorkerTestHarness::new(backend);
 
-        // Send rapid value-change events with the same timestamp base
-        // (all within the debounce window).
+        // Send value-change events with the same timestamp base.
         let base_ts = 10000u64;
         for i in 0..keystroke_count {
             let raw = RawEvent {
                 event_type: RawEventType::ValueChange,
                 sequence_id: (i + 1) as u64,
-                timestamp: base_ts + (i as u64 * 10), // 10ms apart — well within 500ms debounce
+                timestamp: base_ts + (i as u64 * 10),
                 screen_x: 0,
                 screen_y: 0,
                 window_handle: 100,
@@ -770,7 +773,7 @@ proptest! {
             harness.send_event(raw);
         }
 
-        // Wait for debounce to expire (500ms) plus some margin.
+        // Longer than any pause rule: no pause writes the type.
         thread::sleep(Duration::from_millis(700));
 
         let events = harness.shutdown();
@@ -805,7 +808,7 @@ proptest! {
 }
 
 // ---------------------------------------------------------------------------
-// Pending type event is flushed before focus or context-switch
+// Pending type event is flushed before a context switch
 // ---------------------------------------------------------------------------
 
 proptest! {
@@ -813,12 +816,11 @@ proptest! {
 
     /// Flush on context change
     ///
-    /// When a worker has a pending type event and receives a focus or
-    /// foreground event, the type event is emitted before the focus/context_switch
-    /// event, and the type event's sequence_id is lower.
+    /// When a worker has a pending type event and receives a foreground
+    /// event, the type event is emitted before the context_switch event, and
+    /// the type event's sequence_id is lower.
     #[test]
     fn pending_type_flushed_before_context_change(
-        flush_trigger in 0u8..2, // 0 = Focus, 1 = Foreground
         value_change_count in 1usize..5,
     ) {
         // Build values for the value-change sequence.
@@ -827,21 +829,13 @@ proptest! {
             .collect();
         let final_value = values.last().unwrap().clone();
 
-        // The focused_element call for the Focus event will also consume
-        // from the queue, so add an extra value for that.
-        let mut all_values = values.clone();
-        if flush_trigger == 0 {
-            // Focus event calls focused_element() once
-            all_values.push("focus_element_text".to_string());
-        }
-
-        let backend = MockBackend::with_focused_values(all_values);
+        let backend = MockBackend::with_focused_values(values.clone());
         let harness = WorkerTestHarness::new(backend);
 
         let base_ts = 10000u64;
         let type_seq_start = 1u64;
 
-        // Send value-change events (rapid, within debounce).
+        // Send the value-change events of one field's typing.
         for i in 0..value_change_count {
             let raw = RawEvent {
                 event_type: RawEventType::ValueChange,
@@ -865,14 +859,10 @@ proptest! {
         // Small delay to ensure value-change events are processed.
         thread::sleep(Duration::from_millis(100));
 
-        // Now send the context-change event (Focus or Foreground).
+        // Now send the context-change event.
         let context_seq = type_seq_start + value_change_count as u64;
         let context_event = RawEvent {
-            event_type: if flush_trigger == 0 {
-                RawEventType::Focus
-            } else {
-                RawEventType::Foreground
-            },
+            event_type: RawEventType::Foreground,
             sequence_id: context_seq,
             timestamp: base_ts + 200,
             screen_x: 0,
@@ -901,7 +891,7 @@ proptest! {
         let context_idx = events.iter().position(|e| {
             matches!(
                 e.payload,
-                ActionPayload::Focus { .. } | ActionPayload::ContextSwitch { .. }
+                ActionPayload::ContextSwitch { .. }
             )
         });
 
@@ -912,7 +902,7 @@ proptest! {
         );
         prop_assert!(
             context_idx.is_some(),
-            "expected a Focus/ContextSwitch event to be emitted"
+            "expected a ContextSwitch event to be emitted"
         );
 
         let ti = type_idx.unwrap();
@@ -987,6 +977,7 @@ fn worker_panic_respawns_and_redistributes() {
                             wc.fetch_add(1, Ordering::SeqCst);
                         }
                         Ok(WorkerMessage::Flush(_)) => {}
+                        Ok(WorkerMessage::EndTyping) => {}
                         Ok(WorkerMessage::Shutdown) => break,
                         Err(_) => break,
                     }
@@ -1060,6 +1051,7 @@ fn repeatedly_failing_workers_get_respawned_and_shutdown_completes() {
                         panic!("simulated worker panic");
                     }
                     Ok(WorkerMessage::Flush(_)) => {}
+                    Ok(WorkerMessage::EndTyping) => {}
                     Ok(WorkerMessage::Shutdown) => {}
                     Err(_) => {}
                 }
@@ -1135,7 +1127,7 @@ fn worker_shutdown_flushes_pending_type_event() {
     let backend = MockBackend::with_focused_values(values);
     let harness = WorkerTestHarness::new(backend);
 
-    // Send value-change events (rapid, within debounce).
+    // Send the value-change events of one field's typing.
     for i in 0..3 {
         let raw = RawEvent {
             event_type: RawEventType::ValueChange,
@@ -1156,10 +1148,10 @@ fn worker_shutdown_flushes_pending_type_event() {
         harness.send_event(raw);
     }
 
-    // Small delay to ensure events are queued but debounce hasn't expired.
+    // Small delay to ensure the events are processed.
     thread::sleep(Duration::from_millis(100));
 
-    // Shutdown immediately (before 500ms debounce expires).
+    // The typing has not ended: the stop writes its type.
     let events = harness.shutdown();
 
     // There should be exactly one Type event with the final value.
@@ -1194,7 +1186,7 @@ fn regression_298_flush_drains_pending_and_worker_continues() {
     let values = vec!["h".to_string(), "he".to_string(), "hel".to_string()];
     let harness = WorkerTestHarness::new(MockBackend::with_focused_values(values));
 
-    // Buffer a pending type via rapid value-changes (within the 500ms debounce).
+    // Hold a pending type: value changes of a typing that has not ended.
     for i in 0..3 {
         harness.send_event(RawEvent {
             event_type: RawEventType::ValueChange,
@@ -1213,10 +1205,9 @@ fn regression_298_flush_drains_pending_and_worker_continues() {
             held: Vec::new(),
         });
     }
-    thread::sleep(Duration::from_millis(50)); // queued, debounce not yet expired
+    thread::sleep(Duration::from_millis(50)); // processed, the type held
 
-    // The flush drains the buffered type immediately — without waiting out the
-    // 500ms debounce — and the worker acknowledges.
+    // The flush writes the held type, and the worker acknowledges.
     let acked = harness.flush();
     assert_eq!(acked, 0, "the single worker (index 0) should acknowledge");
 
@@ -1306,7 +1297,7 @@ fn regression_298_flush_all_drains_workers_and_emits_sentinel_last() {
             held: Vec::new(),
         });
     }
-    thread::sleep(Duration::from_millis(80)); // buffered, debounce not expired
+    thread::sleep(Duration::from_millis(80)); // processed, the type held
 
     let wedged = pool.flush_all(7, Duration::from_secs(2));
     assert!(
@@ -1385,6 +1376,7 @@ impl AccessibilityBackend for PoisonEventBackend {
             role: Some("editable text".to_string()),
             element_type: None,
             text: Some("hello".to_string()),
+            value: Some("hello".to_string()),
             selector: "Edit#input1".to_string(),
             ..Default::default()
         })
@@ -1542,6 +1534,7 @@ fn locator_rich_element() -> ElementDescription {
         ],
         // The backend emits no latency; the worker stamps it (docent#220).
         described_after_ms: None,
+        value: None,
     }
 }
 
@@ -2100,7 +2093,7 @@ fn value_change_deduplication_same_value() {
         harness.send_event(raw);
     }
 
-    // Wait for debounce to expire.
+    // Longer than the wait of a key that took no text.
     thread::sleep(Duration::from_millis(700));
     let events = harness.shutdown();
 
@@ -2563,7 +2556,7 @@ fn regression_260_injected_keys_are_superseded_by_the_type() {
     value_change.timestamp = t + 3;
     harness.send_event(value_change);
 
-    // Past TYPE_DEBOUNCE_MS (500 ms), so the type flushes on the worker's tick.
+    // Past KEY_TEXT_WAIT_MS (500 ms): a key no value change took would be written by now.
     thread::sleep(Duration::from_millis(900));
     let events = harness.shutdown();
 
@@ -2835,6 +2828,11 @@ struct TypingBackend {
     gate: Gate,
     element_type: Option<String>,
     text: Option<String>,
+    /// The field's text as it stands now, where a test types it in over time.
+    live_text: Option<Arc<Mutex<String>>>,
+    /// Whether the element has a value at all (a document that reports its
+    /// text some other way has none).
+    has_value: bool,
 }
 
 impl TypingBackend {
@@ -2843,6 +2841,19 @@ impl TypingBackend {
             gate: Arc::clone(gate),
             element_type: None,
             text: Some(text.to_string()),
+            live_text: None,
+            has_value: true,
+        }
+    }
+
+    /// An edit field whose text is whatever `live_text` holds when it is read.
+    fn edit_live(gate: &Gate, live_text: &Arc<Mutex<String>>) -> Self {
+        Self {
+            gate: Arc::clone(gate),
+            element_type: None,
+            text: None,
+            live_text: Some(Arc::clone(live_text)),
+            has_value: true,
         }
     }
 
@@ -2851,6 +2862,8 @@ impl TypingBackend {
             gate: Arc::clone(gate),
             element_type: Some("password".to_string()),
             text: None,
+            live_text: None,
+            has_value: true,
         }
     }
 }
@@ -2879,7 +2892,19 @@ impl AccessibilityBackend for TypingBackend {
             name: Some("Field".to_string()),
             role: Some("editable text".to_string()),
             element_type: self.element_type.clone(),
-            text: self.text.clone(),
+            // As the mapping gives them: the text is the value, or the name
+            // where the value is empty; the value is the value.
+            text: match &self.live_text {
+                Some(live) => Some(live.lock().unwrap().clone())
+                    .filter(|text| !text.is_empty())
+                    .or(Some("Field".to_string())),
+                None => self.text.clone(),
+            },
+            value: match &self.live_text {
+                Some(live) if self.has_value => Some(live.lock().unwrap().clone()),
+                Some(_) => None,
+                None => self.text.clone(),
+            },
             selector: "Edit#field1".to_string(),
             ..Default::default()
         })
@@ -2924,6 +2949,24 @@ fn value_change(seq: u64, timestamp: u64, window_handle: i64) -> RawEvent {
     raw.sequence_id = seq;
     raw.timestamp = timestamp;
     raw
+}
+
+/// Type one character into the live field: the text gains it, and its key and
+/// the value change the key caused are handed to `send`, the next two
+/// sequence ids taken from `seq`. Waits for the worker to have processed both.
+fn type_character(
+    live: &Arc<Mutex<String>>,
+    character: char,
+    seq: &mut u64,
+    mut send: impl FnMut(RawEvent),
+) {
+    live.lock().unwrap().push(character);
+    let t = now_ms();
+    *seq += 1;
+    send(layout_key(*seq, t, character.to_ascii_uppercase() as u32));
+    *seq += 1;
+    send(value_change(*seq, t + 5, 1234));
+    thread::sleep(Duration::from_millis(100));
 }
 
 fn type_values_of(events: &[ActionEvent]) -> Vec<String> {
@@ -2973,7 +3016,7 @@ fn regression_noissue_a_typing_burst_over_busy_workers_records_one_type() {
     }
     open_gate(&gate);
 
-    // Past TYPE_DEBOUNCE_MS (500 ms), so every worker's tick has flushed.
+    // Past KEY_TEXT_WAIT_MS (500 ms): a key no value change took would be written by now.
     thread::sleep(Duration::from_millis(900));
     pool.shutdown();
     let events: Vec<ActionEvent> = action_rx.try_iter().collect();
@@ -3024,6 +3067,7 @@ proptest! {
                             }
                         }
                         Ok(WorkerMessage::Flush(_)) => {}
+                        Ok(WorkerMessage::EndTyping) => {}
                         Ok(WorkerMessage::Shutdown) => break,
                         Err(_) => break,
                     }
@@ -3242,6 +3286,348 @@ fn repeated_keystrokes_in_an_edit_field_are_the_one_type_with_every_character() 
     }
 }
 
+/// Regression: text typed with a pause of more than 500 ms between
+/// the keys was recorded as one `type` per key, each holding the field's text
+/// so far ("k", "ke", "kee", "keep"): the pending `type` was written whenever
+/// no value change had followed it for that long. How fast a person types is
+/// no part of what they typed.
+#[test]
+fn regression_719_text_typed_with_pauses_between_the_keys_is_one_type() {
+    let gate = closed_gate();
+    open_gate(&gate);
+    let live = Arc::new(Mutex::new(String::new()));
+    let harness = WorkerTestHarness::new(TypingBackend::edit_live(&gate, &live));
+
+    let mut seq = 0;
+    for character in "keep".chars() {
+        type_character(&live, character, &mut seq, |raw| harness.send_event(raw));
+        // Longer than the old pause rule (500 ms) and the worker's tick.
+        thread::sleep(Duration::from_millis(600));
+    }
+    let events = harness.shutdown();
+
+    assert_eq!(type_values_of(&events), vec!["keep"], "got {events:?}");
+    assert_eq!(
+        key_names_of(&events),
+        Vec::<String>::new(),
+        "got {events:?}"
+    );
+}
+
+/// Regression: a field emptied by a key was recorded with its name as the
+/// `type` value. An element's text falls back to its name where its value is
+/// empty, and the `type` value was read from that text.
+#[test]
+fn regression_720_a_field_emptied_by_a_key_is_the_empty_type_not_its_name() {
+    let gate = closed_gate();
+    open_gate(&gate);
+    let live = Arc::new(Mutex::new("a".to_string()));
+    let harness = WorkerTestHarness::new(TypingBackend::edit_live(&gate, &live));
+
+    live.lock().unwrap().clear();
+    let t = now_ms();
+    harness.send_event(layout_key(1, t, 0x08)); // Backspace
+    harness.send_event(value_change(2, t + 5, 1234));
+    thread::sleep(Duration::from_millis(100));
+    let events = harness.shutdown();
+
+    assert_eq!(key_names_of(&events), vec!["Backspace"], "got {events:?}");
+    assert_eq!(type_values_of(&events), vec![""], "got {events:?}");
+}
+
+/// An element that has no value gives a value change no `type`: its name is
+/// not what was typed, and the keys stay the record.
+#[test]
+fn a_value_change_on_an_element_with_no_value_keeps_the_keys() {
+    let gate = closed_gate();
+    open_gate(&gate);
+    let live = Arc::new(Mutex::new(String::new()));
+    let mut backend = TypingBackend::edit_live(&gate, &live);
+    backend.has_value = false;
+    let harness = WorkerTestHarness::new(backend);
+
+    let t = now_ms();
+    harness.send_event(layout_key(1, t, 0x41));
+    harness.send_event(value_change(2, t + 5, 1234));
+    thread::sleep(Duration::from_millis(100));
+    let events = harness.shutdown();
+
+    assert_eq!(
+        type_values_of(&events),
+        Vec::<String>::new(),
+        "got {events:?}"
+    );
+    assert_eq!(key_names_of(&events), vec!["A"], "got {events:?}");
+}
+
+/// The events that end the typing in a field, each with the name it is
+/// reported under when its case fails.
+fn typing_enders() -> Vec<(&'static str, RawEventType)> {
+    vec![
+        ("click", RawEventType::Click),
+        ("right click", RawEventType::RightClick),
+        (
+            "drag start",
+            RawEventType::DragStart {
+                source_coords: (0, 0),
+            },
+        ),
+        (
+            "drop",
+            RawEventType::Drop {
+                source_coords: (0, 0),
+            },
+        ),
+        ("foreground", RawEventType::Foreground),
+    ]
+}
+
+/// A field's `type` is written when the typing in it ends, and a click, a
+/// drag or a window change ends it, whichever worker
+/// that event is routed to: the text typed before it is one `type`, written
+/// while the recording still runs, and the text typed after it is the next.
+#[test]
+fn regression_719_the_event_that_ends_the_typing_writes_the_type() {
+    for (name, ender) in typing_enders() {
+        let gate = closed_gate();
+        open_gate(&gate);
+        let live = Arc::new(Mutex::new(String::new()));
+        let (action_tx, action_rx) = mpsc::channel::<ActionEvent>();
+        let worker_gate = Arc::clone(&gate);
+        let worker_live = Arc::clone(&live);
+        let mut pool = WorkerPool::new(
+            3,
+            action_tx,
+            move |index, rx, queue_len, sender, pending| {
+                let backend = TypingBackend::edit_live(&worker_gate, &worker_live);
+                thread::spawn(move || {
+                    let ep = Arc::new(AtomicU32::new(0));
+                    worker_loop(index, backend, rx, queue_len, sender, ep, pending, None);
+                })
+            },
+        );
+        let mut seq = 0;
+        type_character(&live, 'a', &mut seq, |raw| pool.dispatch(raw));
+        type_character(&live, 'b', &mut seq, |raw| pool.dispatch(raw));
+        let typed_until = seq;
+        let mut end = make_raw_event(ender, 1234);
+        end.sequence_id = typed_until + 1;
+        end.timestamp = now_ms();
+        pool.dispatch(end);
+        thread::sleep(Duration::from_millis(200));
+        let before_stop: Vec<ActionEvent> = action_rx.try_iter().collect();
+        assert_eq!(
+            type_values_of(&before_stop),
+            vec!["ab"],
+            "{name}: the typing it ended is written at once, got {before_stop:?}"
+        );
+        let written = before_stop
+            .iter()
+            .find(|e| matches!(e.payload, ActionPayload::Type { .. }))
+            .unwrap();
+        assert_eq!(
+            written.sequence_id,
+            Some(typed_until),
+            "{name}: the type is ordered ahead of the event that ended it"
+        );
+
+        // The ending event took the next id.
+        seq += 1;
+        type_character(&live, 'c', &mut seq, |raw| pool.dispatch(raw));
+        pool.shutdown();
+        let after: Vec<ActionEvent> = action_rx.try_iter().collect();
+        assert_eq!(
+            type_values_of(&after),
+            vec!["abc"],
+            "{name}: the text typed after it is the next type, got {after:?}"
+        );
+    }
+}
+
+/// What each worker of a three-worker pool is sent when `events` are
+/// dispatched in order: "event" for an event, "end typing" for the signal.
+fn messages_sent_for(events: Vec<RawEvent>) -> Vec<Vec<&'static str>> {
+    let (action_tx, _action_rx) = mpsc::channel::<ActionEvent>();
+    let sent: Vec<Arc<Mutex<Vec<&'static str>>>> =
+        (0..3).map(|_| Arc::new(Mutex::new(Vec::new()))).collect();
+    let worker_sent = sent.clone();
+    let mut pool = WorkerPool::new(
+        3,
+        action_tx,
+        move |index, rx, _queue_len, _sender, _pending| {
+            let sent = Arc::clone(&worker_sent[index]);
+            thread::spawn(move || loop {
+                match rx.recv() {
+                    Ok(WorkerMessage::Event(_)) => sent.lock().unwrap().push("event"),
+                    Ok(WorkerMessage::EndTyping) => sent.lock().unwrap().push("end typing"),
+                    Ok(WorkerMessage::Flush(_)) => {}
+                    Ok(WorkerMessage::Shutdown) | Err(_) => break,
+                }
+            })
+        },
+    );
+    for event in events {
+        pool.dispatch(event);
+    }
+    pool.shutdown();
+    let result = sent.iter().map(|w| w.lock().unwrap().clone()).collect();
+    result
+}
+
+/// The event that ends the typing is routed like any other, to a worker that
+/// is seldom the typing worker; the dispatcher tells the typing worker, in
+/// the order of the events, so the `type` it holds goes out.
+#[test]
+fn regression_719_the_typing_worker_is_told_when_the_typing_ends() {
+    for (name, ender) in typing_enders() {
+        // These workers never report an event done, so the typing worker's
+        // queue stays the longest and the ending event goes to another.
+        let sent = messages_sent_for(vec![layout_key(1, 1000, 0x41), make_raw_event(ender, 1234)]);
+        assert!(
+            sent.iter()
+                .any(|worker| worker.starts_with(&["event", "end typing"])),
+            "{name}: the worker that got the key is told behind it, got {sent:?}"
+        );
+    }
+}
+
+/// An event that ends no typing sends the typing worker nothing.
+#[test]
+fn an_event_that_ends_no_typing_sends_the_typing_worker_nothing() {
+    for event_type in [
+        RawEventType::Scroll,
+        RawEventType::ValueChange,
+        RawEventType::Keyboard,
+        RawEventType::Selection,
+        RawEventType::Focus,
+    ] {
+        let sent = messages_sent_for(vec![
+            layout_key(1, 1000, 0x41),
+            make_raw_event(event_type.clone(), 1234),
+        ]);
+        assert!(
+            sent.iter().all(|w| !w.contains(&"end typing")),
+            "{event_type:?}: got {sent:?}"
+        );
+    }
+}
+
+/// Regression: a worker told to shut down drained the events still queued
+/// behind that message only up to the first message that was no event, so
+/// the typing queued behind an end-of-typing signal or a commit's flush marker
+/// was lost at the stop.
+#[test]
+fn regression_719_the_shutdown_drain_reads_past_messages_that_are_no_event() {
+    let gate = closed_gate();
+    let live = Arc::new(Mutex::new("ab".to_string()));
+    let harness = WorkerTestHarness::new(TypingBackend::edit_live(&gate, &live));
+
+    // The worker holds on the first key until the gate opens; everything
+    // else queues behind it, the shutdown ahead of the rest.
+    let t = now_ms();
+    harness.send_event(layout_key(1, t, 0x41));
+    thread::sleep(Duration::from_millis(100));
+    harness.event_tx.send(WorkerMessage::Shutdown).unwrap();
+    harness.event_tx.send(WorkerMessage::EndTyping).unwrap();
+    harness.send_event(layout_key(2, t + 1, 0x42));
+    let (ack_tx, ack_rx) = mpsc::channel::<usize>();
+    harness.event_tx.send(WorkerMessage::Flush(ack_tx)).unwrap();
+    harness.send_event(value_change(3, t + 2, 1234));
+    open_gate(&gate);
+    let events = harness.shutdown();
+
+    assert_eq!(type_values_of(&events), vec!["ab"], "got {events:?}");
+    assert!(
+        ack_rx.try_recv().is_ok(),
+        "a flush marker read during the drain is acknowledged"
+    );
+}
+
+/// A value change that reaches the worker after the click that ended the
+/// typing is not folded back into the `type` already written: it starts the
+/// field's next `type`, behind the click.
+#[test]
+fn a_value_change_arriving_after_the_click_starts_the_next_type() {
+    let gate = closed_gate();
+    open_gate(&gate);
+    let live = Arc::new(Mutex::new(String::new()));
+    let harness = WorkerTestHarness::new(TypingBackend::edit_live(&gate, &live));
+
+    let mut seq = 0;
+    type_character(&live, 'a', &mut seq, |raw| harness.send_event(raw));
+    // The second key's value change is late: the click is dispatched first.
+    let t = now_ms();
+    harness.send_event(layout_key(3, t, 0x42));
+    let mut click = make_raw_event(RawEventType::Click, 1234);
+    click.sequence_id = 4;
+    click.timestamp = t + 1;
+    harness.send_event(click);
+    live.lock().unwrap().push('b');
+    harness.send_event(value_change(5, t + 2, 1234));
+    thread::sleep(Duration::from_millis(100));
+    let events = harness.shutdown();
+
+    let types: Vec<(String, Option<u64>)> = events
+        .iter()
+        .filter_map(|e| match &e.payload {
+            ActionPayload::Type { value, .. } => Some((value.clone(), e.sequence_id)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        types,
+        vec![("a".to_string(), Some(2)), ("ab".to_string(), Some(5))],
+        "got {events:?}"
+    );
+}
+
+/// A focus event ends no typing: a program that reports the focus again on
+/// the field being typed into leaves its text the one `type`.
+#[test]
+fn a_focus_event_between_the_keys_leaves_the_typing_one_type() {
+    let gate = closed_gate();
+    open_gate(&gate);
+    let live = Arc::new(Mutex::new(String::new()));
+    let harness = WorkerTestHarness::new(TypingBackend::edit_live(&gate, &live));
+
+    let mut seq = 0;
+    for character in "ab".chars() {
+        type_character(&live, character, &mut seq, |raw| harness.send_event(raw));
+        seq += 1;
+        let mut focus = make_raw_event(RawEventType::Focus, 1234);
+        focus.sequence_id = seq;
+        focus.timestamp = now_ms();
+        harness.send_event(focus);
+    }
+    let events = harness.shutdown();
+
+    assert_eq!(type_values_of(&events), vec!["ab"], "got {events:?}");
+}
+
+/// A scroll or a pointer move is no end to the typing: the text typed around
+/// it stays the one `type`.
+#[test]
+fn a_scroll_between_the_keys_leaves_the_typing_one_type() {
+    let gate = closed_gate();
+    open_gate(&gate);
+    let live = Arc::new(Mutex::new(String::new()));
+    let harness = WorkerTestHarness::new(TypingBackend::edit_live(&gate, &live));
+
+    let mut seq = 0;
+    for character in "ab".chars() {
+        type_character(&live, character, &mut seq, |raw| harness.send_event(raw));
+        seq += 1;
+        let mut scroll = make_raw_event(RawEventType::Scroll, 1234);
+        scroll.sequence_id = seq;
+        scroll.timestamp = now_ms();
+        scroll.scroll_delta = 10.0;
+        harness.send_event(scroll);
+    }
+    let events = harness.shutdown();
+
+    assert_eq!(type_values_of(&events), vec!["ab"], "got {events:?}");
+}
+
 /// Regression: the last recorded value was kept per selector alone, so a value
 /// typed in one window hid the same value arriving in another window whose
 /// element has an equal selector (two documents of one application).
@@ -3290,6 +3676,7 @@ fn scene_element(tag: &str, selector: &str, text: Option<&str>) -> ElementDescri
         id: Some(selector.to_string()),
         name: Some(selector.to_string()),
         text: text.map(str::to_string),
+        value: text.map(str::to_string),
         selector: selector.to_string(),
         ..Default::default()
     }
@@ -3834,6 +4221,7 @@ fn a_value_change_on_the_same_element_under_a_changed_selector_is_its_type() {
         let mut scene = scene.lock().unwrap();
         scene.element.selector = "*Dialog > Edit:File name".to_string();
         scene.element.text = Some("h".to_string());
+        scene.element.value = Some("h".to_string());
     }
     harness.send_event(in_dialog(value_change(2, t + 1, DIALOG)));
 
@@ -4967,7 +5355,7 @@ fn a_typing_key_on_a_button_is_written_without_waiting() {
     harness.send_event(in_dialog(layout_key(1, t, 0x67))); // keypad 7
     harness.send_event(in_dialog(layout_key(2, t + 1, 0x20)));
 
-    // Well inside TYPE_DEBOUNCE_MS (500 ms).
+    // Well inside KEY_TEXT_WAIT_MS (500 ms).
     thread::sleep(Duration::from_millis(200));
     let early = harness.drain_actions();
     assert_eq!(
