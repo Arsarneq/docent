@@ -195,13 +195,13 @@ each captured directly with its window's activation recorded beside it (core
 CP-17), and actions outside the hooks' visibility, captured by proxy (core
 CP-7):
 
-| User action                                                                         | Captured as                             |
-| ----------------------------------------------------------------------------------- | --------------------------------------- |
-| Click a different window                                                            | `context_switch` beside the `click`     |
-| Alt+Tab                                                                             | `context_switch` beside the `key`       |
-| Click title bar close (X)                                                           | `context_close`                         |
-| File dialog confirmed by its Save or Open button                                    | `file_dialog` beside the `click`        |
-| File dialog confirmed by a double-click on a file in its item view (DCP-10, DCP-13) | `file_dialog` beside the second `click` |
+| User action                                                                         | Captured as                                          |
+| ----------------------------------------------------------------------------------- | ---------------------------------------------------- |
+| Click a different window                                                            | `context_switch` beside the `click` or `right_click` |
+| Alt+Tab                                                                             | `context_switch` beside the `key`                    |
+| Click title bar close (X)                                                           | `context_close`                                      |
+| File dialog confirmed by its Save or Open button                                    | `file_dialog` beside the `click`                     |
+| File dialog confirmed by a double-click on a file in its item view (DCP-10, DCP-13) | `file_dialog` beside the second `click`              |
 
 ---
 
@@ -211,14 +211,14 @@ CP-7):
 programmatic ones using **input correlation**: WinEvent callbacks MUST be
 dispatched only when correlated with a preceding low-level input event.
 
-| WinEvent                   | Correlation source  | Additional filter                                                                                                                                                                   |
-| -------------------------- | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `EVENT_SYSTEM_FOREGROUND`  | Any low-level input | Skipped when its root window is the one the last dispatched switch named (a click into a different window dispatches its switch at button-down)                                     |
-| `EVENT_OBJECT_FOCUS`       | Any low-level input | Suppressed while the left button is held or within `CLICK_REDUNDANCY_MS` of a click (redundant)                                                                                     |
-| `EVENT_OBJECT_CREATE`      | Any low-level input | A real, visible top-level window with no parent (no `WS_CHILD` style; `GetParent` returns nothing — for a popup window that is its owner); within `WINDOW_LIFECYCLE_CORRELATION_MS` |
-| `EVENT_OBJECT_DESTROY`     | Any low-level input | A titled, unowned top-level window whose open was dispatched and whose root is not the foreground window; within `WINDOW_LIFECYCLE_CORRELATION_MS`                                  |
-| `EVENT_OBJECT_VALUECHANGE` | Keyboard input only | Same root window as keyboard                                                                                                                                                        |
-| `EVENT_OBJECT_SELECTION`   | Any low-level input | Same root window as the input; suppressed while the left button is held or within `CLICK_REDUNDANCY_MS` of a click (redundant)                                                      |
+| WinEvent                   | Correlation source  | Additional filter                                                                                                                                                                                                                                          |
+| -------------------------- | ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `EVENT_SYSTEM_FOREGROUND`  | Any low-level input | Skipped when its root window is the one the last switch into the window in front named (a left, right or middle press into a different window dispatches its switch at button-down, before the press; the switches that introduce a window count as below) |
+| `EVENT_OBJECT_FOCUS`       | Any low-level input | Suppressed while the left button is held or within `CLICK_REDUNDANCY_MS` of a click (redundant)                                                                                                                                                            |
+| `EVENT_OBJECT_CREATE`      | Any low-level input | A real, visible top-level window with no parent (no `WS_CHILD` style; `GetParent` returns nothing — for a popup window that is its owner); within `WINDOW_LIFECYCLE_CORRELATION_MS`                                                                        |
+| `EVENT_OBJECT_DESTROY`     | Any low-level input | A titled, unowned top-level window whose open was dispatched and whose root is not the foreground window; within `WINDOW_LIFECYCLE_CORRELATION_MS`                                                                                                         |
+| `EVENT_OBJECT_VALUECHANGE` | Keyboard input only | Same root window as keyboard                                                                                                                                                                                                                               |
+| `EVENT_OBJECT_SELECTION`   | Any low-level input | Same root window as the input; suppressed while the left button is held or within `CLICK_REDUNDANCY_MS` of a click (redundant)                                                                                                                             |
 
 Both click gates treat a focus or selection event as an effect of the left
 press, which the press's own action records (a `click`, or the
@@ -241,6 +241,49 @@ action records, and the activation the system gives, after a window closes, to a
 window the recording already introduced (the window behind one closed by its
 title-bar close button, which DCP-6 records as a `context_close`, for example). Recording them
 is a capture gap against core CP-17.
+
+A window can receive an action with no switch recorded for it: one that came
+in front while the foreground row classified its activation as programmatic
+(late after its input, or after input the scope filters dropped, as the
+exceptions list), or an inactive window under a wheel or a drop. Under core
+CP-17 the first action taken in such a window establishes its context. The
+Input_Thread keeps, per capture session, the top-level windows whose context it
+introduced: each window it dispatched a `context_switch` or a `context_open`
+for and, when the session's first dispatched action precedes every such
+switch and open, that action's window (the session's first context). An event
+to be dispatched in a top-level window outside that set has a
+`context_switch` into that window dispatched before it, with the event's
+timestamp, and the window joins the set. A close introduces nothing, and a
+lone Shift, Ctrl or Alt press, which the worker drops (DCP-13), counts for
+nothing, as does a key attributed to no window (DCP-14), which has no window
+to introduce. A window introduced once takes no further switch when actions return
+to it, and an action in a window introduced earlier carries that window's
+`context_id` with no switch before it (after a wheel over an inactive window,
+a key in the window in front, for example). The foreground row's
+deduplication compares with the last switch into the window in front: a
+switch dispatched this way into the window in front counts as its activation,
+so a late activation of it is not written again, while one into an inactive
+window does not, so a later click into that window or its activation is
+written. Four cases stay open. A capture session started again later in a
+recording begins in its first context with no switch, whether or not the
+recording's earlier sessions introduced that context. A switch dispatched
+before an event the worker then does not write (a focus whose selector equals
+the worker's last, for example) is written all the same. The Input_Thread
+reads an event's top-level window when it dispatches the event, a worker when
+it describes it: an event whose window is gone by then takes that window's own
+handle as its context, which no switch introduced. And the switch before an
+action in an inactive window records that window's context, not an activation
+the person made.
+
+A focus is recorded on the element focused when a worker describes it, and in
+the context of the top-level window that element is in, as its description
+resolved it, with that window's rectangle — not the window the focus event
+named, which differs when the focus moved on before the worker described it (a
+dialog that closed as the focus went back to its owner, for example); where
+the description resolved no window, the event's window gives the context. The
+Input_Thread introduces the event's window, not the element's (above), so a
+focus recorded in a window the session introduced no other way has no
+`context_switch` before it.
 
 **DCP-8.** **Window-scoping:** Value changes and selections are only
 correlated with input from the same root window — value changes against the keyboard input's
@@ -603,8 +646,9 @@ with a caveat):
   within the recording (DCP-7); a departure (core CP-18)
 - An owned popup window (a dialog such as Find, for example) — its creation
   records no `context_open` (DCP-7's `EVENT_OBJECT_CREATE` test), a
-  `context_switch` introduces it when its activation correlates, and its
-  title-bar close records no `context_close` (DCP-7); a departure (core CP-18)
+  `context_switch` introduces it when its activation correlates, and otherwise
+  before the first action taken in it (DCP-7), and its title-bar close records
+  no `context_close` (DCP-7); a departure (core CP-18)
 - An owned top-level window without the popup style — `GetParent` returns
   nothing for it, so its creation, when DCP-7's create test passes, records a
   `context_open`, and its close, which the destroy test's owner check drops,
@@ -637,12 +681,16 @@ with a caveat):
   than its correlation window (an Alt+Tab whose Alt is released late, a
   slow-starting application, a window closed late after its click, for
   example) — classified as programmatic: the `key` or `click` is written, the
-  `context_switch`, `context_open` or `context_close` is not; a departure
+  `context_switch`, `context_open` or `context_close` is not; a window that
+  came in front this way and has no context the session introduced takes a
+  `context_switch` before the first action taken in it (DCP-7); a departure
   (core CP-18)
 - A window activation, opening or close whose causing input fell outside the
   scope filters (a taskbar or Start-menu switch into a selected target, for
   example) — classified as programmatic: no `context_switch`, `context_open`
-  or `context_close`
+  or `context_close`; a window that came in front this way and has no context
+  the session introduced takes a `context_switch` before the first action
+  taken in it (DCP-7)
 - An extra mouse button press (the back and forward buttons) — it reaches the
   mouse hook but is not written, the format having no action type for it
 - A drag that starts inside the captured scope and is released outside it —
