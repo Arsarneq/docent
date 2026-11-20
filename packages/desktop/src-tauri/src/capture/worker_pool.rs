@@ -105,20 +105,26 @@ pub struct RawEvent {
     /// On Windows: `[id_object, id_child, 0, 0]` from `SetWinEventHook`
     /// callbacks, which workers use to determine which sub-element triggered
     /// the event; `[axis, 0, 0, 0]` from the mouse hook's wheel path, where
-    /// 1 = horizontal (read by the scroll arm); `[scan_code, 0, 0, 0]` from the
-    /// keyboard hook, where a `VK_PACKET` keystroke's scan code is the injected
-    /// UTF-16 code unit (read by the keyboard arm); `[scan_code,
-    /// focused_control, part_focus, repeat]` in full, the second being the
-    /// window handle of the control that held the keyboard focus at the key,
-    /// `0` when none was read (see `settle_key_on_its_control`), the third the
+    /// 1 = horizontal (read by the scroll arm); `[scan_code, focused_control,
+    /// part_focus, layout_char]` from the keyboard hook, all read by the
+    /// keyboard arm: `scan_code` is the hook's scan code, for a `VK_PACKET`
+    /// keystroke the injected UTF-16 code unit, with the hook's extended mark
+    /// for the key in the bit above it
+    /// ([`super::held_keys::KEY_EXTENDED_PARAM`]); `focused_control` the window
+    /// handle of the control that held the keyboard focus at the key (`0` when
+    /// none was read, see `settle_key_on_its_control`); `part_focus` the
     /// number of the latest focus change that named a part of that control
-    /// (see [`PartFocusNote`]), and the fourth `1` on a key-down for a key that
-    /// was already down (a press key repeat generated while the key was held),
-    /// `0` on the press itself (see [`super::held_keys::HeldKeys`]). The bit
-    /// above the scan code ([`super::held_keys::KEY_EXTENDED_PARAM`]) is the
-    /// hook's extended mark for the key. On other
-    /// platforms: unused or
-    /// platform-defined.
+    /// (see [`PartFocusNote`]); and `layout_char`, in the low 32 bits, what the
+    /// keyboard layout gives a punctuation key (see [`punctuation_key_name`]; 0
+    /// for every other key), with the repeat mark in the bit above it
+    /// ([`super::held_keys::KEY_REPEAT_PARAM`]): set on a key-down for a key
+    /// that was already down (a press key repeat generated while the key was
+    /// held), clear on the press itself (see [`super::held_keys::HeldKeys`]).
+    /// `[button, 0, 0, 0]` from the mouse hook's click paths, where
+    /// [`CLICK_COMPLETES_DOUBLE_CLICK`] marks the second click of a
+    /// double-click (read by the pool's routing and the click arm) and
+    /// [`CLICK_IS_MIDDLE_BUTTON`] a middle-button press (read by the click
+    /// arm). On other platforms: unused or platform-defined.
     pub callback_params: [i64; 4],
     /// Pre-captured element description from the Input_Thread.
     /// For mouse click/right-click events, the Input_Thread may perform a
@@ -153,6 +159,93 @@ pub struct RawEvent {
 }
 
 // ---------------------------------------------------------------------------
+// Double-click
+// ---------------------------------------------------------------------------
+
+/// The `callback_params[0]` value of a left [`RawEventType::Click`] whose press
+/// completed a double-click (DCP-10); `0` on every other left click.
+pub const CLICK_COMPLETES_DOUBLE_CLICK: i64 = 1;
+
+/// The `callback_params[0]` value of a [`RawEventType::Click`] the middle
+/// button's press records (DCP-10): a click of the format, but no press of
+/// the left button, so it confirms no file dialog.
+pub const CLICK_IS_MIDDLE_BUTTON: i64 = 2;
+
+/// Whether `raw` is a click the middle button's press records.
+pub fn is_middle_button_click(raw: &RawEvent) -> bool {
+    matches!(raw.event_type, RawEventType::Click)
+        && raw.callback_params[0] == CLICK_IS_MIDDLE_BUTTON
+}
+
+/// Whether `raw` is a left click whose press completed a double-click.
+pub fn completes_double_click(raw: &RawEvent) -> bool {
+    matches!(raw.event_type, RawEventType::Click)
+        && raw.callback_params[0] == CLICK_COMPLETES_DOUBLE_CLICK
+}
+
+/// One press of the left button, as the double-click test reads it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ClickPress {
+    /// The press time on the system's input clock, in milliseconds (it wraps).
+    pub time_ms: u32,
+    /// Screen-space X coordinate of the press.
+    pub x: i32,
+    /// Screen-space Y coordinate of the press.
+    pub y: i32,
+    /// The window the press landed in.
+    pub window: i64,
+}
+
+/// The system's double-click bounds: the longest time between the two presses
+/// and the size of the rectangle, centred on the first press, the second must
+/// land in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DoubleClickBounds {
+    pub max_interval_ms: u32,
+    pub width: i32,
+    pub height: i32,
+}
+
+/// Pairs left clicks into double-clicks the way the system does (DCP-10): a
+/// click's press completes a double-click when it lands in the same window as
+/// the press of the left click before it, within the system's double-click
+/// time after it and inside the system's double-click rectangle around it. A
+/// press that completes a double-click starts no new pair, and a right or
+/// middle press, or a drag, between two left clicks breaks the pair.
+///
+/// Pure state the mouse hook keeps, so the pairing is testable without
+/// synthesizing input.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct DoubleClickTracker {
+    previous: Option<ClickPress>,
+}
+
+impl DoubleClickTracker {
+    /// A tracker with no click recorded.
+    pub const fn new() -> Self {
+        Self { previous: None }
+    }
+
+    /// Record a left click by its press; answers whether that press completed
+    /// a double-click.
+    pub fn left_click(&mut self, press: ClickPress, bounds: DoubleClickBounds) -> bool {
+        let completes = self.previous.is_some_and(|first| {
+            first.window == press.window
+                && press.time_ms.wrapping_sub(first.time_ms) <= bounds.max_interval_ms
+                && (press.x - first.x).abs() <= bounds.width / 2
+                && (press.y - first.y).abs() <= bounds.height / 2
+        });
+        self.previous = if completes { None } else { Some(press) };
+        completes
+    }
+
+    /// Break the pair: the next left click starts a new one.
+    pub fn break_pair(&mut self) {
+        self.previous = None;
+    }
+}
+
+// ---------------------------------------------------------------------------
 // WorkerMessage
 // ---------------------------------------------------------------------------
 
@@ -166,6 +259,12 @@ pub enum WorkerMessage {
     /// (capture continues after the step commit). Contrast
     /// [`WorkerMessage::Shutdown`], which drains and then exits.
     Flush(mpsc::Sender<usize>),
+    /// The typing in a field has ended (a pointer press, a drag or a window
+    /// change was dispatched): write the pending `type`, so that it stands
+    /// ahead of what follows. Sent to the typing worker only, on its FIFO
+    /// channel, so it is processed after every keystroke and value change
+    /// dispatched before it.
+    EndTyping,
     /// Poison pill — drain remaining events then exit.
     Shutdown,
 }
@@ -267,11 +366,11 @@ pub fn fallback_drain_and_seal(
 pub struct PendingBuffers {
     /// Accumulated scroll deltas awaiting debounce/threshold flush.
     pub scroll_acc: ScrollAccumulator,
-    /// Buffered type event awaiting coalesce-window flush.
+    /// The `type` of the field being typed into, held until the typing ends.
     pub pending_type: Option<PendingTypeEvent>,
-    /// Buffered printable key events awaiting debounce flush.
+    /// Typing keys waiting for the value change that makes them text.
     pub pending_keys: Vec<ActionEvent>,
-    /// Timestamp of the last buffered key (for debounce flush).
+    /// Timestamp of the last buffered key (the wait is counted from it).
     pub pending_keys_last_timestamp: u64,
 }
 
@@ -290,8 +389,8 @@ impl PendingBuffers {
     /// Drain all buffered actions, emitting them via `action_sender`.
     ///
     /// Pending type takes precedence over pending keys (the type value
-    /// supersedes the individual keystrokes), matching the live debounce
-    /// behaviour. Returns after the buffers are empty. Safe to call more than
+    /// supersedes the individual keystrokes), as it does when the typing
+    /// ends. Returns after the buffers are empty. Safe to call more than
     /// once and from either the worker or the shutdown drainer — whoever calls
     /// first empties the buffers; subsequent calls are no-ops.
     fn drain_into(&mut self, action_sender: &mpsc::Sender<ActionEvent>) {
@@ -353,7 +452,7 @@ const NO_TYPING_WORKER: usize = usize::MAX;
 /// The pool manages a fixed set of workers, assigns monotonic sequence numbers
 /// to events, and routes events using shortest-queue dispatch with one typing
 /// worker for keyboard and value-change events, sticky routing for focus and
-/// selection events, and paired routing for drag events.
+/// selection events, and paired routing for drag events and double-clicks.
 ///
 /// When a worker panics, the pool detects the failure on the next dispatch
 /// attempt, immediately respawns a replacement worker at the same index, and
@@ -386,6 +485,12 @@ pub struct WorkerPool {
     /// Tracks the worker index that received the most recent `DragStart`,
     /// so the corresponding `Drop` event is routed to the same worker.
     last_drag_worker: Option<usize>,
+    /// The worker index that received the most recent `Click`, so a click
+    /// that completes a double-click reaches the worker that processed the
+    /// click before it (the file-dialog proxy reads the pair there, DCP-6).
+    /// Kept across a respawn of its index: a click retried on the fresh
+    /// worker is the one its pair must follow.
+    last_click_worker: Option<usize>,
     /// Retained spawn closure for respawning dead workers.
     spawn_worker: SpawnWorkerFn,
     /// Retained action sender for respawning dead workers.
@@ -448,6 +553,7 @@ impl WorkerPool {
             missed_last_barrier: AtomicU64::new(0),
             window_affinity: HashMap::new(),
             last_drag_worker: None,
+            last_click_worker: None,
             spawn_worker: Box::new(spawn_worker),
             action_sender,
         }
@@ -484,6 +590,8 @@ impl WorkerPool {
     ///   worker).
     /// - `DragStart`   → shortest-queue worker (index stored for the paired `Drop`).
     /// - `Drop`        → same worker as the most recent `DragStart`.
+    /// - `Click`       → shortest-queue worker, or, for a click that completes
+    ///   a double-click, the same worker as the click before it.
     /// - All others    → shortest-queue worker.
     ///
     /// If the selected worker has disconnected (panicked), it is marked dead
@@ -492,8 +600,21 @@ impl WorkerPool {
     /// worker are cleared so subsequent events are re-routed; the typing
     /// worker stays the respawned index.
     pub fn dispatch(&mut self, event: RawEvent) {
+        if ends_typing(&event.event_type) {
+            self.end_typing();
+        }
         let worker_index = self.select_worker(&event);
         self.send_to_worker(worker_index, event);
+    }
+
+    /// Tell the typing worker that the typing in a field has ended. With no
+    /// typing worker yet there is no pending `type`; a worker whose channel is
+    /// gone has its buffers drained when it is respawned.
+    fn end_typing(&mut self) {
+        let index = self.typing_worker.load(Ordering::SeqCst);
+        if let Some(worker) = self.workers.get(index) {
+            let _ = worker.sender.send(WorkerMessage::EndTyping);
+        }
     }
 
     /// Select the target worker index for an event based on routing rules.
@@ -539,6 +660,17 @@ impl WorkerPool {
             RawEventType::Drop { .. } => self
                 .last_drag_worker
                 .unwrap_or_else(|| self.shortest_queue_worker()),
+            // Double-click pairing: the second click of a double-click reaches
+            // the worker that processed the first, whose FIFO queue then
+            // handles the pair in order.
+            RawEventType::Click => {
+                let idx = match self.last_click_worker {
+                    Some(idx) if completes_double_click(event) => idx,
+                    _ => self.shortest_queue_worker(),
+                };
+                self.last_click_worker = Some(idx);
+                idx
+            }
             _ => self.shortest_queue_worker(),
         }
     }
@@ -1008,10 +1140,27 @@ pub trait AccessibilityBackend: Send + 'static {
     /// Get the process name for a window handle.
     fn process_name(&self, window_handle: i64) -> String;
 
-    /// Read a file dialog path from the given window (if it is a file dialog).
-    /// Returns `(dialog_type, file_path)` or `None` if the window is not a
-    /// file dialog or no path could be read.
+    /// Read a file dialog path from the given window: the dialog itself or
+    /// any window inside it (a click names the control under the pointer).
+    /// Returns `(dialog_type, file_path)`, `file_path` being the directory the
+    /// dialog shows and its File name text joined with a backslash, or the
+    /// text alone when it is a full path or the directory could not be read;
+    /// `None` if the window is not in a file dialog or its File name box is
+    /// empty or could not be read.
     fn read_file_dialog_path(&self, window_handle: i64) -> Option<(String, String)>;
+
+    /// The file on disk that `shown_path` (a [`read_file_dialog_path`]
+    /// path: the File name text as the dialog shows it, in the dialog's
+    /// folder) names, decided by [`element_mapping::chosen_file_on_disk`]
+    /// against the names the shell displays for the folder's files; `None`
+    /// when the text names no file or several, or `shown_path` is not a full
+    /// path. The worker asks it for an Open dialog only (DCP-13).
+    ///
+    /// [`read_file_dialog_path`]: Self::read_file_dialog_path
+    /// [`element_mapping::chosen_file_on_disk`]: super::element_mapping::chosen_file_on_disk
+    fn file_on_disk(&self, _shown_path: &str) -> Option<String> {
+        None
+    }
 
     /// Resolve a window handle to its top-level root window handle.
     ///
@@ -1071,13 +1220,14 @@ pub enum ControlLook {
 // PendingTypeEvent
 // ---------------------------------------------------------------------------
 
-/// Buffered type event for coalescing rapid value-change events into a single
-/// `type` ActionEvent.
+/// The `type` of the field being typed into, held until the typing in it
+/// ends.
 ///
-/// When the user types into a text field, each keystroke produces a
-/// `ValueChange` event. Rather than emitting one `type` ActionEvent per
-/// keystroke, the worker buffers them and emits a single event after a 500ms
-/// debounce interval with no new value changes.
+/// Each keystroke in a text field produces a `ValueChange` event. The worker
+/// writes no `type` per keystroke: it holds one for the field, carries it
+/// forward to each new value, and writes it when the typing ends (see
+/// [`ends_typing`] and the key handler). A pause between two keys ends
+/// nothing.
 #[derive(Debug, Clone)]
 pub struct PendingTypeEvent {
     /// The element being typed into.
@@ -1094,12 +1244,9 @@ pub struct PendingTypeEvent {
     pub window_rect: Option<WindowRect>,
     /// Sequence_id from the most recent value-change RawEvent.
     pub sequence_id: u64,
-    /// Timestamp of the last value-change update (used for debounce).
-    pub last_update: u64,
 }
 
-/// Debounce interval for type event coalescing (imported from timing.rs).
-use super::timing::{debounce_elapsed, TYPE_DEBOUNCE_MS, WORKER_RECV_TIMEOUT as RECV_TIMEOUT};
+use super::timing::{debounce_elapsed, KEY_TEXT_WAIT_MS, WORKER_RECV_TIMEOUT as RECV_TIMEOUT};
 
 // ---------------------------------------------------------------------------
 // Timestamp helper
@@ -1198,17 +1345,6 @@ fn vk_to_key_name(vk: u32) -> String {
         0xA0 | 0xA1 => String::new(), // VK_LSHIFT, VK_RSHIFT
         0xA2 | 0xA3 => String::new(), // VK_LCONTROL, VK_RCONTROL
         0xA4 | 0xA5 => String::new(), // VK_LMENU (LAlt), VK_RMENU (RAlt)
-        0xBA => ";".to_string(),
-        0xBB => "=".to_string(),
-        0xBC => ",".to_string(),
-        0xBD => "-".to_string(),
-        0xBE => ".".to_string(),
-        0xBF => "/".to_string(),
-        0xC0 => "`".to_string(),
-        0xDB => "[".to_string(),
-        0xDC => "\\".to_string(),
-        0xDD => "]".to_string(),
-        0xDE => "'".to_string(),
         _ => format!("VK_{vk:#04X}"),
     }
 }
@@ -1228,14 +1364,23 @@ const UNIDENTIFIED_KEY: &str = "Unidentified";
 /// character its code unit carries — a space by `Space`, the name a layout
 /// space key gets — and a unit that is no character on its own (a surrogate
 /// half of a character outside the Basic Multilingual Plane, or a control
-/// character) is `Unidentified`. Every other code goes through
+/// character) is `Unidentified`. A punctuation key is named by its layout's
+/// character ([`punctuation_key_name`]). Every other code goes through
 /// [`vk_to_key_name`].
 fn key_name(raw: &RawEvent) -> String {
-    key_name_of(raw.key_code, raw.callback_params[0])
+    key_name_of(
+        raw.key_code,
+        raw.callback_params[0],
+        super::held_keys::layout_char_of(raw.callback_params[3]),
+    )
 }
 
-/// [`key_name`] for a key by its code and its scan code.
-fn key_name_of(key_code: u32, scan_code: i64) -> String {
+/// [`key_name`] for a key by its code, its scan code and the layout character
+/// the keyboard hook read for it (`callback_params[0]` and `[3]`).
+fn key_name_of(key_code: u32, scan_code: i64, layout_char: u32) -> String {
+    if is_punctuation_key(key_code) {
+        return punctuation_key_name(key_code, i64::from(layout_char));
+    }
     if key_code != VK_PACKET {
         return vk_to_key_name(key_code);
     }
@@ -1244,6 +1389,43 @@ fn key_name_of(key_code: u32, scan_code: i64) -> String {
         Some(' ') => vk_to_key_name(0x20),
         Some(c) if !c.is_control() => c.to_string(),
         _ => UNIDENTIFIED_KEY.to_string(),
+    }
+}
+
+/// Whether a virtual-key code is a punctuation key: one of the OEM codes
+/// (`0xBA`-`0xC2`, `0xDB`-`0xDF`, `0xE1`-`0xE4`, `0xE6`), whose character each
+/// keyboard layout assigns for itself. Called on the keyboard hook: no
+/// allocation, no lock.
+pub(crate) const fn is_punctuation_key(vk: u32) -> bool {
+    matches!(vk, 0xBA..=0xC2 | 0xDB..=0xDF | 0xE1..=0xE4 | 0xE6)
+}
+
+/// The markers the keyboard layout tables write in place of a character:
+/// `WCH_NONE` `0xF000`, `WCH_DEAD` `0xF001` and `WCH_LGTR` `0xF002`, the
+/// documented ones. A value among them names no character a key enters; any
+/// other private-use value is a character the layout gives the key.
+const LAYOUT_TABLE_MARKERS: std::ops::RangeInclusive<char> = '\u{F000}'..='\u{F002}';
+
+/// Name a punctuation key by `layout_char`, the value the keyboard hook read
+/// for it from the keyboard layout of the foreground window's thread: the
+/// character the key enters with no modifier in the low 16 bits, and the
+/// dead-key flag in bit 31, which the name leaves out (a dead key is named by
+/// the accent it carries). A letter is named in its upper case, as the letter
+/// keys are, where that is one character; a space is `Space`; a value that is
+/// no character (0 where the layout gives the key none or no layout was read,
+/// a control character, a surrogate half, or one of the layout tables' own
+/// markers `0xF000`-`0xF002`) leaves the key to its code's name, `VK_0x..`.
+pub(crate) fn punctuation_key_name(vk: u32, layout_char: i64) -> String {
+    match char::from_u32((layout_char & 0xFFFF) as u32) {
+        Some(' ') => vk_to_key_name(0x20),
+        Some(c) if !c.is_control() && !LAYOUT_TABLE_MARKERS.contains(&c) => {
+            let mut upper = c.to_uppercase();
+            match (upper.next(), upper.next()) {
+                (Some(u), None) => u.to_string(),
+                _ => c.to_string(),
+            }
+        }
+        _ => vk_to_key_name(vk),
     }
 }
 
@@ -1265,7 +1447,12 @@ fn held_at(raw: &RawEvent) -> HeldKeysAtAction {
     let (held_keys, held_presses) = raw
         .held
         .iter()
-        .map(|k| (key_name_of(k.key_code, i64::from(k.scan_code)), k.press))
+        .map(|k| {
+            (
+                key_name_of(k.key_code, i64::from(k.scan_code), k.layout_char),
+                k.press,
+            )
+        })
         .unzip();
     HeldKeysAtAction {
         held_keys,
@@ -1380,10 +1567,11 @@ pub fn key_may_move_focus(key_code: u32, modifiers: (bool, bool, bool, bool)) ->
 }
 
 /// Whether the keyboard hook marked this key-down as one that key repeat
-/// generated while the key was held down (the fourth callback parameter; see
+/// generated while the key was held down (the repeat mark in the fourth
+/// callback parameter, [`super::held_keys::KEY_REPEAT_PARAM`]; see
 /// [`RawEvent::callback_params`]).
 fn is_repeat(raw: &RawEvent) -> bool {
-    raw.callback_params[3] != 0
+    raw.callback_params[3] & super::held_keys::KEY_REPEAT_PARAM != 0
 }
 
 /// The key names that enter no character: editing, navigation, lock, system
@@ -1539,21 +1727,39 @@ pub fn worker_loop<B: AccessibilityBackend>(
                 lock_buffers(&pending).drain_into(&action_sender);
                 let _ = ack.send(worker_index);
             }
+            Ok(WorkerMessage::EndTyping) => {
+                // In-memory buffer mutation only — no backend calls inside.
+                lock_buffers(&pending).flush_pending_type_only(&action_sender);
+            }
             Ok(WorkerMessage::Shutdown) => {
-                // Drain remaining events in the queue.
-                while let Ok(WorkerMessage::Event(raw)) = receiver.try_recv() {
-                    queue_len.fetch_sub(1, Ordering::SeqCst);
-                    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                        process_raw_event(
-                            worker_index,
-                            &raw,
-                            &backend,
-                            &action_sender,
-                            &excluded_pid,
-                            &mut state,
-                            &pending,
-                        );
-                    }));
+                // Drain remaining events in the queue. A message that is no
+                // event does not end the drain: the events behind it are the
+                // person's too.
+                while let Ok(message) = receiver.try_recv() {
+                    match message {
+                        WorkerMessage::Event(raw) => {
+                            queue_len.fetch_sub(1, Ordering::SeqCst);
+                            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                                process_raw_event(
+                                    worker_index,
+                                    &raw,
+                                    &backend,
+                                    &action_sender,
+                                    &excluded_pid,
+                                    &mut state,
+                                    &pending,
+                                );
+                            }));
+                        }
+                        WorkerMessage::EndTyping => {
+                            lock_buffers(&pending).flush_pending_type_only(&action_sender);
+                        }
+                        WorkerMessage::Flush(ack) => {
+                            lock_buffers(&pending).drain_into(&action_sender);
+                            let _ = ack.send(worker_index);
+                        }
+                        WorkerMessage::Shutdown => {}
+                    }
                 }
                 // Flush all buffered (completed) actions. Holds the lock only
                 // for the in-memory drain — no backend calls inside.
@@ -1561,7 +1767,8 @@ pub fn worker_loop<B: AccessibilityBackend>(
                 break;
             }
             Err(mpsc::RecvTimeoutError::Timeout) => {
-                // Periodic flush for scroll debounce and type debounce.
+                // Periodic flush for the scroll debounce and for typing keys
+                // that got no value change.
                 let now = current_timestamp_ms();
                 let mut buffers = lock_buffers(&pending);
                 if let Some(result) = buffers.scroll_acc.try_flush(now) {
@@ -1581,7 +1788,7 @@ pub fn worker_loop<B: AccessibilityBackend>(
                         },
                     });
                 }
-                try_flush_type_debounce(&mut buffers, now, &action_sender);
+                write_keys_that_took_no_text(&mut buffers, now, &action_sender);
             }
             Err(mpsc::RecvTimeoutError::Disconnected) => {
                 // Channel closed — flush and exit.
@@ -1612,6 +1819,10 @@ struct WorkerState {
     last_focus_selector: String,
     last_value_map: HashMap<String, String>,
     last_drag_element: Option<ElementDescription>,
+    /// The file the last click selected in a file dialog's item view, read
+    /// from the dialog at that click, for the click that completes a
+    /// double-click on it (DCP-6). Taken by every click.
+    file_pick: Option<FilePick>,
     /// The element last described for a keystroke or value change while focus
     /// was known not to have moved since that event (see [`TypingFocus`]).
     typing_focus: Option<TypingFocus>,
@@ -1631,6 +1842,7 @@ impl WorkerState {
             last_focus_selector: String::new(),
             last_value_map: HashMap::new(),
             last_drag_element: None,
+            file_pick: None,
             typing_focus: None,
             mark_seq: 0,
             last_key: None,
@@ -2110,6 +2322,13 @@ fn process_raw_event<B: AccessibilityBackend>(
         None
     };
 
+    // The typing in a field has ended: its `type` goes out ahead of this
+    // event's action. The dispatcher tells the typing worker the same when
+    // the event is another worker's.
+    if ends_typing(&raw.event_type) {
+        lock_buffers(pending).flush_pending_type_only(action_sender);
+    }
+
     match &raw.event_type {
         RawEventType::Click => {
             handle_click(
@@ -2119,6 +2338,7 @@ fn process_raw_event<B: AccessibilityBackend>(
                 context_id,
                 false,
                 window_rect.clone(),
+                &mut state.file_pick,
             );
         }
         RawEventType::RightClick => {
@@ -2129,6 +2349,7 @@ fn process_raw_event<B: AccessibilityBackend>(
                 context_id,
                 true,
                 window_rect.clone(),
+                &mut state.file_pick,
             );
         }
         RawEventType::Focus => {
@@ -2176,8 +2397,6 @@ fn process_raw_event<B: AccessibilityBackend>(
             );
         }
         RawEventType::Foreground => {
-            // Flush pending type before context switch.
-            lock_buffers(pending).flush_pending_type_only(action_sender);
             handle_foreground(raw, backend, action_sender, context_id, window_rect.clone());
         }
         RawEventType::WindowCreate => {
@@ -2276,6 +2495,70 @@ fn process_raw_event<B: AccessibilityBackend>(
 // Click handling
 // ---------------------------------------------------------------------------
 
+/// A file selected in a file dialog's item view, as the dialog showed it at
+/// the click that selected it.
+#[derive(Debug, Clone)]
+struct FilePick {
+    dialog_type: String,
+    file_path: String,
+    source: String,
+    context_id: Option<i64>,
+    window_rect: Option<WindowRect>,
+}
+
+/// The file a click in a file dialog's item view selected, read from the
+/// dialog while it is open: the click landed on an item (its element is, or
+/// sits inside, a `ListItem`), and the dialog's File name field holds that
+/// item's name, which selecting a file puts there and selecting a folder does
+/// not. `None` for any other click, and when the dialog cannot be read.
+fn read_file_pick<B: AccessibilityBackend>(
+    raw: &RawEvent,
+    backend: &B,
+    element: &ElementDescription,
+    context_id: Option<i64>,
+    window_rect: &Option<WindowRect>,
+) -> Option<FilePick> {
+    // Only a click on a list item reads the dialog, so other clicks cost no
+    // accessibility query here.
+    let items: Vec<&str> = element
+        .selector
+        .split(" > ")
+        .filter_map(|segment| segment.strip_prefix("ListItem:"))
+        .collect();
+    if items.is_empty() {
+        return None;
+    }
+    let pick = read_file_dialog(raw, backend, context_id, window_rect)?;
+    // `file_path` is the dialog's directory and File name joined with a
+    // backslash, or the File name alone (the backend's read); `rsplit` always
+    // yields a first piece.
+    let file_name = pick.file_path.rsplit('\\').next()?;
+    if file_name.is_empty() || !items.contains(&file_name) {
+        return None;
+    }
+    Some(pick)
+}
+
+/// The file dialog `raw`'s window is in, as the backend reads it now, with the
+/// opening application and the click's context: `None` when the window is in
+/// no file dialog or no File name could be read.
+fn read_file_dialog<B: AccessibilityBackend>(
+    raw: &RawEvent,
+    backend: &B,
+    context_id: Option<i64>,
+    window_rect: &Option<WindowRect>,
+) -> Option<FilePick> {
+    let (dialog_type, file_path) = backend.read_file_dialog_path(raw.window_handle)?;
+    Some(FilePick {
+        dialog_type,
+        file_path,
+        source: backend.process_name(raw.window_handle),
+        context_id,
+        window_rect: window_rect.clone(),
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
 fn handle_click<B: AccessibilityBackend>(
     raw: &RawEvent,
     backend: &B,
@@ -2283,7 +2566,12 @@ fn handle_click<B: AccessibilityBackend>(
     context_id: Option<i64>,
     is_right_click: bool,
     window_rect: Option<WindowRect>,
+    file_pick: &mut Option<FilePick>,
 ) {
+    // The pick belongs to the click just before this one (the pool routes a
+    // double-click's second click to the first click's worker).
+    let previous_pick = file_pick.take();
+
     // Priority chain for element resolution:
     // 1. Pre-captured element from Input_Thread (window guaranteed alive)
     // 2. Worker's own ElementFromPoint query
@@ -2359,32 +2647,55 @@ fn handle_click<B: AccessibilityBackend>(
         payload,
     });
 
-    // File dialog detection: if the clicked element is a button named
-    // "Save" or "Open", check if the window is a file dialog.
-    if !is_right_click {
-        if let Some(ref name) = element_desc.name {
-            let name_lower = name.to_lowercase();
-            if (name_lower == "save" || name_lower == "open") && element_desc.tag == "Button" {
-                if let Some((dialog_type, file_path)) =
-                    backend.read_file_dialog_path(raw.window_handle)
-                {
-                    let source = backend.process_name(raw.window_handle);
-                    let _ = action_sender.send(ActionEvent {
-                        timestamp: raw.timestamp,
-                        context_id,
-                        capture_mode: CaptureMode::Accessibility,
-                        frame_src: None,
-                        window_rect,
-                        sequence_id: Some(raw.sequence_id),
-                        payload: ActionPayload::FileDialog {
-                            dialog_type,
-                            file_path,
-                            source,
-                        },
-                    });
-                }
-            }
-        }
+    // Only a left click confirms or selects in a file dialog: a right or
+    // middle press reads no dialog.
+    if is_right_click || is_middle_button_click(raw) {
+        return;
+    }
+
+    // File dialog proxy (DCP-6), confirmed one of two ways. A click on a
+    // button named "Save" or "Open": the dialog is read at that click.
+    let is_confirm_button = element_desc.tag == "Button"
+        && element_desc
+            .name
+            .as_deref()
+            .is_some_and(|name| matches!(name.to_lowercase().as_str(), "save" | "open"));
+    let pick = if is_confirm_button {
+        read_file_dialog(raw, backend, context_id, &window_rect)
+    } else if completes_double_click(raw) {
+        // A double-click on a file in the item view: its second press closes
+        // the dialog, often before this click is processed, so the dialog
+        // was read at the first click, which selected the file.
+        previous_pick
+    } else {
+        *file_pick = read_file_pick(raw, backend, &element_desc, context_id, &window_rect);
+        None
+    };
+    if let Some(pick) = pick {
+        // An Open dialog's text can leave out the file's extension; the file
+        // it names is recorded where exactly one does. A Save's text names
+        // the file to be written, which a file already displayed under the
+        // same text is not, so it is recorded as shown (DCP-13).
+        let file_path = if pick.dialog_type == "open" {
+            backend
+                .file_on_disk(&pick.file_path)
+                .unwrap_or(pick.file_path)
+        } else {
+            pick.file_path
+        };
+        let _ = action_sender.send(ActionEvent {
+            timestamp: raw.timestamp,
+            context_id: pick.context_id,
+            capture_mode: CaptureMode::Accessibility,
+            frame_src: None,
+            window_rect: pick.window_rect,
+            sequence_id: Some(raw.sequence_id),
+            payload: ActionPayload::FileDialog {
+                dialog_type: pick.dialog_type,
+                file_path,
+                source: pick.source,
+            },
+        });
     }
 }
 
@@ -2569,7 +2880,16 @@ fn handle_value_change<B: AccessibilityBackend>(
     let value = if is_password {
         PASSWORD_MASK.to_string()
     } else {
-        element.text.clone().unwrap_or_default()
+        // The value, never the text: the text of a field that holds nothing
+        // is its name, which nobody typed.
+        match element.value.clone() {
+            Some(value) => value,
+            None => {
+                // The element has no value: no `type`.
+                keep_keys_of_dropped_value_change(pending, action_sender);
+                return false;
+            }
+        }
     };
     record_type_value(
         raw,
@@ -2659,7 +2979,7 @@ fn last_value_key(context_id: Option<i64>, selector: &str) -> String {
 /// pending for it forward to `value`.
 ///
 /// A type pending for a different element is flushed first. For the same
-/// element the value, the sequence id and the debounce stamp move to this
+/// element the value and the sequence id move to this
 /// event; the action's own timestamp and described element stay those of the
 /// event that started it.
 #[allow(clippy::too_many_arguments)]
@@ -2689,10 +3009,9 @@ fn buffer_type_value(
     // Buffer or update the pending type event.
     match buffers.pending_type {
         Some(ref mut pt) => {
-            // Same element — update value and reset debounce timer.
+            // Same element — carry the value forward.
             pt.value = value;
             pt.sequence_id = raw.sequence_id;
-            pt.last_update = raw.timestamp;
         }
         None => {
             // New element or no pending event.
@@ -2704,7 +3023,6 @@ fn buffer_type_value(
                 context_id,
                 window_rect,
                 sequence_id: raw.sequence_id,
-                last_update: raw.timestamp,
             });
         }
     }
@@ -2805,6 +3123,41 @@ fn handle_keyboard<B: AccessibilityBackend>(
     // Skip the empty name: every left/right Shift, Control or Alt keydown;
     // a key pressed while they are held reads them into its own modifiers.
     if is_modifier_only_key(&key) {
+        return;
+    }
+
+    // A key attributed to no window (desktop capture DCP-14): a key the system
+    // takes while the foreground window is excluded. Whatever is focused is
+    // that excluded window's, so nothing is asked of the backend; the key is
+    // no keystroke of any window, so the typing state is left as it is.
+    if raw.window_handle == 0 {
+        let mut element = ElementDescription {
+            tag: "Unknown".to_string(),
+            selector: String::new(),
+            ..Default::default()
+        };
+        // Stamped like every constructed stand-in (session format,
+        // `described_after_ms`).
+        stamp_described_after(&mut element, raw.timestamp);
+        let event = ActionEvent {
+            timestamp: raw.timestamp,
+            context_id: None,
+            capture_mode: CaptureMode::Accessibility,
+            frame_src: None,
+            window_rect: None,
+            sequence_id: Some(raw.sequence_id),
+            payload: ActionPayload::Key {
+                key,
+                modifiers: modifiers_of(raw),
+                repeat: is_repeat(raw),
+                held: held_at(raw),
+                element,
+            },
+        };
+        let mut buffers = lock_buffers(pending);
+        buffers.flush_pending_type_only(action_sender);
+        flush_pending_keys(&mut buffers.pending_keys, action_sender);
+        let _ = action_sender.send(event);
         return;
     }
 
@@ -3109,7 +3462,7 @@ fn flush_pending_type(
 }
 
 /// Flush buffered printable key events — emit them as individual key actions.
-/// Called when the TYPE_DEBOUNCE_MS window expires without a type event arriving
+/// Called when the KEY_TEXT_WAIT_MS wait passes with no value change arriving
 /// (meaning the app doesn't fire EVENT_OBJECT_VALUECHANGE for these keystrokes).
 fn flush_pending_keys(
     pending_keys: &mut Vec<ActionEvent>,
@@ -3120,32 +3473,46 @@ fn flush_pending_keys(
     }
 }
 
-/// Check if the type debounce interval has elapsed and flush if so.
-/// Also flushes pending keys if the type debounce expired without a type event.
-fn try_flush_type_debounce(
+/// Write the buffered typing keys as keys once no value change has followed
+/// the last of them for [`KEY_TEXT_WAIT_MS`]: the control took no text from
+/// them (a calculator's digit keys).
+///
+/// The pending `type` is not written here. How long a person pauses between
+/// keys is no part of what they typed: a field's `type` is written when the
+/// typing in it ends (a key that is no text, typing in another element, a
+/// pointer press, a drag, a window change, a step commit or a stop).
+fn write_keys_that_took_no_text(
     buffers: &mut PendingBuffers,
     now: u64,
     action_sender: &mpsc::Sender<ActionEvent>,
 ) {
-    let should_flush_type = buffers
-        .pending_type
-        .as_ref()
-        .map(|pt| debounce_elapsed(now, pt.last_update, TYPE_DEBOUNCE_MS))
-        .unwrap_or(false);
-
-    if should_flush_type {
-        flush_pending_type(&mut buffers.pending_type, action_sender);
-        // Type event was produced — discard pending keys (superseded).
-        buffers.pending_keys.clear();
-        buffers.pending_keys_last_timestamp = 0;
-    } else if !buffers.pending_keys.is_empty()
+    if !buffers.pending_keys.is_empty()
         && buffers.pending_keys_last_timestamp > 0
-        && debounce_elapsed(now, buffers.pending_keys_last_timestamp, TYPE_DEBOUNCE_MS)
+        && debounce_elapsed(now, buffers.pending_keys_last_timestamp, KEY_TEXT_WAIT_MS)
     {
-        // No type event arrived within the debounce window — emit the keys.
         flush_pending_keys(&mut buffers.pending_keys, action_sender);
         buffers.pending_keys_last_timestamp = 0;
     }
+}
+
+/// Whether a dispatched event ends the typing in a field: the person
+/// clicked, right-clicked or dragged, or another window came to the front. A
+/// `type` pending then is complete, and is written ahead of that event's
+/// action.
+///
+/// A focus event is none: the key that moved the focus (Tab) has ended the
+/// typing already, and a program that reports the focus again on the field
+/// being typed into ends nothing. A value change that reaches the worker
+/// after one of these events starts the field's next `type`.
+fn ends_typing(event_type: &RawEventType) -> bool {
+    matches!(
+        event_type,
+        RawEventType::Click
+            | RawEventType::RightClick
+            | RawEventType::DragStart { .. }
+            | RawEventType::Drop { .. }
+            | RawEventType::Foreground
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -3423,6 +3790,7 @@ mod tests {
                     Ok(WorkerMessage::Flush(ack)) => {
                         let _ = ack.send(idx);
                     }
+                    Ok(WorkerMessage::EndTyping) => {}
                     Ok(WorkerMessage::Shutdown) | Err(_) => break,
                 }
             })
@@ -3693,6 +4061,102 @@ mod tests {
     }
 
     #[test]
+    fn a_key_attributed_to_no_window_names_no_element_and_no_window() {
+        // The hook attributes a key the system takes to no window when the
+        // self-capture exclusion excludes the foreground window (DCP-14): the
+        // worker must not describe whatever is focused (a window of Docent's
+        // own), only write the nameless stand-in with no context.
+        let (mut pool, rx) = pool_with_probe_backend(false, false);
+        let mut raw = control_key_raw_event(0x5B, 1); // the left Windows key
+        raw.window_handle = 0;
+        raw.process_id = 0;
+        pool.dispatch(raw);
+        thread::sleep(Duration::from_millis(100));
+        pool.shutdown_with_timeout(Duration::from_secs(5));
+
+        let events = drain_events(&rx);
+        assert_eq!(key_names(&events), vec!["Meta"]);
+        let event = &events[0];
+        assert_eq!(event.context_id, None);
+        assert_eq!(event.window_rect, None);
+        match &event.payload {
+            ActionPayload::Key { element, .. } => {
+                assert_eq!(element.tag, "Unknown");
+                assert_eq!(element.selector, "");
+                assert_eq!(element.name, None);
+                assert!(element.locators.is_empty());
+                // A constructed stand-in carries the describe stamp like every
+                // other (session format, `described_after_ms`; docent#220).
+                assert!(element.described_after_ms.is_some());
+            }
+            _ => panic!("expected Key payload"),
+        }
+    }
+
+    #[test]
+    fn a_key_attributed_to_no_window_states_its_modifiers_held_keys_and_repeat() {
+        // Win+E pressed while Docent is in front (DCP-14), Space held from
+        // before: the hook's record stamps each key at its dispatch as it
+        // stamps every keystroke. The Windows key is a modifier, never a held
+        // key; E states it as `meta`, Space as a held key, and its repeat.
+        use crate::capture::held_keys::{HeldKeys, KEY_REPEAT_PARAM};
+        let (mut pool, rx) = pool_with_probe_backend(false, false);
+        let mut record = HeldKeys::new();
+        let up = |_| false;
+        record.on_hook_message(0x0100, 0x20, 0x39, up);
+        let mut space = control_key_raw_event(0x20, 1);
+        space.callback_params[0] = 0x39;
+        record.stamp(&mut space);
+        let no_window = |mut raw: RawEvent| {
+            raw.window_handle = 0;
+            raw.process_id = 0;
+            raw
+        };
+        record.on_hook_message(0x0100, 0x5B, 0x5B, up);
+        let mut win = no_window(control_key_raw_event(0x5B, 2));
+        win.callback_params[0] = 0x5B;
+        record.stamp(&mut win);
+        pool.dispatch(win);
+        let mut e = no_window(control_key_raw_event(0x45, 3));
+        e.modifiers = (false, false, false, true);
+        e.callback_params[0] = 0x12;
+        let mut e_repeat = e.clone();
+        record.on_hook_message(0x0100, 0x45, 0x12, up);
+        record.stamp(&mut e);
+        pool.dispatch(e);
+        e_repeat.sequence_id = 4;
+        e_repeat.callback_params[3] = KEY_REPEAT_PARAM;
+        record.on_hook_message(0x0100, 0x45, 0x12, |_| true);
+        record.stamp(&mut e_repeat);
+        pool.dispatch(e_repeat);
+        thread::sleep(Duration::from_millis(100));
+        pool.shutdown_with_timeout(Duration::from_secs(5));
+
+        let stated: Vec<_> = drain_events(&rx)
+            .into_iter()
+            .filter_map(|e| match e.payload {
+                ActionPayload::Key {
+                    key,
+                    modifiers,
+                    repeat,
+                    held,
+                    ..
+                } => Some((key, modifiers.meta, repeat, held.held_keys)),
+                _ => None,
+            })
+            .collect();
+        let space_held = vec!["Space".to_string()];
+        assert_eq!(
+            stated,
+            vec![
+                ("Meta".to_string(), false, false, space_held.clone()),
+                ("E".to_string(), true, false, space_held.clone()),
+                ("E".to_string(), true, true, space_held),
+            ]
+        );
+    }
+
+    #[test]
     fn responsive_app_keypress_is_captured() {
         // Responsive app: the focused-element query returns promptly, the key
         // is buffered, and the worker's own Shutdown flush emits it. Everything
@@ -3822,5 +4286,121 @@ mod tests {
         );
         // Wedged worker was detached, so a second shutdown is a no-op.
         assert!(pool.workers.iter().all(|w| w.thread.is_none()));
+    }
+
+    /// A keydown of punctuation key `vk` whose layout character, as the
+    /// keyboard hook reads it, is `layout_char` (`callback_params[3]`).
+    fn punctuation_key_raw_event(vk: u32, layout_char: u32, sequence_id: u64) -> RawEvent {
+        let mut raw = control_key_raw_event(vk, sequence_id);
+        raw.callback_params[3] = i64::from(layout_char);
+        raw
+    }
+
+    // Regression: #691 — on a Danish keyboard the `+` key (VK_OEM_PLUS) was
+    // recorded as `=`, the US-layout character of that code.
+    // https://github.com/Arsarneq/docent/issues/691
+    #[test]
+    fn regression_691_punctuation_key_named_by_its_layout_character() {
+        // The Calculator case: `+` pressed with no modifier into a control that
+        // reports no value change, so the buffered key is written as a key.
+        let (mut pool, rx) = pool_with_probe_backend(false, false);
+        pool.dispatch(punctuation_key_raw_event(0xBB, u32::from('+'), 1));
+        thread::sleep(Duration::from_millis(100));
+        pool.shutdown_with_timeout(Duration::from_secs(5));
+
+        assert_eq!(
+            key_names(&drain_events(&rx)),
+            vec!["+"],
+            "VK_OEM_PLUS on a layout where it enters `+` must be named `+`"
+        );
+    }
+
+    /// A key name, as the worker names the keydown of `vk` whose
+    /// `callback_params[3]` is `layout_char`.
+    fn name_with_layout_char(vk: u32, layout_char: i64) -> String {
+        let mut raw = control_key_raw_event(vk, 1);
+        raw.callback_params[3] = layout_char;
+        key_name(&raw)
+    }
+
+    #[test]
+    fn a_punctuation_key_is_named_by_the_character_its_layout_gives_it() {
+        // Danish: `+` on VK_OEM_PLUS, `<` on VK_OEM_102, `'` on VK_OEM_2.
+        assert_eq!(name_with_layout_char(0xBB, '+' as i64), "+");
+        assert_eq!(name_with_layout_char(0xE2, '<' as i64), "<");
+        assert_eq!(name_with_layout_char(0xBF, '\'' as i64), "'");
+        // US: the same codes give the US characters.
+        assert_eq!(name_with_layout_char(0xBB, '=' as i64), "=");
+        assert_eq!(name_with_layout_char(0xE2, '\\' as i64), "\\");
+        // Every OEM code reads its layout character.
+        for vk in [0xBA, 0xC0, 0xC1, 0xC2, 0xDB, 0xDF, 0xE1, 0xE3, 0xE4, 0xE6] {
+            assert_eq!(name_with_layout_char(vk, '§' as i64), "§", "vk {vk:#x}");
+        }
+    }
+
+    #[test]
+    fn a_punctuation_key_that_enters_a_letter_is_named_in_upper_case() {
+        // Danish Æ, Ø and Å sit on OEM codes; letters are named upper case.
+        assert_eq!(name_with_layout_char(0xC0, 'æ' as i64), "Æ");
+        assert_eq!(name_with_layout_char(0xDE, 'ø' as i64), "Ø");
+        assert_eq!(name_with_layout_char(0xDD, 'Å' as i64), "Å");
+        // A letter whose upper case is more than one character keeps its own.
+        assert_eq!(name_with_layout_char(0xDB, 'ß' as i64), "ß");
+    }
+
+    #[test]
+    fn a_dead_punctuation_key_is_named_by_its_accent() {
+        // Bit 31 flags a dead key; the low word is the accent it carries.
+        assert_eq!(name_with_layout_char(0xDB, 0x8000_00B4), "´");
+        assert_eq!(name_with_layout_char(0xBA, 0x8000_00A8), "¨");
+    }
+
+    #[test]
+    fn a_punctuation_key_with_no_layout_character_is_named_by_its_code() {
+        // No character read (the layout gives the key none, or nothing read).
+        assert_eq!(name_with_layout_char(0xBB, 0), "VK_0xBB");
+        assert_eq!(name_with_layout_char(0xE2, 0), "VK_0xE2");
+        // A control character or a surrogate half is no character either.
+        assert_eq!(name_with_layout_char(0xBB, 0x1B), "VK_0xBB");
+        assert_eq!(name_with_layout_char(0xBB, 0xD800), "VK_0xBB");
+        // Nor is a layout table's own marker (WCH_NONE, WCH_DEAD, WCH_LGTR).
+        for marker in [0xF000, 0xF001, 0xF002] {
+            assert_eq!(
+                name_with_layout_char(0xBB, marker),
+                "VK_0xBB",
+                "{marker:#x}"
+            );
+        }
+        // Any other private-use value is a character the layout gives the key.
+        assert_eq!(name_with_layout_char(0xBB, 0xF003), "\u{F003}");
+        assert_eq!(name_with_layout_char(0xBB, 0xF0FF), "\u{F0FF}");
+        assert_eq!(name_with_layout_char(0xBB, 0xF100), "\u{F100}");
+        // A space is named as the space bar is.
+        assert_eq!(name_with_layout_char(0xBB, ' ' as i64), "Space");
+    }
+
+    #[test]
+    fn only_punctuation_keys_read_the_layout_character() {
+        // A letter, a digit, a keypad key and a control key keep their names.
+        assert_eq!(name_with_layout_char(0x41, 'q' as i64), "A");
+        assert_eq!(name_with_layout_char(0x31, '&' as i64), "1");
+        assert_eq!(name_with_layout_char(0x6B, '+' as i64), "Add");
+        assert_eq!(name_with_layout_char(0x0D, '+' as i64), "Enter");
+        // VK_PACKET is named by its scan code's character.
+        let mut raw = control_key_raw_event(VK_PACKET, 1);
+        raw.callback_params = [i64::from(u32::from('é')), 0, 0, '+' as i64];
+        assert_eq!(key_name(&raw), "é");
+    }
+
+    #[test]
+    fn a_punctuation_key_is_printable_input_with_or_without_a_layout_character() {
+        let mut raw = control_key_raw_event(0xE2, 1);
+        raw.callback_params[3] = '<' as i64;
+        assert!(is_printable_key(&raw));
+        // Without one it is named by its code and is still a typing key: the
+        // typing table decides by the key's code (is_typing_key_code).
+        raw.callback_params[3] = 0;
+        assert_eq!(key_name(&raw), "VK_0xE2");
+        assert!(is_printable_key(&raw));
     }
 }

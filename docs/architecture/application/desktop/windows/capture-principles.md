@@ -54,7 +54,7 @@ travel different channels with no mutual ordering.
 The barrier does not wait on sequence numbers. The ids delivered to the frontend
 are legitimately a **subset** of those the input thread assigned — the workers
 drop or coalesce input, for example: lone Shift, Ctrl or Alt presses are
-dropped, a typing burst coalesces to one action carrying only its last id, and a
+dropped, the typing in a field is one action carrying only its last id, and a
 scroll flushed with no arriving event (the periodic tick or a buffer drain)
 carries no id at all — so "wait until the highest id assigned has arrived" is
 both unsatisfiable in normal use and unable to tell a filtered id from a late
@@ -117,7 +117,8 @@ are not are kept as
 in-surface event enters the recording (WinEvents additionally pass the
 [foreground gate](#event-attribution-and-foreground-scope), DCP-14). Each
 filter judges the process of the event's
-[attributed window](#event-attribution-and-foreground-scope) (DCP-14):
+[attributed window](#event-attribution-and-foreground-scope) (DCP-14); an
+event attributed to no window is judged by the target filter alone:
 
 - **Target application** — when the user selects a target application, only
   events attributed to its process are captured; with no target set, all
@@ -152,8 +153,29 @@ event source of the DCP-4 surface names the window whose process is judged:
 | Event source            | Attributed window                                                                        |
 | ----------------------- | ---------------------------------------------------------------------------------------- |
 | Low-level mouse hook    | The window under the cursor (the foreground window when no window resolves at the point) |
-| Low-level keyboard hook | The foreground window                                                                    |
+| Low-level keyboard hook | The foreground window, or no window for a key the system takes (below)                   |
 | WinEvent callbacks      | The window the event names                                                               |
+
+A key the system takes is one the system acts on, not the foreground window:
+the Windows key, or any key pressed while it is held; Escape with Ctrl held
+and Alt not (Ctrl+Esc opens Start); and Tab or Escape with Alt held (Alt+Tab
+and Alt+Esc switch windows). An Alt press alone is none of these. Such a key
+is attributed to no window when the self-capture exclusion (DCP-5) excludes
+the foreground window, and that window stays out of the recording; under any
+other foreground window it is attributed to the foreground window, as every
+key is. With a target set, a key attributed to no window is not the target's
+input and is dropped. With none, it is recorded with `context_id` and
+`window_rect` null and with the stand-in element of a key whose element is
+unknown (tag `Unknown`, empty selector) with no name, also where the system
+then acts on the foreground window (Win+Arrow, for example); the input thread
+reads no focused control for it (DCP-11), so no control of the excluded window
+is its element. It carries `modifiers`, `repeat` and `held_keys` as every
+`key` does (DCP-9), the Windows key held at it among its modifiers. Its press
+counts
+as low-level input for the window changes it causes (DCP-7), the switch an
+Alt+Tab makes among them (DCP-6), with the excluded foreground window as the
+input's window (DCP-8); it counts as no keyboard input, so no value change
+correlates with it.
 
 WinEvents are additionally **foreground-gated**: the Input_Thread tracks the
 foreground process — seeded from the foreground window when capture starts,
@@ -161,7 +183,7 @@ updated by foreground-change events and by clicks landing in a different
 top-level window, each only when it passes the scope filters — and a WinEvent other than a
 foreground change MUST NOT be dispatched from any other process. Low-level
 input is deliberately not foreground-gated: keyboard input is attributed to
-the foreground window by construction, and a click into a background window
+the foreground window by construction (or to no window, above), and a click into a background window
 is itself the user action that makes that window foreground.
 
 ---
@@ -173,12 +195,13 @@ each captured directly with its window's activation recorded beside it (core
 CP-17), and actions outside the hooks' visibility, captured by proxy (core
 CP-7):
 
-| User action               | Captured as                                          |
-| ------------------------- | ---------------------------------------------------- |
-| Click a different window  | `context_switch` beside the `click` or `right_click` |
-| Alt+Tab                   | `context_switch` beside the `key`                    |
-| Click title bar close (X) | `context_close`                                      |
-| File dialog selection     | `file_dialog`                                        |
+| User action                                                                         | Captured as                                          |
+| ----------------------------------------------------------------------------------- | ---------------------------------------------------- |
+| Click a different window                                                            | `context_switch` beside the `click` or `right_click` |
+| Alt+Tab                                                                             | `context_switch` beside the `key`                    |
+| Click title bar close (X)                                                           | `context_close`                                      |
+| File dialog confirmed by its Save or Open button                                    | `file_dialog` beside the `click`                     |
+| File dialog confirmed by a double-click on a file in its item view (DCP-10, DCP-13) | `file_dialog` beside the second `click`              |
 
 ---
 
@@ -232,7 +255,8 @@ to be dispatched in a top-level window outside that set has a
 `context_switch` into that window dispatched before it, with the event's
 timestamp, and the window joins the set. A close introduces nothing, and a
 lone Shift, Ctrl or Alt press, which the worker drops (DCP-13), counts for
-nothing. A window introduced once takes no further switch when actions return
+nothing, as does a key attributed to no window (DCP-14), which has no window
+to introduce. A window introduced once takes no further switch when actions return
 to it, and an action in a window introduced earlier carries that window's
 `context_id` with no switch before it (after a wheel over an inactive window,
 a key in the window in front, for example). The foreground row's
@@ -292,14 +316,40 @@ such a control a `key` too, whatever the control is named. Keys buffered on one 
 typing key arrives for another element, so typing into the second supersedes
 none of them.
 If a value-change event arrives (producing a `type` action), the buffered
-keys are discarded (superseded). If no value-change arrives (non-editable
-control like Calculator), the keys are emitted individually. A keystroke
+keys are discarded (superseded). If no value-change arrives within 500 ms of
+the last buffered key (non-editable control like Calculator), the keys are
+emitted individually. The `type` itself is held for the field and carried
+forward to each new value, and it is written when the typing in the field
+ends: a key that is no typing key is pressed, a typing key is pressed in
+another element, the pointer is pressed (a click, a right-click or a drag),
+another window comes to the front, the step is committed or the recording
+stops. A focus event ends nothing: the key that moved the focus has ended
+the typing already, and a program that reports the focus again on the field
+being typed into leaves its text the one `type`. A pause between two keys ends nothing: how
+fast a person types is no part of what they typed, so text typed with pauses
+is the one `type`, as on the extension. The `type` is written with the
+sequence id of its last value change, ahead of the action that ended the
+typing; a value change that reaches the recorder only after that action starts the
+field's next `type`, behind it: a program slow to take the last key, and
+also a value change the click itself caused within a second of the last key
+(a button that clears the field, a suggestion that fills it), which the
+extension does not write, a value the page set being no entry; a departure
+from the extension (core CP-19;
+[docent#710](https://github.com/Arsarneq/docent/issues/710)). Its value is the value the element holds, an empty string for a
+field that was emptied; an element that has no value gives a value change no
+`type`, and its keys stay the record. A keystroke
 injected as Unicode (`VK_PACKET`, the path of IME results, remote-desktop
 stacks, software keyboards and automation) is printable input whatever it
 carries: the hook passes on its scan code, which is the injected UTF-16 code
 unit, and the worker names the key by that character (a space as `Space`,
 and a unit that is no character on its own as `Unidentified`), so the same
-text is never recorded twice. Every keyboard event and every value-change
+text is never recorded twice. For a punctuation key (the codes the
+[session format](../../../../technical/session-format.md)'s `key` row lists,
+with the naming) the hook also reads the character the key enters with no
+modifier on the keyboard layout of the foreground window's thread, a read that
+leaves the keyboard state alone, and the worker names the key by it (by its
+code, `VK_0x..`, where none was read); a punctuation key is a typing key
+either way. Every keyboard event and every value-change
 event is processed by one worker, the typing worker, in the order the input
 thread dispatched them, so a value change is processed after the keystrokes
 that caused it and supersedes each buffered one, however busy the pool is
@@ -326,10 +376,11 @@ and the key itself, each a key whose own key-down is a `key` action, by the
 name that action carries, in the order they went down. The hook's record
 supplies them: it notes, for each key that is down, the key-down that was
 dispatched for recording (the press, or the first repeat dispatched when the
-press was not, in an excluded window or before the capture started), and
-stamps each keystroke with the keys so noted. The panel keeps a name only
-where that key-down is a `key` action of the step, once the step's actions are
-complete: a key-down that became text (part of a `type`, masked or not) names
+press was not, in an excluded window or before the capture started), with
+the layout character that key-down carried, so a held punctuation key is named
+by it as its own `key` is, and stamps each keystroke with the keys so noted.
+The panel keeps a name only where that key-down is a `key` action of the
+step, once the step's actions are complete: a key-down that became text (part of a `type`, masked or not) names
 no held key, and a typing key that was written as a `key` (one no value change
 superseded) is named as any key is. No key is
 known to be down when a capture starts, which each step's capture does anew;
@@ -377,6 +428,18 @@ as the operating system has it, so the two can state different keys for one
 right-click — a departure (core CP-19;
 [docent#715](https://github.com/Arsarneq/docent/issues/715)).
 
+A left click whose press is the second press of a double-click is marked as
+completing one. The test is the system's own: the press lands in the same
+window as the press of the left click before it, within the system's
+double-click time after that press and inside the system's double-click
+rectangle around it. A press that completes a double-click starts no new pair,
+and a right or middle press, or a drag, between two left clicks breaks the
+pair. The mark changes no action: a double-click is recorded as its two
+`click` actions
+([docent#236](https://github.com/Arsarneq/docent/issues/236)). The file-dialog
+proxy reads it (DCP-6, DCP-13). A middle-button press's `click` is marked as
+the middle button's, and the proxy reads only left clicks.
+
 ---
 
 ## Sensitive-value redaction
@@ -399,9 +462,10 @@ field's masked `type` it sits beside (a field with an empty selector joins
 none), so no key name carries a character typed into a sensitive field; a key
 that enters no character, and a shortcut, stays a `key`, as does a key whose
 element could not be described (the `Unknown` element with an empty selector,
-whose name is the window's title and no field name), and a key on a control
-that takes no typed text (DCP-9's list of control types: a checkbox named
-"Remember password" is ticked by its Space, not typed into). Both the shared detection
+whose name is the window's title, or none for a key attributed to no
+window (DCP-14), and no field name), and a key on a control that takes no
+typed text (DCP-9's list of control types: a checkbox named "Remember
+password" is ticked by its Space, not typed into). Both the shared detection
 and the redaction shape are the cross-platform rule ([core
 CP-11](../../../../architecture/system/capture-principles.md#sensitive-values)).
 (Tokened-URL redaction is extension-only, since the desktop app has no captured
@@ -489,7 +553,9 @@ change was dispatched after the hand-over is written as a `key` beside the
 `type`; exactly the focus and selection events route
 **sticky** — the same window handle always reaches the same worker — so their
 deduplication stays correct; a drop routes to the worker that took its drag
-start; events without a routing affinity use shortest-queue dispatch.
+start; a click that completes a double-click (DCP-10) routes to the worker that
+took the click before it, so the file-dialog proxy (DCP-6) reads the pair on
+one worker; events without a routing affinity use shortest-queue dispatch.
 
 ---
 
@@ -523,15 +589,49 @@ with a caveat):
   (120 per detent), and the floor is `SCROLL_MIN_DISTANCE_PX` in
   `src/capture/timing.rs`, whose `_PX` suffix is historical
 - A file dialog confirmed from the keyboard (Enter on the filename field)
-  produces no `file_dialog` action — the proxy triggers only on a click of
-  the dialog's Save/Open button; the extension records its `file_upload`
-  whatever confirmed the chooser, so this is a departure (core CP-19;
+  produces no `file_dialog` action — the proxy triggers only on a left click
+  of the dialog's Save/Open button and on a left double-click on a file in its
+  item view (DCP-6); a middle press on either confirms nothing in the proxy
+  (DCP-10); the extension records its `file_upload` whatever confirmed the
+  chooser, so this is a departure (core CP-19;
   [docent#710](https://github.com/Arsarneq/docent/issues/710))
 - A file dialog whose confirm button is named other than "Save" or "Open", or
   whose window title contains none of "save as", "save" or "open" — both tests
-  English-only, so a localized dialog — produces no `file_dialog` action; a
-  departure (core CP-19;
+  English-only, so a localized dialog — produces no `file_dialog` action; the
+  title test applies to the double-click as well, the button-name test to the
+  button only; a departure (core CP-19;
   [docent#710](https://github.com/Arsarneq/docent/issues/710))
+- A file confirmed by a double-click in a file dialog's item view — captured
+  with a caveat: the second press closes the dialog, so the dialog is read at
+  the double-click's first click, which selected the file. The `file_dialog`
+  is written beside the second click when the first click landed on a list
+  item and that read found the dialog's File name equal to the item's name,
+  which selecting a file puts there. A double-click on a folder, whose
+  selection leaves the File name as it was, navigates the dialog and records
+  none — unless the File name already held that folder's name (typed there
+  earlier, for example), when a `file_dialog` naming the folder is written
+  though the dialog navigated; a departure (core CP-18). None is recorded
+  either when the read fails as the dialog closes, or finds the File name not
+  yet filled
+- A `file_dialog` whose `file_path` is the File name text as the dialog shows
+  it, joined to the dialog's folder, rather than a file on disk. The text
+  lacks a file's extension wherever the shell hides it (for known file types
+  where the system hides extensions, and for some types, such as shortcuts,
+  whatever the setting). For an Open dialog, `file_path` names the file the
+  text names: among the files in the dialog's folder named as the text
+  followed by an extension, the one whose name as the shell displays it is
+  the text (case aside), or the text's own path where that is a file, when
+  exactly one file is either; the lookup is made when the click is processed
+  and lists at most 64 of the folder's entries. The text as shown is recorded
+  where an Open dialog's text names no file or several, where more than 64
+  entries are listed, and where the path is not a full one (no folder was
+  read, or the text is relative). It is recorded for every Save and Save As
+  too: their text names the file to be written, which need not exist yet and
+  need not be a file already displayed under the same text (report.pdf,
+  displayed as "report" where extensions are hidden, while a report is saved
+  as a .docx), so the extension the dialog adds for the chosen file type is
+  not recorded; a departure (core CP-18). A dialog whose File name box is
+  empty records no `file_dialog`
 - A `type` whose value equals the typing worker's last for the same element
   (its selector within its window) — not written, the keys buffered for it
   discarded with it, and for a password field, whose value is the mask, every

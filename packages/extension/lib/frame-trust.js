@@ -3,7 +3,8 @@
  *
  * The service worker tracks the frames of recorded tabs in an active-frame
  * registry, populated and cleared along the routes extension capture-principles
- * ECP-3 states. An `APPEND_ACTION` message is trusted only when it comes from
+ * ECP-3 states. A capture-path message that acts on the recording (an
+ * `APPEND_ACTION`, a `POINTER_PRESSED`) is trusted only when it comes from
  * our own extension, during a live recording, from a (tab, frame) pair present
  * in that registry — otherwise a page that can reach the extension's message
  * port could inject arbitrary actions into a session (an embedded ad /
@@ -20,7 +21,7 @@
  */
 
 /**
- * Decide whether an APPEND_ACTION sender is a trusted, recorded frame.
+ * Decide whether a capture-path sender is a trusted, recorded frame.
  *
  * @param {object} params
  * @param {object} params.sender — chrome.runtime message sender

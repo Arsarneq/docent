@@ -61,7 +61,7 @@ fn arb_native_properties() -> impl Strategy<Value = NativeElementProperties> {
                     name,
                     localized_control_type,
                     is_password,
-                    value,
+                    value: Some(value),
                     tree_path,
                     ..Default::default()
                 }
@@ -134,7 +134,8 @@ proptest! {
 
         // -- text truncation ------------------------------------------------
         if !props.is_password {
-            let has_text_source = !props.value.is_empty() || !props.name.is_empty();
+            let value = props.value.as_deref().unwrap_or("");
+            let has_text_source = !value.is_empty() || !props.name.is_empty();
             if has_text_source {
                 prop_assert!(
                     el.text.is_some(),
@@ -148,7 +149,7 @@ proptest! {
                     char_count
                 );
                 // If the source text is longer than 100 chars, it must end with '…'
-                let source = if !props.value.is_empty() { &props.value } else { &props.name };
+                let source = if !value.is_empty() { value } else { &props.name };
                 if source.chars().count() > 100 {
                     prop_assert!(
                         text.ends_with('…'),

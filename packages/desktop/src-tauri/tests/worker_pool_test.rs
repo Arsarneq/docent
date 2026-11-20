@@ -1,12 +1,14 @@
 // Property tests for the capture worker pool infrastructure.
 //
 // The principal subjects: sequence numbering, shortest-queue dispatch, typing
-// and sticky routing, drag-pair routing, and the dead-worker drain rescues (dispatch-time
-// respawn and shutdown join) — the pipeline-level truth-lock — alongside
-// end-to-end action truth-locks over the same pipeline (key, right-click,
-// selection, scroll flush, locator pass-through, excluded-PID discard). The
-// click-vs-drag threshold itself belongs to the Windows provider and is pinned
-// beside it, in the `capture::windows` module's own unit tests.
+// and sticky routing, drag-pair and double-click routing, and the dead-worker
+// drain rescues (dispatch-time respawn and shutdown join) — the pipeline-level
+// truth-lock — alongside end-to-end action truth-locks over the same pipeline
+// (key, right-click, selection, scroll flush, locator pass-through,
+// excluded-PID discard, the file-dialog proxy), and the double-click pairing
+// the mouse hook keeps (DCP-10). The click-vs-drag threshold itself belongs to
+// the Windows provider and is pinned beside it, in the `capture::windows`
+// module's own unit tests.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc;
@@ -138,6 +140,7 @@ proptest! {
                             wc.fetch_add(1, Ordering::SeqCst);
                         }
                         Ok(WorkerMessage::Flush(_)) => {}
+                        Ok(WorkerMessage::EndTyping) => {}
                         Ok(WorkerMessage::Shutdown) => break,
                         Err(_) => break,
                     }
@@ -233,6 +236,7 @@ proptest! {
                             }
                         }
                         Ok(WorkerMessage::Flush(_)) => {}
+                        Ok(WorkerMessage::EndTyping) => {}
                         Ok(WorkerMessage::Shutdown) => break,
                         Err(_) => break,
                     }
@@ -339,6 +343,7 @@ proptest! {
                             events.lock().unwrap().push(event_name.to_string());
                         }
                         Ok(WorkerMessage::Flush(_)) => {}
+                        Ok(WorkerMessage::EndTyping) => {}
                         Ok(WorkerMessage::Shutdown) => break,
                         Err(_) => break,
                     }
@@ -516,7 +521,8 @@ impl AccessibilityBackend for MockBackend {
             name: Some("Text Field".to_string()),
             role: Some("editable text".to_string()),
             element_type: None,
-            text: Some(text),
+            text: Some(text.clone()),
+            value: Some(text),
             selector: self.selector.clone(),
             ..Default::default()
         })
@@ -726,9 +732,9 @@ proptest! {
 
     /// Type coalescing
     ///
-    /// For any sequence of rapid value-change events for the same element
-    /// within the debounce interval, the worker emits exactly one `type`
-    /// ActionEvent with the final value.
+    /// For any sequence of value-change events for the same element, the
+    /// worker emits exactly one `type` ActionEvent with the final value,
+    /// when the typing ends (here at the stop).
     #[test]
     fn type_coalescing_produces_one_event_per_keystroke_sequence(
         keystroke_count in 2usize..20,
@@ -747,14 +753,13 @@ proptest! {
         let backend = MockBackend::with_focused_values(values);
         let harness = WorkerTestHarness::new(backend);
 
-        // Send rapid value-change events with the same timestamp base
-        // (all within the debounce window).
+        // Send value-change events with the same timestamp base.
         let base_ts = 10000u64;
         for i in 0..keystroke_count {
             let raw = RawEvent {
                 event_type: RawEventType::ValueChange,
                 sequence_id: (i + 1) as u64,
-                timestamp: base_ts + (i as u64 * 10), // 10ms apart — well within 500ms debounce
+                timestamp: base_ts + (i as u64 * 10),
                 screen_x: 0,
                 screen_y: 0,
                 window_handle: 100,
@@ -770,7 +775,7 @@ proptest! {
             harness.send_event(raw);
         }
 
-        // Wait for debounce to expire (500ms) plus some margin.
+        // Longer than any pause rule: no pause writes the type.
         thread::sleep(Duration::from_millis(700));
 
         let events = harness.shutdown();
@@ -805,7 +810,7 @@ proptest! {
 }
 
 // ---------------------------------------------------------------------------
-// Pending type event is flushed before focus or context-switch
+// Pending type event is flushed before a context switch
 // ---------------------------------------------------------------------------
 
 proptest! {
@@ -813,12 +818,11 @@ proptest! {
 
     /// Flush on context change
     ///
-    /// When a worker has a pending type event and receives a focus or
-    /// foreground event, the type event is emitted before the focus/context_switch
-    /// event, and the type event's sequence_id is lower.
+    /// When a worker has a pending type event and receives a foreground
+    /// event, the type event is emitted before the context_switch event, and
+    /// the type event's sequence_id is lower.
     #[test]
     fn pending_type_flushed_before_context_change(
-        flush_trigger in 0u8..2, // 0 = Focus, 1 = Foreground
         value_change_count in 1usize..5,
     ) {
         // Build values for the value-change sequence.
@@ -827,21 +831,13 @@ proptest! {
             .collect();
         let final_value = values.last().unwrap().clone();
 
-        // The focused_element call for the Focus event will also consume
-        // from the queue, so add an extra value for that.
-        let mut all_values = values.clone();
-        if flush_trigger == 0 {
-            // Focus event calls focused_element() once
-            all_values.push("focus_element_text".to_string());
-        }
-
-        let backend = MockBackend::with_focused_values(all_values);
+        let backend = MockBackend::with_focused_values(values.clone());
         let harness = WorkerTestHarness::new(backend);
 
         let base_ts = 10000u64;
         let type_seq_start = 1u64;
 
-        // Send value-change events (rapid, within debounce).
+        // Send the value-change events of one field's typing.
         for i in 0..value_change_count {
             let raw = RawEvent {
                 event_type: RawEventType::ValueChange,
@@ -865,14 +861,10 @@ proptest! {
         // Small delay to ensure value-change events are processed.
         thread::sleep(Duration::from_millis(100));
 
-        // Now send the context-change event (Focus or Foreground).
+        // Now send the context-change event.
         let context_seq = type_seq_start + value_change_count as u64;
         let context_event = RawEvent {
-            event_type: if flush_trigger == 0 {
-                RawEventType::Focus
-            } else {
-                RawEventType::Foreground
-            },
+            event_type: RawEventType::Foreground,
             sequence_id: context_seq,
             timestamp: base_ts + 200,
             screen_x: 0,
@@ -901,7 +893,7 @@ proptest! {
         let context_idx = events.iter().position(|e| {
             matches!(
                 e.payload,
-                ActionPayload::Focus { .. } | ActionPayload::ContextSwitch { .. }
+                ActionPayload::ContextSwitch { .. }
             )
         });
 
@@ -912,7 +904,7 @@ proptest! {
         );
         prop_assert!(
             context_idx.is_some(),
-            "expected a Focus/ContextSwitch event to be emitted"
+            "expected a ContextSwitch event to be emitted"
         );
 
         let ti = type_idx.unwrap();
@@ -987,6 +979,7 @@ fn worker_panic_respawns_and_redistributes() {
                             wc.fetch_add(1, Ordering::SeqCst);
                         }
                         Ok(WorkerMessage::Flush(_)) => {}
+                        Ok(WorkerMessage::EndTyping) => {}
                         Ok(WorkerMessage::Shutdown) => break,
                         Err(_) => break,
                     }
@@ -1060,6 +1053,7 @@ fn repeatedly_failing_workers_get_respawned_and_shutdown_completes() {
                         panic!("simulated worker panic");
                     }
                     Ok(WorkerMessage::Flush(_)) => {}
+                    Ok(WorkerMessage::EndTyping) => {}
                     Ok(WorkerMessage::Shutdown) => {}
                     Err(_) => {}
                 }
@@ -1135,7 +1129,7 @@ fn worker_shutdown_flushes_pending_type_event() {
     let backend = MockBackend::with_focused_values(values);
     let harness = WorkerTestHarness::new(backend);
 
-    // Send value-change events (rapid, within debounce).
+    // Send the value-change events of one field's typing.
     for i in 0..3 {
         let raw = RawEvent {
             event_type: RawEventType::ValueChange,
@@ -1156,10 +1150,10 @@ fn worker_shutdown_flushes_pending_type_event() {
         harness.send_event(raw);
     }
 
-    // Small delay to ensure events are queued but debounce hasn't expired.
+    // Small delay to ensure the events are processed.
     thread::sleep(Duration::from_millis(100));
 
-    // Shutdown immediately (before 500ms debounce expires).
+    // The typing has not ended: the stop writes its type.
     let events = harness.shutdown();
 
     // There should be exactly one Type event with the final value.
@@ -1194,7 +1188,7 @@ fn regression_298_flush_drains_pending_and_worker_continues() {
     let values = vec!["h".to_string(), "he".to_string(), "hel".to_string()];
     let harness = WorkerTestHarness::new(MockBackend::with_focused_values(values));
 
-    // Buffer a pending type via rapid value-changes (within the 500ms debounce).
+    // Hold a pending type: value changes of a typing that has not ended.
     for i in 0..3 {
         harness.send_event(RawEvent {
             event_type: RawEventType::ValueChange,
@@ -1213,10 +1207,9 @@ fn regression_298_flush_drains_pending_and_worker_continues() {
             held: Vec::new(),
         });
     }
-    thread::sleep(Duration::from_millis(50)); // queued, debounce not yet expired
+    thread::sleep(Duration::from_millis(50)); // processed, the type held
 
-    // The flush drains the buffered type immediately — without waiting out the
-    // 500ms debounce — and the worker acknowledges.
+    // The flush writes the held type, and the worker acknowledges.
     let acked = harness.flush();
     assert_eq!(acked, 0, "the single worker (index 0) should acknowledge");
 
@@ -1306,7 +1299,7 @@ fn regression_298_flush_all_drains_workers_and_emits_sentinel_last() {
             held: Vec::new(),
         });
     }
-    thread::sleep(Duration::from_millis(80)); // buffered, debounce not expired
+    thread::sleep(Duration::from_millis(80)); // processed, the type held
 
     let wedged = pool.flush_all(7, Duration::from_secs(2));
     assert!(
@@ -1385,6 +1378,7 @@ impl AccessibilityBackend for PoisonEventBackend {
             role: Some("editable text".to_string()),
             element_type: None,
             text: Some("hello".to_string()),
+            value: Some("hello".to_string()),
             selector: "Edit#input1".to_string(),
             ..Default::default()
         })
@@ -1542,6 +1536,7 @@ fn locator_rich_element() -> ElementDescription {
         ],
         // The backend emits no latency; the worker stamps it (docent#220).
         described_after_ms: None,
+        value: None,
     }
 }
 
@@ -2100,7 +2095,7 @@ fn value_change_deduplication_same_value() {
         harness.send_event(raw);
     }
 
-    // Wait for debounce to expire.
+    // Longer than the wait of a key that took no text.
     thread::sleep(Duration::from_millis(700));
     let events = harness.shutdown();
 
@@ -2563,7 +2558,7 @@ fn regression_260_injected_keys_are_superseded_by_the_type() {
     value_change.timestamp = t + 3;
     harness.send_event(value_change);
 
-    // Past TYPE_DEBOUNCE_MS (500 ms), so the type flushes on the worker's tick.
+    // Past KEY_TEXT_WAIT_MS (500 ms): a key no value change took would be written by now.
     thread::sleep(Duration::from_millis(900));
     let events = harness.shutdown();
 
@@ -2835,6 +2830,11 @@ struct TypingBackend {
     gate: Gate,
     element_type: Option<String>,
     text: Option<String>,
+    /// The field's text as it stands now, where a test types it in over time.
+    live_text: Option<Arc<Mutex<String>>>,
+    /// Whether the element has a value at all (a document that reports its
+    /// text some other way has none).
+    has_value: bool,
 }
 
 impl TypingBackend {
@@ -2843,6 +2843,19 @@ impl TypingBackend {
             gate: Arc::clone(gate),
             element_type: None,
             text: Some(text.to_string()),
+            live_text: None,
+            has_value: true,
+        }
+    }
+
+    /// An edit field whose text is whatever `live_text` holds when it is read.
+    fn edit_live(gate: &Gate, live_text: &Arc<Mutex<String>>) -> Self {
+        Self {
+            gate: Arc::clone(gate),
+            element_type: None,
+            text: None,
+            live_text: Some(Arc::clone(live_text)),
+            has_value: true,
         }
     }
 
@@ -2851,6 +2864,8 @@ impl TypingBackend {
             gate: Arc::clone(gate),
             element_type: Some("password".to_string()),
             text: None,
+            live_text: None,
+            has_value: true,
         }
     }
 }
@@ -2879,7 +2894,19 @@ impl AccessibilityBackend for TypingBackend {
             name: Some("Field".to_string()),
             role: Some("editable text".to_string()),
             element_type: self.element_type.clone(),
-            text: self.text.clone(),
+            // As the mapping gives them: the text is the value, or the name
+            // where the value is empty; the value is the value.
+            text: match &self.live_text {
+                Some(live) => Some(live.lock().unwrap().clone())
+                    .filter(|text| !text.is_empty())
+                    .or(Some("Field".to_string())),
+                None => self.text.clone(),
+            },
+            value: match &self.live_text {
+                Some(live) if self.has_value => Some(live.lock().unwrap().clone()),
+                Some(_) => None,
+                None => self.text.clone(),
+            },
             selector: "Edit#field1".to_string(),
             ..Default::default()
         })
@@ -2924,6 +2951,24 @@ fn value_change(seq: u64, timestamp: u64, window_handle: i64) -> RawEvent {
     raw.sequence_id = seq;
     raw.timestamp = timestamp;
     raw
+}
+
+/// Type one character into the live field: the text gains it, and its key and
+/// the value change the key caused are handed to `send`, the next two
+/// sequence ids taken from `seq`. Waits for the worker to have processed both.
+fn type_character(
+    live: &Arc<Mutex<String>>,
+    character: char,
+    seq: &mut u64,
+    mut send: impl FnMut(RawEvent),
+) {
+    live.lock().unwrap().push(character);
+    let t = now_ms();
+    *seq += 1;
+    send(layout_key(*seq, t, character.to_ascii_uppercase() as u32));
+    *seq += 1;
+    send(value_change(*seq, t + 5, 1234));
+    thread::sleep(Duration::from_millis(100));
 }
 
 fn type_values_of(events: &[ActionEvent]) -> Vec<String> {
@@ -2973,7 +3018,7 @@ fn regression_noissue_a_typing_burst_over_busy_workers_records_one_type() {
     }
     open_gate(&gate);
 
-    // Past TYPE_DEBOUNCE_MS (500 ms), so every worker's tick has flushed.
+    // Past KEY_TEXT_WAIT_MS (500 ms): a key no value change took would be written by now.
     thread::sleep(Duration::from_millis(900));
     pool.shutdown();
     let events: Vec<ActionEvent> = action_rx.try_iter().collect();
@@ -3024,6 +3069,7 @@ proptest! {
                             }
                         }
                         Ok(WorkerMessage::Flush(_)) => {}
+                        Ok(WorkerMessage::EndTyping) => {}
                         Ok(WorkerMessage::Shutdown) => break,
                         Err(_) => break,
                     }
@@ -3242,6 +3288,348 @@ fn repeated_keystrokes_in_an_edit_field_are_the_one_type_with_every_character() 
     }
 }
 
+/// Regression: text typed with a pause of more than 500 ms between
+/// the keys was recorded as one `type` per key, each holding the field's text
+/// so far ("k", "ke", "kee", "keep"): the pending `type` was written whenever
+/// no value change had followed it for that long. How fast a person types is
+/// no part of what they typed.
+#[test]
+fn regression_719_text_typed_with_pauses_between_the_keys_is_one_type() {
+    let gate = closed_gate();
+    open_gate(&gate);
+    let live = Arc::new(Mutex::new(String::new()));
+    let harness = WorkerTestHarness::new(TypingBackend::edit_live(&gate, &live));
+
+    let mut seq = 0;
+    for character in "keep".chars() {
+        type_character(&live, character, &mut seq, |raw| harness.send_event(raw));
+        // Longer than the old pause rule (500 ms) and the worker's tick.
+        thread::sleep(Duration::from_millis(600));
+    }
+    let events = harness.shutdown();
+
+    assert_eq!(type_values_of(&events), vec!["keep"], "got {events:?}");
+    assert_eq!(
+        key_names_of(&events),
+        Vec::<String>::new(),
+        "got {events:?}"
+    );
+}
+
+/// Regression: a field emptied by a key was recorded with its name as the
+/// `type` value. An element's text falls back to its name where its value is
+/// empty, and the `type` value was read from that text.
+#[test]
+fn regression_720_a_field_emptied_by_a_key_is_the_empty_type_not_its_name() {
+    let gate = closed_gate();
+    open_gate(&gate);
+    let live = Arc::new(Mutex::new("a".to_string()));
+    let harness = WorkerTestHarness::new(TypingBackend::edit_live(&gate, &live));
+
+    live.lock().unwrap().clear();
+    let t = now_ms();
+    harness.send_event(layout_key(1, t, 0x08)); // Backspace
+    harness.send_event(value_change(2, t + 5, 1234));
+    thread::sleep(Duration::from_millis(100));
+    let events = harness.shutdown();
+
+    assert_eq!(key_names_of(&events), vec!["Backspace"], "got {events:?}");
+    assert_eq!(type_values_of(&events), vec![""], "got {events:?}");
+}
+
+/// An element that has no value gives a value change no `type`: its name is
+/// not what was typed, and the keys stay the record.
+#[test]
+fn a_value_change_on_an_element_with_no_value_keeps_the_keys() {
+    let gate = closed_gate();
+    open_gate(&gate);
+    let live = Arc::new(Mutex::new(String::new()));
+    let mut backend = TypingBackend::edit_live(&gate, &live);
+    backend.has_value = false;
+    let harness = WorkerTestHarness::new(backend);
+
+    let t = now_ms();
+    harness.send_event(layout_key(1, t, 0x41));
+    harness.send_event(value_change(2, t + 5, 1234));
+    thread::sleep(Duration::from_millis(100));
+    let events = harness.shutdown();
+
+    assert_eq!(
+        type_values_of(&events),
+        Vec::<String>::new(),
+        "got {events:?}"
+    );
+    assert_eq!(key_names_of(&events), vec!["A"], "got {events:?}");
+}
+
+/// The events that end the typing in a field, each with the name it is
+/// reported under when its case fails.
+fn typing_enders() -> Vec<(&'static str, RawEventType)> {
+    vec![
+        ("click", RawEventType::Click),
+        ("right click", RawEventType::RightClick),
+        (
+            "drag start",
+            RawEventType::DragStart {
+                source_coords: (0, 0),
+            },
+        ),
+        (
+            "drop",
+            RawEventType::Drop {
+                source_coords: (0, 0),
+            },
+        ),
+        ("foreground", RawEventType::Foreground),
+    ]
+}
+
+/// A field's `type` is written when the typing in it ends, and a click, a
+/// drag or a window change ends it, whichever worker
+/// that event is routed to: the text typed before it is one `type`, written
+/// while the recording still runs, and the text typed after it is the next.
+#[test]
+fn regression_719_the_event_that_ends_the_typing_writes_the_type() {
+    for (name, ender) in typing_enders() {
+        let gate = closed_gate();
+        open_gate(&gate);
+        let live = Arc::new(Mutex::new(String::new()));
+        let (action_tx, action_rx) = mpsc::channel::<ActionEvent>();
+        let worker_gate = Arc::clone(&gate);
+        let worker_live = Arc::clone(&live);
+        let mut pool = WorkerPool::new(
+            3,
+            action_tx,
+            move |index, rx, queue_len, sender, pending| {
+                let backend = TypingBackend::edit_live(&worker_gate, &worker_live);
+                thread::spawn(move || {
+                    let ep = Arc::new(AtomicU32::new(0));
+                    worker_loop(index, backend, rx, queue_len, sender, ep, pending, None);
+                })
+            },
+        );
+        let mut seq = 0;
+        type_character(&live, 'a', &mut seq, |raw| pool.dispatch(raw));
+        type_character(&live, 'b', &mut seq, |raw| pool.dispatch(raw));
+        let typed_until = seq;
+        let mut end = make_raw_event(ender, 1234);
+        end.sequence_id = typed_until + 1;
+        end.timestamp = now_ms();
+        pool.dispatch(end);
+        thread::sleep(Duration::from_millis(200));
+        let before_stop: Vec<ActionEvent> = action_rx.try_iter().collect();
+        assert_eq!(
+            type_values_of(&before_stop),
+            vec!["ab"],
+            "{name}: the typing it ended is written at once, got {before_stop:?}"
+        );
+        let written = before_stop
+            .iter()
+            .find(|e| matches!(e.payload, ActionPayload::Type { .. }))
+            .unwrap();
+        assert_eq!(
+            written.sequence_id,
+            Some(typed_until),
+            "{name}: the type is ordered ahead of the event that ended it"
+        );
+
+        // The ending event took the next id.
+        seq += 1;
+        type_character(&live, 'c', &mut seq, |raw| pool.dispatch(raw));
+        pool.shutdown();
+        let after: Vec<ActionEvent> = action_rx.try_iter().collect();
+        assert_eq!(
+            type_values_of(&after),
+            vec!["abc"],
+            "{name}: the text typed after it is the next type, got {after:?}"
+        );
+    }
+}
+
+/// What each worker of a three-worker pool is sent when `events` are
+/// dispatched in order: "event" for an event, "end typing" for the signal.
+fn messages_sent_for(events: Vec<RawEvent>) -> Vec<Vec<&'static str>> {
+    let (action_tx, _action_rx) = mpsc::channel::<ActionEvent>();
+    let sent: Vec<Arc<Mutex<Vec<&'static str>>>> =
+        (0..3).map(|_| Arc::new(Mutex::new(Vec::new()))).collect();
+    let worker_sent = sent.clone();
+    let mut pool = WorkerPool::new(
+        3,
+        action_tx,
+        move |index, rx, _queue_len, _sender, _pending| {
+            let sent = Arc::clone(&worker_sent[index]);
+            thread::spawn(move || loop {
+                match rx.recv() {
+                    Ok(WorkerMessage::Event(_)) => sent.lock().unwrap().push("event"),
+                    Ok(WorkerMessage::EndTyping) => sent.lock().unwrap().push("end typing"),
+                    Ok(WorkerMessage::Flush(_)) => {}
+                    Ok(WorkerMessage::Shutdown) | Err(_) => break,
+                }
+            })
+        },
+    );
+    for event in events {
+        pool.dispatch(event);
+    }
+    pool.shutdown();
+    let result = sent.iter().map(|w| w.lock().unwrap().clone()).collect();
+    result
+}
+
+/// The event that ends the typing is routed like any other, to a worker that
+/// is seldom the typing worker; the dispatcher tells the typing worker, in
+/// the order of the events, so the `type` it holds goes out.
+#[test]
+fn regression_719_the_typing_worker_is_told_when_the_typing_ends() {
+    for (name, ender) in typing_enders() {
+        // These workers never report an event done, so the typing worker's
+        // queue stays the longest and the ending event goes to another.
+        let sent = messages_sent_for(vec![layout_key(1, 1000, 0x41), make_raw_event(ender, 1234)]);
+        assert!(
+            sent.iter()
+                .any(|worker| worker.starts_with(&["event", "end typing"])),
+            "{name}: the worker that got the key is told behind it, got {sent:?}"
+        );
+    }
+}
+
+/// An event that ends no typing sends the typing worker nothing.
+#[test]
+fn an_event_that_ends_no_typing_sends_the_typing_worker_nothing() {
+    for event_type in [
+        RawEventType::Scroll,
+        RawEventType::ValueChange,
+        RawEventType::Keyboard,
+        RawEventType::Selection,
+        RawEventType::Focus,
+    ] {
+        let sent = messages_sent_for(vec![
+            layout_key(1, 1000, 0x41),
+            make_raw_event(event_type.clone(), 1234),
+        ]);
+        assert!(
+            sent.iter().all(|w| !w.contains(&"end typing")),
+            "{event_type:?}: got {sent:?}"
+        );
+    }
+}
+
+/// Regression: a worker told to shut down drained the events still queued
+/// behind that message only up to the first message that was no event, so
+/// the typing queued behind an end-of-typing signal or a commit's flush marker
+/// was lost at the stop.
+#[test]
+fn regression_719_the_shutdown_drain_reads_past_messages_that_are_no_event() {
+    let gate = closed_gate();
+    let live = Arc::new(Mutex::new("ab".to_string()));
+    let harness = WorkerTestHarness::new(TypingBackend::edit_live(&gate, &live));
+
+    // The worker holds on the first key until the gate opens; everything
+    // else queues behind it, the shutdown ahead of the rest.
+    let t = now_ms();
+    harness.send_event(layout_key(1, t, 0x41));
+    thread::sleep(Duration::from_millis(100));
+    harness.event_tx.send(WorkerMessage::Shutdown).unwrap();
+    harness.event_tx.send(WorkerMessage::EndTyping).unwrap();
+    harness.send_event(layout_key(2, t + 1, 0x42));
+    let (ack_tx, ack_rx) = mpsc::channel::<usize>();
+    harness.event_tx.send(WorkerMessage::Flush(ack_tx)).unwrap();
+    harness.send_event(value_change(3, t + 2, 1234));
+    open_gate(&gate);
+    let events = harness.shutdown();
+
+    assert_eq!(type_values_of(&events), vec!["ab"], "got {events:?}");
+    assert!(
+        ack_rx.try_recv().is_ok(),
+        "a flush marker read during the drain is acknowledged"
+    );
+}
+
+/// A value change that reaches the worker after the click that ended the
+/// typing is not folded back into the `type` already written: it starts the
+/// field's next `type`, behind the click.
+#[test]
+fn a_value_change_arriving_after_the_click_starts_the_next_type() {
+    let gate = closed_gate();
+    open_gate(&gate);
+    let live = Arc::new(Mutex::new(String::new()));
+    let harness = WorkerTestHarness::new(TypingBackend::edit_live(&gate, &live));
+
+    let mut seq = 0;
+    type_character(&live, 'a', &mut seq, |raw| harness.send_event(raw));
+    // The second key's value change is late: the click is dispatched first.
+    let t = now_ms();
+    harness.send_event(layout_key(3, t, 0x42));
+    let mut click = make_raw_event(RawEventType::Click, 1234);
+    click.sequence_id = 4;
+    click.timestamp = t + 1;
+    harness.send_event(click);
+    live.lock().unwrap().push('b');
+    harness.send_event(value_change(5, t + 2, 1234));
+    thread::sleep(Duration::from_millis(100));
+    let events = harness.shutdown();
+
+    let types: Vec<(String, Option<u64>)> = events
+        .iter()
+        .filter_map(|e| match &e.payload {
+            ActionPayload::Type { value, .. } => Some((value.clone(), e.sequence_id)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        types,
+        vec![("a".to_string(), Some(2)), ("ab".to_string(), Some(5))],
+        "got {events:?}"
+    );
+}
+
+/// A focus event ends no typing: a program that reports the focus again on
+/// the field being typed into leaves its text the one `type`.
+#[test]
+fn a_focus_event_between_the_keys_leaves_the_typing_one_type() {
+    let gate = closed_gate();
+    open_gate(&gate);
+    let live = Arc::new(Mutex::new(String::new()));
+    let harness = WorkerTestHarness::new(TypingBackend::edit_live(&gate, &live));
+
+    let mut seq = 0;
+    for character in "ab".chars() {
+        type_character(&live, character, &mut seq, |raw| harness.send_event(raw));
+        seq += 1;
+        let mut focus = make_raw_event(RawEventType::Focus, 1234);
+        focus.sequence_id = seq;
+        focus.timestamp = now_ms();
+        harness.send_event(focus);
+    }
+    let events = harness.shutdown();
+
+    assert_eq!(type_values_of(&events), vec!["ab"], "got {events:?}");
+}
+
+/// A scroll or a pointer move is no end to the typing: the text typed around
+/// it stays the one `type`.
+#[test]
+fn a_scroll_between_the_keys_leaves_the_typing_one_type() {
+    let gate = closed_gate();
+    open_gate(&gate);
+    let live = Arc::new(Mutex::new(String::new()));
+    let harness = WorkerTestHarness::new(TypingBackend::edit_live(&gate, &live));
+
+    let mut seq = 0;
+    for character in "ab".chars() {
+        type_character(&live, character, &mut seq, |raw| harness.send_event(raw));
+        seq += 1;
+        let mut scroll = make_raw_event(RawEventType::Scroll, 1234);
+        scroll.sequence_id = seq;
+        scroll.timestamp = now_ms();
+        scroll.scroll_delta = 10.0;
+        harness.send_event(scroll);
+    }
+    let events = harness.shutdown();
+
+    assert_eq!(type_values_of(&events), vec!["ab"], "got {events:?}");
+}
+
 /// Regression: the last recorded value was kept per selector alone, so a value
 /// typed in one window hid the same value arriving in another window whose
 /// element has an equal selector (two documents of one application).
@@ -3290,6 +3678,7 @@ fn scene_element(tag: &str, selector: &str, text: Option<&str>) -> ElementDescri
         id: Some(selector.to_string()),
         name: Some(selector.to_string()),
         text: text.map(str::to_string),
+        value: text.map(str::to_string),
         selector: selector.to_string(),
         ..Default::default()
     }
@@ -3840,6 +4229,7 @@ fn a_value_change_on_the_same_element_under_a_changed_selector_is_its_type() {
         let mut scene = scene.lock().unwrap();
         scene.element.selector = "*Dialog > Edit:File name".to_string();
         scene.element.text = Some("h".to_string());
+        scene.element.value = Some("h".to_string());
     }
     harness.send_event(in_dialog(value_change(2, t + 1, DIALOG)));
 
@@ -4010,6 +4400,685 @@ fn only_plain_typing_keys_keep_the_focus_epoch() {
     for vk in [0x09, 0x0D, 0x1B, 0x25, 0x75, 0x5B, 0xFF] {
         assert!(key_may_move_focus(vk, none), "vk {vk:#x}");
     }
+}
+
+// ---------------------------------------------------------------------------
+// File dialog proxy: a file confirmed by a double-click in the item view
+// ---------------------------------------------------------------------------
+
+use docent_desktop_lib::capture::worker_pool::{
+    ClickPress, DoubleClickBounds, DoubleClickTracker, CLICK_COMPLETES_DOUBLE_CLICK,
+    CLICK_IS_MIDDLE_BUTTON,
+};
+
+/// The windows of a Notepad Open dialog, as the mouse hook names them: the
+/// items view a click on a file lands in (a child of the dialog), the dialog
+/// itself, and Notepad's editor, which a click lands in once the dialog has
+/// closed.
+const ITEMS_VIEW: i64 = 0x0510;
+const OPEN_DIALOG: i64 = 0x0500;
+const EDITOR: i64 = 0x0610;
+/// Notepad's main window, behind its Open dialog.
+const NOTEPAD_MAIN: i64 = 0x0600;
+
+/// A backend modelling an Open dialog showing `directory`, whose File name
+/// field holds `file_name`: its read answers for any window inside the
+/// dialog, and for no other window (the dialog is gone once the second click
+/// of a double-click is processed).
+struct FileDialogBackend {
+    directory: &'static str,
+    file_name: &'static str,
+    /// The file on disk the shown path names, as `(shown path, file)`.
+    on_disk: Option<(&'static str, &'static str)>,
+    /// The dialog type its title gives.
+    dialog_type: &'static str,
+    reads: Arc<AtomicU64>,
+}
+
+impl FileDialogBackend {
+    fn showing(directory: &'static str, file_name: &'static str) -> (Self, Arc<AtomicU64>) {
+        let reads = Arc::new(AtomicU64::new(0));
+        (
+            Self {
+                directory,
+                file_name,
+                on_disk: None,
+                dialog_type: "open",
+                reads: Arc::clone(&reads),
+            },
+            reads,
+        )
+    }
+}
+
+impl AccessibilityBackend for FileDialogBackend {
+    fn init(&mut self) -> Result<(), CaptureError> {
+        Ok(())
+    }
+    fn cleanup(&mut self) {}
+    fn element_at_point(&self, _x: i32, _y: i32) -> Option<ElementDescription> {
+        None
+    }
+    fn focused_element(&self) -> Option<ElementDescription> {
+        None
+    }
+    fn window_title(&self, window_handle: i64) -> String {
+        if self.root_window_handle(window_handle) == OPEN_DIALOG {
+            "Open".to_string()
+        } else {
+            "license.txt - Notepad".to_string()
+        }
+    }
+    fn process_name(&self, _window_handle: i64) -> String {
+        "notepad.exe".to_string()
+    }
+    fn read_file_dialog_path(&self, window_handle: i64) -> Option<(String, String)> {
+        self.reads.fetch_add(1, Ordering::SeqCst);
+        if self.root_window_handle(window_handle) != OPEN_DIALOG {
+            return None;
+        }
+        Some((
+            self.dialog_type.to_string(),
+            format!("{}\\{}", self.directory, self.file_name),
+        ))
+    }
+    fn file_on_disk(&self, shown_path: &str) -> Option<String> {
+        self.on_disk
+            .filter(|(shown, _)| *shown == shown_path)
+            .map(|(_, file)| file.to_string())
+    }
+    fn root_window_handle(&self, window_handle: i64) -> i64 {
+        match window_handle {
+            ITEMS_VIEW | OPEN_DIALOG => OPEN_DIALOG,
+            EDITOR | NOTEPAD_MAIN => NOTEPAD_MAIN,
+            other => other,
+        }
+    }
+    fn window_rect(&self, window_handle: i64) -> Option<docent_desktop_lib::capture::WindowRect> {
+        let x = if self.root_window_handle(window_handle) == OPEN_DIALOG {
+            200
+        } else {
+            0
+        };
+        Some(docent_desktop_lib::capture::WindowRect {
+            x,
+            y: 100,
+            width: 800,
+            height: 600,
+        })
+    }
+    fn selected_item_name(&self, _window_handle: i64) -> Option<(ElementDescription, String)> {
+        None
+    }
+}
+
+/// The element a click on an item's name cell in the dialog's item view is
+/// described as (the Details view, as the issue's recording shows it).
+fn item_name_cell(item: &str) -> ElementDescription {
+    ElementDescription {
+        tag: "Edit".to_string(),
+        name: Some("Name".to_string()),
+        selector: format!(
+            "Pane:Desktop 1 > Window:license.txt - Notepad > Window:Open > Pane > \
+             Pane:Shell Folder View > List:Items View > Group:A long time ago > \
+             ListItem:{item} > Edit:Name"
+        ),
+        ..Default::default()
+    }
+}
+
+/// The dialog's Open button.
+fn open_button() -> ElementDescription {
+    ElementDescription {
+        tag: "Button".to_string(),
+        name: Some("Open".to_string()),
+        selector: "Pane:Desktop 1 > Window:license.txt - Notepad > Window:Open > Button:Open"
+            .to_string(),
+        ..Default::default()
+    }
+}
+
+/// Notepad's editor, where the second click of the double-click is described
+/// once the dialog has closed.
+fn notepad_editor() -> ElementDescription {
+    ElementDescription {
+        tag: "Edit".to_string(),
+        name: Some("Text Editor".to_string()),
+        selector: "Pane:Desktop 1 > Window:license.txt - Notepad > Edit:Text Editor".to_string(),
+        ..Default::default()
+    }
+}
+
+/// A left click as the mouse hook dispatches it; `completes_double_click`
+/// marks the second press of a double-click.
+fn left_click(
+    sequence_id: u64,
+    timestamp: u64,
+    window_handle: i64,
+    element: ElementDescription,
+    completes_double_click: bool,
+) -> RawEvent {
+    RawEvent {
+        event_type: RawEventType::Click,
+        sequence_id,
+        timestamp,
+        screen_x: 2539,
+        screen_y: 665,
+        window_handle,
+        process_id: 7,
+        key_code: 0,
+        modifiers: (false, false, false, false),
+        scroll_delta: 0.0,
+        callback_params: [
+            if completes_double_click {
+                CLICK_COMPLETES_DOUBLE_CLICK
+            } else {
+                0
+            },
+            0,
+            0,
+            0,
+        ],
+        pre_captured_element: Some(element),
+        focus_epoch: 0,
+        held: Vec::new(),
+    }
+}
+
+fn file_dialogs(events: &[ActionEvent]) -> Vec<(String, String, String, Option<i64>, u64)> {
+    events
+        .iter()
+        .filter_map(|e| match &e.payload {
+            ActionPayload::FileDialog {
+                dialog_type,
+                file_path,
+                source,
+            } => Some((
+                dialog_type.clone(),
+                file_path.clone(),
+                source.clone(),
+                e.context_id,
+                e.sequence_id.unwrap_or(0),
+            )),
+            _ => None,
+        })
+        .collect()
+}
+
+fn click_count(events: &[ActionEvent]) -> usize {
+    events
+        .iter()
+        .filter(|e| matches!(e.payload, ActionPayload::Click { .. }))
+        .count()
+}
+
+// Regression: #692 — a file opened by a double-click in a file dialog's item
+// view recorded no folder, so the file could not be located from the file.
+// https://github.com/Arsarneq/docent/issues/692
+#[test]
+fn regression_692_double_click_on_a_file_records_the_file_and_its_folder() {
+    let (backend, _reads) = FileDialogBackend::showing("C:\\Users\\u\\Downloads", "license.txt");
+    let harness = WorkerTestHarness::new(backend);
+
+    // The first click selects license.txt in the dialog; the second, 160 ms
+    // later at the same point, completes the double-click, and by its
+    // release the dialog has closed: it is described in Notepad's editor.
+    harness.send_event(left_click(
+        1,
+        1000,
+        ITEMS_VIEW,
+        item_name_cell("license.txt"),
+        false,
+    ));
+    harness.send_event(left_click(2, 1160, EDITOR, notepad_editor(), true));
+
+    thread::sleep(Duration::from_millis(200));
+    let events = harness.shutdown();
+
+    assert_eq!(click_count(&events), 2, "both clicks are recorded");
+    assert_eq!(
+        file_dialogs(&events),
+        vec![(
+            "open".to_string(),
+            "C:\\Users\\u\\Downloads\\license.txt".to_string(),
+            "notepad.exe".to_string(),
+            Some(OPEN_DIALOG),
+            2,
+        )],
+        "the double-click records the file it opened, with the dialog's folder, \
+         in the dialog's context and beside the second click"
+    );
+}
+
+/// A double-click on a folder navigates the dialog: selecting a folder leaves
+/// the File name field as it was, so the read at the first click does not
+/// name the item, and nothing is recorded beyond the two clicks.
+#[test]
+fn double_click_on_a_folder_in_a_file_dialog_records_no_file_dialog() {
+    // The File name still holds a file selected earlier.
+    let (backend, _reads) = FileDialogBackend::showing("C:\\Users\\u\\Downloads", "license.txt");
+    let harness = WorkerTestHarness::new(backend);
+
+    harness.send_event(left_click(
+        1,
+        1000,
+        ITEMS_VIEW,
+        item_name_cell("Archive"),
+        false,
+    ));
+    harness.send_event(left_click(
+        2,
+        1160,
+        ITEMS_VIEW,
+        item_name_cell("Archive"),
+        true,
+    ));
+
+    thread::sleep(Duration::from_millis(200));
+    let events = harness.shutdown();
+
+    assert_eq!(click_count(&events), 2, "both clicks are recorded");
+    assert!(
+        file_dialogs(&events).is_empty(),
+        "a folder is no file chosen"
+    );
+}
+
+/// Two clicks on a file that do not make a double-click select it twice and
+/// confirm nothing: no file_dialog, and each click reads the dialog afresh.
+#[test]
+fn two_clicks_on_a_file_that_are_no_double_click_record_no_file_dialog() {
+    let (backend, reads) = FileDialogBackend::showing("C:\\Users\\u\\Downloads", "license.txt");
+    let harness = WorkerTestHarness::new(backend);
+
+    harness.send_event(left_click(
+        1,
+        1000,
+        ITEMS_VIEW,
+        item_name_cell("license.txt"),
+        false,
+    ));
+    harness.send_event(left_click(
+        2,
+        3000,
+        ITEMS_VIEW,
+        item_name_cell("license.txt"),
+        false,
+    ));
+
+    thread::sleep(Duration::from_millis(200));
+    let events = harness.shutdown();
+
+    assert_eq!(click_count(&events), 2);
+    assert!(file_dialogs(&events).is_empty());
+    assert_eq!(
+        reads.load(Ordering::SeqCst),
+        2,
+        "each item click reads the dialog"
+    );
+}
+
+/// A double-click whose first click was on no list item reads no dialog and
+/// records no file_dialog: only a click on an item reads the dialog.
+#[test]
+fn a_double_click_off_the_item_view_reads_no_dialog_and_records_no_file_dialog() {
+    let (backend, reads) = FileDialogBackend::showing("C:\\Users\\u\\Downloads", "license.txt");
+    let harness = WorkerTestHarness::new(backend);
+
+    harness.send_event(left_click(1, 1000, EDITOR, notepad_editor(), false));
+    harness.send_event(left_click(2, 1160, EDITOR, notepad_editor(), true));
+
+    thread::sleep(Duration::from_millis(200));
+    let events = harness.shutdown();
+
+    assert_eq!(click_count(&events), 2);
+    assert!(file_dialogs(&events).is_empty());
+    assert_eq!(
+        reads.load(Ordering::SeqCst),
+        0,
+        "no item click, no dialog read"
+    );
+}
+
+/// The file a click selected is held for the click right after it only: a
+/// double-click whose first click selected nothing does not confirm a file an
+/// earlier click selected.
+#[test]
+fn a_file_selected_before_another_click_is_not_confirmed_by_a_later_double_click() {
+    let (backend, _reads) = FileDialogBackend::showing("C:\\Users\\u\\Downloads", "license.txt");
+    let harness = WorkerTestHarness::new(backend);
+
+    harness.send_event(left_click(
+        1,
+        1000,
+        ITEMS_VIEW,
+        item_name_cell("license.txt"),
+        false,
+    ));
+    harness.send_event(left_click(2, 3000, EDITOR, notepad_editor(), false));
+    harness.send_event(left_click(3, 3160, EDITOR, notepad_editor(), true));
+
+    thread::sleep(Duration::from_millis(200));
+    let events = harness.shutdown();
+
+    assert_eq!(click_count(&events), 3);
+    assert!(file_dialogs(&events).is_empty());
+}
+
+/// A click on the dialog's Open button reads the dialog at that click, from
+/// the button's window, and records the file beside it.
+#[test]
+fn a_click_on_the_open_button_records_the_file_and_its_folder() {
+    let (backend, _reads) = FileDialogBackend::showing("C:\\Users\\u\\Downloads", "license.txt");
+    let harness = WorkerTestHarness::new(backend);
+
+    let open_button = open_button();
+    harness.send_event(left_click(1, 1000, ITEMS_VIEW, open_button, false));
+
+    thread::sleep(Duration::from_millis(200));
+    let events = harness.shutdown();
+
+    assert_eq!(click_count(&events), 1);
+    assert_eq!(
+        file_dialogs(&events),
+        vec![(
+            "open".to_string(),
+            "C:\\Users\\u\\Downloads\\license.txt".to_string(),
+            "notepad.exe".to_string(),
+            Some(OPEN_DIALOG),
+            1,
+        )]
+    );
+}
+
+/// With file extensions hidden, the dialog shows "license" for license.txt,
+/// in its item view and its File name field alike: the file_dialog names the
+/// file on disk the text names, not the text, whichever way the pick is
+/// confirmed.
+#[test]
+fn regression_692_a_file_shown_without_its_extension_is_recorded_as_the_file() {
+    for by_double_click in [true, false] {
+        let (mut backend, _reads) =
+            FileDialogBackend::showing("C:\\Users\\u\\Downloads", "license");
+        backend.on_disk = Some((
+            "C:\\Users\\u\\Downloads\\license",
+            "C:\\Users\\u\\Downloads\\license.txt",
+        ));
+        let harness = WorkerTestHarness::new(backend);
+        if by_double_click {
+            harness.send_event(left_click(
+                1,
+                1000,
+                ITEMS_VIEW,
+                item_name_cell("license"),
+                false,
+            ));
+            harness.send_event(left_click(2, 1160, EDITOR, notepad_editor(), true));
+        } else {
+            harness.send_event(left_click(1, 1000, ITEMS_VIEW, open_button(), false));
+        }
+
+        thread::sleep(Duration::from_millis(200));
+        let events = harness.shutdown();
+
+        let recorded: Vec<String> = file_dialogs(&events).into_iter().map(|d| d.1).collect();
+        assert_eq!(
+            recorded,
+            vec!["C:\\Users\\u\\Downloads\\license.txt".to_string()],
+            "confirmed by {}",
+            if by_double_click {
+                "a double-click"
+            } else {
+                "the Open button"
+            }
+        );
+    }
+}
+
+/// A Save dialog's File name text names the file to be written, which need
+/// not exist: a file already there that the shell displays under the same
+/// text ("report" for report.pdf, saving a report as .docx) is not the
+/// file chosen, so a Save records the text as the dialog shows it.
+#[test]
+fn a_save_records_the_text_not_a_file_displayed_under_it() {
+    for dialog_type in ["save", "save_as"] {
+        let (mut backend, _reads) = FileDialogBackend::showing("C:\\Users\\u\\Documents", "report");
+        backend.dialog_type = dialog_type;
+        backend.on_disk = Some((
+            "C:\\Users\\u\\Documents\\report",
+            "C:\\Users\\u\\Documents\\report.pdf",
+        ));
+        let harness = WorkerTestHarness::new(backend);
+        harness.send_event(left_click(1, 1000, ITEMS_VIEW, save_button(), false));
+
+        thread::sleep(Duration::from_millis(200));
+        let events = harness.shutdown();
+
+        let recorded: Vec<(String, String)> = file_dialogs(&events)
+            .into_iter()
+            .map(|d| (d.0, d.1))
+            .collect();
+        assert_eq!(
+            recorded,
+            vec![(
+                dialog_type.to_string(),
+                "C:\\Users\\u\\Documents\\report".to_string()
+            )]
+        );
+    }
+}
+
+fn save_button() -> ElementDescription {
+    ElementDescription {
+        tag: "Button".to_string(),
+        name: Some("Save".to_string()),
+        selector: "Pane:Desktop 1 > Window:Untitled - Notepad > Window:Save As > Button:Save"
+            .to_string(),
+        ..Default::default()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Double-click pairing (DCP-10)
+// ---------------------------------------------------------------------------
+
+/// The system's default bounds: 500 ms, a 4 x 4 rectangle.
+const BOUNDS: DoubleClickBounds = DoubleClickBounds {
+    max_interval_ms: 500,
+    width: 4,
+    height: 4,
+};
+
+fn press(time_ms: u32, x: i32, y: i32) -> ClickPress {
+    ClickPress {
+        time_ms,
+        x,
+        y,
+        window: 7,
+    }
+}
+
+#[test]
+fn a_second_press_within_the_time_and_rectangle_completes_a_double_click() {
+    let mut tracker = DoubleClickTracker::new();
+    assert!(!tracker.left_click(press(1000, 100, 100), BOUNDS));
+    assert!(tracker.left_click(press(1500, 102, 98), BOUNDS));
+}
+
+#[test]
+fn a_second_press_too_late_far_or_in_another_window_starts_a_new_pair() {
+    let mut tracker = DoubleClickTracker::new();
+    assert!(!tracker.left_click(press(1000, 100, 100), BOUNDS));
+    assert!(!tracker.left_click(press(1501, 100, 100), BOUNDS), "late");
+    assert!(
+        !tracker.left_click(press(1600, 103, 100), BOUNDS),
+        "too far on x"
+    );
+    assert!(
+        !tracker.left_click(press(1700, 103, 103), BOUNDS),
+        "too far on y"
+    );
+    let other_window = ClickPress {
+        window: 8,
+        ..press(1750, 103, 103)
+    };
+    assert!(!tracker.left_click(other_window, BOUNDS), "another window");
+    // Each press that completed nothing started a new pair.
+    assert!(tracker.left_click(
+        ClickPress {
+            window: 8,
+            ..press(1800, 103, 103)
+        },
+        BOUNDS
+    ));
+}
+
+#[test]
+fn the_press_after_a_double_click_starts_a_new_pair() {
+    let mut tracker = DoubleClickTracker::new();
+    assert!(!tracker.left_click(press(1000, 100, 100), BOUNDS));
+    assert!(tracker.left_click(press(1100, 100, 100), BOUNDS));
+    assert!(
+        !tracker.left_click(press(1200, 100, 100), BOUNDS),
+        "third press"
+    );
+    assert!(
+        tracker.left_click(press(1300, 100, 100), BOUNDS),
+        "fourth press"
+    );
+}
+
+#[test]
+fn a_broken_pair_completes_no_double_click() {
+    let mut tracker = DoubleClickTracker::new();
+    assert!(!tracker.left_click(press(1000, 100, 100), BOUNDS));
+    tracker.break_pair();
+    assert!(!tracker.left_click(press(1100, 100, 100), BOUNDS));
+}
+
+#[test]
+fn the_double_click_interval_is_measured_across_the_input_clock_wrapping() {
+    let mut tracker = DoubleClickTracker::new();
+    assert!(!tracker.left_click(press(u32::MAX - 100, 100, 100), BOUNDS));
+    assert!(tracker.left_click(press(200, 100, 100), BOUNDS));
+}
+
+/// A click that completes a double-click reaches the worker that took the
+/// click before it, even when another worker's queue is shorter; any other
+/// click takes the shortest queue.
+#[test]
+fn a_click_completing_a_double_click_routes_to_the_previous_clicks_worker() {
+    let (action_tx, _action_rx) = mpsc::channel::<ActionEvent>();
+    let received: Vec<Arc<Mutex<Vec<u64>>>> =
+        (0..3).map(|_| Arc::new(Mutex::new(Vec::new()))).collect();
+    let rec = received.clone();
+    // The stub workers record what reaches them and never shorten their
+    // queue, so each dispatch lengthens the chosen worker's queue.
+    let mut pool = WorkerPool::new(
+        3,
+        action_tx,
+        move |index, rx, _queue_len, _sender, _pending| {
+            let got = Arc::clone(&rec[index]);
+            thread::spawn(move || loop {
+                match rx.recv() {
+                    Ok(WorkerMessage::Event(raw)) => got.lock().unwrap().push(raw.sequence_id),
+                    Ok(WorkerMessage::Flush(_)) | Ok(WorkerMessage::EndTyping) => {}
+                    Ok(WorkerMessage::Shutdown) | Err(_) => break,
+                }
+            })
+        },
+    );
+
+    let click = |seq: u64, double: bool| RawEvent {
+        sequence_id: seq,
+        ..left_click(seq, 1000 + seq, ITEMS_VIEW, item_name_cell("a.txt"), double)
+    };
+    pool.dispatch(click(1, false)); // shortest queue: worker 0
+    pool.dispatch(click(2, true)); // the pair's second: worker 0 again
+    pool.dispatch(click(3, false)); // shortest queue: worker 1
+    pool.dispatch(click(4, true)); // the pair's second: worker 1 again
+    thread::sleep(Duration::from_millis(100));
+
+    let at = |i: usize| received[i].lock().unwrap().clone();
+    assert_eq!(at(0), vec![1, 2]);
+    assert_eq!(at(1), vec![3, 4]);
+    assert!(at(2).is_empty());
+    pool.shutdown();
+}
+
+/// A middle-button press, which the mouse hook dispatches as a click marked
+/// as the middle button's, confirms no dialog: a middle press on the Open
+/// button writes no file_dialog, and one on an item reads no dialog.
+#[test]
+fn regression_692_a_middle_press_on_the_open_button_records_no_file_dialog() {
+    let (backend, reads) = FileDialogBackend::showing("C:\\Users\\u\\Downloads", "license.txt");
+    let harness = WorkerTestHarness::new(backend);
+
+    let open_button = open_button();
+    let middle = |seq: u64, element: ElementDescription| RawEvent {
+        callback_params: [CLICK_IS_MIDDLE_BUTTON, 0, 0, 0],
+        ..left_click(seq, 1000 + seq, ITEMS_VIEW, element, false)
+    };
+    harness.send_event(middle(1, open_button));
+    harness.send_event(middle(2, item_name_cell("license.txt")));
+
+    thread::sleep(Duration::from_millis(200));
+    let events = harness.shutdown();
+
+    assert_eq!(
+        click_count(&events),
+        2,
+        "both presses are recorded as clicks"
+    );
+    assert!(
+        file_dialogs(&events).is_empty(),
+        "a middle press confirms nothing"
+    );
+    assert_eq!(
+        reads.load(Ordering::SeqCst),
+        0,
+        "a middle press reads no dialog"
+    );
+}
+
+/// The File name test cannot tell a folder from a file of the same name: a
+/// double-click on a folder whose name the File name already holds (typed
+/// there earlier, for example) writes a file_dialog naming that folder, as
+/// the desktop capture document's exception list states (DCP-13).
+#[test]
+fn a_double_click_on_a_folder_the_file_name_already_names_writes_a_file_dialog() {
+    let (backend, _reads) = FileDialogBackend::showing("C:\\Users\\u\\Documents", "Invoices");
+    let harness = WorkerTestHarness::new(backend);
+
+    harness.send_event(left_click(
+        1,
+        1000,
+        ITEMS_VIEW,
+        item_name_cell("Invoices"),
+        false,
+    ));
+    harness.send_event(left_click(
+        2,
+        1160,
+        ITEMS_VIEW,
+        item_name_cell("Invoices"),
+        true,
+    ));
+
+    thread::sleep(Duration::from_millis(200));
+    let events = harness.shutdown();
+
+    assert_eq!(click_count(&events), 2);
+    assert_eq!(
+        file_dialogs(&events),
+        vec![(
+            "open".to_string(),
+            "C:\\Users\\u\\Documents\\Invoices".to_string(),
+            "notepad.exe".to_string(),
+            Some(OPEN_DIALOG),
+            2,
+        )]
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -5044,6 +6113,42 @@ fn a_right_press_into_an_inactive_window_writes_one_switch() {
     }
 }
 
+/// A key attributed to no window (a key the system takes while Docent's own
+/// window is in front, DCP-14) is dispatched with window handle 0: there is no
+/// window to introduce, so it takes no switch and introduces nothing, and the
+/// next action in an introduced window takes none either.
+#[test]
+fn a_key_attributed_to_no_window_introduces_no_context() {
+    const DOCENT: i64 = 777;
+    let mut contexts = ContextIntroductions::default();
+    // Notepad in front and introduced.
+    let foreground = event_in(
+        RawEventType::Foreground,
+        NOTEPAD,
+        0,
+        (false, false, false, false),
+    );
+    assert!(!contexts.switch_before(&foreground, NOTEPAD, NOTEPAD));
+    // The Windows key over Docent's window: no window, no switch.
+    let win_key = event_in(
+        RawEventType::Keyboard,
+        0,
+        0x5B,
+        (false, false, false, false),
+    );
+    assert!(!contexts.switch_before(&win_key, 0, DOCENT));
+    let e = event_in(RawEventType::Keyboard, 0, 0x45, (false, false, false, true));
+    assert!(!contexts.switch_before(&e, 0, DOCENT));
+    // Notepad, introduced before, needs no switch afterwards.
+    let key = event_in(
+        RawEventType::Keyboard,
+        NOTEPAD,
+        0x41,
+        (false, false, false, false),
+    );
+    assert!(!contexts.switch_before(&key, NOTEPAD, NOTEPAD));
+}
+
 /// A press in the window in front switches nothing.
 #[test]
 fn a_press_in_the_window_in_front_switches_nothing() {
@@ -5195,21 +6300,21 @@ fn key_repeats_of(events: &[ActionEvent]) -> Vec<(String, bool)> {
         .collect()
 }
 
-/// A key-down the hook marked as a repeat (fourth callback parameter 1) is a
-/// `key` with `repeat` true; the press itself carries false. Every press is
-/// written.
+/// A key-down the hook marked as a repeat (the repeat mark in the fourth
+/// callback parameter) is a `key` with `repeat` true; the press itself carries
+/// false. Every press is written.
 #[test]
 fn regression_696_a_held_key_writes_every_press_and_marks_the_repeats() {
     let harness = WorkerTestHarness::new(MockBackend::new());
     let t = now_ms();
     // Enter pressed and held: the press, then two presses key repeat made.
-    for (seq, repeat) in [(1, 0), (2, 1), (3, 1)] {
+    for (seq, repeat) in [(1, 0), (2, KEY_REPEAT_PARAM), (3, KEY_REPEAT_PARAM)] {
         let mut raw = layout_key(seq, t, 0x0D);
         raw.callback_params[3] = repeat;
         harness.send_event(raw);
     }
     // A buffered key (a letter with no value change) keeps its mark too.
-    for (seq, repeat) in [(4, 0), (5, 1)] {
+    for (seq, repeat) in [(4, 0), (5, KEY_REPEAT_PARAM)] {
         let mut raw = layout_key(seq, t, 0x41);
         raw.callback_params[3] = repeat;
         harness.send_event(raw);
@@ -5284,7 +6389,7 @@ fn a_typing_key_on_a_button_is_written_without_waiting() {
     harness.send_event(in_dialog(layout_key(1, t, 0x67))); // keypad 7
     harness.send_event(in_dialog(layout_key(2, t + 1, 0x20)));
 
-    // Well inside TYPE_DEBOUNCE_MS (500 ms).
+    // Well inside KEY_TEXT_WAIT_MS (500 ms).
     thread::sleep(Duration::from_millis(200));
     let early = harness.drain_actions();
     assert_eq!(
@@ -5361,7 +6466,7 @@ fn regression_696_keys_buffered_on_one_element_survive_typing_into_another() {
 // at a pointer action (docent#239)
 // ---------------------------------------------------------------------------
 
-use docent_desktop_lib::capture::held_keys::HeldPress;
+use docent_desktop_lib::capture::held_keys::{HeldKeys, HeldPress, KEY_REPEAT_PARAM};
 use docent_desktop_lib::capture::HeldKeysAtAction;
 
 /// Keys the hook found down at an event: `(key code, scan code, key-down)`.
@@ -5371,6 +6476,7 @@ fn held_presses(keys: &[(u32, u32, u64)]) -> Vec<HeldPress> {
             key_code,
             scan_code,
             press,
+            layout_char: 0,
         })
         .collect()
 }
@@ -5475,6 +6581,95 @@ fn regression_706_pointer_actions_state_modifiers_and_held_keys() {
             ("right_click", ctrl_shift, space.clone()),
             ("drag_start", ctrl_shift, space.clone()),
             ("drop", ctrl_shift, space),
+        ]
+    );
+}
+
+/// docent#691 with docent#696: the layout character and the repeat mark share
+/// the fourth callback parameter. A punctuation key pressed and then repeated
+/// is named by its layout's character both times, and only the key-down key
+/// repeat made is marked a repeat.
+#[test]
+fn regression_691_a_repeated_punctuation_key_is_named_by_its_layout_and_marked_repeat() {
+    let harness = WorkerTestHarness::new(MockBackend::new());
+    let t = now_ms();
+    // Danish layout: VK_OEM_PLUS (0xBB) enters '+'.
+    let mut press = layout_key(1, t, 0xBB);
+    press.callback_params[3] = '+' as i64;
+    harness.send_event(press);
+    let mut repeat = layout_key(2, t, 0xBB);
+    repeat.callback_params[3] = '+' as i64 | KEY_REPEAT_PARAM;
+    harness.send_event(repeat);
+    thread::sleep(Duration::from_millis(900));
+    let events = harness.shutdown();
+    assert_eq!(
+        key_repeats_of(&events),
+        vec![("+".to_string(), false), ("+".to_string(), true)]
+    );
+}
+
+/// docent#691 with docent#706: a held key is named as its own key action
+/// names it, so a punctuation key held down is named by the character its
+/// layout gave it at its key-down, on a key pressed while it is held and on
+/// the pointer actions made while it is held. Driven through the hook's
+/// record, which stamps each event at its dispatch.
+#[test]
+fn regression_691_a_held_punctuation_key_is_named_by_its_layout_character() {
+    let harness = WorkerTestHarness::new(MockBackend::new());
+    let mut record = HeldKeys::new();
+    let t = now_ms();
+    let not_down = |_| false;
+    // Danish '+' (VK_OEM_PLUS, scan code 0x0C) goes down and is dispatched.
+    assert!(!record.on_hook_message(0x0100, 0xBB, 0x0C, not_down));
+    let mut plus = layout_key(1, t, 0xBB);
+    plus.callback_params = [0x0C, 0, 0, '+' as i64];
+    record.stamp(&mut plus);
+    harness.send_event(plus);
+    // Tab pressed while it is held.
+    assert!(!record.on_hook_message(0x0100, 0x09, 0x0F, not_down));
+    let mut tab = layout_key(2, t, 0x09);
+    tab.callback_params[0] = 0x0F;
+    record.stamp(&mut tab);
+    harness.send_event(tab);
+    record.on_hook_message(0x0101, 0x09, 0x0F, not_down);
+    // A click, a drag and its drop made while it is held.
+    let mut click = make_raw_event(RawEventType::Click, 100);
+    click.sequence_id = 3;
+    click.timestamp = t;
+    record.stamp(&mut click);
+    harness.send_event(click);
+    let mut drag_start = make_raw_event(
+        RawEventType::DragStart {
+            source_coords: (10, 10),
+        },
+        100,
+    );
+    drag_start.sequence_id = 4;
+    drag_start.timestamp = t;
+    // The mouse hook reads a drag start's keys at the threshold.
+    drag_start.held = record.dispatched_down(None);
+    harness.send_event(drag_start);
+    let mut drop = make_raw_event(
+        RawEventType::Drop {
+            source_coords: (10, 10),
+        },
+        100,
+    );
+    drop.sequence_id = 5;
+    drop.timestamp = t;
+    record.stamp(&mut drop);
+    harness.send_event(drop);
+    thread::sleep(Duration::from_millis(900));
+    let events = harness.shutdown();
+    let plus_held = stated(&["+"], &[1]);
+    assert_eq!(
+        held_statements_of(&events),
+        vec![
+            ("key", PLAIN, stated(&[], &[])),
+            ("key", PLAIN, plus_held.clone()),
+            ("click", PLAIN, plus_held.clone()),
+            ("drag_start", PLAIN, plus_held.clone()),
+            ("drop", PLAIN, plus_held),
         ]
     );
 }
