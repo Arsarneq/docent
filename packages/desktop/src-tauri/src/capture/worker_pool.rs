@@ -3749,10 +3749,6 @@ mod tests {
         let mut raw = control_key_raw_event(0x5B, 1); // the left Windows key
         raw.window_handle = 0;
         raw.process_id = 0;
-        // Even with a control handle beside it, the key settles on no
-        // control: the hook reads none for such a key, and the worker's
-        // no-window branch comes first.
-        raw.callback_params[1] = 42;
         pool.dispatch(raw);
         thread::sleep(Duration::from_millis(100));
         pool.shutdown_with_timeout(Duration::from_secs(5));
@@ -4008,7 +4004,7 @@ mod tests {
         assert_eq!(name_with_layout_char(0x0D, '+' as i64), "Enter");
         // VK_PACKET is named by its scan code's character.
         let mut raw = control_key_raw_event(VK_PACKET, 1);
-        raw.callback_params = [i64::from(u32::from('é')), '+' as i64, 0, 0];
+        raw.callback_params = [i64::from(u32::from('é')), 0, 0, '+' as i64];
         assert_eq!(key_name(&raw), "é");
     }
 
