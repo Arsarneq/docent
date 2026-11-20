@@ -25,6 +25,7 @@ import {
   TAB_CREATED_SWITCH_SUPPRESSION,
   TAB_REMOVED_SWITCH_SUPPRESSION,
   TAB_CREATED_NAVIGATION_SUPPRESSION,
+  END_TYPING_BOUND,
 } from '../../lib/capture-timing.js';
 
 describe('capture-timing constants — validity', () => {
@@ -37,6 +38,7 @@ describe('capture-timing constants — validity', () => {
     TAB_CREATED_SWITCH_SUPPRESSION,
     TAB_REMOVED_SWITCH_SUPPRESSION,
     TAB_CREATED_NAVIGATION_SUPPRESSION,
+    END_TYPING_BOUND,
   };
 
   for (const [name, value] of Object.entries(allConstants)) {
