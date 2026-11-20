@@ -105,6 +105,8 @@ worker and leak recording state to the page.
 **ECP-4.** The action's `context_id` is stamped from the **trusted sender**,
 never from the message body, so a frame cannot claim to be a different tab.
 
+The language facts are written in two places. The recorder reads the element's `language` with the rest of its description: the value of the `lang` attribute on the nearest element at or above the acted-on one that carries the attribute, as the page stands at the action. The service worker writes `preferred_languages` on every action as it stores it, the actions it records itself included, from the browser's `navigator.languages` as the worker reads it, so a frame cannot state another list for its actions ([Session Format — Shown text](../../../technical/session-format.md#shown-text)).
+
 **ECP-5.** Injecting only while recording costs no capture fidelity because of
 a measured bound: from a frame finishing load to the recorder reporting ready
 MUST complete within half the ~200 ms deliberate-action floor — the shortest
@@ -210,7 +212,9 @@ phase, for exactly these DOM events, on `document` unless the item names
   character key pressed with no shortcut modifier on a sensitive element is
   never written as a `key` and never named among the held keys, as ECP-9
   states. The key
-  is named by the browser's key value, a space as `Space`;
+  is named by the browser's key value, a space as `Space`, and carries the
+  browser's name for the physical key as `code`, left out where the browser
+  gives none;
   each press is written with whether the browser's key repeat generated it:
   holding a key down is the person's input (core CP-5), and each repeated
   press is that hold as the browser reports it, written and marked so that it

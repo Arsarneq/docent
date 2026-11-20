@@ -8,6 +8,7 @@
 //
 // Governance declared in scripts/area-map.json (see its declared-governance entry): the actions mapped here are .docent.json fields; the per-platform schemas are authoritative for field semantics.
 
+use super::language::preferred_languages;
 use super::{
     ActionEvent, ActionPayload, CaptureMode, ElementDescription, HeldKeysAtAction, Modifiers,
     WindowRect,
@@ -72,6 +73,8 @@ pub enum NativeEvent {
         modifiers: Modifiers,
         /// Whether key repeat generated this press while the key was held.
         repeat: bool,
+        /// The physical key, by its W3C UI Events `code` value, where known.
+        code: Option<&'static str>,
         /// The other keys that were down at the press.
         held: HeldKeysAtAction,
         element: ElementDescription,
@@ -215,12 +218,14 @@ pub fn map_event(
             key,
             modifiers,
             repeat,
+            code,
             held,
             element,
         } => ActionPayload::Key {
             key: key.clone(),
             modifiers: modifiers.clone(),
             repeat: *repeat,
+            code: *code,
             held: held.clone(),
             element: element.clone(),
         },
@@ -295,6 +300,7 @@ pub fn map_event(
         capture_mode,
         frame_src: None, // Always null for desktop actions
         window_rect,
+        preferred_languages: preferred_languages(),
         sequence_id: None,
         payload,
     }
@@ -455,6 +461,7 @@ mod tests {
             key: "Enter".to_string(),
             modifiers: mods.clone(),
             repeat: true,
+            code: Some("NumpadEnter"),
             held: test_held(),
             element: test_element(),
         };
@@ -465,9 +472,11 @@ mod tests {
                 key,
                 modifiers,
                 repeat,
+                code,
                 ..
             } => {
                 assert!(*repeat, "the repeat mark is carried over");
+                assert_eq!(*code, Some("NumpadEnter"), "the physical key too");
                 assert_eq!(key, "Enter");
                 assert!(modifiers.ctrl);
             }

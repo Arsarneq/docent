@@ -107,6 +107,8 @@ pub const UIA_IsKeyboardFocusablePropertyId: PROPERTYID = PROPERTYID(30009);
 pub const UIA_AutomationIdPropertyId: PROPERTYID = PROPERTYID(30011);
 /// `UIAutomationClient.h` line 884.
 pub const UIA_ClassNamePropertyId: PROPERTYID = PROPERTYID(30012);
+/// `UIAutomationClient.h` line 890.
+pub const UIA_CulturePropertyId: PROPERTYID = PROPERTYID(30015);
 /// `UIAutomationClient.h` line 892.
 pub const UIA_IsControlElementPropertyId: PROPERTYID = PROPERTYID(30016);
 /// `UIAutomationClient.h` line 896.

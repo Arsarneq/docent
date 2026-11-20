@@ -539,14 +539,21 @@ async function resumeCaptureDespitePressure() {
 // Append already-redacted actions to pendingActions with storage-quota handling.
 // MUST be called inside swWriteQueue. Returns false when the append was dropped
 // (capture paused for storage, or a hard quota failure); true on success.
+// Every captured action is appended here, so this is where each one takes
+// its `preferred_languages`: the browser's ordered language preference as this
+// worker reads it, null where the browser gives no list (session-format states
+// the field).
 async function appendToPending(actions) {
   if (storagePaused) return false; // paused for storage pressure — drop new captures
   const { pendingActions } = await chrome.storage.local.get('pendingActions');
+  const languages = globalThis.navigator?.languages;
+  const preferred = Array.isArray(languages) ? [...languages] : null;
   // Typing into a sensitive field is one masked `type`: one that repeats the
   // action stored just before it is not stored again (lib/redaction-logic.js).
   const updated = [...(pendingActions ?? [])];
   for (const action of actions) {
-    if (!repeatsMaskedEntry(updated.at(-1), action)) updated.push(action);
+    const stamped = { ...action, preferred_languages: preferred };
+    if (!repeatsMaskedEntry(updated.at(-1), stamped)) updated.push(stamped);
   }
   if (updated.length === (pendingActions ?? []).length) return true;
   try {

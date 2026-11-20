@@ -111,6 +111,11 @@ pub struct NativeElementProperties {
     /// Per-element UI-framework identity (Windows UIA FrameworkId,
     /// e.g. "Win32"/"WPF"/"XAML"). May be empty.
     pub framework_id: String,
+    /// The language the provider reports for the element, as a language tag
+    /// (Windows: the UIA Culture of the nearest element at or above it, up to
+    /// its top-level window, that reports one; an ancestor's answer counts
+    /// only when the walk confirmed the window root). Empty when none does.
+    pub language: String,
     /// Accessible name of the element referenced by the LabeledBy property.
     /// Empty when the provider reports no label relation.
     pub labeled_by: String,
@@ -220,12 +225,23 @@ pub fn map_element(props: &NativeElementProperties) -> ElementDescription {
         size_of_set: (props.size_of_set >= 1).then_some(props.size_of_set),
         level: (props.level >= 1).then_some(props.level),
         framework_id: non_empty(&props.framework_id),
+        language: non_empty(&props.language),
         locators: build_locators(props),
         // Stamped by the worker at the describe site (docent#220) — the
         // mapping layer has no clock and no event timestamp.
         described_after_ms: None,
         value,
+        place_in_window: place_in_window(props),
     }
+}
+
+/// The element's place under its top-level window: the path's segments below
+/// the window's root, joined by a character no name is split on. The root and
+/// what is above it are left out, whatever kind of element the root is, so
+/// the window's title is no part of it. `None` where the root was not found.
+fn place_in_window(props: &NativeElementProperties) -> Option<String> {
+    let below_root = props.tree_path.get(props.window_root_offset? + 1..)?;
+    Some(below_root.join("\u{1f}"))
 }
 
 // ---------------------------------------------------------------------------
@@ -584,6 +600,41 @@ mod tests {
     }
 
     // -- map_element -------------------------------------------------------
+
+    #[test]
+    fn the_reported_language_is_the_elements_language() {
+        let props = NativeElementProperties {
+            tag: "Button".into(),
+            name: "Gem".into(),
+            language: "da-DK".into(),
+            ..Default::default()
+        };
+
+        let el = map_element(&props);
+        assert_eq!(el.language, Some("da-DK".into()));
+        let json = serde_json::to_value(&el).unwrap();
+        assert_eq!(json["language"], "da-DK");
+    }
+
+    #[test]
+    fn an_element_with_no_reported_language_states_null() {
+        let props = NativeElementProperties {
+            tag: "Button".into(),
+            name: "Save".into(),
+            ..Default::default()
+        };
+
+        let el = map_element(&props);
+        assert_eq!(el.language, None);
+        let json = serde_json::to_value(&el).unwrap();
+        assert!(json["language"].is_null());
+        assert!(json.as_object().unwrap().contains_key("language"));
+    }
+
+    #[test]
+    fn a_fallback_description_carries_no_language() {
+        assert_eq!(map_element_fallback("Button", (0, 1)).language, None);
+    }
 
     #[test]
     fn basic_button_mapping() {
@@ -976,6 +1027,35 @@ mod tests {
             .locators
             .iter()
             .any(|l| matches!(l, LocatorEntry::RoleName { .. })));
+    }
+
+    #[test]
+    fn regression_734_the_place_in_the_window_leaves_the_window_and_what_is_above_it_out() {
+        let mut props = full_props();
+        // The window's root is the first segment.
+        assert_eq!(
+            map_element(&props).place_in_window.as_deref(),
+            Some("Pane:Toolbar\u{1f}Button:Save")
+        );
+        // Another title, and another kind of root, give the same place.
+        props.tree_path[0] = "Pane:*App - changed".to_string();
+        assert_eq!(
+            map_element(&props).place_in_window.as_deref(),
+            Some("Pane:Toolbar\u{1f}Button:Save")
+        );
+        // A segment above the window is left out with it.
+        props.tree_path.insert(0, "Pane:Desktop 1".to_string());
+        props.window_root_offset = Some(1);
+        assert_eq!(
+            map_element(&props).place_in_window.as_deref(),
+            Some("Pane:Toolbar\u{1f}Button:Save")
+        );
+        // The window itself is the empty place.
+        props.tree_path.truncate(2);
+        assert_eq!(map_element(&props).place_in_window.as_deref(), Some(""));
+        // No root found on the path: no place is known.
+        props.window_root_offset = None;
+        assert_eq!(map_element(&props).place_in_window, None);
     }
 
     #[test]

@@ -16,6 +16,9 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use super::action_mapping::PASSWORD_MASK;
 use super::coordinate;
+use super::held_keys::KEY_EXTENDED_PARAM;
+use super::language::preferred_languages;
+use super::physical_key::physical_key_code;
 use super::scroll::{RawScrollEvent, ScrollAccumulator};
 use super::{
     ActionEvent, ActionPayload, CaptureError, CaptureMode, ElementDescription, HeldKeysAtAction,
@@ -110,7 +113,9 @@ pub struct RawEvent {
     /// keyboard arm: `scan_code` is the hook's scan code, for a `VK_PACKET`
     /// keystroke the injected UTF-16 code unit, with the hook's extended mark
     /// for the key in the bit above it
-    /// ([`super::held_keys::KEY_EXTENDED_PARAM`]); `focused_control` the window
+    /// ([`super::held_keys::KEY_EXTENDED_PARAM`]), scan code and mark together
+    /// naming the physical key a `key` action's `code` states;
+    /// `focused_control` the window
     /// handle of the control that held the keyboard focus at the key (`0` when
     /// none was read, see `settle_key_on_its_control`); `part_focus` the
     /// number of the latest focus change that named a part of that control
@@ -321,6 +326,7 @@ fn emit_barrier_sentinel(action_sender: &mpsc::Sender<ActionEvent>, barrier_id: 
         capture_mode: CaptureMode::Accessibility,
         frame_src: None,
         window_rect: None,
+        preferred_languages: None,
         sequence_id: None,
         payload: ActionPayload::BarrierComplete { barrier_id },
     });
@@ -412,6 +418,7 @@ impl PendingBuffers {
                 capture_mode: CaptureMode::Accessibility,
                 frame_src: None,
                 window_rect: None,
+                preferred_languages: preferred_languages(),
                 sequence_id: None,
                 payload: ActionPayload::Scroll {
                     element: None,
@@ -1281,6 +1288,7 @@ fn strip_identity_claims(element: &mut ElementDescription) {
     element.size_of_set = None;
     element.level = None;
     element.framework_id = None;
+    element.language = None;
     element.described_after_ms = None;
 }
 
@@ -1576,6 +1584,19 @@ fn is_repeat(raw: &RawEvent) -> bool {
     raw.callback_params[3] & super::held_keys::KEY_REPEAT_PARAM != 0
 }
 
+/// The physical key of a keystroke, by its W3C UI Events `code` value, from the
+/// hook's scan code and extended mark (the first callback parameter; see
+/// [`RawEvent::callback_params`]). An injected character has none: what it
+/// carries in the scan code's place is its code unit.
+fn physical_key_of(raw: &RawEvent) -> Option<&'static str> {
+    if raw.key_code == VK_PACKET {
+        return None;
+    }
+    let params = raw.callback_params[0];
+    // The low half is the hook's scan code, a 32-bit value.
+    physical_key_code(params as u32, params & KEY_EXTENDED_PARAM != 0)
+}
+
 /// The key names that enter no character: editing, navigation, lock, system
 /// and modifier keys. The function keys (`F1` to `F24`) join them by their
 /// form. The adapter's sensitive-field rule keeps the same list
@@ -1780,6 +1801,7 @@ pub fn worker_loop<B: AccessibilityBackend>(
                         capture_mode: CaptureMode::Accessibility,
                         frame_src: None,
                         window_rect: None,
+                        preferred_languages: preferred_languages(),
                         sequence_id: None,
                         payload: ActionPayload::Scroll {
                             element: None,
@@ -1876,6 +1898,9 @@ struct LastKey {
     context_id: Option<i64>,
     /// Empty when the key named no element.
     selector: String,
+    /// The element's place under its window (see [`same_field`]), where the
+    /// description knew it.
+    place: Option<String>,
     /// `WorkerState::mark_seq` of the description the element came from;
     /// `None` when the key named no element, or was recorded on its control.
     mark: Option<u64>,
@@ -2412,6 +2437,7 @@ fn process_raw_event<B: AccessibilityBackend>(
                 capture_mode: CaptureMode::Accessibility,
                 frame_src: None,
                 window_rect: window_rect.clone(),
+                preferred_languages: preferred_languages(),
                 sequence_id: Some(raw.sequence_id),
                 payload: ActionPayload::ContextOpen {
                     // The pipeline does not observe which window caused this
@@ -2432,6 +2458,7 @@ fn process_raw_event<B: AccessibilityBackend>(
                 capture_mode: CaptureMode::Accessibility,
                 frame_src: None,
                 window_rect: window_rect.clone(),
+                preferred_languages: preferred_languages(),
                 sequence_id: Some(raw.sequence_id),
                 payload: ActionPayload::ContextClose {
                     window_closing: true,
@@ -2455,6 +2482,7 @@ fn process_raw_event<B: AccessibilityBackend>(
                     capture_mode: CaptureMode::Accessibility,
                     frame_src: None,
                     window_rect: window_rect.clone(),
+                    preferred_languages: preferred_languages(),
                     sequence_id: Some(raw.sequence_id),
                     payload: ActionPayload::Scroll {
                         element: None,
@@ -2646,6 +2674,7 @@ fn handle_click<B: AccessibilityBackend>(
         capture_mode,
         frame_src: None,
         window_rect: window_rect.clone(),
+        preferred_languages: preferred_languages(),
         sequence_id: Some(raw.sequence_id),
         payload,
     });
@@ -2692,6 +2721,7 @@ fn handle_click<B: AccessibilityBackend>(
             capture_mode: CaptureMode::Accessibility,
             frame_src: None,
             window_rect: pick.window_rect,
+            preferred_languages: preferred_languages(),
             sequence_id: Some(raw.sequence_id),
             payload: ActionPayload::FileDialog {
                 dialog_type: pick.dialog_type,
@@ -2742,6 +2772,7 @@ fn handle_focus<B: AccessibilityBackend>(
         capture_mode: CaptureMode::Accessibility,
         frame_src: None,
         window_rect,
+        preferred_languages: preferred_languages(),
         sequence_id: Some(raw.sequence_id),
         payload: ActionPayload::Focus { element },
     });
@@ -2831,7 +2862,7 @@ fn handle_value_change<B: AccessibilityBackend>(
         keep_keys_of_dropped_value_change(pending, action_sender);
         return false;
     }
-    let key_selector = last_key.map(|k| k.selector.clone());
+    let key_field = last_key.map(|k| (k.selector.clone(), k.place.clone()));
     let described = describe_focused_for(raw, backend, &mut state.mark_seq);
     let Some(FocusedNow {
         element: Some(element),
@@ -2846,7 +2877,10 @@ fn handle_value_change<B: AccessibilityBackend>(
         keep_keys_of_dropped_value_change(pending, action_sender);
         return false;
     };
-    if same_as_key.is_none() && key_selector.is_some_and(|s| s != element.selector) {
+    if same_as_key.is_none()
+        && key_field
+            .is_some_and(|(selector, place)| !same_field_as(&selector, place.as_deref(), &element))
+    {
         if let Some(k) = state.last_key.as_mut() {
             k.mark = None;
         }
@@ -2862,6 +2896,7 @@ fn handle_value_change<B: AccessibilityBackend>(
     {
         k.mark = Some(state.mark_seq);
         k.selector = element.selector.clone();
+        k.place = element.place_in_window.clone();
     }
     if focus_stands {
         state.typing_focus = Some(TypingFocus {
@@ -2874,7 +2909,7 @@ fn handle_value_change<B: AccessibilityBackend>(
         // The remembered element, described again.
         if f.context_id == context_id
             && f.epoch == raw.focus_epoch
-            && f.element.selector == element.selector
+            && same_field(&f.element, &element)
         {
             f.mark = state.mark_seq;
         }
@@ -2978,6 +3013,24 @@ fn last_value_key(context_id: Option<i64>, selector: &str) -> String {
     format!("{}\u{1f}{selector}", context_id.unwrap_or(0))
 }
 
+/// Whether two descriptions read in one window are of the same element.
+///
+/// The selector holds the window's title, and a title changes while the
+/// element stays (an editor adds or drops its "modified" mark while the
+/// person types), so where both descriptions know their place under the
+/// window, the place decides. Where one does not, the selectors do.
+fn same_field(a: &ElementDescription, b: &ElementDescription) -> bool {
+    same_field_as(&a.selector, a.place_in_window.as_deref(), b)
+}
+
+/// [`same_field`], for an element remembered by its selector and its place.
+fn same_field_as(selector: &str, place: Option<&str>, element: &ElementDescription) -> bool {
+    match (place, element.place_in_window.as_deref()) {
+        (Some(a_place), Some(b_place)) => a_place == b_place,
+        _ => selector == element.selector,
+    }
+}
+
 /// Start the pending type event for `element`, or carry the one already
 /// pending for it forward to `value`.
 ///
@@ -2998,9 +3051,8 @@ fn buffer_type_value(
 ) {
     // The pending type is this element's when it names the same selector in the
     // same window; a type pending for any other element is flushed first.
-    let same_element = |pt: &PendingTypeEvent| {
-        pt.context_id == context_id && pt.element.selector == element.selector
-    };
+    let same_element =
+        |pt: &PendingTypeEvent| pt.context_id == context_id && same_field(&pt.element, &element);
     if buffers
         .pending_type
         .as_ref()
@@ -3100,6 +3152,7 @@ fn handle_selection<B: AccessibilityBackend>(
         capture_mode: CaptureMode::Accessibility,
         frame_src: None,
         window_rect,
+        preferred_languages: preferred_languages(),
         sequence_id: Some(raw.sequence_id),
         payload: ActionPayload::Select {
             element: final_element,
@@ -3148,10 +3201,12 @@ fn handle_keyboard<B: AccessibilityBackend>(
             capture_mode: CaptureMode::Accessibility,
             frame_src: None,
             window_rect: None,
+            preferred_languages: preferred_languages(),
             sequence_id: Some(raw.sequence_id),
             payload: ActionPayload::Key {
                 key,
                 modifiers: modifiers_of(raw),
+                code: physical_key_of(raw),
                 repeat: is_repeat(raw),
                 held: held_at(raw),
                 element,
@@ -3235,10 +3290,11 @@ fn handle_keyboard<B: AccessibilityBackend>(
     };
     // The gap to the moment this worker settled the key's element.
     stamp_described_after(&mut element, raw.timestamp);
-    let key_selector = element.selector.clone();
+    let key_element = element.clone();
     state.last_key = Some(LastKey {
         context_id,
-        selector: key_selector.clone(),
+        selector: element.selector.clone(),
+        place: element.place_in_window.clone(),
         mark,
         control,
     });
@@ -3291,11 +3347,13 @@ fn handle_keyboard<B: AccessibilityBackend>(
         capture_mode: CaptureMode::Accessibility,
         frame_src: None,
         window_rect,
+        preferred_languages: preferred_languages(),
         sequence_id: Some(raw.sequence_id),
         payload: ActionPayload::Key {
             key: key.clone(),
             modifiers: modifiers_of(raw),
             repeat: is_repeat(raw),
+            code: physical_key_of(raw),
             held: held_at(raw),
             element,
         },
@@ -3310,7 +3368,7 @@ fn handle_keyboard<B: AccessibilityBackend>(
         if buffers
             .pending_type
             .as_ref()
-            .is_some_and(|pt| pt.context_id != context_id || pt.element.selector != key_selector)
+            .is_some_and(|pt| pt.context_id != context_id || !same_field(&pt.element, &key_element))
         {
             buffers.flush_pending_type_only(action_sender);
         }
@@ -3320,7 +3378,7 @@ fn handle_keyboard<B: AccessibilityBackend>(
         if buffers.pending_keys.iter().any(|pending_key| {
             pending_key.context_id != context_id
                 || !matches!(&pending_key.payload,
-                    ActionPayload::Key { element, .. } if element.selector == key_selector)
+                    ActionPayload::Key { element, .. } if same_field(element, &key_element))
         }) {
             flush_pending_keys(&mut buffers.pending_keys, action_sender);
         }
@@ -3355,6 +3413,7 @@ fn handle_foreground<B: AccessibilityBackend>(
         capture_mode: CaptureMode::Accessibility,
         frame_src: None,
         window_rect,
+        preferred_languages: preferred_languages(),
         sequence_id: Some(raw.sequence_id),
         payload: ActionPayload::ContextSwitch {
             source,
@@ -3391,6 +3450,7 @@ fn handle_drag_start<B: AccessibilityBackend>(
         capture_mode: CaptureMode::Accessibility,
         frame_src: None,
         window_rect,
+        preferred_languages: preferred_languages(),
         sequence_id: Some(raw.sequence_id),
         payload: ActionPayload::DragStart {
             modifiers: modifiers_of(raw),
@@ -3425,6 +3485,7 @@ fn handle_drop<B: AccessibilityBackend>(
         capture_mode: CaptureMode::Accessibility,
         frame_src: None,
         window_rect,
+        preferred_languages: preferred_languages(),
         sequence_id: Some(raw.sequence_id),
         payload: ActionPayload::Drop {
             x: raw.screen_x as f64,
@@ -3455,6 +3516,7 @@ fn flush_pending_type(
             capture_mode: CaptureMode::Accessibility,
             frame_src: None,
             window_rect: pt.window_rect,
+            preferred_languages: preferred_languages(),
             sequence_id: Some(pt.sequence_id),
             payload: ActionPayload::Type {
                 element: pt.element,
@@ -3560,6 +3622,7 @@ mod tests {
             capture_mode: CaptureMode::Accessibility,
             frame_src: None,
             window_rect: None,
+            preferred_languages: preferred_languages(),
             sequence_id: Some(1),
             payload: ActionPayload::Key {
                 key: key.to_string(),
@@ -3570,6 +3633,7 @@ mod tests {
                     meta: false,
                 },
                 repeat: false,
+                code: None,
                 held: HeldKeysAtAction::default(),
                 element: ElementDescription {
                     tag: "Edit".to_string(),

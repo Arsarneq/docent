@@ -1,16 +1,8 @@
 # Scripted-truth capture corpus
 
-The "capture completeness" artifact of
-[Replay Sufficiency — Falsifiability, item 3](../requirements/replay-sufficiency.md#falsifiability):
-controlled pages where the input sequence itself is scripted, so CI diffs the
-produced recording against known truth. This is the artifact that catches
-missing-action capture gaps, which neither the schema, the sufficiency lint,
-nor any locator machinery can see.
+The "capture completeness" artifact of [Replay Sufficiency — Falsifiability, item 3](../requirements/replay-sufficiency.md#falsifiability): controlled pages where the input sequence itself is scripted, so CI diffs the produced recording against known truth. It catches missing-action capture gaps, which neither the schema, the sufficiency lint, nor any locator machinery can see.
 
-Nothing here replays a recording or resolves a locator. The corpus produces
-`.docent.json` envelopes from scripted input and compares them to committed
-truth files — Docent ships no consumer, and the `corpus/` directory is a repository and
-CI artifact only (excluded from every release, like `reference-implementations/`).
+Nothing here replays a recording or resolves a locator. The corpus produces `.docent.json` envelopes from scripted input and compares them to committed truth files. Docent ships no consumer. The `corpus/` directory is a repository and CI artifact only, excluded from every release like `reference-implementations/`.
 
 Where to look:
 
@@ -108,93 +100,44 @@ corpus/
 
 ## Run surface
 
-The extension runner is `packages/extension/tests/e2e/corpus/corpus.spec.js`,
-with two Playwright configs one level up in `packages/extension/tests/e2e/`: `playwright.corpus.config.js`
-produces truth envelopes only, and `playwright.vectors.config.js` is the same
-run with `CORPUS_VECTORS` set — the vector-emitting superset (STC-10), whose
-truth envelopes are emitted unchanged. The comparator is
-`scripts/corpus-compare.js` (normalization and alignment: STC-19 and STC-20;
-the relaxation contract: STC-5 and STC-21; baseline mechanics: STC-3).
+The extension runner is `packages/extension/tests/e2e/corpus/corpus.spec.js`. Two Playwright configs sit one level up in `packages/extension/tests/e2e/`:
+
+- `playwright.corpus.config.js` produces truth envelopes only.
+- `playwright.vectors.config.js` is the same run with `CORPUS_VECTORS` set: the vector-emitting superset (STC-10), whose truth envelopes are emitted unchanged.
+
+The comparator is `scripts/corpus-compare.js` (normalization and alignment: STC-19 and STC-20; the relaxation contract: STC-5 and STC-21; baseline mechanics: STC-3).
 
 Local loops:
 
-- **Extension:** `npm run corpus:produce:extension`, then
-  `npm run corpus:check`. The producer runs on the end-to-end harness and
-  needs [its one-time install](../test/e2e.md#running-the-suite). Vectors: `npm run vectors:produce:extension` runs
-  the vectors config, and `npm run vectors:check` chains it with the hygiene
-  locks.
-- **Desktop (a Windows machine):** the Rust producer
-  (`cargo test --manifest-path packages/desktop/src-tauri/Cargo.toml --test corpus_capture -- --test-threads=1`),
-  then `npm run corpus:assemble:desktop`, then `npm run corpus:check:desktop`.
-  Vectors: `npm run vectors:check:desktop` chains the fixture-only producer
-  (`vectors:produce:desktop` — the `v_vector_fixture` filter of the same Rust
-  test), the assembler (`vectors:assemble:desktop`, which is
-  `scripts/corpus-assemble-desktop-vectors.js`), and the hygiene locks.
+- **Extension:** `npm run corpus:produce:extension`, then `npm run corpus:check`. The producer runs on the end-to-end harness and needs [its one-time install](../test/e2e.md#running-the-suite). Vectors: `npm run vectors:produce:extension` runs the vectors config, and `npm run vectors:check` chains it with the hygiene locks.
+- **Desktop (a Windows machine):** the Rust producer (`cargo test --manifest-path packages/desktop/src-tauri/Cargo.toml --test corpus_capture -- --test-threads=1`), then `npm run corpus:assemble:desktop`, then `npm run corpus:check:desktop`. Vectors: `npm run vectors:check:desktop` chains the fixture-only producer (`vectors:produce:desktop`, the `v_vector_fixture` filter of the same Rust test), the assembler (`vectors:assemble:desktop`, which is `scripts/corpus-assemble-desktop-vectors.js`), and the hygiene locks.
 
-In CI ([`test.yml`](../guides/ci.md#path-filtered-test-jobs)) the corpus
-artifacts are produced by five jobs:
+In CI ([`test.yml`](../guides/ci.md#path-filtered-test-jobs)), five jobs produce the corpus artifacts:
 
-- **Extension corpus and vectors** — the `extension-e2e-tests` job produces
-  both through the vectors config (one superset run: truth envelopes plus
-  produced vectors, each validated against the meta-schema and, where it
-  holds, the element check (STC-10), and the produce-stage vector oracle),
-  then runs `npm run corpus:check` in the same job.
-- **Desktop corpus** — the `desktop-rust-tests` job (Windows) runs the
-  producer in its auto-discovered integration tier and uploads the per-session
-  event dumps as an artifact; the `desktop-corpus-diff` job (Linux) downloads
-  them, runs `npm run corpus:assemble:desktop`, then
-  `npm run corpus:check:desktop` (the STC-8 pipeline).
-- **Desktop vectors** — the `desktop-vectors-produce` job (the pinned Windows
-  image — STC-18) runs the `v_vector_fixture` producer and uploads the vector
-  source dump; the `desktop-vectors-diff` job (Linux) runs
-  `npm run vectors:assemble:desktop` (meta-schema and element-check
-  validation of each produced vector, the normalized produced==committed
-  oracle, and the completeness pass that fails the run when a committed
-  desktop vector is not reproduced — STC-10) and the hygiene locks.
+- **Extension corpus and vectors.** The `extension-e2e-tests` job produces both through the vectors config, then runs `npm run corpus:check`. One superset run yields truth envelopes plus produced vectors, each validated against the meta-schema and, where it holds, the element check (STC-10), and the produce-stage vector oracle.
+- **Desktop corpus.** The `desktop-rust-tests` job (Windows) runs the producer in its auto-discovered integration tier and uploads the per-session event dumps as an artifact. The `desktop-corpus-diff` job (Linux) downloads them, runs `npm run corpus:assemble:desktop`, then `npm run corpus:check:desktop` (the STC-8 pipeline).
+- **Desktop vectors.** The `desktop-vectors-produce` job (the pinned Windows image, STC-18) runs the `v_vector_fixture` producer and uploads the vector source dump. The `desktop-vectors-diff` job (Linux) runs `npm run vectors:assemble:desktop` and the hygiene locks. The assembler runs (STC-10):
+  - Meta-schema and element-check validation of each produced vector.
+  - The normalized produced==committed oracle.
+  - The completeness pass, which fails the run when a committed desktop vector is not reproduced.
 
-The structural hygiene locks (STC-11) additionally run over the committed
-vectors with the shared unit suite, with no producer involved — locally via
-`npm run test:shared`, and in CI's `unit-tests` job, which runs on every push
-to `main` and on each pull request whose change filters fire, taking the same
-suite under coverage (`npm run test:coverage`, which includes its files).
+The structural hygiene locks (STC-11) also run over the committed vectors with the shared unit suite, with no producer involved. They run locally via `npm run test:shared`, and in CI's `unit-tests` job. That job runs on every push to `main` and on each pull request whose change filters fire, and takes the same suite under coverage (`npm run test:coverage`, which includes its files).
 
 ### When a capture change turns the check red
 
-A change to what a platform records shows up in this loop first: the
-platform's check (`npm run corpus:check` for the extension,
-`npm run corpus:check:desktop` for the desktop) compares each produced envelope
-with its committed truth and goes red on every difference the baseline does
-not already hold, and on every baseline entry that no longer occurs (STC-3).
-Which fix
-applies depends on which side is right:
+A change to what a platform records shows up in this loop first. The platform's check (`npm run corpus:check` for the extension, `npm run corpus:check:desktop` for the desktop) compares each produced envelope with its committed truth. It goes red on every difference the baseline does not already hold, and on every baseline entry that no longer occurs (STC-3). The fix depends on which side is right:
 
-- **The recorder is right and the truth is behind** (a new field, a corrected
-  value). Edit each affected `corpus/sessions/<id>/truth.docent.json` to state
-  what a faithful capture now records, derived from the session's script as
-  STC-1 requires. A committed conformance vector carrying the changed facts is
-  produced again, reviewed and committed the same way
-  ([Emission](#emission-produced-then-reviewed-and-committed)).
-- **The truth is right and the recorder falls short**, and the gap stays open
-  for now. With the produced envelopes in `corpus/out/`, regenerate the
-  platform's baseline, review the result (STC-3), and name the issue that
-  tracks the gap in the session's `knownDiffIssues` in `corpus/manifest.json`
-  (STC-1):
+- **The recorder is right and the truth is behind** (a new field, a corrected value). Edit each affected `corpus/sessions/<id>/truth.docent.json` to state what a faithful capture now records, derived from the session's script as STC-1 requires. A committed conformance vector carrying the changed facts is produced again, reviewed and committed the same way ([Emission](#emission-produced-then-reviewed-and-committed)).
+- **The truth is right and the recorder falls short**, and the gap stays open for now. With the produced envelopes in `corpus/out/`, regenerate the platform's baseline, review the result (STC-3), and name the issue that tracks the gap in the session's `knownDiffIssues` in `corpus/manifest.json` (STC-1):
 
   ```bash
   node scripts/corpus-compare.js --platform extension \
     --write-baseline corpus/known-diffs.extension.json
   ```
 
-  The desktop baseline takes `--platform desktop-windows` and
-  `corpus/known-diffs.desktop-windows.json`. The same command records a diff
-  that vanished because a fix landed.
+  The desktop baseline takes `--platform desktop-windows` and `corpus/known-diffs.desktop-windows.json`. The same command records a diff that vanished because a fix landed.
 
-A third red needs neither judgment. A baseline entry for an extra or a
-missing action quotes the start of that action, with its keys sorted, so a
-field that sorts into the quoted part changes the entry: the old one vanishes
-and the same gap appears as new. The gap itself is unchanged; regenerate the
-baseline with the command above and review that the quoted action is all that
-differs.
+A third red needs neither judgment. A baseline entry for an extra or a missing action quotes the start of that action, with its keys sorted. A field that sorts into the quoted part therefore changes the entry: the old one vanishes and the same gap appears as new. The gap itself is unchanged. Regenerate the baseline with the command above, and review that the quoted action is all that differs.
 
 ## Comparator and relaxations
 
@@ -212,6 +155,7 @@ classes:
 | context handles (`context_id`, `opener_context_id`)                       | ordinal placeholders through one shared map — same-context vs cross-context identity survives                                           |
 | coordinates (action `x`/`y`; desktop non-null `window_rect`)              | value placeholders; presence vs null vs absence stays exact                                                                             |
 | `described_after_ms`                                                      | positive (worker-describe latency) → placeholder; `0` (an input-time describe) stays exact                                              |
+| `preferred_languages`                                                     | a list (the capturing machine's own preference) → placeholder; null and absence stay exact                                              |
 | coordinate-mode `selector` (`coord:x,y`)                                  | point placeholder; every other selector stays exact                                                                                     |
 
 The pass walks the envelope structure (project → recordings → steps → actions
@@ -270,23 +214,21 @@ must-apply gate as unmatched rather than being applied.
 
 ### Authoring a sidecar entry from a printed finding
 
-An entry is authored from a finding the comparator printed, so the path from
-diff to sidecar is mechanical. A `wrong-field` finding on a locator entry's
-match statistics prints the truth pointer of the aligned action, then the field
-path inside it, in dot notation:
+An entry is authored from a finding the comparator printed, so the path from diff to sidecar is mechanical. A `wrong-field` finding on a locator entry's match statistics prints the truth pointer of the aligned action, then the field path inside it, in dot notation:
 
 ```text
 wrong-field rec[0].step[1].action[2]:click element.locators.0.match_count expected=1 actual=2
 ```
 
-The entry that relaxes it names the same locator entry in bracket form: keep
-the finding's pointer through the action, drop the action type the finding
-appends to it (the `:click` suffix — a sidecar pointer carries none), drop the
-`element.` segment, write the index the field path spells as `.0` as a
-bracket index, and stop there — the field name the path ends in (`.match_count`)
-is dropped too, because the pointer names the locator entry, not the field
-inside it. So `element.locators.0.match_count` becomes `.locators[0]`, the
-shape a `match-stats` pointer takes. The entry that results:
+The entry that relaxes it names the same locator entry in bracket form:
+
+1. Keep the finding's pointer through the action.
+2. Drop the action type the finding appends to it (the `:click` suffix). A sidecar pointer carries none.
+3. Drop the `element.` segment.
+4. Write the index the field path spells as `.0` as a bracket index.
+5. Drop the field name the path ends in (`.match_count`) and stop: the pointer names the locator entry, not the field inside it.
+
+So `element.locators.0.match_count` becomes `.locators[0]`, the shape a `match-stats` pointer takes. The entry that results:
 
 ```json
 {
@@ -303,15 +245,9 @@ shape a `match-stats` pointer takes. The entry that results:
 }
 ```
 
-That entry is illustrative; the sidecars this catalogue actually ships are the
-ones named by an `overrides` key in `corpus/manifest.json`.
+That entry is illustrative. The sidecars this catalogue actually ships are those named by an `overrides` key in `corpus/manifest.json`.
 
-The comparator reads the `relaxations` array. `session`, `platform`, and
-`notes` are the catalogue's authoring convention: they carry the reviewer's
-record of which session an entry belongs to and why it exists, and the
-comparator passes over them. `strategy` is the `match-stats` cross-check
-(STC-5); a `scroll-amounts` or `path` entry carries `pointer` and `relax`, and
-its pointer names the action itself rather than a locator entry.
+The comparator reads the `relaxations` array. `session`, `platform`, and `notes` are the catalogue's authoring convention. They carry the reviewer's record of which session an entry belongs to and why it exists, and the comparator passes over them. `strategy` is the `match-stats` cross-check (STC-5). A `scroll-amounts` or `path` entry carries `pointer` and `relax`, and its pointer names the action itself rather than a locator entry.
 
 ## Page-authoring rules
 
@@ -332,7 +268,7 @@ STC-4's hermetic serving:
   | placeholder                                                    | ext-type-blur   |
 
 - Fixed pixel sizes for geometry the session depends on (scroll containers);
-  no animation, no time/locale-dependent text, `lang="en"`, no external
+  no animation, no time/locale-dependent text, `lang="en"` on the document element — EXCEPT the two pages that pin how the recorded `language` is read: `ext-click-basic` gives one button a `lang` of its own, and the `ext-iframe` frame page declares none — no external
   resources. The runner pins a 1280x720 viewport.
 - Waits come from `packages/extension/lib/capture-timing.js` constants
   (`SCROLL_DEBOUNCE`, `SCROLL_MIN_DISTANCE_PX`), never magic numbers.
@@ -394,18 +330,15 @@ enters with its session — baselined (STC-3) and issue-tagged in the manifest
 
 ## Conformance vectors
 
-Inert data for [docs/technical/locator-resolution.md](../technical/locator-resolution.md#conformance-and-vector-scope)
-(Conformance and Vector Scope): committed alongside the sessions whose pages they
-reuse, one file per ground-truth element under `corpus/sessions/<id>/vectors/<key>.vector.json`,
-shaped by the meta-schema `corpus/vector.schema.json`. A vector carries the recorded
-`locators`, the `element_facts` (the captured element **minus** its nested
-locators — the non-locator fact source), a `tree_snapshot` of the bound scope,
-the `ground_truth` node inside it, and `matched_node_ids` (per candidate, the
-snapshot nodes its stated query selects). The inclusion criterion — which
-elements are in vector scope — is owned by
-[locator-resolution §LR-23](../technical/locator-resolution.md#conformance-and-vector-scope);
-this document owns the inventory of shipped vectors and the machinery that
-emits and locks them. Nothing here executes the resolution procedure.
+Conformance vectors are inert data for [docs/technical/locator-resolution.md](../technical/locator-resolution.md#conformance-and-vector-scope) (Conformance and Vector Scope). They are committed alongside the sessions whose pages they reuse, one file per ground-truth element under `corpus/sessions/<id>/vectors/<key>.vector.json`, shaped by the meta-schema `corpus/vector.schema.json`. A vector carries:
+
+- The recorded `locators`.
+- The `element_facts`: the captured element **minus** its nested locators (the non-locator fact source).
+- A `tree_snapshot` of the bound scope.
+- The `ground_truth` node inside it.
+- `matched_node_ids`: per candidate, the snapshot nodes its stated query selects.
+
+[locator-resolution §LR-23](../technical/locator-resolution.md#conformance-and-vector-scope) owns the inclusion criterion (which elements are in vector scope). This document owns the inventory of shipped vectors and the machinery that emits and locks them. Nothing here executes the resolution procedure.
 
 **STC-23.** Only vectors whose `expected_outcome` is `resolved` ship: every
 committed vector MUST state that outcome. This clause and the meta-schema are
@@ -518,21 +451,9 @@ extension leg needs none.)
 
 ### Desktop leg
 
-The desktop leg reuses this machinery — the same meta-schema, the locks STC-11
-states, the produced==committed oracle — with a desktop-shaped snapshot and
-evaluator. The desktop assembler's own behaviours are the completeness pass
-(STC-10, stated under Emission), the harness-measured pairs (STC-17) and the
-compare normalization (STC-18); the list below states the other differences,
-STC-17's and STC-18's among them:
+The desktop leg reuses this machinery (the same meta-schema, the locks STC-11 states, the produced==committed oracle) with a desktop-shaped snapshot and evaluator. The desktop assembler's own behaviors are the completeness pass (STC-10, stated under Emission), the harness-measured pairs (STC-17) and the compare normalization (STC-18). The list below states the other differences, STC-17's and STC-18's among them:
 
-- **Snapshot node (`desktop_node`).** A serialized node of the UI Automation
-  Control view: `control_type` (non-localized), `name`, `automation_id`,
-  `class_name`, `text`, a `labeled_by` relation edge (`target_node_id` |
-  `target_name`), and `children`. The bound scope is the acted-on top-level
-  **window, itself included** — the full Control view, no chrome excised (the
-  desktop measurement scope in
-  [docs/technical/locator-resolution.md](../technical/locator-resolution.md)) — so uniqueness
-  and `tree_path` are counted over exactly what a query sees at the window.
+- **Snapshot node (`desktop_node`).** A serialized node of the UI Automation Control view: `control_type` (non-localized), `name`, `automation_id`, `class_name`, `text`, a `labeled_by` relation edge (`target_node_id` | `target_name`), and `children`. The bound scope is the acted-on top-level **window, itself included**: the full Control view, no chrome excised (the desktop measurement scope in [docs/technical/locator-resolution.md](../technical/locator-resolution.md)), so uniqueness and `tree_path` are counted over exactly what a query sees at the window.
 - **STC-15.** **Locale determinism by authored provenance.** A committed snapshot MUST NOT
   freeze OS-locale strings. `control_type` / `automation_id` / `class_name` /
   structure are kept verbatim (stable, count-relevant); the vector meta-schema's
@@ -600,22 +521,9 @@ STC-17's and STC-18's among them:
 
 ## Out of scripted reach (loud exclusions)
 
-- **Autofill fills (docent#233)** — Chrome's autofill dropdown is browser
-  chrome; neither Playwright nor CDP can select an entry. No scripted session
-  and no manual scenario (the extension's manual tests are retired); the issue
-  is its home.
-- **`context_open`/`context_switch`/`context_close` as user actions** —
-  tab/window chrome interactions have no trusted-input driver (a scripted
-  `bringToFront`/`page.close()` is programmatic by definition, and capture
-  rightly filters it). `ext-tab-open` pins the in-page half of the boundary:
-  a user click that opens a tab records the click plus
-  the entries of the new context's establishment (core CP-17) — its
-  `context_open`, a known diff (docent#252), and the navigation that loads the
-  link's destination.
-- **Recorder-presence loss (docent#222/#226)** — the corpus deliberately runs
-  under the frame-readiness discipline that controls this failure class away;
-  adversarial injection timing belongs to those issues, not to deterministic
-  scripting.
+- **Autofill fills (docent#233).** Chrome's autofill dropdown is browser chrome: neither Playwright nor CDP can select an entry. No scripted session and no manual scenario (the extension's manual tests are retired). The issue is its home.
+- **`context_open`/`context_switch`/`context_close` as user actions.** Tab/window chrome interactions have no trusted-input driver: a scripted `bringToFront`/`page.close()` is programmatic by definition, and capture rightly filters it. `ext-tab-open` pins the in-page half of the boundary. A user click that opens a tab records the click plus the entries of the new context's establishment (core CP-17): its `context_open`, a known diff (docent#252), and the navigation that loads the link's destination.
+- **Recorder-presence loss (docent#222/#226).** The corpus deliberately runs under the frame-readiness discipline that controls this failure class away. Adversarial injection timing belongs to those issues, not to deterministic scripting.
 
 ## Known caveats
 

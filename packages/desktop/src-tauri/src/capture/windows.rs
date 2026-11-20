@@ -35,33 +35,35 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use super::uia_core_api::{
     UIA_AutomationIdPropertyId, UIA_ClassNamePropertyId, UIA_ControlTypePropertyId,
-    UIA_FrameworkIdPropertyId, UIA_IsControlElementPropertyId, UIA_IsKeyboardFocusablePropertyId,
-    UIA_IsPasswordPropertyId, UIA_LabeledByPropertyId, UIA_LevelPropertyId,
-    UIA_LocalizedControlTypePropertyId, UIA_NamePropertyId, UIA_NativeWindowHandlePropertyId,
-    UIA_PositionInSetPropertyId, UIA_SelectionPatternId, UIA_SizeOfSetPropertyId,
-    UIA_ToolBarControlTypeId, UIA_ValueValuePropertyId,
+    UIA_CulturePropertyId, UIA_FrameworkIdPropertyId, UIA_IsControlElementPropertyId,
+    UIA_IsKeyboardFocusablePropertyId, UIA_IsPasswordPropertyId, UIA_LabeledByPropertyId,
+    UIA_LevelPropertyId, UIA_LocalizedControlTypePropertyId, UIA_NamePropertyId,
+    UIA_NativeWindowHandlePropertyId, UIA_PositionInSetPropertyId, UIA_SelectionPatternId,
+    UIA_SizeOfSetPropertyId, UIA_ToolBarControlTypeId, UIA_ValueValuePropertyId,
 };
 use super::variant::Variant;
 use super::win32_bindings::{
     CUIAutomation, CallNextHookEx, CloseHandle, CoCreateInstance, CoInitializeEx, CoUninitialize,
     DispatchMessageW, EnumWindows, GetAncestor, GetAsyncKeyState, GetClassNameW,
     GetCurrentThreadId, GetDoubleClickTime, GetForegroundWindow, GetGUIThreadInfo,
-    GetKeyboardLayout, GetMessageW, GetParent, GetSystemMetrics, GetWindow, GetWindowLongW,
-    GetWindowTextW, GetWindowThreadProcessId, IUIAutomation, IUIAutomationCondition,
-    IUIAutomationElement, IUIAutomationSelectionPattern, IsWindow, IsWindowVisible,
-    MapVirtualKeyExW, PeekMessageW, PostThreadMessageW, RegGetValueW,
-    SetProcessDpiAwarenessContext, SetWinEventHook, SetWindowsHookExW, TranslateMessage,
-    TreeScope_Descendants, TreeScope_Subtree, UnhookWinEvent, UnhookWindowsHookEx, WindowFromPoint,
-    CHILDID_SELF, CLSCTX_ALL, COINIT_APARTMENTTHREADED, COINIT_MULTITHREADED,
-    DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, EVENT_OBJECT_CREATE, EVENT_OBJECT_DESTROY,
-    EVENT_OBJECT_FOCUS, EVENT_OBJECT_SELECTION, EVENT_OBJECT_VALUECHANGE, EVENT_SYSTEM_FOREGROUND,
-    GA_ROOT, GA_ROOTOWNER, GUITHREADINFO, GWL_STYLE, GW_OWNER, HANDLE, HHOOK, HKEY_CURRENT_USER,
-    HKL, HWINEVENTHOOK, HWND, INVALID_HANDLE_VALUE, KBDLLHOOKSTRUCT, LLKHF_EXTENDED, LPARAM,
-    LRESULT, MAPVK_VK_TO_CHAR, MSG, MSLLHOOKSTRUCT, OBJID_WINDOW, PM_NOREMOVE, POINT, PROPERTYID,
-    RRF_RT_REG_DWORD, RRF_RT_REG_SZ, SM_CXDOUBLECLK, SM_CYDOUBLECLK, UIA_HWND, VK_CONTROL, VK_LWIN,
-    VK_MENU, VK_RWIN, VK_SHIFT, VT_EMPTY, WH_KEYBOARD_LL, WH_MOUSE_LL, WINEVENT_OUTOFCONTEXT,
-    WM_APP, WM_KEYDOWN, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MOUSEHWHEEL, WM_MOUSEMOVE,
-    WM_MOUSEWHEEL, WM_NULL, WM_QUIT, WM_RBUTTONDOWN, WM_SYSKEYDOWN, WM_USER, WPARAM, WS_CHILD,
+    GetKeyboardLayout, GetMessageW, GetParent, GetSystemMetrics, GetUserPreferredUILanguages,
+    GetWindow, GetWindowLongW, GetWindowTextW, GetWindowThreadProcessId, IUIAutomation,
+    IUIAutomationCondition, IUIAutomationElement, IUIAutomationSelectionPattern, IsWindow,
+    IsWindowVisible, LCIDToLocaleName, MapVirtualKeyExW, PeekMessageW, PostThreadMessageW,
+    RegGetValueW, SetProcessDpiAwarenessContext, SetWinEventHook, SetWindowsHookExW,
+    TranslateMessage, TreeScope_Descendants, TreeScope_Subtree, UnhookWinEvent,
+    UnhookWindowsHookEx, WindowFromPoint, CHILDID_SELF, CLSCTX_ALL, COINIT_APARTMENTTHREADED,
+    COINIT_MULTITHREADED, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, EVENT_OBJECT_CREATE,
+    EVENT_OBJECT_DESTROY, EVENT_OBJECT_FOCUS, EVENT_OBJECT_SELECTION, EVENT_OBJECT_VALUECHANGE,
+    EVENT_SYSTEM_FOREGROUND, GA_ROOT, GA_ROOTOWNER, GUITHREADINFO, GWL_STYLE, GW_OWNER, HANDLE,
+    HHOOK, HKEY_CURRENT_USER, HKL, HWINEVENTHOOK, HWND, INVALID_HANDLE_VALUE, KBDLLHOOKSTRUCT,
+    LCID, LLKHF_EXTENDED, LOCALE_ALLOW_NEUTRAL_NAMES, LOCALE_NAME_MAX_LENGTH, LPARAM, LRESULT,
+    MAPVK_VK_TO_CHAR, MSG, MSLLHOOKSTRUCT, MUI_LANGUAGE_NAME, OBJID_WINDOW, PM_NOREMOVE, POINT,
+    PROPERTYID, RRF_RT_REG_DWORD, RRF_RT_REG_SZ, SM_CXDOUBLECLK, SM_CYDOUBLECLK, UIA_HWND,
+    VK_CONTROL, VK_LWIN, VK_MENU, VK_RWIN, VK_SHIFT, VT_EMPTY, WH_KEYBOARD_LL, WH_MOUSE_LL,
+    WINEVENT_OUTOFCONTEXT, WM_APP, WM_KEYDOWN, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN,
+    WM_MOUSEHWHEEL, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_NULL, WM_QUIT, WM_RBUTTONDOWN, WM_SYSKEYDOWN,
+    WM_USER, WPARAM, WS_CHILD,
 };
 use windows_core::{Error, Interface, BOOL, BSTR, PWSTR};
 
@@ -70,6 +72,7 @@ use super::element_mapping::{
     NativeElementProperties,
 };
 use super::hook_diagnostics;
+use super::language::{names_a_language, parse_multi_string, tag_from_wide};
 use super::pre_capture::{pre_capture_click, Built, PreCapture, Readiness, PROCESS_DESCRIBERS};
 use super::scroll::KeyAttribution;
 use super::timing;
@@ -2657,7 +2660,8 @@ unsafe extern "system" fn input_keyboard_ll_proc(
                     // above it whether the key was already down at this
                     // key-down: a press key repeat generated (docent#696).
                     // Above the scan code sits the hook's extended mark,
-                    // which tells apart two keys that share a key code.
+                    // which tells apart two keys that share a key code;
+                    // the two together name the physical key (docent#717).
                     callback_params: [
                         i64::from(kb_struct.scanCode)
                             | if kb_struct.flags & LLKHF_EXTENDED as u32 != 0 {
@@ -2858,7 +2862,7 @@ unsafe fn gather_native_properties(
     let size_of_set = get_i32_property(element, UIA_SizeOfSetPropertyId);
     let level = get_i32_property(element, UIA_LevelPropertyId);
 
-    let (tree_path, window_root_offset, window_root, window_handle) =
+    let (tree_path, window_root_offset, window_root, window_handle, language) =
         build_tree_path_with_root(uia, element);
 
     let props = NativeElementProperties {
@@ -2871,6 +2875,7 @@ unsafe fn gather_native_properties(
         tree_path,
         class_name,
         framework_id,
+        language,
         labeled_by,
         position_in_set,
         size_of_set,
@@ -3069,6 +3074,61 @@ unsafe fn get_is_password(element: &IUIAutomationElement) -> bool {
     is_password_value(property_value(element, UIA_IsPasswordPropertyId).as_ref())
 }
 
+/// The language a UIA element reports for itself: its Culture property (a
+/// locale identifier, `VT_I4`) as the locale name Windows gives that
+/// identifier. `""` when the element reports none (the property's default, 0),
+/// when the identifier names no language of its own ([`names_a_language`]),
+/// and when either call fails. A
+/// language-only identifier keeps its language-only name (`en`, not a
+/// regional default).
+unsafe fn get_culture_tag(element: &IUIAutomationElement) -> String {
+    let lcid = get_i32_property(element, UIA_CulturePropertyId) as u32;
+    if !names_a_language(lcid) {
+        return String::new();
+    }
+    let mut name = [0u16; LOCALE_NAME_MAX_LENGTH as usize];
+    let written = LCIDToLocaleName(
+        LCID(lcid),
+        Some(PWSTR(name.as_mut_ptr())),
+        LOCALE_NAME_MAX_LENGTH,
+        LOCALE_ALLOW_NEUTRAL_NAMES as u32,
+    );
+    if written <= 0 {
+        return String::new();
+    }
+    tag_from_wide(&name).unwrap_or_default()
+}
+
+/// The user's preferred UI languages as Windows lists them, most preferred
+/// first, as language names (`da-DK`). `None` when Windows could not be read.
+/// Asked twice: once for the size of the list, once for the list.
+pub(crate) fn read_preferred_ui_languages() -> Option<Vec<String>> {
+    let mut count = 0u32;
+    let mut length = 0u32;
+    // SAFETY: a null buffer with a zero length asks only for the length; the
+    // out-pointers are live locals.
+    let sized = unsafe {
+        GetUserPreferredUILanguages(MUI_LANGUAGE_NAME as u32, &mut count, None, &mut length)
+    };
+    if !sized.as_bool() || length == 0 {
+        return None;
+    }
+    let mut buffer = vec![0u16; length as usize];
+    // SAFETY: `buffer` holds `length` units, the length the call is told.
+    let read = unsafe {
+        GetUserPreferredUILanguages(
+            MUI_LANGUAGE_NAME as u32,
+            &mut count,
+            Some(buffer.as_mut_ptr()),
+            &mut length,
+        )
+    };
+    if !read.as_bool() {
+        return None;
+    }
+    Some(parse_multi_string(&buffer))
+}
+
 /// Resolve the top-level (GA_ROOT) window handle for a native window handle
 /// reported by UIA. Returns 0 when unresolvable.
 unsafe fn top_level_hwnd(native_hwnd: i32) -> i64 {
@@ -3099,8 +3159,8 @@ unsafe fn top_level_hwnd(native_hwnd: i32) -> i64 {
 /// scope. When no hwnd-backed node is seen within the walk cap, the offset
 /// and scope are `None` — locator measurement is skipped and the `tree_path`
 /// entry is omitted, so the recorded value never contradicts the schema's
-/// "from the window root". The top-level handle itself is returned last (`0`
-/// when none was seen).
+/// "from the window root". The top-level handle itself is returned fourth (`0`
+/// when none was seen), and the declared language last (empty when none).
 unsafe fn build_tree_path_with_root(
     uia: &IUIAutomation,
     element: &IUIAutomationElement,
@@ -3109,6 +3169,7 @@ unsafe fn build_tree_path_with_root(
     Option<usize>,
     Option<IUIAutomationElement>,
     i64,
+    String,
 ) {
     let mut path = Vec::new();
     // Pre-reverse index of the node identified as the top-level window.
@@ -3143,6 +3204,13 @@ unsafe fn build_tree_path_with_root(
     if note_node(element) {
         root_pre_index = Some(0);
     }
+    // The language of the nearest node, from the element up to its top-level
+    // window, that reports one. Once the window root is found, nodes above it
+    // are not asked: the desktop is not part of the application. An ancestor's
+    // answer counts only when the walk confirmed the window root, since
+    // without one nothing shows the ancestor was inside the window.
+    let own_language = get_culture_tag(element);
+    let mut inherited_language = String::new();
 
     let walker = uia.ControlViewWalker().ok();
 
@@ -3161,8 +3229,12 @@ unsafe fn build_tree_path_with_root(
                         format!("{parent_tag}:{parent_name}")
                     };
                     path.push(seg);
+                    let within_window = root_pre_index.is_none();
                     if note_node(&parent) && root_pre_index.is_none() {
                         root_pre_index = Some(path.len() - 1);
+                    }
+                    if within_window && own_language.is_empty() && inherited_language.is_empty() {
+                        inherited_language = get_culture_tag(&parent);
                     }
                     current = parent;
                 }
@@ -3184,7 +3256,15 @@ unsafe fn build_tree_path_with_root(
         None
     };
 
-    (path, window_root_offset, window_root, root_hwnd)
+    let language = if !own_language.is_empty() {
+        own_language
+    } else if root_pre_index.is_some() {
+        inherited_language
+    } else {
+        String::new()
+    };
+
+    (path, window_root_offset, window_root, root_hwnd, language)
 }
 
 // ---------------------------------------------------------------------------
@@ -4718,6 +4798,7 @@ mod tests {
             capture_mode: CaptureMode::Accessibility,
             frame_src: None,
             window_rect: None,
+            preferred_languages: None,
             sequence_id: Some(1),
             payload: ActionPayload::Key {
                 key: key.to_string(),
@@ -4728,6 +4809,7 @@ mod tests {
                     meta: false,
                 },
                 repeat: false,
+                code: None,
                 held: crate::capture::HeldKeysAtAction::default(),
                 element: ElementDescription {
                     tag: "Edit".to_string(),

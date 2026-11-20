@@ -55,6 +55,7 @@ Windows.Win32.GetOpenFileNameW
 Windows.Win32.GetParent
 Windows.Win32.GetSaveFileNameW
 Windows.Win32.GetSystemMetrics
+Windows.Win32.GetUserPreferredUILanguages
 Windows.Win32.GetWindow
 Windows.Win32.GetWindowLongW
 Windows.Win32.GetWindowRect
@@ -82,7 +83,10 @@ Windows.Win32.IsWindowVisible
 Windows.Win32.KBDLLHOOKSTRUCT
 Windows.Win32.KLF_NOTELLSHELL
 Windows.Win32.LBS_NOTIFY
+Windows.Win32.LCIDToLocaleName
 Windows.Win32.LLKHF_EXTENDED
+Windows.Win32.LOCALE_ALLOW_NEUTRAL_NAMES
+Windows.Win32.LOCALE_NAME_MAX_LENGTH
 Windows.Win32.LPARAM
 Windows.Win32.LRESULT
 Windows.Win32.LoadKeyboardLayoutW
@@ -90,6 +94,7 @@ Windows.Win32.MAPVK_VK_TO_CHAR
 Windows.Win32.MAPVK_VSC_TO_VK
 Windows.Win32.MSG
 Windows.Win32.MSLLHOOKSTRUCT
+Windows.Win32.MUI_LANGUAGE_NAME
 Windows.Win32.MapVirtualKeyExW
 Windows.Win32.MoveWindow
 Windows.Win32.NavigateDirection

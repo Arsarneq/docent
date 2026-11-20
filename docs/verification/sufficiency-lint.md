@@ -1,20 +1,6 @@
 # Static sufficiency lint
 
-The "static predicates" artifact of
-[Replay Sufficiency — Falsifiability, item 1](../requirements/replay-sufficiency.md#falsifiability):
-for each action, the fields the
-[field taxonomy](../requirements/replay-sufficiency.md#field-taxonomy--normative-vs-informative)
-marks normative are present or legally absent, and their cross-field
-invariants hold. The lint ([`scripts/sufficiency-lint.js`](../../scripts/sufficiency-lint.js))
-is a pure function of a `.docent.json` file — no application, no replay, no
-ground truth. Items 2 and 3 of the falsifiability triad are owned elsewhere:
-resolution conformance by the
-[reference resolution procedure](../technical/locator-resolution.md) and its
-conformance vectors, capture completeness by the
-[scripted-truth corpus](scripted-truth-corpus.md). The seam with the corpus
-beside this document: the corpus proves the capture pipeline reproduces known
-truth on scripted sessions — the lint checks static predicates on **any**
-recording, scripted or not, with nothing but the file and the schemas.
+The "static predicates" artifact of [Replay Sufficiency — Falsifiability, item 1](../requirements/replay-sufficiency.md#falsifiability): for each action, the fields the [field taxonomy](../requirements/replay-sufficiency.md#field-taxonomy--normative-vs-informative) marks normative are present or legally absent, and their cross-field invariants hold. The lint ([`scripts/sufficiency-lint.js`](../../scripts/sufficiency-lint.js)) is a pure function of a `.docent.json` file: no application, no replay, no ground truth. Items 2 and 3 of the falsifiability triad are owned elsewhere: resolution conformance by the [reference resolution procedure](../technical/locator-resolution.md) and its conformance vectors; capture completeness by the [scripted-truth corpus](scripted-truth-corpus.md). The seam with the corpus beside this document: the corpus proves the capture pipeline reproduces known truth on scripted sessions; the lint checks static predicates on **any** recording, scripted or not, with nothing but the file and the schemas.
 
 Each rule carries a stable identifier (**SL-n**) so other documents, reviews,
 and checks can cite it precisely. Identifiers are never renumbered; a retired
@@ -65,15 +51,7 @@ is self-detecting in code, never a memory exercise.
 
 ## The predicates
 
-The tables below are the whole catalogue (`--list` prints it from the code).
-One predicate is also used outside the lint: the conformance-vector element
-check ([scripted-truth corpus STC-10](scripted-truth-corpus.md#emission-produced-then-reviewed-and-committed))
-holds every vector's locators to `locator-pair-invariants`, so a change to that
-predicate changes what a produced or committed vector must satisfy.
-Predicates check strictly beyond the schema: anything the schema validator
-already enforces is not re-checked. Each finding carries a stable pointer
-(`rec[r].step[s].action[a]:<type>`, or `rec[r]` for recording-level
-findings), and findings are sorted so baselines stay stable.
+The tables below are the whole catalog (`--list` prints it from the code). One predicate is also used outside the lint. The conformance-vector element check ([scripted-truth corpus STC-10](scripted-truth-corpus.md#emission-produced-then-reviewed-and-committed)) holds every vector's locators to `locator-pair-invariants`, so a change to that predicate changes what a produced or committed vector must satisfy. Predicates check strictly beyond the schema: anything the schema validator already enforces is not re-checked. Each finding carries a stable pointer (`rec[r].step[s].action[a]:<type>`, or `rec[r]` for recording-level findings). Findings are sorted so baselines stay stable.
 
 ### Per-action predicates (all `fail` class)
 
@@ -82,22 +60,20 @@ held to each other by the verification-inventory lint: it reds when the two
 name different classes, and when this document states that class in no heading
 or in more than one, since either leaves the attribution a guess.
 
-| Predicate                       | Applies to                                      | Requires                                                                                                                                                                          |
-| ------------------------------- | ----------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `element-locators`              | element-bearing actions outside coordinate mode | The element carries at least one locator candidate.                                                                                                                               |
-| `locator-pair-invariants`       | every locator entry                             | A numeric `match_index` only together with `match_count`, and `match_index < match_count`. `match_index: null` without a count is the legal encoding of "measured, matched zero". |
-| `coordinate-geometry`           | desktop-family coordinate-mode point actions    | `window_rect` is present — without it the point is uninterpretable from the recording alone.                                                                                      |
-| `coordinate-no-identity-claims` | desktop-family coordinate-mode elements         | No locators and no provider identity facts (`position_in_set`, `size_of_set`, `level`, `framework_id`, `described_after_ms`) — coordinate mode makes no element-identity claims.  |
-| `type-value-present`            | `type` actions on non-redacted elements         | A `value` that is a string. The empty string passes: it states that the field was emptied.                                                                                        |
-| `masking-honesty`               | actions on `redacted` elements                  | `text` is null and any `value` is exactly the shared mask — an empty value would erase the parameter-slot marker the scope boundaries stand on.                                   |
-| `masked-locator-honesty`        | actions whose element carries locators          | Locator masking matches the contract's annotation (see below).                                                                                                                    |
-| `key-nonempty`                  | `key` actions                                   | A non-empty `key`.                                                                                                                                                                |
+| Predicate                       | Applies to                                      | Requires                                                                                                                                                                                     |
+| ------------------------------- | ----------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `element-locators`              | element-bearing actions outside coordinate mode | The element carries at least one locator candidate.                                                                                                                                          |
+| `locator-pair-invariants`       | every locator entry                             | A numeric `match_index` only together with `match_count`, and `match_index < match_count`. `match_index: null` without a count is the legal encoding of "measured, matched zero".            |
+| `coordinate-geometry`           | desktop-family coordinate-mode point actions    | `window_rect` is present — without it the point is uninterpretable from the recording alone.                                                                                                 |
+| `coordinate-no-identity-claims` | desktop-family coordinate-mode elements         | No locators and no provider-reported facts (`position_in_set`, `size_of_set`, `level`, `framework_id`, `language`, `described_after_ms`) — coordinate mode makes no element-identity claims. |
+| `type-value-present`            | `type` actions on non-redacted elements         | A `value` that is a string. The empty string passes: it states that the field was emptied.                                                                                                   |
+| `masking-honesty`               | actions on `redacted` elements                  | `text` is null and any `value` is exactly the shared mask — an empty value would erase the parameter-slot marker the scope boundaries stand on.                                              |
+| `masked-locator-honesty`        | actions whose element carries locators          | Locator masking matches the contract's annotation (see below).                                                                                                                               |
+| `key-nonempty`                  | `key` actions                                   | A non-empty `key`.                                                                                                                                                                           |
 
 ### Recording-level predicates
 
-Recording-scoped findings (pointer `rec[r]`): `context-introduced` emits
-one per un-introduced context, named in the finding's message; the other
-two emit at most one per recording.
+Recording-scoped findings (pointer `rec[r]`): `context-introduced` emits one per un-introduced context, named in the finding's message. The other two emit at most one per recording.
 
 | Predicate            | Class  | States                                                                                                                                                                                                                                                                                                   |
 | -------------------- | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -182,11 +158,7 @@ node scripts/sufficiency-lint.js <file-or-dir>... [--json] [--strict]
      [--baseline <path>] [--write-baseline <path>] [--list]
 ```
 
-Directories are recursed for `.docent.json` files; relative input paths
-resolve against the repository root, while the `--baseline` and
-`--write-baseline` paths resolve against the current directory — run those
-two forms from the repository root. With no paths it runs over the frozen
-fixtures.
+Directories are recursed for `.docent.json` files. Relative input paths resolve against the repository root, while the `--baseline` and `--write-baseline` paths resolve against the current directory, so run those two forms from the repository root. With no paths, it runs over the frozen fixtures.
 
 | Flag                      | Effect                                                                       |
 | ------------------------- | ---------------------------------------------------------------------------- |
@@ -197,15 +169,17 @@ fixtures.
 | `--json`                  | Machine-readable output, keyed like the baseline (diffable against it).      |
 | `--list`                  | Print the predicate catalogue (class, id, title).                            |
 
-Exit 2 is a machinery refusal — unreadable or schema-invalid input, an
-unknown platform stamp, a `gap` predicate carrying no schema probe or one
-whose probe now matches (both halves of SL-3), or a malformed
-annotation contract (SL-4) — never a baselineable finding.
+Exit 2 is a machinery refusal, never a baselineable finding. It covers:
 
-Where it runs — each row names the CI job that runs it, where one does, and
-the verification-inventory lint reds on a cited job the test workflow does
-not have, and when no step of the `unit-tests` job runs the shared suite's
-registered glob in a command that lint admits:
+- unreadable or schema-invalid input;
+- an unknown platform stamp;
+- a `gap` predicate carrying no schema probe, or one whose probe now matches (both halves of SL-3);
+- a malformed annotation contract (SL-4).
+
+Where it runs (below): each row names the CI job that runs it, where one does. The verification-inventory lint reds when:
+
+- a cited job is missing from the test workflow;
+- no step of the `unit-tests` job runs the shared suite's registered glob in a command that lint admits.
 
 | Entry point                                                                                         | What it runs                                                                                       | Posture                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | --------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -213,12 +187,4 @@ registered glob in a command that lint admits:
 | `npm run test:shared` (the [unit suite](../../packages/shared/tests/unit/sufficiency-lint.test.js)) | the same file set against the same baseline, plus per-predicate pins on minimal hand-built actions | how the gate reaches CI — the `unit-tests` job runs this suite on every push to `main` and on each pull request whose change filters fire (as `npm run test:coverage`, which includes those files); the pins catch a predicate that silently stops firing (or fires on legal absence)                                                                                                                                                                                                                                 |
 | `npm run corpus:check` / `corpus:check:desktop` (the comparator's `--lint`)                         | each produced corpus envelope, immediately after the truth diff                                    | the `extension-e2e-tests` job and the `desktop-corpus-diff` job run these as their truth-diff step; advisory — the comparator's `--lint-strict` exits 1 on `fail` findings over produced files and is wired per platform once that platform's known-diffs baseline is empty **and** its active committed truths carry no `fail`-class finding in the committed baseline (SL-5) — both parts machine-held by the verification-inventory lint ([scripted-truth-corpus §STC-3](scripted-truth-corpus.md#truth-doctrine)) |
 
-The lint's own `--strict`, which exits 1 on any `fail` finding, is this
-surface's counterpart to the comparator's `--lint-strict`, and stays a
-command-line option: today's standing enforcement is the both-direction
-baseline lock, which
-admits the ledgered findings while forbidding silent drift in either
-direction. The frozen fixtures half of the standing corpus keeps its `fail`
-findings permanently: each is a historical recording, preserved exactly as it
-was captured, so those findings are what the fixture is for and stay in the
-ledger for as long as it does.
+The lint's own `--strict` (exit 1 on any `fail` finding) is this surface's counterpart to the comparator's `--lint-strict`. It stays a command-line option: today's standing enforcement is the both-direction baseline lock, which admits the ledgered findings while forbidding silent drift in either direction. The frozen fixtures half of the standing corpus keeps its `fail` findings permanently. Each fixture is a historical recording, preserved exactly as it was captured, so its findings are what the fixture is for and stay in the ledger for as long as it does.

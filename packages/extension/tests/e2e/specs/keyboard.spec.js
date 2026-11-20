@@ -1145,6 +1145,72 @@ test.describe('Every key press that is not text', () => {
     ]);
   });
 
+  test('regression_717_a_key_names_the_physical_key_that_was_pressed', async ({
+    testPage,
+    serviceWorker,
+  }) => {
+    // `code` is the key's place on the keyboard: the two Enter keys differ
+    // there, and a letter is named by its key whatever character it gives.
+    await testPage.focus('#btn');
+    await testPage.keyboard.press('Enter');
+    await testPage.keyboard.press('NumpadEnter');
+    await testPage.keyboard.press('KeyA');
+    await testPage.keyboard.press('Shift+KeyA');
+    await testPage.keyboard.press('ArrowLeft');
+    await waitForActionsToSettle(serviceWorker, testPage);
+    const keys = (await getPendingActions(serviceWorker))
+      .filter((a) => a.type === 'key')
+      .map((a) => [a.key, a.code]);
+    expect(keys).toEqual([
+      ['Enter', 'Enter'],
+      ['Enter', 'NumpadEnter'],
+      ['a', 'KeyA'],
+      ['A', 'KeyA'],
+      ['ArrowLeft', 'ArrowLeft'],
+    ]);
+  });
+
+  test('regression_717_a_key_the_browser_names_no_physical_key_for_carries_no_code', async ({
+    testPage,
+    serviceWorker,
+  }) => {
+    // A key press the browser names no physical key for: its `code` is empty,
+    // and the field is left out.
+    await testPage.focus('#btn');
+    const session = await testPage.context().newCDPSession(testPage);
+    for (const type of ['rawKeyDown', 'keyUp']) {
+      await session.send('Input.dispatchKeyEvent', {
+        type,
+        key: 'Escape',
+        windowsVirtualKeyCode: 27,
+      });
+    }
+    await waitForActionsToSettle(serviceWorker, testPage);
+    const keys = (await getPendingActions(serviceWorker)).filter((a) => a.type === 'key');
+    expect(keys.map((a) => a.key)).toEqual(['Escape']);
+    expect('code' in keys[0]).toBe(false);
+  });
+
+  test('regression_717_a_character_key_on_a_sensitive_field_writes_no_code', async ({
+    testPage,
+    serviceWorker,
+  }) => {
+    // The physical key says as much as the character: the masked entry a
+    // character key becomes carries neither.
+    await testPage.focus('#card');
+    await testPage.keyboard.press('4');
+    await testPage.focus('#pw-readonly');
+    await testPage.keyboard.press('x');
+    await testPage.keyboard.press('NumpadEnter');
+    await waitForActionsToSettle(serviceWorker, testPage);
+    const actions = (await getPendingActions(serviceWorker)).filter((a) => a.type !== 'focus');
+    expect(actions.map((a) => [a.type, a.value ?? a.key, a.code])).toEqual([
+      ['type', '••••••••', undefined],
+      ['type', '••••••••', undefined],
+      ['key', 'Enter', 'NumpadEnter'],
+    ]);
+  });
+
   test('regression_702_a_letter_on_a_select_is_a_key_and_its_choice_a_select', async ({
     testPage,
     serviceWorker,

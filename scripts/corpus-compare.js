@@ -86,6 +86,7 @@ export const NORMALIZED_FIELD_CLASSES = {
   contexts: ['context_id', 'opener_context_id'],
   coordinates: ['x', 'y', 'window_rect'],
   latency: ['described_after_ms'],
+  languages: ['preferred_languages'],
   selector: ['selector'],
 };
 
@@ -181,6 +182,9 @@ export function normalizeEnvelope(doc) {
         if ('x' in action) action.x = point(action.x);
         if ('y' in action) action.y = point(action.y);
         if (desktop && action.window_rect != null) action.window_rect = '<rect>';
+        // The language preference is the capturing machine's own on both
+        // platforms; presence-vs-null/absence stays exact.
+        if (action.preferred_languages != null) action.preferred_languages = '<languages>';
         for (const el of [action.element, action.source_element]) {
           if (!el || typeof el !== 'object') continue;
           // Same class rules, now via the exported single-source helpers (the

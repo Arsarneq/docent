@@ -153,6 +153,38 @@ describe('service worker — navigation proxy through its registered listeners',
     assert.equal(navigates().length, 1);
   });
 
+  it('stamps the browser language preference on what it writes (docent#142)', async () => {
+    const own = Object.getOwnPropertyDescriptor(globalThis.navigator, 'languages');
+    Object.defineProperty(globalThis.navigator, 'languages', {
+      value: Object.freeze(['da-DK', 'en-US']),
+      configurable: true,
+    });
+    try {
+      await commit('https://a.example/lang', 'typed');
+    } finally {
+      if (own) Object.defineProperty(globalThis.navigator, 'languages', own);
+      else delete globalThis.navigator.languages;
+    }
+    assert.deepEqual(navigates()[0].preferred_languages, ['da-DK', 'en-US']);
+  });
+
+  it('writes a null language preference where the browser gives no list', async () => {
+    const own = Object.getOwnPropertyDescriptor(globalThis.navigator, 'languages');
+    Object.defineProperty(globalThis.navigator, 'languages', {
+      value: undefined,
+      configurable: true,
+    });
+    try {
+      await commit('https://a.example/nolang', 'typed');
+    } finally {
+      if (own) Object.defineProperty(globalThis.navigator, 'languages', own);
+      else delete globalThis.navigator.languages;
+    }
+    const [nav] = navigates();
+    assert.ok('preferred_languages' in nav);
+    assert.equal(nav.preferred_languages, null);
+  });
+
   it('records a reload of the last recorded URL', async () => {
     await commit('https://a.example/three', 'typed');
     await commit('https://a.example/three', 'reload');

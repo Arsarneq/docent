@@ -9,6 +9,7 @@
   "element_facts": {
     "autocomplete": null,
     "id": "email",
+    "language": "en",
     "name": "email",
     "role": null,
     "selector": "#email",
