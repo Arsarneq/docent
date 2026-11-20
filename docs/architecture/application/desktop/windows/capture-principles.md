@@ -37,8 +37,10 @@ numeric sequence.
    waits, where the clicked application still holds a describer with an
    earlier click's pre-capture, for that application to answer, and, where no
    describer is free, for one to come free. When the hook made the call
-   itself, a later click waited behind the earlier call without a bound; here
-   it waits no longer than its budget (DCP-13 states what that costs). The
+   itself, a later click waited behind the earlier call, and its hook ran
+   only if that call returned within the later click's own hook timeout;
+   otherwise Windows passed the click on unrecorded. Here it waits no longer
+   than its budget (DCP-13 states what that costs). The
    hook dispatches every click, in order, whether or not an element came; a
    click that got none is described by its worker (DCP-13 lists every way a
    click gets none, and what that costs). The waits dispatch no message, so
@@ -705,12 +707,15 @@ with a caveat):
   - a click in a slow but responsive application, whose description takes
     longer than the budget (the first case);
   - a click in an application still holding a describer with an earlier
-    click's pre-capture when its budget runs out (the second case). When the
-    hook made the call itself, such a click ran its own call once the
-    earlier one returned, and was recorded with its element. A click that
-    finds no describer free, or no pre-capture running, because describers
-    are held by applications that have not answered (the third and fifth
-    cases) is the same kind.
+    click's pre-capture when its budget runs out (the second case), where
+    the earlier call returned within the click's own hook timeout, the
+    margin's last moments past its budget. When the hook made the call
+    itself, such a click then ran its own call and was recorded with its
+    element; where the earlier call returned later, Windows passed the click
+    on unrecorded. A click that finds no describer free, or no pre-capture
+    running, because describers are held by applications that have not
+    answered (the third and fifth cases) is the same kind, under the same
+    condition.
 
   What the bound buys for them: the hook is never held past the system's
   hook timeout, so Windows does not pass the clicks after a slow one on
