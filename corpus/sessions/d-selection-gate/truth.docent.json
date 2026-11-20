@@ -49,6 +49,13 @@
               "type": "click",
               "x": 500,
               "y": 400,
+              "modifiers": {
+                "ctrl": false,
+                "shift": false,
+                "alt": false,
+                "meta": false
+              },
+              "held_keys": [],
               "element": {
                 "tag": "Text",
                 "id": null,

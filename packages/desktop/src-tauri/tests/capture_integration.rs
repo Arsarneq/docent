@@ -289,7 +289,7 @@ fn assert_captured_element_locators_well_formed(events: &[ActionEvent]) {
             | ActionPayload::Select { element, .. }
             | ActionPayload::Key { element, .. }
             | ActionPayload::Focus { element }
-            | ActionPayload::DragStart { element } => check_element(element, &e.capture_mode),
+            | ActionPayload::DragStart { element, .. } => check_element(element, &e.capture_mode),
             ActionPayload::Drop {
                 element,
                 source_element,
@@ -3761,7 +3761,10 @@ mod os_chrome {
         assert!(!click_events.is_empty(), "Expected at least 1 click event");
 
         for click in &click_events {
-            let ActionPayload::Click { x, y, ref element } = click.payload else {
+            let ActionPayload::Click {
+                x, y, ref element, ..
+            } = click.payload
+            else {
                 unreachable!("clicks() filters to Click");
             };
             // Emitted x/y are the raw SCREEN point in BOTH modes (issue #141;

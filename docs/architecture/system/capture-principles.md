@@ -85,8 +85,11 @@ a control is a `key` on both platforms; text typed into a field is that
 field's `type` on both. A difference between platforms is one of two kinds.
 One comes from the platforms themselves and is part of the format: an input
 the platform's own events never deliver to its capture layer, whatever the
-layer listens for, or a quantity that is each platform's own (CP-16's scroll
-deltas); the field's documentation states it. Every other difference — an
+layer listens for, a fact about an input that the platform's events do not
+carry and that can no longer be read when the layer asks (the element a key
+went to, where the platform hands over a key without one), or a quantity that
+is each platform's own (CP-16's scroll deltas); the field's documentation
+states it. Every other difference — an
 input both platforms' events deliver, which one records and the other does
 not, or which they record differently — is a departure: a defect, stated as a
 departure in the field's documentation or on the platform's exception list

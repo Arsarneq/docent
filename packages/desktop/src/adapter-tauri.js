@@ -258,7 +258,13 @@ function _isMaskedTypeOn(action, element, contextId) {
 
 /** The masked `type` a text-entering key on a sensitive field is recorded as. */
 function _maskedTypeFromKey(action) {
-  const { key: _key, modifiers: _modifiers, repeat: _repeat, ...rest } = action;
+  const {
+    key: _key,
+    modifiers: _modifiers,
+    repeat: _repeat,
+    held_keys: _heldKeys,
+    ...rest
+  } = action;
   return { ...rest, type: 'type', value: SENSITIVE_MASK, _typedKey: true };
 }
 
@@ -289,8 +295,9 @@ function _joinTypedKeys() {
 function _insertOrdered(action) {
   const seqId = action.sequence_id;
 
-  // Strip sequence_id before adding to pending actions
-  const { sequence_id: _seq, ...received } = action;
+  // Strip sequence_id before adding to pending actions, and with it the
+  // key-downs the held keys are down by: both are internal to this stream.
+  const { sequence_id: _seq, held_presses: heldPresses, ...received } = action;
   _redactSensitive(received);
   const typedOnSensitiveField =
     received.type === 'key' &&
@@ -302,6 +309,16 @@ function _insertOrdered(action) {
     !_NON_TEXT_CONTROL_TAGS.has(received.element.tag) &&
     _keyEntersText(received);
   const cleanAction = typedOnSensitiveField ? _maskedTypeFromKey(received) : received;
+  // Which of the keys that were down are held keys of the recording is known
+  // only when the step's actions are complete (see _nameHeldKeys). Until then
+  // the names are kept aside: one of them can be a character typed into a
+  // field, which no action may name.
+  if (Array.isArray(cleanAction.held_keys)) {
+    if (Array.isArray(heldPresses) && heldPresses.length > 0) {
+      cleanAction._held = cleanAction.held_keys.map((key, i) => ({ key, press: heldPresses[i] }));
+    }
+    cleanAction.held_keys = [];
+  }
 
   if (seqId == null) {
     // No sequence_id — append to end
@@ -434,8 +451,25 @@ async function commitWithCompleteness() {
   await _completeBarrier(await invoke('commit_barrier'));
 }
 
+// An action's `held_keys` names the keys that were down at it whose own
+// key-down is a `key` action of the step. A key-down that was written as text
+// (a `type`, masked or not) or not written at all is no such key, and its name
+// is dropped. Runs when the step's actions are complete, while each still
+// carries its sequence id.
+function _nameHeldKeys() {
+  const writtenKeyDowns = new Set(
+    _pendingActions.filter((a) => a.type === 'key' && a._seq != null).map((a) => a._seq),
+  );
+  for (const action of _pendingActions) {
+    if (!action._held) continue;
+    action.held_keys = action._held.filter((h) => writtenKeyDowns.has(h.press)).map((h) => h.key);
+    delete action._held;
+  }
+}
+
 function _stripSeqFields() {
   _joinTypedKeys();
+  _nameHeldKeys();
   for (const action of _pendingActions) {
     delete action._seq;
   }

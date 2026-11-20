@@ -480,6 +480,212 @@ test.describe('Keyboard activation', () => {
     expect(clicks.every((a) => a.x > 0 && a.y > 0)).toBe(true);
   });
 
+  test('regression_706_a_key_pressed_while_another_is_held_names_the_held_key', async ({
+    testPage,
+    serviceWorker,
+  }) => {
+    // Space held on a ticked checkbox, Tab pressed, Space released on the next
+    // control: nothing is toggled. The Tab says Space was down, so the file
+    // tells this from a Space pressed and released on the first checkbox.
+    await testPage.click('#box');
+    await testPage.keyboard.down('Space');
+    await testPage.keyboard.press('Tab');
+    await testPage.keyboard.up('Space');
+    await testPage.keyboard.press('Tab');
+    await waitForActionsToSettle(serviceWorker, testPage);
+
+    const actions = await getPendingActions(serviceWorker);
+    const held = actions
+      .filter((a) => a.type !== 'focus')
+      .map((a) => [a.type, a.key ?? null, a.held_keys]);
+    expect(held).toEqual([
+      ['click', null, []],
+      ['key', 'Space', []],
+      ['key', 'Tab', ['Space']],
+      ['key', 'Tab', []],
+    ]);
+    expect(await testPage.isChecked('#box')).toBe(true);
+    expect(await testPage.isChecked('#box2')).toBe(false);
+  });
+
+  test('regression_706_a_click_while_a_key_is_held_names_the_held_key', async ({
+    testPage,
+    serviceWorker,
+  }) => {
+    await testPage.focus('#btn');
+    await testPage.keyboard.down('Space');
+    await testPage.click('#box', { button: 'right' });
+    await testPage.click('#box');
+    await testPage.keyboard.up('Space');
+    await testPage.click('#box');
+    await waitForActionsToSettle(serviceWorker, testPage);
+
+    const actions = await getPendingActions(serviceWorker);
+    expect(actions.filter((a) => a.type !== 'focus').map((a) => [a.type, a.held_keys])).toEqual([
+      ['key', []],
+      ['right_click', ['Space']],
+      ['click', ['Space']],
+      ['click', []],
+    ]);
+  });
+
+  test('regression_706_held_keys_lists_every_other_held_key_and_never_the_key_itself', async ({
+    testPage,
+    serviceWorker,
+  }) => {
+    await testPage.focus('#btn');
+    await testPage.keyboard.down('Space');
+    await testPage.keyboard.down('Space'); // a repeat of the held key
+    await testPage.keyboard.down('ArrowDown');
+    await testPage.keyboard.press('Escape');
+    await testPage.keyboard.up('Space');
+    await testPage.keyboard.press('Escape');
+    await testPage.keyboard.up('ArrowDown');
+    await waitForActionsToSettle(serviceWorker, testPage);
+
+    const actions = await getPendingActions(serviceWorker);
+    expect(
+      actions.filter((a) => a.type === 'key').map((a) => [a.key, a.repeat, a.held_keys]),
+    ).toEqual([
+      ['Space', false, []],
+      ['Space', true, []],
+      ['ArrowDown', false, ['Space']],
+      ['Escape', false, ['Space', 'ArrowDown']],
+      ['Escape', false, ['ArrowDown']],
+    ]);
+  });
+
+  test('regression_706_a_key_typed_as_text_is_never_a_held_key', async ({
+    testPage,
+    serviceWorker,
+  }) => {
+    // A space or a letter held in a text field is text, which no `key` names;
+    // it is not named as a held key either.
+    await testPage.focus('#text');
+    await testPage.keyboard.down('Space');
+    await testPage.keyboard.down('a');
+    await testPage.keyboard.press('Tab');
+    await testPage.keyboard.up('a');
+    await testPage.keyboard.up('Space');
+    await waitForActionsToSettle(serviceWorker, testPage);
+
+    const actions = await getPendingActions(serviceWorker);
+    expect(actions.filter((a) => a.type === 'key').map((a) => [a.key, a.held_keys])).toEqual([
+      ['Tab', []],
+    ]);
+  });
+
+  test('regression_706_the_press_decides_whether_a_held_key_is_named', async ({
+    testPage,
+    serviceWorker,
+  }) => {
+    // Space pressed on a checkbox is a `key`. Still held, its repeats type
+    // into a text field: it stays the held key its press made it.
+    await testPage.focus('#box');
+    await testPage.keyboard.down('Space');
+    await testPage.focus('#text');
+    await testPage.keyboard.down('Space'); // a repeat, typed as text
+    await testPage.keyboard.press('Tab');
+    await testPage.keyboard.up('Space');
+    // Space pressed in a text field is text. Still held, its repeats land on
+    // a button and are written as keys: its press was no `key`, so it is no
+    // held key.
+    await testPage.focus('#text');
+    await testPage.keyboard.down('Space');
+    await testPage.focus('#btn');
+    await testPage.keyboard.down('Space'); // a repeat, written as a key
+    await testPage.keyboard.press('Escape');
+    await testPage.keyboard.up('Space');
+    await waitForActionsToSettle(serviceWorker, testPage);
+
+    const actions = await getPendingActions(serviceWorker);
+    expect(
+      actions.filter((a) => a.type === 'key').map((a) => [a.key, a.repeat, a.held_keys]),
+    ).toEqual([
+      ['Space', false, []],
+      ['Tab', false, ['Space']],
+      ['Space', true, []],
+      ['Escape', false, []],
+    ]);
+  });
+
+  test('regression_706_a_repeat_keeps_the_held_key_in_its_place', async ({
+    testPage,
+    serviceWorker,
+  }) => {
+    await testPage.focus('#btn');
+    await testPage.keyboard.down('ArrowDown');
+    await testPage.keyboard.down('ArrowUp');
+    await testPage.keyboard.down('ArrowDown'); // a repeat of the first key
+    await testPage.keyboard.press('Escape');
+    await testPage.keyboard.up('ArrowUp');
+    await testPage.keyboard.up('ArrowDown');
+    await waitForActionsToSettle(serviceWorker, testPage);
+
+    const actions = await getPendingActions(serviceWorker);
+    expect(actions.filter((a) => a.key === 'Escape').map((a) => a.held_keys)).toEqual([
+      ['ArrowDown', 'ArrowUp'],
+    ]);
+  });
+
+  test('regression_706_a_key_released_while_the_page_was_not_focused_is_not_held', async ({
+    testPage,
+    serviceWorker,
+    context,
+  }) => {
+    // The release of a key held when the window loses focus never reaches the
+    // page, so the record of held keys is emptied when the window loses focus.
+    // The harness makes every page believe it is focused; switched off here,
+    // another tab coming to the front takes the focus as it does for a person.
+    const session = await context.newCDPSession(testPage);
+    await session.send('Emulation.setFocusEmulationEnabled', { enabled: false });
+    await testPage.bringToFront();
+    await testPage.waitForTimeout(200);
+    await testPage.focus('#btn');
+    await testPage.keyboard.down('Enter');
+    const other = await context.newPage();
+    await other.bringToFront();
+    await other.waitForTimeout(200);
+    await testPage.bringToFront();
+    await other.close();
+    await testPage.waitForTimeout(200);
+    await testPage.keyboard.press('Escape');
+    await testPage.keyboard.up('Enter');
+    await waitForActionsToSettle(serviceWorker, testPage);
+
+    const actions = await getPendingActions(serviceWorker);
+    expect(actions.filter((a) => a.type === 'key').map((a) => [a.key, a.held_keys])).toEqual([
+      ['Enter', []],
+      ['Escape', []],
+    ]);
+  });
+
+  test('regression_706_a_key_released_while_recording_was_off_is_not_held', async ({
+    testPage,
+    serviceWorker,
+  }) => {
+    const setRecording = async (recording) => {
+      await serviceWorker.evaluate(
+        (value) => chrome.storage.local.set({ recording: value }),
+        recording,
+      );
+      await testPage.waitForTimeout(200);
+    };
+    await testPage.focus('#btn');
+    await testPage.keyboard.down('Enter');
+    await setRecording(false);
+    await testPage.keyboard.up('Enter');
+    await setRecording(true);
+    await testPage.keyboard.press('Escape');
+    await waitForActionsToSettle(serviceWorker, testPage);
+
+    const actions = await getPendingActions(serviceWorker);
+    expect(actions.filter((a) => a.type === 'key').map((a) => [a.key, a.held_keys])).toEqual([
+      ['Enter', []],
+      ['Escape', []],
+    ]);
+  });
+
   test('regression_695_space_on_a_date_field_is_a_key', async ({ testPage, serviceWorker }) => {
     await testPage.focus('#date');
     await testPage.keyboard.press('Space'); // opens the picker; no character is typed

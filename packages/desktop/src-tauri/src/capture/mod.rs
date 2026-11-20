@@ -325,6 +325,25 @@ pub struct Modifiers {
 }
 
 // ---------------------------------------------------------------------------
+// Held keys
+// ---------------------------------------------------------------------------
+
+/// The keys that were down when an action happened, other than the modifiers
+/// and other than a `key` action's own key.
+#[derive(Debug, Serialize, Clone, Default, PartialEq, Eq)]
+pub struct HeldKeysAtAction {
+    /// The keys by name, as their own `key` actions name them, in the order
+    /// they went down.
+    pub held_keys: Vec<String>,
+    /// For each name, the sequence id of the key-down the key is down by.
+    /// Like `sequence_id`, internal to Rust↔frontend communication: the
+    /// frontend keeps a name only where that key-down was written as a `key`
+    /// action, and drops this field. It has no schema counterpart.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub held_presses: Vec<u64>,
+}
+
+// ---------------------------------------------------------------------------
 // Action payloads
 // ---------------------------------------------------------------------------
 
@@ -344,12 +363,18 @@ pub enum ActionPayload {
     Click {
         x: f64,
         y: f64,
+        modifiers: Modifiers,
+        #[serde(flatten)]
+        held: HeldKeysAtAction,
         element: ElementDescription,
     },
     /// Right-click (context menu) on an element.
     RightClick {
         x: f64,
         y: f64,
+        modifiers: Modifiers,
+        #[serde(flatten)]
+        held: HeldKeysAtAction,
         element: ElementDescription,
     },
     /// Text input into an editable element.
@@ -370,16 +395,26 @@ pub enum ActionPayload {
         /// True on a press key repeat generated while the key was held down,
         /// false on the press itself.
         repeat: bool,
+        #[serde(flatten)]
+        held: HeldKeysAtAction,
         element: ElementDescription,
     },
     /// Focus change on an element.
     Focus { element: ElementDescription },
     /// Drag operation started.
-    DragStart { element: ElementDescription },
+    DragStart {
+        modifiers: Modifiers,
+        #[serde(flatten)]
+        held: HeldKeysAtAction,
+        element: ElementDescription,
+    },
     /// Drop operation completed.
     Drop {
         x: f64,
         y: f64,
+        modifiers: Modifiers,
+        #[serde(flatten)]
+        held: HeldKeysAtAction,
         element: ElementDescription,
         source_element: Option<ElementDescription>,
     },

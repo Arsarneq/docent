@@ -73,6 +73,19 @@
  *     persistence moved out of it, and the generated validator shrank, its
  *     schemas' log showing the `locators[]` contract, the `described_after_ms`
  *     field and description edits; no new dependency.
+ *   - Raised to 591KB: measured 586,778 B (`node_modules` inside the
+ *     checkout); margin 18,406 B; growth since 565,017 B at f9c2c95 (rebuilt
+ *     with its own lockfile, `node_modules` inside the checkout; that rebuild
+ *     measures 1,312 B under the 566,329 B the entry above records):
+ *     `shared/generated/validate-desktop-windows.js` +13,324 B,
+ *     `adapter-tauri.js` +5,930 B, `panel.js` +1,375 B, `tauri-bridge.js`
+ *     +439 B, `shared/sync-types.js` +399 B, `shared/lib/http-transport.js`
+ *     +294 B. Deliberate: the generated validator grew by 12,109 B with this
+ *     raise's own change, the `held_keys` field on five actions and the
+ *     `modifiers` field on four pointer actions, each validated per action,
+ *     and `adapter-tauri.js` by 1,402 B with naming the held keys of a step;
+ *     the rest is earlier growth that stayed under the last budget; no new
+ *     dependency.
  *
  * Requires `npm run build:desktop-dist` to have been run first.
  */
@@ -86,7 +99,7 @@ import { fileURLToPath } from 'node:url';
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const desktopDistDir = resolve(__dirname, '../../dist');
 
-const JS_BUDGET_KB = 570;
+const JS_BUDGET_KB = 591;
 
 /** The headroom rule's figures for a measured size: the next budget and its margin. */
 function nextBudget(bytes) {

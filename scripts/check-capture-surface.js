@@ -5,9 +5,10 @@
  *
  *   - the extension's DOM surface
  *     (docs/architecture/application/extension/capture-principles.md §ECP-6):
- *     the recorder's `document` listener registrations must equal, in both
- *     directions, the DOM events that clause enumerates — the receiver is part
- *     of the enumeration, so the same listener moved to `window` reds;
+ *     the recorder's listener registrations must equal, in both directions,
+ *     the DOM events that clause enumerates — the receiver is part of the
+ *     enumeration: an item is a `document` event unless it names `window`, so
+ *     the same listener moved from one to the other reds;
  *   - the extension's browser-chrome proxy surface (§ECP-7): the service
  *     worker's capture-proxy registrations must equal, in both directions, the
  *     worker events the proxy table's Event source column names — each
@@ -272,12 +273,12 @@ const HOOK_NAME_RE = /^WH_[A-Z0-9_]+$/;
 /** A WinEvent constant as the desktop sources and doc name it. */
 const WIN_EVENT_RE = /^EVENT_[A-Z0-9_]+$/;
 /**
- * The receivers a DOM listener registration is modelled on. `document` is the
- * receiver §ECP-6 states; `window` is modelled so a listener moved there is
- * read and reported, rather than becoming invisible to the scan.
+ * The receivers a DOM listener registration is modelled on: `document`, the
+ * receiver of every §ECP-6 item that names none, and `window`, the receiver
+ * of the items that name it.
  */
 const DOM_RECEIVERS = new Set(['document', 'window']);
-/** The receiver §ECP-6 states the recorder listens on. */
+/** The receiver of a §ECP-6 item that names none. */
 export const ENUMERATED_RECEIVER = 'document';
 /** The loop the WinEvent registrations are installed from. */
 const WIN_EVENT_LOOP_ANCHOR = 'for (event_min, event_max) in [';
@@ -424,23 +425,25 @@ export const ADMITTED_REGISTRATIONS = [
 
 /**
  * Read the DOM events ECP-6 enumerates: the leading backticked token of each
- * list item inside that clause's scope. An item whose leading token is not a
- * lone backticked lowercase event name is returned as unreadable, never
- * skipped.
+ * list item inside that clause's scope. An item that goes on "on `window`" is
+ * an event the recorder listens for on `window`; every other item is one it
+ * listens for on `document`. An item whose leading token is not a lone
+ * backticked lowercase event name is returned as unreadable, never skipped.
  * @param {string} docText the extension capture doc's text
- * @returns {{ events: string[], unreadable: string[] }}
+ * @returns {{ events: string[], windowEvents: string[], unreadable: string[] }}
  */
 export function extractDomEnumeration(docText) {
   const events = [];
+  const windowEvents = [];
   const unreadable = [];
   const scope = extractClauseSection(docText, DOM_CLAUSE_ID);
   for (const line of scope.split('\n')) {
     if (!/^\s*-\s/.test(line)) continue;
-    const match = /^\s*-\s+`([^`]+)`(?:\s|$)/.exec(line);
-    if (match && DOM_EVENT_RE.test(match[1])) events.push(match[1]);
+    const match = /^\s*-\s+`([^`]+)`( on `window`)?(?:\s|$)/.exec(line);
+    if (match && DOM_EVENT_RE.test(match[1])) (match[2] ? windowEvents : events).push(match[1]);
     else unreadable.push(line.trim());
   }
-  return { events, unreadable };
+  return { events, windowEvents, unreadable };
 }
 
 /** A table header as a report names it: its cells, pipe-separated. */
@@ -826,7 +829,8 @@ export const DUPLICATE_SURFACES = [
  * @param {[string, string[]][]} s.chromeApisByFile each scanned file's `chrome.*` registrations, in source order
  * @param {{ file: string, receiver: string, event: string }[]} s.beyondPairDomEvents `document`/`window` listeners registered outside the capture pair
  * @param {string[]} s.recorderDomEvents the recorder's `document` registrations
- * @param {string[]} s.recorderWindowEvents the recorder's `window` registrations (none enumerated)
+ * @param {string[]} s.docWindowEvents the events the DOM clause enumerates on `window`
+ * @param {string[]} s.recorderWindowEvents the recorder's `window` registrations
  * @param {string[]} s.workerDomEvents DOM registrations in the worker (none modelled)
  * @param {string[]} s.docHooks DCP-4's named low-level hooks
  * @param {string[]} s.docCorrelationClasses DCP-7's WinEvent classes
@@ -851,9 +855,16 @@ export function evaluateCaptureSurface(s) {
   // The receiver is part of the enumeration, not an implementation detail:
   // §ECP-6 states the recorder listens on `document`, and a listener on
   // `window` sees a different event population (no per-element bubbling
-  // origin, a different set of events that reach it at all).
+  // origin, a different set of events that reach it at all). An event the
+  // clause states "on `window`" is the recorder's to register there, and is
+  // held both ways like the `document` ones.
   for (const event of s.recorderWindowEvents) {
-    problems.push(`${RECORDER_PATH} registers \`${event}\` on \`window\` — §${DOM_CLAUSE_ID} states the recorder listens on \`${ENUMERATED_RECEIVER}\`, so the receiver is part of the enumerated surface`); // prettier-ignore
+    if (s.docWindowEvents.includes(event)) continue;
+    problems.push(`${RECORDER_PATH} registers \`${event}\` on \`window\` — §${DOM_CLAUSE_ID} states the recorder listens on \`${ENUMERATED_RECEIVER}\` and enumerates no \`${event}\` on \`window\`, so the receiver is part of the enumerated surface`); // prettier-ignore
+  }
+  for (const event of s.docWindowEvents) {
+    if (s.recorderWindowEvents.includes(event)) continue;
+    problems.push(`\`${event}\` is enumerated by §${DOM_CLAUSE_ID} on \`window\` but ${RECORDER_PATH} registers no listener for it there`); // prettier-ignore
   }
   // §ECP-6 enumerates the recorder's surface, which makes the recorder the one
   // home a DOM capture listener has. A `document` or `window` listener in any
@@ -1041,6 +1052,7 @@ export function auditTree(readFile, population) {
     chromeApisByFile,
     beyondPairDomEvents,
     docDomEvents: dom.events,
+    docWindowEvents: dom.windowEvents,
     docProxyWorkerEvents: proxies.workerEvents,
     docProxyDomEvents: proxies.domEvents,
     extensionUnreadable: [...dom.unreadable, ...proxies.unreadable],

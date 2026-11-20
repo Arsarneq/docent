@@ -36,6 +36,7 @@ fn make_raw_event(event_type: RawEventType, window_handle: i64) -> RawEvent {
         callback_params: [0; 4],
         pre_captured_element: None,
         focus_epoch: 0,
+        held: Vec::new(),
     }
 }
 
@@ -362,6 +363,7 @@ proptest! {
             callback_params: [0; 4],
             pre_captured_element: None,
             focus_epoch: 0,
+            held: Vec::new(),
         };
 
         let drop_event = RawEvent {
@@ -380,6 +382,7 @@ proptest! {
             callback_params: [0; 4],
             pre_captured_element: None,
             focus_epoch: 0,
+            held: Vec::new(),
         };
 
         pool.dispatch(drag_start);
@@ -685,6 +688,7 @@ proptest! {
             callback_params: [0; 4],
             pre_captured_element: None,
             focus_epoch: 0,
+            held: Vec::new(),
         };
 
         let harness = WorkerTestHarness::new(MockBackend::new());
@@ -761,6 +765,7 @@ proptest! {
                 callback_params: [0; 4],
             pre_captured_element: None,
             focus_epoch: 0,
+            held: Vec::new(),
             };
             harness.send_event(raw);
         }
@@ -852,6 +857,7 @@ proptest! {
                 callback_params: [0; 4],
             pre_captured_element: None,
             focus_epoch: 0,
+            held: Vec::new(),
             };
             harness.send_event(raw);
         }
@@ -879,6 +885,7 @@ proptest! {
             callback_params: [0; 4],
             pre_captured_element: None,
             focus_epoch: 0,
+            held: Vec::new(),
         };
         harness.send_event(context_event);
 
@@ -1144,6 +1151,7 @@ fn worker_shutdown_flushes_pending_type_event() {
             callback_params: [0; 4],
             pre_captured_element: None,
             focus_epoch: 0,
+            held: Vec::new(),
         };
         harness.send_event(raw);
     }
@@ -1202,6 +1210,7 @@ fn regression_298_flush_drains_pending_and_worker_continues() {
             callback_params: [0; 4],
             pre_captured_element: None,
             focus_epoch: 0,
+            held: Vec::new(),
         });
     }
     thread::sleep(Duration::from_millis(50)); // queued, debounce not yet expired
@@ -1244,6 +1253,7 @@ fn regression_298_flush_drains_pending_and_worker_continues() {
         callback_params: [0; 4],
         pre_captured_element: None,
         focus_epoch: 0,
+        held: Vec::new(),
     });
     let after_click = harness.drain_actions();
     assert!(
@@ -1293,6 +1303,7 @@ fn regression_298_flush_all_drains_workers_and_emits_sentinel_last() {
             callback_params: [0; 4],
             pre_captured_element: None,
             focus_epoch: 0,
+            held: Vec::new(),
         });
     }
     thread::sleep(Duration::from_millis(80)); // buffered, debounce not expired
@@ -1432,6 +1443,7 @@ fn poison_event_does_not_kill_worker() {
         callback_params: [0; 4],
         pre_captured_element: None,
         focus_epoch: 0,
+        held: Vec::new(),
     });
 
     // Send the poison event (will panic inside element_at_point).
@@ -1449,6 +1461,7 @@ fn poison_event_does_not_kill_worker() {
         callback_params: [0; 4],
         pre_captured_element: None,
         focus_epoch: 0,
+        held: Vec::new(),
     });
 
     // Send another normal click event after the poison.
@@ -1466,6 +1479,7 @@ fn poison_event_does_not_kill_worker() {
         callback_params: [0; 4],
         pre_captured_element: None,
         focus_epoch: 0,
+        held: Vec::new(),
     });
 
     // Give the worker time to process all three events.
@@ -1582,6 +1596,7 @@ fn locators_and_provider_facts_pass_through_the_pipeline_verbatim() {
         callback_params: [0; 4],
         pre_captured_element: None,
         focus_epoch: 0,
+        held: Vec::new(),
     });
 
     thread::sleep(Duration::from_millis(100));
@@ -1629,6 +1644,7 @@ fn pre_captured_click_exports_zero_describe_latency() {
         callback_params: [0; 4],
         pre_captured_element: Some(locator_rich_element()),
         focus_epoch: 0,
+        held: Vec::new(),
     });
 
     thread::sleep(Duration::from_millis(100));
@@ -1709,6 +1725,7 @@ fn coordinate_downgrade_strips_locators_facts_and_latency() {
         callback_params: [0; 4],
         pre_captured_element: None,
         focus_epoch: 0,
+        held: Vec::new(),
     });
 
     thread::sleep(Duration::from_millis(100));
@@ -1755,6 +1772,7 @@ fn context_open_carries_process_source_and_no_fabricated_opener() {
         callback_params: [0; 4],
         pre_captured_element: None,
         focus_epoch: 0,
+        held: Vec::new(),
     });
 
     thread::sleep(Duration::from_millis(100));
@@ -1853,6 +1871,7 @@ fn coordinate_fallback_emits_screen_space_verbatim_for_non_origin_window() {
         callback_params: [0; 4],
         pre_captured_element: None,
         focus_epoch: 0,
+        held: Vec::new(),
     });
 
     thread::sleep(Duration::from_millis(100));
@@ -1875,7 +1894,10 @@ fn coordinate_fallback_emits_screen_space_verbatim_for_non_origin_window() {
         "window_rect is carried verbatim (physical pixels)"
     );
 
-    if let ActionPayload::Click { x, y, ref element } = click.payload {
+    if let ActionPayload::Click {
+        x, y, ref element, ..
+    } = click.payload
+    {
         // Screen space, verbatim: NOT (412-100, 633-50) = (312, 583).
         assert_eq!((x, y), (412.0, 633.0), "action x/y are raw screen values");
         assert_eq!(
@@ -1923,6 +1945,7 @@ fn scroll_accumulator_flushes_on_timeout() {
             callback_params: [0, 0, 0, 0], // vertical scroll
             pre_captured_element: None,
             focus_epoch: 0,
+            held: Vec::new(),
         };
         harness.send_event(raw);
     }
@@ -1974,6 +1997,7 @@ fn scroll_accumulator_flushes_on_shutdown() {
             callback_params: [0, 0, 0, 0], // vertical scroll
             pre_captured_element: None,
             focus_epoch: 0,
+            held: Vec::new(),
         };
         harness.send_event(raw);
     }
@@ -2019,6 +2043,7 @@ fn focus_deduplication_suppresses_consecutive_same_element() {
             callback_params: [0; 4],
             pre_captured_element: None,
             focus_epoch: 0,
+            held: Vec::new(),
         };
         harness.send_event(raw);
     }
@@ -2070,6 +2095,7 @@ fn value_change_deduplication_same_value() {
             callback_params: [0; 4],
             pre_captured_element: None,
             focus_epoch: 0,
+            held: Vec::new(),
         };
         harness.send_event(raw);
     }
@@ -2112,6 +2138,7 @@ fn keyboard_event_produces_key_action() {
         callback_params: [0; 4],
         pre_captured_element: None,
         focus_epoch: 0,
+        held: Vec::new(),
     };
     harness.send_event(raw);
 
@@ -2153,6 +2180,7 @@ fn modifier_only_key_is_skipped() {
         callback_params: [0; 4],
         pre_captured_element: None,
         focus_epoch: 0,
+        held: Vec::new(),
     };
     harness.send_event(raw);
 
@@ -2193,6 +2221,7 @@ fn foreground_event_produces_context_switch() {
         callback_params: [0; 4],
         pre_captured_element: None,
         focus_epoch: 0,
+        held: Vec::new(),
     };
     harness.send_event(raw);
 
@@ -2232,6 +2261,7 @@ fn right_click_event_produces_right_click_action() {
         callback_params: [0; 4],
         pre_captured_element: None,
         focus_epoch: 0,
+        held: Vec::new(),
     };
     harness.send_event(raw);
 
@@ -2285,6 +2315,7 @@ fn excluded_pid_events_are_discarded() {
             callback_params: [0; 4],
             pre_captured_element: None,
             focus_epoch: 0,
+            held: Vec::new(),
         })))
         .unwrap();
 
@@ -2305,6 +2336,7 @@ fn excluded_pid_events_are_discarded() {
             callback_params: [0; 4],
             pre_captured_element: None,
             focus_epoch: 0,
+            held: Vec::new(),
         })))
         .unwrap();
 
@@ -2357,6 +2389,7 @@ fn selection_event_produces_select_action() {
         callback_params: [0, 0, 0, 0],
         pre_captured_element: None,
         focus_epoch: 0,
+        held: Vec::new(),
     });
 
     thread::sleep(Duration::from_millis(200));
@@ -2402,6 +2435,7 @@ fn modifier_only_keys_produce_no_events() {
             callback_params: [0, 0, 0, 0],
             pre_captured_element: None,
             focus_epoch: 0,
+            held: Vec::new(),
         });
     }
 
@@ -2441,6 +2475,7 @@ fn win_l_key_combo_is_captured_if_received() {
         callback_params: [0, 0, 0, 0],
         pre_captured_element: None,
         focus_epoch: 0,
+        held: Vec::new(),
     });
 
     thread::sleep(Duration::from_millis(200));
@@ -2498,6 +2533,7 @@ fn packet_key(seq: u64, timestamp: u64, unit: u16) -> RawEvent {
         callback_params: [i64::from(unit), 0, 0, 0],
         pre_captured_element: None,
         focus_epoch: 0,
+        held: Vec::new(),
     }
 }
 
@@ -2649,6 +2685,7 @@ fn held_key(key: &str) -> ActionEvent {
                 meta: false,
             },
             repeat: false,
+            held: Default::default(),
             element: ElementDescription {
                 tag: "Edit".to_string(),
                 selector: "win > edit".to_string(),
@@ -5000,4 +5037,159 @@ fn regression_696_keys_buffered_on_one_element_survive_typing_into_another() {
         ],
         "got {events:?}"
     );
+}
+
+// ---------------------------------------------------------------------------
+// The keys that were down at an action (docent#706), and the modifiers held
+// at a pointer action (docent#239)
+// ---------------------------------------------------------------------------
+
+use docent_desktop_lib::capture::held_keys::HeldPress;
+use docent_desktop_lib::capture::HeldKeysAtAction;
+
+/// Keys the hook found down at an event: `(key code, scan code, key-down)`.
+fn held_presses(keys: &[(u32, u32, u64)]) -> Vec<HeldPress> {
+    keys.iter()
+        .map(|&(key_code, scan_code, press)| HeldPress {
+            key_code,
+            scan_code,
+            press,
+        })
+        .collect()
+}
+
+/// What an action states about held keys: `(names, key-downs)`.
+fn stated(names: &[&str], presses: &[u64]) -> HeldKeysAtAction {
+    HeldKeysAtAction {
+        held_keys: names.iter().map(|n| n.to_string()).collect(),
+        held_presses: presses.to_vec(),
+    }
+}
+
+/// Each action that states held keys, as `(type, modifiers, held)`.
+fn held_statements_of(events: &[ActionEvent]) -> Vec<(&'static str, Mods, HeldKeysAtAction)> {
+    let mods = |m: &Modifiers| (m.ctrl, m.shift, m.alt, m.meta);
+    events
+        .iter()
+        .filter_map(|e| match &e.payload {
+            ActionPayload::Key {
+                modifiers, held, ..
+            } => Some(("key", mods(modifiers), held.clone())),
+            ActionPayload::Click {
+                modifiers, held, ..
+            } => Some(("click", mods(modifiers), held.clone())),
+            ActionPayload::RightClick {
+                modifiers, held, ..
+            } => Some(("right_click", mods(modifiers), held.clone())),
+            ActionPayload::DragStart {
+                modifiers, held, ..
+            } => Some(("drag_start", mods(modifiers), held.clone())),
+            ActionPayload::Drop {
+                modifiers, held, ..
+            } => Some(("drop", mods(modifiers), held.clone())),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Regression for docent#706: Tab pressed while Space was held down was
+/// recorded like any Tab, so the Space that pressed nothing (its release went
+/// to another element) read as a press of its button. A key states the keys
+/// that were down at it, by the names their own key actions carry, in the
+/// order they went down, each with the key-down it is down by.
+#[test]
+fn regression_706_a_key_states_the_keys_that_were_down_at_it() {
+    let harness = WorkerTestHarness::new(MockBackend::new());
+    let t = now_ms();
+    let mut tab = layout_key(4, t, 0x09);
+    tab.held = held_presses(&[
+        (0x20, 0x39, 1),
+        (VK_PACKET, u32::from(b'x'), 2),
+        (VK_PACKET, u32::from(b' '), 3),
+    ]);
+    harness.send_event(tab);
+    // A buffered key (a letter with no value change) states them too.
+    let mut letter = layout_key(5, t, 0x41);
+    letter.held = held_presses(&[(0x0D, 0x1C, 2)]);
+    harness.send_event(letter);
+    thread::sleep(Duration::from_millis(900));
+    let events = harness.shutdown();
+    assert_eq!(
+        held_statements_of(&events),
+        vec![
+            ("key", PLAIN, stated(&["Space", "x", "Space"], &[1, 2, 3])),
+            ("key", PLAIN, stated(&["Enter"], &[2])),
+        ]
+    );
+}
+
+/// Regression for docent#706 and docent#239: a click, a right-click and both
+/// halves of a drag made with a key or a modifier held down were recorded like
+/// plain ones. Each states the modifiers held and the keys that were down.
+#[test]
+fn regression_706_pointer_actions_state_modifiers_and_held_keys() {
+    let harness = WorkerTestHarness::new(MockBackend::new());
+    let ctrl_shift = (true, true, false, false);
+    let pointer_events = [
+        RawEventType::Click,
+        RawEventType::RightClick,
+        RawEventType::DragStart {
+            source_coords: (10, 10),
+        },
+        RawEventType::Drop {
+            source_coords: (10, 10),
+        },
+    ];
+    for (i, event_type) in pointer_events.into_iter().enumerate() {
+        let mut raw = make_raw_event(event_type, 100);
+        raw.sequence_id = i as u64 + 10;
+        raw.timestamp = now_ms();
+        raw.modifiers = ctrl_shift;
+        raw.held = held_presses(&[(0x20, 0x39, 3)]);
+        harness.send_event(raw);
+    }
+    thread::sleep(Duration::from_millis(300));
+    let events = harness.shutdown();
+    let space = stated(&["Space"], &[3]);
+    assert_eq!(
+        held_statements_of(&events),
+        vec![
+            ("click", ctrl_shift, space.clone()),
+            ("right_click", ctrl_shift, space.clone()),
+            ("drag_start", ctrl_shift, space.clone()),
+            ("drop", ctrl_shift, space),
+        ]
+    );
+}
+
+/// An action with no key down states so: `held_keys` is written, empty, and
+/// the key-downs (internal to the frontend's filter) are not.
+#[test]
+fn an_action_with_no_key_down_writes_an_empty_held_keys() {
+    let harness = WorkerTestHarness::new(MockBackend::new());
+    let mut click = make_raw_event(RawEventType::Click, 100);
+    click.sequence_id = 1;
+    click.timestamp = now_ms();
+    harness.send_event(click);
+    let mut enter = layout_key(2, now_ms(), 0x0D);
+    enter.held = held_presses(&[(0x20, 0x39, 1)]);
+    harness.send_event(enter);
+    thread::sleep(Duration::from_millis(300));
+    let events = harness.shutdown();
+    let written: Vec<serde_json::Value> = events
+        .iter()
+        .map(|e| serde_json::to_value(e).unwrap())
+        .filter(|v| v["type"] == "click" || v["type"] == "key")
+        .collect();
+    assert_eq!(written.len(), 2, "got {written:?}");
+    assert_eq!(written[0]["held_keys"], serde_json::json!([]));
+    assert!(written[0].get("held_presses").is_none(), "{:?}", written[0]);
+    assert_eq!(
+        written[0]["modifiers"],
+        serde_json::json!({"ctrl": false, "shift": false, "alt": false, "meta": false})
+    );
+    assert_eq!(written[1]["held_keys"], serde_json::json!(["Space"]));
+    assert_eq!(written[1]["held_presses"], serde_json::json!([1]));
+    // The payload's own grouping is not part of what is written.
+    assert!(written[1].get("held").is_none(), "{:?}", written[1]);
 }

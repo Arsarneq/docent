@@ -151,6 +151,17 @@
           "type": "number",
           "description": "Pointer Y at the action, in the capture surface's coordinate space: the capturing document's viewport (the document's layout pixels) for in-page capture, or the screen (physical pixels) for native capture."
         },
+        "modifiers": {
+          "$ref": "#/$defs/modifiers",
+          "description": "The modifier keys held when this action happened. Absent in a recording made before the field existed."
+        },
+        "held_keys": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "The keys that were down when this action happened, other than the modifiers and other than this action's own key: each a key whose own key-down is a `key` action of this recording (its press, or the first key-down of it that was recorded when the press was not), named as that action names it, in the order they went down. Empty when none was. Absent in a recording made before the field existed."
+        },
         "element": {
           "$ref": "#/$defs/element"
         },
@@ -175,6 +186,17 @@
         "y": {
           "type": "number",
           "description": "Pointer Y at the action, in the capture surface's coordinate space: the capturing document's viewport (the document's layout pixels) for in-page capture, or the screen (physical pixels) for native capture."
+        },
+        "modifiers": {
+          "$ref": "#/$defs/modifiers",
+          "description": "The modifier keys held when this action happened. Absent in a recording made before the field existed."
+        },
+        "held_keys": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "The keys that were down when this action happened, other than the modifiers and other than this action's own key: each a key whose own key-down is a `key` action of this recording (its press, or the first key-down of it that was recorded when the press was not), named as that action names it, in the order they went down. Empty when none was. Absent in a recording made before the field existed."
         },
         "element": {
           "$ref": "#/$defs/element"
@@ -246,6 +268,13 @@
           "type": "boolean",
           "description": "Whether key repeat generated this press: true for a press generated while the key was held down, false for the press itself. Absent where the capture layer does not record it; the session-format document states which do."
         },
+        "held_keys": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "The keys that were down when this action happened, other than the modifiers and other than this action's own key: each a key whose own key-down is a `key` action of this recording (its press, or the first key-down of it that was recorded when the press was not), named as that action names it, in the order they went down. Empty when none was. Absent in a recording made before the field existed."
+        },
         "element": {
           "$ref": "#/$defs/element"
         },
@@ -280,6 +309,17 @@
         "type": {
           "const": "drag_start"
         },
+        "modifiers": {
+          "$ref": "#/$defs/modifiers",
+          "description": "The modifier keys held when this action happened. Absent in a recording made before the field existed."
+        },
+        "held_keys": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "The keys that were down when this action happened, other than the modifiers and other than this action's own key: each a key whose own key-down is a `key` action of this recording (its press, or the first key-down of it that was recorded when the press was not), named as that action names it, in the order they went down. Empty when none was. Absent in a recording made before the field existed."
+        },
         "element": {
           "$ref": "#/$defs/element"
         },
@@ -304,6 +344,17 @@
         "y": {
           "type": "number",
           "description": "Pointer Y at the action, in the capture surface's coordinate space: the capturing document's viewport (the document's layout pixels) for in-page capture, or the screen (physical pixels) for native capture."
+        },
+        "modifiers": {
+          "$ref": "#/$defs/modifiers",
+          "description": "The modifier keys held when this action happened. Absent in a recording made before the field existed."
+        },
+        "held_keys": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "The keys that were down when this action happened, other than the modifiers and other than this action's own key: each a key whose own key-down is a `key` action of this recording (its press, or the first key-down of it that was recorded when the press was not), named as that action names it, in the order they went down. Empty when none was. Absent in a recording made before the field existed."
         },
         "element": {
           "$ref": "#/$defs/element"

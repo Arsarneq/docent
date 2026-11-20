@@ -122,8 +122,9 @@ end-to-end spec enforces the readiness bound.
 
 **ECP-6.** This platform's capture surface applies
 [core CP-14](../../../architecture/system/capture-principles.md#capture-surface)'s
-closed positive-enumeration principle. The recorder listens on `document`, in
-the capture phase, for exactly these DOM events:
+closed positive-enumeration principle. The recorder listens, in the capture
+phase, for exactly these DOM events, on `document` unless the item names
+`window`:
 
 - `mousedown` — the press ahead of a click, held so a blur-caused `change` can
   be attributed to the element the user moved to
@@ -152,12 +153,19 @@ the capture phase, for exactly these DOM events:
   `textarea` holds an entry not yet written writes that entry's `type` first,
   the entry being complete before the press that follows it; a value the page
   set, with no key pressed in the field, is not an entry, and an entry already
-  written writes nothing again when the browser commits the field
+  written writes nothing again when the browser commits the field; each
+  press is also written with `held_keys`, the other keys that are down and
+  whose key-down was written as a `key` (the press, or the first repeat the
+  document saw when it did not see the press; not yet released), by the names
+  those `key` actions carry, in the order they went down, and a `click`, a
+  `contextmenu`, a `dragstart` and a `drop` write the same list beside the
+  modifier keys their event reports
 - `keypress` — the character event of a captured key press, which writes
   nothing: with `keydown` and `keyup` it marks the task in which the browser
   derives a click from the key
-- `keyup` — the release of a captured key, which writes nothing; the browser
-  derives the click of a Space press from it
+- `keyup` — the release of a captured key, which writes nothing and ends the
+  key's time among the held keys, while the recording is off as well; the
+  browser derives the click of a Space press from it
 - `change` — a committed value: a `select` choice, an `input`/`textarea` entry,
   and a file chosen through the OS dialog; a checkbox or radio toggle is
   recorded by the `click` or the `key` that made it, so its `change` writes
@@ -165,13 +173,18 @@ the capture phase, for exactly these DOM events:
 - `focusin` — a focus move, recorded only when it follows a Tab key press; the
   value an `input` or `textarea` holds when it takes focus is noted, so an
   entry made since can be told from one already written
-- `dragstart` — the start of a drag, which names the drag source
+- `dragstart` — the start of a drag, which names the drag source; the browser
+  sends the page no key events while a drag lasts, so no key is known to be
+  down from here on, and the `drop` states none
 - `dragover` — the target tracking the browser requires before a drop can fire
 - `drop` — the end of a drag, paired with the source the drag started from
 - `dragend` — the drag's terminal signal, which releases the source
 - `scroll` — a scroll gesture, debounced and coalesced into one action
 - `input` — in-progress editing of a `contenteditable` host, debounced
 - `blur` — the flush that commits pending `contenteditable` editing
+- `blur` on `window` — the window lost the focus, which writes nothing: a key
+  released while another window has the focus sends its release there, so no
+  key is known to be down from then on (the `held_keys` of later actions)
 
 The service worker captures the browser-chrome proxies in the table below, each
 row naming the worker event it is captured from.
@@ -314,6 +327,20 @@ with a caveat):
   [docent#702](https://github.com/Arsarneq/docent/issues/702))
 - Arrow keys in native `<select>` are swallowed by the browser before the
   recorder's listeners see them
+- A key that is down but was pressed while another document had the focus
+  (another frame, another tab or window) is not among an action's `held_keys`,
+  and no key is known to be down once the document's window loses the focus
+  or a drag starts:
+  the browser delivers a key's events to the focused document only, sends the
+  page none while a drag lasts, and offers
+  no reading of the keyboard's state. From the moment the focus leaves a
+  document, nothing the browser delivers says whether a key that was down
+  still is: its release can reach another frame, a page the extension does not
+  run in, the browser's own interface or another program. Carrying the key
+  over from the document that saw it go down would state a key as down that could already have been released, so it is not done. The desktop's keyboard hook is
+  handed every key wherever the focus is and names such a key; the difference
+  comes from the platforms themselves (core CP-19). A key still held when the
+  focus returns or the drag has ended is named again from its next repeat
 - Back/forward between same-document entries (an SPA's history) — a
   browser-chrome action; the worker's committed-navigation listener does not
   report it

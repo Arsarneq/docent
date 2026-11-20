@@ -34,6 +34,12 @@ hooks / WinEvents        bridge            worker pool               frontend
    a part of that control (DCP-11). The keyboard hook also keeps the record of
    which keys are down and stamps each key-down with whether its key was
    already down, the mark a `key` action's `repeat` is written from (DCP-9).
+   From the same record each keystroke, click, right-click and drop is
+   stamped at dispatch with the keys that are down and the key-down each is
+   down by, and a drag start with those the mouse hook read when the pointer
+   first passed the drag threshold: what an action's
+   `held_keys` is written from. The mouse hook reads the modifier keys for
+   the pointer actions as the keyboard hook does for a key.
 2. **Bridge_Thread** — receives raw events on a single FIFO channel and
    dispatches each to a worker; it also executes the pool-wide
    [flush barrier](#the-commit-flush-barrier) when a commit requests one.

@@ -4234,6 +4234,7 @@ pub struct KBDLLHOOKSTRUCT {
     pub dwExtraInfo: usize,
 }
 pub const LBS_NOTIFY: i32 = 1;
+pub const LLKHF_EXTENDED: i32 = 1;
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub struct LPARAM(pub isize);
@@ -4523,6 +4524,7 @@ pub const WM_LBUTTONDOWN: i32 = 513;
 pub const WM_LBUTTONUP: i32 = 514;
 pub const WM_MBUTTONDOWN: i32 = 519;
 pub const WM_MOUSEHWHEEL: i32 = 526;
+pub const WM_MOUSEMOVE: i32 = 512;
 pub const WM_MOUSEWHEEL: i32 = 522;
 pub const WM_NULL: i32 = 0;
 pub const WM_QUIT: i32 = 18;

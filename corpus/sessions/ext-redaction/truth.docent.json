@@ -23,6 +23,13 @@
             {
               "capture_mode": "dom",
               "context_id": 2030507537,
+              "modifiers": {
+                "ctrl": false,
+                "shift": false,
+                "alt": false,
+                "meta": false
+              },
+              "held_keys": [],
               "element": {
                 "autocomplete": null,
                 "id": "password",
@@ -128,6 +135,13 @@
             {
               "capture_mode": "dom",
               "context_id": 2030507537,
+              "modifiers": {
+                "ctrl": false,
+                "shift": false,
+                "alt": false,
+                "meta": false
+              },
+              "held_keys": [],
               "element": {
                 "autocomplete": "cc-number",
                 "id": "cc-number",
@@ -233,6 +247,13 @@
             {
               "capture_mode": "dom",
               "context_id": 2030507537,
+              "modifiers": {
+                "ctrl": false,
+                "shift": false,
+                "alt": false,
+                "meta": false
+              },
+              "held_keys": [],
               "element": {
                 "autocomplete": "cc-exp",
                 "id": "cc-exp",
