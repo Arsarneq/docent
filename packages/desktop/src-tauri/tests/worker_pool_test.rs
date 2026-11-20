@@ -5724,7 +5724,7 @@ fn regression_696_keys_buffered_on_one_element_survive_typing_into_another() {
 // at a pointer action (docent#239)
 // ---------------------------------------------------------------------------
 
-use docent_desktop_lib::capture::held_keys::{HeldPress, KEY_REPEAT_PARAM};
+use docent_desktop_lib::capture::held_keys::{HeldKeys, HeldPress, KEY_REPEAT_PARAM};
 use docent_desktop_lib::capture::HeldKeysAtAction;
 
 /// Keys the hook found down at an event: `(key code, scan code, key-down)`.
@@ -5862,6 +5862,72 @@ fn regression_691_a_repeated_punctuation_key_is_named_by_its_layout_and_marked_r
     assert_eq!(
         key_repeats_of(&events),
         vec![("+".to_string(), false), ("+".to_string(), true)]
+    );
+}
+
+/// docent#691 with docent#706: a held key is named as its own key action
+/// names it, so a punctuation key held down is named by the character its
+/// layout gave it at its key-down, on a key pressed while it is held and on
+/// the pointer actions made while it is held. Driven through the hook's
+/// record, which stamps each event at its dispatch.
+#[test]
+fn regression_691_a_held_punctuation_key_is_named_by_its_layout_character() {
+    let harness = WorkerTestHarness::new(MockBackend::new());
+    let mut record = HeldKeys::new();
+    let t = now_ms();
+    let not_down = |_| false;
+    // Danish '+' (VK_OEM_PLUS, scan code 0x0C) goes down and is dispatched.
+    assert!(!record.on_hook_message(0x0100, 0xBB, 0x0C, not_down));
+    let mut plus = layout_key(1, t, 0xBB);
+    plus.callback_params = [0x0C, 0, 0, '+' as i64];
+    record.stamp(&mut plus);
+    harness.send_event(plus);
+    // Tab pressed while it is held.
+    assert!(!record.on_hook_message(0x0100, 0x09, 0x0F, not_down));
+    let mut tab = layout_key(2, t, 0x09);
+    tab.callback_params[0] = 0x0F;
+    record.stamp(&mut tab);
+    harness.send_event(tab);
+    record.on_hook_message(0x0101, 0x09, 0x0F, not_down);
+    // A click, a drag and its drop made while it is held.
+    let mut click = make_raw_event(RawEventType::Click, 100);
+    click.sequence_id = 3;
+    click.timestamp = t;
+    record.stamp(&mut click);
+    harness.send_event(click);
+    let mut drag_start = make_raw_event(
+        RawEventType::DragStart {
+            source_coords: (10, 10),
+        },
+        100,
+    );
+    drag_start.sequence_id = 4;
+    drag_start.timestamp = t;
+    // The mouse hook reads a drag start's keys at the threshold.
+    drag_start.held = record.dispatched_down(None);
+    harness.send_event(drag_start);
+    let mut drop = make_raw_event(
+        RawEventType::Drop {
+            source_coords: (10, 10),
+        },
+        100,
+    );
+    drop.sequence_id = 5;
+    drop.timestamp = t;
+    record.stamp(&mut drop);
+    harness.send_event(drop);
+    thread::sleep(Duration::from_millis(900));
+    let events = harness.shutdown();
+    let plus_held = stated(&["+"], &[1]);
+    assert_eq!(
+        held_statements_of(&events),
+        vec![
+            ("key", PLAIN, stated(&[], &[])),
+            ("key", PLAIN, plus_held.clone()),
+            ("click", PLAIN, plus_held.clone()),
+            ("drag_start", PLAIN, plus_held.clone()),
+            ("drop", PLAIN, plus_held),
+        ]
     );
 }
 
