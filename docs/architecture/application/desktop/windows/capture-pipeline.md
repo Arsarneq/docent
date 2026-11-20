@@ -71,8 +71,10 @@ events so the per-worker state that judges them stays coherent (DCP-12):
   drag, a window change) is routed like any other, and
   the dispatcher tells the typing worker behind the events already sent to
   it, so the `type` that worker holds is written (DCP-9).
-- **Sticky routing** — focus and selection events for the same window handle
-  always reach the same worker, keeping their deduplication correct.
+- **Focus worker** — every focus event reaches one worker, whatever window it
+  names, so each focus is compared with the focus before it (DCP-12, DCP-13).
+- **Sticky routing** — selection events for the same window handle always
+  reach the same worker, which processes them in order.
 - **Drag pairing** — a drop routes to the worker that took its drag start, so
   the pair is built from the same recorded source element.
 - **Double-click pairing** — a click that completes a double-click routes to
@@ -84,8 +86,8 @@ events so the per-worker state that judges them stays coherent (DCP-12):
 A worker found dead at dispatch (its channel disconnected) is respawned in
 place at the same index and the event is retried on the fresh worker; sticky
 affinities pointing at the dead index are cleared so later events re-route,
-while the typing worker stays that index; it gives the role up only when it
-fails to answer a commit's flush barrier in time (DCP-12). A
+while the typing and focus workers stay that index; each gives its role up
+only when it fails to answer a commit's flush barrier in time (DCP-12). A
 respawned worker starts fresh — empty queue, empty dedup state, empty held
 buffers — and the held buffers the dead worker leaves behind are **drained
 into the action stream before the replacement is installed**, so its completed

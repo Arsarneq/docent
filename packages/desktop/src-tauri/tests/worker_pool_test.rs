@@ -1,10 +1,10 @@
 // Property tests for the capture worker pool infrastructure.
 //
-// The principal subjects: sequence numbering, shortest-queue dispatch, typing
-// and sticky routing, drag-pair and double-click routing, and the dead-worker
-// drain rescues (dispatch-time respawn and shutdown join) — the pipeline-level
-// truth-lock — alongside end-to-end action truth-locks over the same pipeline
-// (key, right-click, selection, scroll flush, locator pass-through,
+// The principal subjects: sequence numbering, shortest-queue dispatch, typing,
+// focus and sticky routing, drag-pair and double-click routing, and the
+// dead-worker drain rescues (dispatch-time respawn and shutdown join) — the
+// pipeline-level truth-lock — alongside end-to-end action truth-locks over the
+// same pipeline (key, right-click, selection, scroll flush, locator pass-through,
 // excluded-PID discard, the file-dialog proxy), and the double-click pairing
 // the mouse hook keeps (DCP-10). The click-vs-drag threshold itself belongs to
 // the Windows provider and is pinned beside it, in the `capture::windows`
@@ -200,41 +200,43 @@ proptest! {
 }
 
 // ---------------------------------------------------------------------------
-// Sticky routing for value-change events
+// Focus worker and sticky selection routing
 // ---------------------------------------------------------------------------
 
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(20))]
 
-    /// Sticky routing
+    /// Focus and selection routing
     ///
-    /// For any sequence of focus and selection events with the same
-    /// window_handle, all events are dispatched to the same worker index.
+    /// Every focus event reaches one worker, whatever window it names
+    /// (docent#735), and every selection event in one window reaches one
+    /// worker.
     #[test]
-    fn sticky_routing_for_focus_and_selection_events(
+    fn focus_events_reach_one_worker_and_selections_route_sticky(
         window_handle in 1i64..10000,
         kinds in proptest::collection::vec(proptest::bool::ANY, 2..50),
     ) {
-        let event_count = kinds.len();
         let (action_tx, _action_rx) = mpsc::channel::<ActionEvent>();
-        let worker_counts: Vec<Arc<AtomicU64>> = (0..3)
-            .map(|_| Arc::new(AtomicU64::new(0)))
+        // Per worker: [focus events, selection events] received.
+        let worker_counts: Vec<[Arc<AtomicU64>; 2]> = (0..3)
+            .map(|_| [Arc::new(AtomicU64::new(0)), Arc::new(AtomicU64::new(0))])
             .collect();
         let wc_clone = worker_counts.clone();
 
         let mut pool = WorkerPool::new(3, action_tx, move |index, rx, _queue_len, _sender, _pending| {
-            let wc = Arc::clone(&wc_clone[index]);
+            let [focus, selection] = wc_clone[index].clone();
             std::thread::spawn(move || {
                 loop {
                     match rx.recv() {
-                        Ok(WorkerMessage::Event(raw)) => {
-                            if matches!(
-                                raw.event_type,
-                                RawEventType::Focus | RawEventType::Selection
-                            ) {
-                                wc.fetch_add(1, Ordering::SeqCst);
+                        Ok(WorkerMessage::Event(raw)) => match raw.event_type {
+                            RawEventType::Focus => {
+                                focus.fetch_add(1, Ordering::SeqCst);
                             }
-                        }
+                            RawEventType::Selection => {
+                                selection.fetch_add(1, Ordering::SeqCst);
+                            }
+                            _ => {}
+                        },
                         Ok(WorkerMessage::Flush(_)) => {}
                         Ok(WorkerMessage::EndTyping) => {}
                         Ok(WorkerMessage::Shutdown) => break,
@@ -244,59 +246,37 @@ proptest! {
             })
         });
 
-        // Dispatch focus and selection events with the same window_handle,
-        // a click between them so the queue lengths keep moving.
-        for is_focus in &kinds {
-            let event_type = if *is_focus {
-                RawEventType::Focus
+        // Focus events naming three different windows, selections in one
+        // window, a click between them so the queue lengths keep moving.
+        for (i, is_focus) in kinds.iter().enumerate() {
+            if *is_focus {
+                let window = window_handle + 10_000 * (i as i64 % 3);
+                pool.dispatch(make_raw_event(RawEventType::Focus, window));
             } else {
-                RawEventType::Selection
-            };
-            pool.dispatch(make_raw_event(event_type, window_handle));
+                pool.dispatch(make_raw_event(RawEventType::Selection, window_handle));
+            }
             pool.dispatch(make_raw_event(RawEventType::Click, window_handle + 1));
         }
 
         // Give workers time to receive.
         std::thread::sleep(std::time::Duration::from_millis(50));
 
-        // Exactly one worker should have received all events.
-        let counts: Vec<u64> = worker_counts
-            .iter()
-            .map(|c| c.load(Ordering::SeqCst))
-            .collect();
-
-        let total: u64 = counts.iter().sum();
-        prop_assert_eq!(
-            total,
-            event_count as u64,
-            "total events should be {}, got {}",
-            event_count,
-            total
-        );
-
-        // Exactly one worker should have all events, others should have 0.
-        let non_zero_workers: Vec<usize> = counts
-            .iter()
-            .enumerate()
-            .filter(|(_, &c)| c > 0)
-            .map(|(i, _)| i)
-            .collect();
-
-        prop_assert_eq!(
-            non_zero_workers.len(),
-            1,
-            "expected exactly 1 worker to receive all focus and selection events, \
-             but {} workers received events: {:?}",
-            non_zero_workers.len(),
-            counts
-        );
-
-        prop_assert_eq!(
-            counts[non_zero_workers[0]],
-            event_count as u64,
-            "the sticky worker should have all {} events",
-            event_count
-        );
+        for (kind, name) in [(0usize, "focus"), (1usize, "selection")] {
+            let expected = kinds.iter().filter(|f| **f == (kind == 0)).count() as u64;
+            let counts: Vec<u64> = worker_counts
+                .iter()
+                .map(|c| c[kind].load(Ordering::SeqCst))
+                .collect();
+            let total: u64 = counts.iter().sum();
+            prop_assert_eq!(total, expected, "every {} event should arrive", name);
+            let receiving = counts.iter().filter(|c| **c > 0).count();
+            prop_assert!(
+                receiving <= 1,
+                "expected one worker to receive every {} event, got {:?}",
+                name,
+                counts
+            );
+        }
 
         pool.shutdown();
     }
@@ -3258,6 +3238,164 @@ fn upper_letters(text: &str) -> Vec<String> {
     text.chars()
         .map(|c| c.to_ascii_uppercase().to_string())
         .collect()
+}
+
+fn focus_event(seq: u64, timestamp: u64, window_handle: i64) -> RawEvent {
+    let mut raw = make_raw_event(RawEventType::Focus, window_handle);
+    raw.sequence_id = seq;
+    raw.timestamp = timestamp;
+    raw
+}
+
+fn focus_selectors_of(events: &[ActionEvent]) -> Vec<String> {
+    let mut focuses: Vec<(u64, String)> = events
+        .iter()
+        .filter_map(|e| match &e.payload {
+            ActionPayload::Focus { element } => {
+                Some((e.sequence_id.unwrap_or(0), element.selector.clone()))
+            }
+            _ => None,
+        })
+        .collect();
+    focuses.sort();
+    focuses.into_iter().map(|(_, selector)| selector).collect()
+}
+
+/// Regression (https://github.com/Arsarneq/docent/issues/735): one focus
+/// change after a dialog closed was written as two identical focus actions.
+/// The focus events named two windows (the dialog's File name box, the
+/// owner's text area), so sticky routing gave them to two workers while the
+/// first was still busy; both described the element focused when they got to
+/// it, the owner's text area once the dialog had closed, and each compared it
+/// with its own last focus only.
+#[test]
+fn regression_735_one_focus_change_named_by_two_windows_is_one_focus() {
+    let gate = closed_gate();
+    let (action_tx, action_rx) = mpsc::channel::<ActionEvent>();
+    let worker_gate = Arc::clone(&gate);
+    let mut pool = WorkerPool::new(
+        3,
+        action_tx,
+        move |index, rx, queue_len, sender, pending| {
+            // Every description, however late, finds the same element focused.
+            let backend = TypingBackend::edit(&worker_gate, "text");
+            thread::spawn(move || {
+                let ep = Arc::new(AtomicU32::new(0));
+                worker_loop(index, backend, rx, queue_len, sender, ep, pending, None);
+            })
+        },
+    );
+
+    let dialog = 0x200;
+    let owner = 0x100;
+    let t = now_ms();
+    // The dialog's field reports the focus twice while the worker is busy,
+    // then the focus returns to the owner as the dialog closes.
+    pool.dispatch(focus_event(1, t, dialog));
+    pool.dispatch(focus_event(2, t + 5, dialog));
+    pool.dispatch(focus_event(3, t + 10, owner));
+    open_gate(&gate);
+
+    thread::sleep(Duration::from_millis(300));
+    pool.shutdown();
+    let events: Vec<ActionEvent> = action_rx.try_iter().collect();
+
+    assert_eq!(
+        focus_selectors_of(&events),
+        vec!["Edit#field1".to_string()],
+        "focus events described as one element, with no other focus between \
+         them, are one focus action"
+    );
+}
+
+/// A focus that returns to an element after a focus elsewhere is a focus
+/// change of its own and is written, whichever windows the events named.
+#[test]
+fn a_focus_back_to_an_element_after_another_focus_is_written() {
+    let (action_tx, action_rx) = mpsc::channel::<ActionEvent>();
+    // Field A, field B, field A again: each description pops the next one.
+    let selectors = Arc::new(Mutex::new(VecDeque::from(vec![
+        "Edit#a".to_string(),
+        "Edit#b".to_string(),
+        "Edit#a".to_string(),
+    ])));
+    let worker_selectors = Arc::clone(&selectors);
+    let mut pool = WorkerPool::new(
+        3,
+        action_tx,
+        move |index, rx, queue_len, sender, pending| {
+            let backend = QueuedFocusBackend {
+                selectors: Arc::clone(&worker_selectors),
+            };
+            thread::spawn(move || {
+                let ep = Arc::new(AtomicU32::new(0));
+                worker_loop(index, backend, rx, queue_len, sender, ep, pending, None);
+            })
+        },
+    );
+
+    let t = now_ms();
+    for (seq, window) in [(1, 0x100), (2, 0x200), (3, 0x100)] {
+        pool.dispatch(focus_event(seq, t + seq * 5, window));
+        thread::sleep(Duration::from_millis(60));
+    }
+    pool.shutdown();
+    let events: Vec<ActionEvent> = action_rx.try_iter().collect();
+
+    assert_eq!(
+        focus_selectors_of(&events),
+        vec!["Edit#a", "Edit#b", "Edit#a"],
+    );
+}
+
+/// A backend whose focused element is the next selector of a shared queue.
+struct QueuedFocusBackend {
+    selectors: Arc<Mutex<VecDeque<String>>>,
+}
+
+impl AccessibilityBackend for QueuedFocusBackend {
+    fn init(&mut self) -> Result<(), CaptureError> {
+        Ok(())
+    }
+
+    fn cleanup(&mut self) {}
+
+    fn element_at_point(&self, _x: i32, _y: i32) -> Option<ElementDescription> {
+        None
+    }
+
+    fn focused_element(&self) -> Option<ElementDescription> {
+        let selector = self.selectors.lock().unwrap().pop_front()?;
+        Some(ElementDescription {
+            tag: "Edit".to_string(),
+            selector,
+            ..Default::default()
+        })
+    }
+
+    fn window_title(&self, _window_handle: i64) -> String {
+        "Test Window".to_string()
+    }
+
+    fn process_name(&self, _window_handle: i64) -> String {
+        "test.exe".to_string()
+    }
+
+    fn read_file_dialog_path(&self, _window_handle: i64) -> Option<(String, String)> {
+        None
+    }
+
+    fn root_window_handle(&self, window_handle: i64) -> i64 {
+        window_handle
+    }
+
+    fn window_rect(&self, _window_handle: i64) -> Option<docent_desktop_lib::capture::WindowRect> {
+        None
+    }
+
+    fn selected_item_name(&self, _window_handle: i64) -> Option<(ElementDescription, String)> {
+        None
+    }
 }
 
 #[test]

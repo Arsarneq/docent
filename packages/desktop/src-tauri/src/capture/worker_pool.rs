@@ -446,13 +446,17 @@ type SpawnWorkerFn = Box<
 /// The value of the pool's typing-worker slot while no worker holds the role.
 const NO_TYPING_WORKER: usize = usize::MAX;
 
+/// The value of the pool's focus-worker slot while no worker holds the role.
+const NO_FOCUS_WORKER: usize = usize::MAX;
+
 /// Platform-agnostic worker pool for dispatching raw events to accessibility
 /// worker threads.
 ///
 /// The pool manages a fixed set of workers, assigns monotonic sequence numbers
 /// to events, and routes events using shortest-queue dispatch with one typing
-/// worker for keyboard and value-change events, sticky routing for focus and
-/// selection events, and paired routing for drag events and double-clicks.
+/// worker for keyboard and value-change events, one focus worker for focus
+/// events, sticky routing for selection events, and paired routing for drag
+/// events and double-clicks.
 ///
 /// When a worker panics, the pool detects the failure on the next dispatch
 /// attempt, immediately respawns a replacement worker at the same index, and
@@ -478,9 +482,15 @@ pub struct WorkerPool {
     /// per index. The typing role is not given to one of them while another
     /// worker is available; a respawn clears its index's bit.
     missed_last_barrier: AtomicU64,
-    /// Sticky routing: maps `window_handle` → `worker_index` for focus and
-    /// selection events, so each window's events of those types reach one
-    /// worker and its deduplication holds.
+    /// The focus worker: the one worker every focus event reaches, whatever
+    /// window the event named, so the last focus it compares a focus with is
+    /// the focus before it (docent#735). Chosen like the typing worker, at
+    /// the first focus event, kept across a respawn of its index, and given up
+    /// the same way when a flush barrier finds it unresponsive.
+    /// `NO_FOCUS_WORKER` while none is chosen.
+    focus_worker: AtomicUsize,
+    /// Sticky routing: maps `window_handle` → `worker_index` for selection
+    /// events, so each window's selections reach one worker, in order.
     window_affinity: HashMap<i64, usize>,
     /// Tracks the worker index that received the most recent `DragStart`,
     /// so the corresponding `Drop` event is routed to the same worker.
@@ -551,6 +561,7 @@ impl WorkerPool {
             sequence_counter: Arc::new(AtomicU64::new(0)),
             typing_worker: AtomicUsize::new(NO_TYPING_WORKER),
             missed_last_barrier: AtomicU64::new(0),
+            focus_worker: AtomicUsize::new(NO_FOCUS_WORKER),
             window_affinity: HashMap::new(),
             last_drag_worker: None,
             last_click_worker: None,
@@ -586,8 +597,9 @@ impl WorkerPool {
     /// Routing rules:
     /// - `Keyboard`, `ValueChange` → the typing worker (one worker for all of
     ///   them, whatever the window).
-    /// - `Focus`, `Selection` → sticky routing (same `window_handle` → same
-    ///   worker).
+    /// - `Focus` → the focus worker (one worker for all of them, whatever the
+    ///   window).
+    /// - `Selection` → sticky routing (same `window_handle` → same worker).
     /// - `DragStart`   → shortest-queue worker (index stored for the paired `Drop`).
     /// - `Drop`        → same worker as the most recent `DragStart`.
     /// - `Click`       → shortest-queue worker, or, for a click that completes
@@ -597,8 +609,8 @@ impl WorkerPool {
     /// If the selected worker has disconnected (panicked), it is marked dead
     /// and removed from future dispatch rotation. The event is retried on the
     /// next available worker. Sticky affinity entries pointing to the dead
-    /// worker are cleared so subsequent events are re-routed; the typing
-    /// worker stays the respawned index.
+    /// worker are cleared so subsequent events are re-routed; the typing and
+    /// focus workers stay the respawned index.
     pub fn dispatch(&mut self, event: RawEvent) {
         if ends_typing(&event.event_type) {
             self.end_typing();
@@ -630,20 +642,28 @@ impl WorkerPool {
                 if current != NO_TYPING_WORKER {
                     return current;
                 }
-                let missed = self.missed_last_barrier.load(Ordering::SeqCst);
-                let unresponsive: std::collections::HashSet<usize> = (0..self.workers.len())
-                    .filter(|i| *i < 64 && missed & (1 << i) != 0)
-                    .collect();
-                let idx = self
-                    .pick_worker_excluding(&unresponsive)
-                    .unwrap_or_else(|| self.shortest_queue_worker());
+                let idx = self.responsive_shortest_queue_worker();
                 self.typing_worker.store(idx, Ordering::SeqCst);
                 idx
             }
-            // Sticky routing: consecutive events for the same window go to
-            // the same worker. This ensures per-worker deduplication works
-            // correctly (focus dedup, selection dedup).
-            RawEventType::Focus | RawEventType::Selection => {
+            // Focus: every focus event goes to one worker. A worker describes
+            // the element focused when it gets to the event, which need not
+            // be in the window the event named, and compares it with its last
+            // focus; routed by window, two events of one focus change could
+            // each be compared with a different last focus and both be
+            // written (docent#735).
+            RawEventType::Focus => {
+                let current = self.focus_worker.load(Ordering::SeqCst);
+                if current != NO_FOCUS_WORKER {
+                    return current;
+                }
+                let idx = self.responsive_shortest_queue_worker();
+                self.focus_worker.store(idx, Ordering::SeqCst);
+                idx
+            }
+            // Sticky routing: consecutive selections in the same window go to
+            // the same worker, which processes them in order.
+            RawEventType::Selection => {
                 let handle = event.window_handle;
                 if let Some(&idx) = self.window_affinity.get(&handle) {
                     return idx;
@@ -822,8 +842,9 @@ impl WorkerPool {
         // Clear sticky affinity entries that pointed to the dead worker.
         self.window_affinity.retain(|_, &mut v| v != index);
 
-        // The typing worker keeps its index: the replacement is installed at
-        // that index, so keyboard and value-change events stay together. The
+        // The typing and focus workers keep their index: the replacement is
+        // installed at that index, so keyboard and value-change events stay
+        // together, and so do focus events. The
         // replacement has missed no barrier.
         if index < 64 {
             self.missed_last_barrier
@@ -1020,10 +1041,27 @@ impl WorkerPool {
         if rescue.contains(&typing) {
             self.typing_worker.store(NO_TYPING_WORKER, Ordering::SeqCst);
         }
+        // The focus worker likewise, so focus events after this commit do not
+        // wait behind a wedged accessibility call.
+        let focus = self.focus_worker.load(Ordering::SeqCst);
+        if rescue.contains(&focus) {
+            self.focus_worker.store(NO_FOCUS_WORKER, Ordering::SeqCst);
+        }
 
         let mut rescued: Vec<usize> = rescue.into_iter().collect();
         rescued.sort_unstable();
         rescued
+    }
+
+    /// The shortest-queue worker among those that answered the most recent
+    /// flush barrier, or among all workers when none did.
+    fn responsive_shortest_queue_worker(&self) -> usize {
+        let missed = self.missed_last_barrier.load(Ordering::SeqCst);
+        let unresponsive: std::collections::HashSet<usize> = (0..self.workers.len())
+            .filter(|i| *i < 64 && missed & (1 << i) != 0)
+            .collect();
+        self.pick_worker_excluding(&unresponsive)
+            .unwrap_or_else(|| self.shortest_queue_worker())
     }
 
     /// Find the worker with the shortest queue.
@@ -3773,6 +3811,19 @@ mod tests {
         // call would hold every later keystroke behind it, so the barrier that
         // finds it unresponsive frees the role and the next keystroke goes to
         // a worker that answers.
+        a_role_is_given_up_at_a_missed_barrier(RawEventType::Keyboard);
+    }
+
+    #[test]
+    fn a_focus_worker_that_misses_the_flush_barrier_gives_the_role_up() {
+        // Every focus event follows one worker (docent#735); the role is
+        // freed like the typing worker's.
+        a_role_is_given_up_at_a_missed_barrier(RawEventType::Focus);
+    }
+
+    /// Worker 0 takes the first event of `event_type` and wedges; after a
+    /// barrier it misses, the next such event reaches worker 1.
+    fn a_role_is_given_up_at_a_missed_barrier(event_type: RawEventType) {
         let received: Arc<Mutex<Vec<usize>>> = Arc::new(Mutex::new(Vec::new()));
         let (action_tx, _action_rx) = mpsc::channel::<ActionEvent>();
         let seen = Arc::clone(&received);
@@ -3796,7 +3847,7 @@ mod tests {
             })
         });
         let key = || RawEvent {
-            event_type: RawEventType::Keyboard,
+            event_type: event_type.clone(),
             sequence_id: 0,
             timestamp: 1,
             screen_x: 0,
@@ -3822,8 +3873,8 @@ mod tests {
         assert_eq!(
             *received.lock().unwrap(),
             vec![0, 1],
-            "worker 0 took the first keystroke and wedged with nothing queued \
-             behind it; after the barrier the next keystroke reaches worker 1"
+            "worker 0 took the first event and wedged with nothing queued \
+             behind it; after the barrier the next one reaches worker 1"
         );
         pool.shutdown_with_timeout(Duration::from_millis(200));
     }

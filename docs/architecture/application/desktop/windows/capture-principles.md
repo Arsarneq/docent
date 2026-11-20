@@ -268,7 +268,7 @@ written. Four cases stay open. A capture session started again later in a
 recording begins in its first context with no switch, whether or not the
 recording's earlier sessions introduced that context. A switch dispatched
 before an event the worker then does not write (a focus whose selector equals
-the worker's last, for example) is written all the same. The Input_Thread
+the focus worker's last, for example) is written all the same. The Input_Thread
 reads an event's top-level window when it dispatches the event, a worker when
 it describes it: an event whose window is gone by then takes that window's own
 handle as its context, which no switch introduced. And the switch before an
@@ -546,10 +546,19 @@ wait behind a wedged accessibility call. What was dispatched to the
 unanswering worker before that stays with it: lost if it never returns (the
 residue above), processed there if it does, where a keystroke whose value
 change was dispatched after the hand-over is written as a `key` beside the
-`type`; exactly the focus and selection events route
-**sticky** — the same window handle always reaches the same worker — so their
-deduplication stays correct; a drop routes to the worker that took its drag
-start; a click that completes a double-click (DCP-10) routes to the worker that
+`type`; focus events all route to one worker, the focus worker, whatever
+window they name, chosen, kept across a respawn and given up at a missed flush
+barrier as the typing worker is. A worker describes the element focused when
+it reaches a focus event, which need not be in the window the event named, so
+focus events naming two windows can describe one element (a dialog that closed
+as the focus went back to its owner), and only on one worker are they compared
+with the same last focus (DCP-13). A respawned worker starts with no last
+focus, and a worker that takes the role over compares with the last focus it
+wrote itself, none unless it held the role before: the first focus after
+either is compared with that, not with the focus written last. Exactly the selection
+events route **sticky** — the same window handle always reaches the same worker
+— so one window's selections are processed in order; a drop routes to the
+worker that took its drag start; a click that completes a double-click (DCP-10) routes to the worker that
 took the click before it, so the file-dialog proxy (DCP-6) reads the pair on
 one worker; events without a routing affinity use shortest-queue dispatch.
 
@@ -633,8 +642,8 @@ with a caveat):
   discarded with it, and for a password field, whose value is the mask, every
   value change after the first that no text-entering keystroke accompanies (a
   paste, for example); a departure (core CP-18)
-- A focus whose selector equals the worker's last — not written; a departure
-  (core CP-18)
+- A focus whose selector equals the focus worker's last (DCP-12) — not
+  written; a departure (core CP-18)
 - A focus or value change on an element the accessibility layer cannot
   describe — not written; the keys buffered for the value change are
   superseded by nothing and are written as keys (DCP-11); a departure (core
