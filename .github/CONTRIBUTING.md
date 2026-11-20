@@ -43,17 +43,7 @@ the section that states it in full.
    npm run test:unit     # the shared, desktop and extension unit suites
    ```
 
-   The checks in `npm run lint` that look for files (the area map and the test
-   inventory among them) see only the files git tracks, so `git add` a new file
-   before you run them. Add the suite for the layer you touched; [Running Tests](#running-tests)
-   lists them, with the one-time install two of them need. CI picks further
-   suites from the paths a diff touches: a schema change, for one, also runs
-   the end-to-end, desktop integration, desktop Rust and reference-server jobs
-   ([Path-filtered test jobs](../docs/guides/ci.md#path-filtered-test-jobs)).
-   The pre-push hook
-   is a narrower local mirror of CI's leading lint gates, so a push that goes
-   through is not yet a green CI run
-   ([Local hooks](../docs/guides/ci.md#local-hooks-lefthook)).
+   The checks in `npm run lint` that look for files (the area map and the test inventory among them) see only the files git tracks, so `git add` a new file before you run them. Also run the suite for the layer you touched. [Running Tests](#running-tests) lists the suites and the one-time install two of them need. CI picks further suites from the paths a diff touches. A schema change, for example, also runs the end-to-end, desktop integration, desktop Rust and reference-server jobs ([Path-filtered test jobs](../docs/guides/ci.md#path-filtered-test-jobs)). The pre-push hook is a narrower local mirror of CI's leading lint gates, so a push that goes through is not yet a green CI run ([Local hooks](../docs/guides/ci.md#local-hooks-lefthook)).
 
 4. **Check whether your change brings follow-on work.** These are the cases a
    first contribution most often meets:
@@ -67,15 +57,7 @@ the section that states it in full.
    | add the test or check a clause's registry row says does not exist yet | update that row in [`docs/clause-registry.json`](../docs/clause-registry.json): its `check-ref`, and its tag where the row was `checkable`. Each path a row cites must be governed by the clause's own doc in the area map, which `npm run lint:clause-governance` holds ([governed paths](../docs/guides/docs-governance.md#what-each-kind-of-change-keeps-green))                                                                                                                                |
    | add a code file or a doc                                              | give it a home in the area map ([what each kind of change keeps green](../docs/guides/docs-governance.md#what-each-kind-of-change-keeps-green))                                                                                                                                                                                                                                                                                                                                                    |
 
-5. **Open the pull request.** The title goes in GitHub's title field, written
-   as a Conventional Commit, and the body is the template GitHub loads
-   ([Pull Request Guidelines](#pull-request-guidelines)). The template's last
-   two sections are checked by CI
-   ([Docs Disposition and Change Record](#docs-disposition-and-change-record));
-   run that check on your draft body first with
-   [the local recipe](../docs/guides/local-ci.md#docs-disposition-format). Its
-   red output lists the lines it expects. The title has
-   [a local check](../docs/guides/local-ci.md#pr-title) too.
+5. **Open the pull request.** Write the title in GitHub's title field, as a Conventional Commit. The body is the template GitHub loads ([Pull Request Guidelines](#pull-request-guidelines)). CI checks the template's last two sections ([Docs Disposition and Change Record](#docs-disposition-and-change-record)). Run that check on your draft body first with [the local recipe](../docs/guides/local-ci.md#docs-disposition-format): the check's red output lists the lines it expects. The title has [a local check](../docs/guides/local-ci.md#pr-title) too.
 
 6. **Sign the CLA** when the bot asks ([Before You Start](#before-you-start)).
 
@@ -100,10 +82,7 @@ update.
 
 ## Development Setup
 
-Both platforms need Node.js 24+ and start from `npm install` at the repository
-root: it installs the build tooling the later steps use (the shared-code sync
-builds the import validators with `ajv` and `esbuild`; the unit suites resolve
-their test dependencies from the root) and the [git hooks](#git-hooks).
+Both platforms need Node.js 24+ and start from `npm install` at the repository root. It installs the build tooling the later steps use (the shared-code sync builds the import validators with `ajv` and `esbuild`, and the unit suites resolve their test dependencies from the root) and the [git hooks](#git-hooks).
 
 ### Chrome Extension
 
@@ -125,8 +104,11 @@ npm run dev:extension
 
 ### Desktop Application (Windows)
 
-Prerequisites, beyond Node.js: Windows 10 or later, the
-[Rust toolchain](https://rustup.rs/) (stable), and the Tauri CLI (`cargo install tauri-cli`, which provides `cargo tauri`).
+Prerequisites beyond Node.js:
+
+- Windows 10 or later
+- the [Rust toolchain](https://rustup.rs/) (stable)
+- the Tauri CLI (`cargo install tauri-cli`, which provides `cargo tauri`)
 
 ```bash
 git clone https://github.com/Arsarneq/docent.git
@@ -148,16 +130,7 @@ cargo tauri build
 
 ### Git hooks
 
-`npm install` at the repository root also installs the project's git hooks:
-the `lefthook` dev dependency's own install script runs `lefthook install` —
-skipped when `CI` is set in the shell; the
-[CI guide](../docs/guides/ci.md#local-hooks-lefthook) states the rule. The
-`pre-push` hook runs a local
-mirror of CI's leading lint gates, and the `commit-msg` hook strips
-AI-assistant co-author trailers, which would otherwise register a phantom
-contributor that cannot sign the CLA.
-The hooks' exact scope, including where the pre-push mirror is narrower than
-CI, is in [CI gates](../docs/guides/ci.md#local-hooks-lefthook).
+`npm install` at the repository root also installs the project's git hooks: the `lefthook` dev dependency's install script runs `lefthook install`, unless `CI` is set in the shell. The `pre-push` hook runs a local mirror of CI's leading lint gates. The `commit-msg` hook strips AI-assistant co-author trailers, which would otherwise register a phantom contributor that cannot sign the CLA. [CI gates](../docs/guides/ci.md#local-hooks-lefthook) states the skip rule and the hooks' exact scope, including where the pre-push mirror is narrower than CI.
 
 ## Project Structure
 
@@ -181,47 +154,19 @@ packages/
 scripts/            Build, sync, and automation scripts
 ```
 
-Shared code lives in `packages/shared/` and is copied into each platform package
-by `npm run sync-shared`. After editing shared code, re-run the sync before
-loading the extension or building the desktop app. A sync does more than copy:
-it also regenerates the per-platform import validators and reassembles both
-platforms' panel pages
-([what a sync does](../docs/architecture/system/shared-core.md#what-a-sync-does)).
+Shared code lives in `packages/shared/`, and `npm run sync-shared` copies it into each platform package. After you edit shared code, re-run the sync before you load the extension or build the desktop app. A sync does more than copy: it also regenerates the per-platform import validators and reassembles both platforms' panel pages ([what a sync does](../docs/architecture/system/shared-core.md#what-a-sync-does)).
 
-Each panel page (`index.html`) is assembled from the platform's
-`index.shell.html` and the single shared views fragment
-([one fragment, two shells](../docs/architecture/system/shared-core.md#shared-views--one-fragment-two-shells)),
-and the two assembled files are committed build output. Never hand-edit them:
-edit the shell or the shared views source, re-run `npm run sync-shared`, and
-commit the two regenerated `index.html` files
-([Shared Core §SC-2](../docs/architecture/system/shared-core.md#the-outputs-and-their-freshness)).
-CI re-runs the sync and fails on any diff against the committed copies — the
-sync-shared freshness gate; where it runs is in
-[CI gates](../docs/guides/ci.md#the-lint-and-freshness-gates). The sync's other
-outputs (the synced `packages/*/shared/` trees and the generated validators)
-are gitignored.
+Each panel page (`index.html`) is assembled from the platform's `index.shell.html` and the single shared views fragment ([one fragment, two shells](../docs/architecture/system/shared-core.md#shared-views--one-fragment-two-shells)). The two assembled files are committed build output, so never hand-edit them. Edit the shell or the shared views source, re-run `npm run sync-shared`, and commit the two regenerated `index.html` files ([Shared Core §SC-2](../docs/architecture/system/shared-core.md#the-outputs-and-their-freshness)). CI's sync-shared freshness gate re-runs the sync and fails on any diff against the committed copies ([CI gates](../docs/guides/ci.md#the-lint-and-freshness-gates) says where it runs). The sync's other outputs (the synced `packages/*/shared/` trees and the generated validators) are gitignored.
 
-The import validators under `packages/shared/generated/` are generated,
-eval-free code: [`scripts/build-validators.js`](../scripts/build-validators.js)
-produces them from the same composed schemas the rest of the toolchain uses,
-and each platform validates imported files and pulled sync payloads with its
-own. Never hand-edit a generated validator — change the schema source layers
-and re-run `npm run sync-shared`; regeneration is the sync's first step, so
-the validators move in lockstep with the schemas.
+The import validators under `packages/shared/generated/` are generated, eval-free code. [`scripts/build-validators.js`](../scripts/build-validators.js) produces them from the same composed schemas the rest of the toolchain uses, and each platform validates imported files and pulled sync payloads with its own. Never hand-edit a generated validator: change the schema source layers and re-run `npm run sync-shared`. Regeneration is the sync's first step, so the validators move in lockstep with the schemas.
 
-Edit a source layer, never a file under `schemas/dist/` directly — those are
-build output (the composition model is in
-[session-format](../docs/technical/session-format.md#json-schema-files)). A CI
-guard blocks `schemas/dist/` edits and leaf-`version` bumps in feature PRs — see
-[PUBLISHING](PUBLISHING.md#test-gating-and-the-version-pr).
+Edit a source layer, never a file under `schemas/dist/` directly: those files are build output ([session-format](../docs/technical/session-format.md#json-schema-files) has the composition model). A CI guard blocks `schemas/dist/` edits and leaf-`version` bumps in feature PRs ([PUBLISHING](PUBLISHING.md#test-gating-and-the-version-pr)).
 
-A schema **major version bump needs no manual test-fixture re-stamping** — the
-backward-compatibility corpus validates by shape; see
-[backward-compat](../docs/test/backward-compat.md#validation-is-by-shape-not-by-version-stamp).
+A schema **major version bump needs no manual test-fixture re-stamping**, because the backward-compatibility corpus validates by shape ([backward-compat](../docs/test/backward-compat.md#validation-is-by-shape-not-by-version-stamp)).
 
 ## Running Tests
 
-Tests are organised by test-pyramid layer — run them by layer or by package:
+Tests are organized by test-pyramid layer. Run them by layer or by package:
 
 ```bash
 # By pyramid layer (across packages)
@@ -236,18 +181,11 @@ npm run test:desktop:rust  # desktop Rust tests (cargo)
 npm run test:shared        # shared module unit tests
 ```
 
-`npm run test:unit` reads two build outputs: the synced shared code and the
-desktop frontend bundle. Run `npm run dev:desktop` first, which produces both;
-on a fresh clone the suite is red until it has run.
+`npm run test:unit` reads two build outputs: the synced shared code and the desktop frontend bundle. Run `npm run dev:desktop` first to produce both. On a fresh clone the suite is red until it has run.
 
-`npm run test:integration` and `npm run test:e2e` need a one-time harness install
-first: [the integration suite's steps](../docs/test/integration/desktop.md#running-the-suite)
-and [the end-to-end suite's steps](../docs/test/e2e.md#running-the-suite).
+`npm run test:integration` and `npm run test:e2e` need a one-time harness install first: [the integration suite's steps](../docs/test/integration/desktop.md#running-the-suite) and [the end-to-end suite's steps](../docs/test/e2e.md#running-the-suite).
 
-The reference implementations under `reference-implementations/` carry suites
-of their own, which CI runs when a diff touches what they read
-([Path-filtered test jobs](../docs/guides/ci.md#path-filtered-test-jobs)). From
-the repository root:
+The reference implementations under `reference-implementations/` have suites of their own. CI runs them when a diff touches what they read ([Path-filtered test jobs](../docs/guides/ci.md#path-filtered-test-jobs)). Run them from the repository root:
 
 | Suite          | Run                                                                                                                                                           |
 | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -255,29 +193,15 @@ the repository root:
 | Control client | `npm ci --prefix reference-implementations/control-client`, then `npm test --prefix reference-implementations/control-client`                                 |
 | MCP server     | install the control client as above, then `npm ci --prefix reference-implementations/mcp-server` and `npm test --prefix reference-implementations/mcp-server` |
 
-To opt a Rust test out of CI entirely (e.g. it depends on something unavailable on
-runners), add a `ci-skip` marker comment to the source of its test target under
-`tests/` — the marker opts that whole target out; an in-module `#[cfg(test)]`
-test has no such marker. How the suites are layered
-and how a Rust test's pyramid layer is auto-classified are in
-[the test pyramid](../docs/test/strategy/test-pyramid.md); how coverage reaches
-Codecov is in [coverage reporting](../docs/test/strategy/coverage.md).
+To opt a Rust test out of CI entirely (for example, it depends on something unavailable on runners), add a `ci-skip` marker comment to the source of its test target under `tests/`. The marker opts that whole target out. An in-module `#[cfg(test)]` test has no such marker. [The test pyramid](../docs/test/strategy/test-pyramid.md) explains how the suites are layered and how a Rust test's pyramid layer is auto-classified.
 
-New code lands with tests: the Codecov status every PR requires is
-`codecov/patch`, the coverage of the lines the diff changes, and the project
-status `.github/codecov.yml` configures beside it is not a required check — which
-status is required, and how a PR that produces no coverage still passes, is in
-[CI gates](../docs/guides/ci.md#coverage-and-the-codecov-statuses); how
-coverage is measured and sliced is in
-[coverage reporting](../docs/test/strategy/coverage.md).
+New code lands with tests. The Codecov status every PR requires is `codecov/patch`, the coverage of the lines the diff changes. The project status that `.github/codecov.yml` configures beside it is not a required check. [CI gates](../docs/guides/ci.md#coverage-and-the-codecov-statuses) states how a PR that produces no coverage still passes. [Coverage reporting](../docs/test/strategy/coverage.md) states how coverage is measured, sliced and sent to Codecov.
 
 ## Coding Conventions
 
 ### JavaScript
 
-- Plain ES modules — no bundler, no transpilation (two build-time exceptions:
-  the desktop's Tauri bridge and the generated validators are bundled by
-  esbuild)
+- Plain ES modules, with no bundler and no transpilation. Two build-time exceptions: esbuild bundles the desktop's Tauri bridge and the generated validators.
 - `camelCase` for variables and functions
 - `UPPER_SNAKE_CASE` for message type constants
 - JSDoc comments on all exported functions
@@ -285,58 +209,11 @@ coverage is measured and sliced is in
 
 ### Single-source logic
 
-Pure-logic extraction and mirrored copies bind JavaScript only, and each entry
-below names the surfaces it governs. Cite-the-owner binds every surface this
-repository tracks: code in any language, and prose.
+Pure-logic extraction and mirrored copies bind JavaScript only, and each entry below names the surfaces it governs. Cite-the-owner binds every surface this repository tracks: code in any language, and prose.
 
-- **Pure-logic extraction.** Logic that needs unit testing without a live
-  platform is extracted into a pure module — plain data in and out, no
-  `chrome.*` or DOM calls — that the runtime file imports, so the unit suite
-  exercises the real function rather than a hand-copied replica.
-  `packages/extension/lib/frame-trust.js` and
-  `packages/extension/lib/redaction-logic.js` name this discipline in their
-  headers and are the pattern to copy; the shared sync modules (e.g.
-  `packages/shared/conflict-detector.js`) are platform-call-free by
-  architecture — where shared code must reach platform behaviour it does so
-  through its injected seams — the sync-state store, the live-state view and
-  sync trigger each platform binds, and the rebindable HTTP transport
-  ([Shared Core](../docs/architecture/system/shared-core.md#the-adapter-seam))
-  — which also keeps them unit-testable as pure modules.
-- **Mirrored copies.** A copy of shipped code that a test's verdict stands on
-  carries a parity test: the test holds the copy identical to the shipped text,
-  or identical under a stated mechanical transformation, and fails the unit
-  suite when either side moves alone, so the cases pin what ships. Content
-  scripts cannot import
-  modules, so the extension's capture logic deliberately exists as two textual
-  copies: the testable module `packages/extension/content/recorder-logic.js`
-  and an inline copy between the `BEGIN`/`END MIRRORED CAPTURE LOGIC` markers
-  in `packages/extension/content/recorder.js` — edit both together, inside the
-  markers only; the transformation there is export-stripping and indentation.
-  The service worker's unit suite holds its append chokepoint the same way,
-  indentation only, and its active-unit helpers with no transformation
-  (`service-worker-mirror-parity.test.js`).
-  A replica reshaped from the shipped code — simulated state around a re-typed
-  handler, logic lifted out of a DOM callback — has no shipped text to be held
-  to, so it pins only itself; the suite's document names it as such
-  ([JavaScript unit tests](../docs/test/unit.md)), and extracting the logic
-  into a pure module is what brings it under test. A test oracle the shipped
-  code's output is compared against needs no parity test, even where its text
-  matches the shipped code: a drift between them fails the comparison.
-- **Cite the owner of a fact you do not own.** A comment — or a documentation
-  sentence — asserting something another artifact owns names that owner and
-  stops there; the mechanics the file itself owns stay written out. Which
-  component writes a storage key, what order a documented path guarantees, what
-  a doctrine clause promises: each has a home, and the home is what a second
-  statement of it cites. The form is the parenthetical clause cite already in
-  use across the tree, in every language it tracks — `(extension runtime ERT-3)`
-  and `(sync-protocol SP-5)` in JavaScript, `(DCP-12)` in the desktop crate — so
-  a doctrine change lands in one home instead of in every echo of it. The
-  headers of
-  [`packages/extension/background/service-worker.js`](../packages/extension/background/service-worker.js)
-  (write ownership) and
-  [`scripts/corpus-compare.js`](../scripts/corpus-compare.js) (the truth files'
-  derivation) are the pattern to copy. A reconcile pass sweeps the whole file it
-  touches, not just the header block.
+- **Pure-logic extraction.** Extract logic that needs unit testing without a live platform into a pure module (plain data in and out, no `chrome.*` or DOM calls) that the runtime file imports. The unit suite then exercises the real function, not a hand-copied replica. `packages/extension/lib/frame-trust.js` and `packages/extension/lib/redaction-logic.js` name this discipline in their headers and are the pattern to copy. The shared sync modules (for example `packages/shared/conflict-detector.js`) are platform-call-free by architecture, which also keeps them unit-testable as pure modules. Where shared code must reach platform behavior, it goes through its injected seams: the sync-state store, the live-state view and sync trigger each platform binds, and the rebindable HTTP transport ([Shared Core](../docs/architecture/system/shared-core.md#the-adapter-seam)).
+- **Mirrored copies.** A copy of shipped code that a test's verdict stands on carries a parity test. The parity test holds the copy identical to the shipped text, or identical under a stated mechanical transformation. It fails the unit suite when either side moves alone, so the cases pin what ships. Content scripts cannot import modules, so the extension's capture logic deliberately exists as two textual copies: the testable module `packages/extension/content/recorder-logic.js`, and an inline copy between the `BEGIN`/`END MIRRORED CAPTURE LOGIC` markers in `packages/extension/content/recorder.js`. Edit both together, inside the markers only. The transformation there is export-stripping and indentation. The service worker's unit suite holds its append chokepoint the same way, with indentation only, and its active-unit helpers with no transformation (`service-worker-mirror-parity.test.js`). A replica reshaped from the shipped code (simulated state around a re-typed handler, logic lifted out of a DOM callback) has no shipped text to be held to, so it pins only itself. The suite's document names it as such ([JavaScript unit tests](../docs/test/unit.md)); extracting the logic into a pure module is what brings it under test. A test oracle that the shipped code's output is compared against needs no parity test, even where its text matches the shipped code: a drift between them fails the comparison.
+- **Cite the owner of a fact you do not own.** A comment or documentation sentence that asserts something another artifact owns names that owner and stops there. The mechanics the file itself owns stay written out. Which component writes a storage key, what order a documented path guarantees, what a doctrine clause promises: each has a home, and a second statement of it cites that home. Use the parenthetical clause cite already in use across the tree, in every language it tracks: `(extension runtime ERT-3)` and `(sync-protocol SP-5)` in JavaScript, `(DCP-12)` in the desktop crate. A doctrine change then lands in one home, not in every echo of it. The headers of [`packages/extension/background/service-worker.js`](../packages/extension/background/service-worker.js) (write ownership) and [`scripts/corpus-compare.js`](../scripts/corpus-compare.js) (the truth files' derivation) are the pattern to copy. A reconcile pass sweeps the whole file it touches, not just the header block.
 
 ### Rust
 
@@ -351,39 +228,17 @@ repository tracks: code in any language, and prose.
 ## Pull Request Guidelines
 
 - One logical change per PR
-- **Title the PR as a [Conventional Commit](https://www.conventionalcommits.org/)**
-  (`type(scope): summary` — e.g. `feat(extension): …`, `fix(desktop): …`). Docent
-  **squash-merges**, so the PR title becomes the commit on `main`: it drives release
-  versioning and the project history, and a CI check (the `PR title` workflow) enforces
-  the format. How each type maps to a version bump is in
-  [PUBLISHING § Choosing the release version](PUBLISHING.md#choosing-the-release-version).
-  (GitHub's auto-generated `Revert "…"` title must be renamed to `revert: …`.)
-  The title is typed into GitHub's title field; the template's body carries no
-  title line.
-- **Fill in the [PR template](PULL_REQUEST_TEMPLATE.md)** — it loads automatically
-  when you open a PR. Complete every section (write "None." where a section does
-  not apply, e.g. Behaviour/Breaking Changes).
+- **Title the PR as a [Conventional Commit](https://www.conventionalcommits.org/)** (`type(scope): summary`, for example `feat(extension): …` or `fix(desktop): …`), typed into GitHub's title field; the template's body carries no title line. Docent **squash-merges**, so the PR title becomes the commit on `main`. It drives release versioning and the project history, and a CI check (the `PR title` workflow) enforces the format. [PUBLISHING § Choosing the release version](PUBLISHING.md#choosing-the-release-version) maps each type to a version bump. Rename GitHub's auto-generated `Revert "…"` title to `revert: …`.
+- **Fill in the [PR template](PULL_REQUEST_TEMPLATE.md)**, which loads automatically when you open a PR. Complete every section, writing "None." where a section does not apply (e.g. Behaviour/Breaking Changes).
 - Include a clear description of what changed and why
 - Reference the related issue if one exists (`Closes #000` / `Relates to #000`)
-- **Add labels** so the PR is triageable: the kind of change (`bug`,
-  `enhancement`, or `docs`) plus any area label(s) that apply. Match the label on
-  the issue it closes, and pick area labels from the repo's existing
-  [label list](https://github.com/Arsarneq/docent/labels) rather than inventing
-  new ones.
+- **Add labels** so the PR is triageable: the kind of change (`bug`, `enhancement`, or `docs`) plus any area labels that apply. Match the label on the issue it closes. Pick area labels from the repo's existing [label list](https://github.com/Arsarneq/docent/labels); do not invent new ones.
 - All new functions should have JSDoc comments (JavaScript) or doc comments (Rust)
 - **Bug-fix PRs must include a regression test** (see below)
 
-What CI enforces on a PR — the lint and formatting gates, the dependency and
-license audits, the path-filtered test jobs, the coverage statuses, and the
-PR-body and title checks — is inventoried workflow by workflow in
-[CI gates](../docs/guides/ci.md), together with the local command for each
-gate.
+[CI gates](../docs/guides/ci.md) inventories, workflow by workflow, what CI enforces on a PR (the lint and formatting gates, the dependency and license audits, the path-filtered test jobs, the coverage statuses, and the PR-body and title checks), together with the local command for each gate.
 
-Adding a third-party dependency? It must clear the default-deny license
-allowlist and the advisory audits (`npm audit` and the Rust `cargo deny`); the
-npm side of both reads every npm root, and their exact coverage
-([CI gates](../docs/guides/ci.md#dependency-and-license-audit)) is the gate's
-own statement; `npm run check:licenses` runs the npm allowlist locally.
+Adding a third-party dependency? It must clear the default-deny license allowlist and the advisory audits (`npm audit` and the Rust `cargo deny`). The npm side of both reads every npm root; [CI gates](../docs/guides/ci.md#dependency-and-license-audit) states their exact coverage. `npm run check:licenses` runs the npm allowlist locally.
 
 ## Docs Disposition and Change Record
 
@@ -507,9 +362,9 @@ A change that touches the binding between code and docs, or that writes a doc, f
 
 Every bug-fix PR must include a test that reproduces the original failure:
 
-- **Naming:** `regression_<issue_number>_<short_description>` (e.g. `regression_42_duplicate_select_after_click`); a defect no issue tracks takes `regression_noissue_<short_description>`. Cases named before the no-issue form was stated may keep their names; a new case takes one of the forms.
+- **Naming:** `regression_<issue_number>_<short_description>` (e.g. `regression_42_duplicate_select_after_click`). A defect no issue tracks takes `regression_noissue_<short_description>`. Cases named before the no-issue form was stated may keep their names; a new case takes one of the two forms.
 - **Location:** Same test file as the module being fixed (unit tests alongside the fix)
-- **Comment:** Include a link to the original issue/PR in the test comment; a `noissue` test's comment states the defect it reproduces
+- **Comment:** Link the original issue or PR in the test comment. A `noissue` test's comment states the defect it reproduces
 - **Assertion:** Test the exact input that triggered the bug and assert the correct behaviour (not just "doesn't crash")
 
 Example:
