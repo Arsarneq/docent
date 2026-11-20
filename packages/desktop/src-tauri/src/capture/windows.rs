@@ -73,7 +73,9 @@ use super::element_mapping::{
 };
 use super::hook_diagnostics;
 use super::language::{names_a_language, parse_multi_string, tag_from_wide};
-use super::pre_capture::{pre_capture_click, Built, PreCapture, Readiness, PROCESS_DESCRIBERS};
+use super::pre_capture::{
+    pre_capture_click, Built, PreCapture, Readiness, SessionPreCapture, PROCESS_DESCRIBERS,
+};
 use super::scroll::KeyAttribution;
 use super::timing;
 use super::worker_pool::{
@@ -480,9 +482,15 @@ thread_local! {
     /// budget set at start from the system's hook timeout
     /// (`timing::pre_capture_budget_ms`), so the element is described while
     /// the target window is still alive and no application holds the hook past
-    /// that timeout.
-    static INPUT_PRE_CAPTURE: std::cell::RefCell<Option<ClickPreCapture>> =
-        const { std::cell::RefCell::new(None) };
+    /// that timeout. A session that could not start it at its start tries
+    /// again at a later click, at most once a second.
+    static INPUT_PRE_CAPTURE: std::cell::RefCell<SessionPreCapture<ClickPreCapture>> =
+        std::cell::RefCell::new(SessionPreCapture::default());
+
+    /// The session's pre-capture budget, set at start from the system's hook
+    /// timeout, for a pre-capture started at a later click.
+    static INPUT_PRE_CAPTURE_BUDGET: std::cell::Cell<Duration> =
+        const { std::cell::Cell::new(Duration::ZERO) };
 
     /// Timestamp of the most recent low-level input event (button press or
     /// release, key press, or wheel). Used to correlate WinEvent callbacks
@@ -1209,7 +1217,8 @@ fn input_thread_main(
     // Start the click pre-capture's describers (DCP-1). Without them a click
     // is dispatched with no element and its worker describes it (DCP-13).
     let pre_capture = start_click_pre_capture();
-    INPUT_PRE_CAPTURE.with(|p| *p.borrow_mut() = pre_capture);
+    INPUT_PRE_CAPTURE
+        .with(|p| *p.borrow_mut() = SessionPreCapture::started(pre_capture, Instant::now()));
 
     // Initialize foreground PID with the current foreground window.
     let fg_hwnd = unsafe { GetForegroundWindow() };
@@ -1547,20 +1556,13 @@ fn read_hook_timeout_setting() -> timing::HookTimeoutSetting {
     timing::HookTimeoutSetting::Absent
 }
 
-/// Start the click pre-capture's describers (DCP-1) with a budget set from
-/// the system's low-level hook timeout, and wait, for at most
-/// `PRE_CAPTURE_READY_TIMEOUT`, for the first to build its accessibility
-/// client, so the first click is pre-captured. `None`, logged, when no
-/// describer can be started; a warning when the wait runs out or the client
-/// was not built (the clicks the pre-capture cannot describe are described by
-/// their workers, DCP-13).
-fn start_click_pre_capture() -> Option<ClickPreCapture> {
-    let hook_timeout_ms = timing::hook_timeout_ms(&read_hook_timeout_setting());
-    let budget_ms = timing::pre_capture_budget_ms(hook_timeout_ms);
-    hook_diagnostics::session_bounds(hook_timeout_ms, budget_ms);
-    let started = PreCapture::spawn(
+/// Start the click pre-capture's describers (DCP-1) with the session's
+/// budget. An error when no describer can be started (the process's
+/// describers at the cap).
+fn spawn_click_pre_capture() -> std::io::Result<ClickPreCapture> {
+    PreCapture::spawn(
         "docent-pre-capture",
-        Duration::from_millis(budget_ms),
+        INPUT_PRE_CAPTURE_BUDGET.with(|b| b.get()),
         &PROCESS_DESCRIBERS,
         || unsafe {
             let apartment = CoInitializeEx(None, COINIT_MULTITHREADED as u32)
@@ -1587,8 +1589,22 @@ fn start_click_pre_capture() -> Option<ClickPreCapture> {
             // measured).
             uia_element_to_description_unmeasured(uia, &element)
         },
-    );
-    match started {
+    )
+}
+
+/// Set the session's pre-capture budget from the system's low-level hook
+/// timeout, start the click pre-capture's describers (DCP-1), and wait, for
+/// at most `PRE_CAPTURE_READY_TIMEOUT`, for the first to build its
+/// accessibility client, so the first click is pre-captured. `None`, logged,
+/// when no describer can be started (a later click tries again); a warning
+/// when the wait runs out or the client was not built (the clicks the
+/// pre-capture cannot describe are described by their workers, DCP-13).
+fn start_click_pre_capture() -> Option<ClickPreCapture> {
+    let hook_timeout_ms = timing::hook_timeout_ms(&read_hook_timeout_setting());
+    let budget_ms = timing::pre_capture_budget_ms(hook_timeout_ms);
+    hook_diagnostics::session_bounds(hook_timeout_ms, budget_ms);
+    INPUT_PRE_CAPTURE_BUDGET.with(|b| b.set(Duration::from_millis(budget_ms)));
+    match spawn_click_pre_capture() {
         Ok(pre_capture) => {
             match pre_capture.wait_ready(PRE_CAPTURE_READY_TIMEOUT) {
                 Readiness::Built => {}
@@ -1607,7 +1623,7 @@ fn start_click_pre_capture() -> Option<ClickPreCapture> {
         Err(e) => {
             eprintln!(
                 "[WindowsCapture] Warning: the click pre-capture did not start ({e}); \
-                 clicks are described by the workers"
+                 clicks are described by the workers until a later click starts it"
             );
             None
         }
@@ -1633,7 +1649,14 @@ fn end_click_pre_capture() {
 /// the target window is still alive. The wait dispatches no message, so no
 /// hook call runs inside it.
 fn input_pre_capture_element(pid: u32, x: i32, y: i32) -> Option<super::ElementDescription> {
-    INPUT_PRE_CAPTURE.with(|p| pre_capture_click(p.borrow().as_ref(), u64::from(pid), (x, y)))
+    INPUT_PRE_CAPTURE.with(|p| {
+        let mut session = p.borrow_mut();
+        // A session whose pre-capture could not be started tries again here,
+        // without waiting for the new describer: this ask waits for it within
+        // the budget.
+        let pre = session.for_click(Instant::now(), || spawn_click_pre_capture().ok());
+        pre_capture_click(pre, u64::from(pid), (x, y))
+    })
 }
 
 /// Check if the Input_Thread is active.

@@ -129,10 +129,14 @@ pub fn debounce_elapsed(now_ms: u64, last_ms: u64, window_ms: u64) -> bool {
 // The low-level mouse hook waits for the click pre-capture's answer (DCP-1)
 // for at most a budget set at start from the system's low-level hook
 // timeout: the time Windows gives a low-level hook to return before it passes
-// the input on without it (and, after enough of them, removes the hook). The
-// budget is that timeout less a margin for the hook's own work, so a click
-// takes the late path (DCP-13) only where its hook would otherwise have run
-// past the timeout and the click been passed on unrecorded.
+// the input on without it (and, it is understood though not verified, can
+// remove the hook). The budget is that timeout less a margin for the hook's
+// own work, so the hook returns before the timeout whatever the clicked
+// application does, and Windows does not pass the clicks after a slow one on
+// unrecorded. A click whose description takes longer than the budget takes
+// the late path (DCP-13); when the hook made the call itself, that click was
+// still recorded with its element, while the clicks after it, made as the
+// call ran past the timeout, were passed on unrecorded.
 
 /// The user's low-level hook timeout setting as the registry holds it
 /// (`HKCU\Control Panel\Desktop\LowLevelHooksTimeout`), in milliseconds.
@@ -142,7 +146,10 @@ pub enum HookTimeoutSetting {
     Absent,
     /// A `REG_DWORD` value.
     Number(u32),
-    /// A `REG_SZ` value, decimal text.
+    /// A `REG_SZ` value, decimal text. Whether Windows honours a `REG_SZ`
+    /// here is not verified, so its value is taken only up to
+    /// [`HOOK_TIMEOUT_DEFAULT_MS`]: no greater than the timeout Windows uses
+    /// either way.
     Text(String),
 }
 
@@ -153,10 +160,11 @@ pub const HOOK_TIMEOUT_CAP_MS: u64 = 1000;
 /// The timeout assumed when the setting is absent, zero or not a number.
 /// Chosen, not read from Microsoft's documentation, which could not be
 /// checked when it was set; unverified. Too high a value lets a hook call run
-/// past the system's real timeout, where the click is passed on unrecorded and
-/// the hook can be removed; too low a value sends a click whose description
-/// would have come in time down the late path. Losing the hook costs every
-/// click after it, the late path one click's element, so the value errs low.
+/// past the system's real timeout, where the clicks after it are passed on
+/// unrecorded and, it is understood, the hook can be removed; too low a value
+/// sends a click whose description would have come in time down the late
+/// path. Losing the hook costs every click after it, the late path one
+/// click's element, so the value errs low.
 pub const HOOK_TIMEOUT_DEFAULT_MS: u64 = 300;
 
 /// What the budget leaves of the hook timeout for the hook's own work around
@@ -164,17 +172,20 @@ pub const HOOK_TIMEOUT_DEFAULT_MS: u64 = 300;
 /// filter, dispatching the click) and for scheduling on a loaded machine.
 pub const HOOK_WORK_MARGIN_MS: u64 = 50;
 
-/// The low-level hook timeout, in milliseconds, that a setting gives: its
-/// value capped at [`HOOK_TIMEOUT_CAP_MS`], or [`HOOK_TIMEOUT_DEFAULT_MS`]
-/// when it is absent, zero or not a decimal number.
+/// The low-level hook timeout, in milliseconds, that a setting gives: a
+/// `REG_DWORD` value capped at [`HOOK_TIMEOUT_CAP_MS`], a `REG_SZ` value
+/// capped at [`HOOK_TIMEOUT_DEFAULT_MS`], or [`HOOK_TIMEOUT_DEFAULT_MS`] when
+/// the setting is absent, zero or not a decimal number.
 pub fn hook_timeout_ms(setting: &HookTimeoutSetting) -> u64 {
-    let value = match setting {
-        HookTimeoutSetting::Absent => None,
-        HookTimeoutSetting::Number(n) => Some(u64::from(*n)),
-        HookTimeoutSetting::Text(text) => text.trim().parse::<u64>().ok(),
+    let (value, cap) = match setting {
+        HookTimeoutSetting::Absent => (None, HOOK_TIMEOUT_CAP_MS),
+        HookTimeoutSetting::Number(n) => (Some(u64::from(*n)), HOOK_TIMEOUT_CAP_MS),
+        HookTimeoutSetting::Text(text) => {
+            (text.trim().parse::<u64>().ok(), HOOK_TIMEOUT_DEFAULT_MS)
+        }
     };
     match value {
-        Some(ms) if ms > 0 => ms.min(HOOK_TIMEOUT_CAP_MS),
+        Some(ms) if ms > 0 => ms.min(cap),
         _ => HOOK_TIMEOUT_DEFAULT_MS,
     }
 }
@@ -204,20 +215,32 @@ mod tests {
     // ─── the hook timeout and the pre-capture budget ────────────────────────
 
     // Regression: #741 review — the budget follows the system's hook timeout,
-    // so a click whose description comes within it is described as at base.
+    // so the hook waits for a click's description as long as the system
+    // lets it.
     // https://github.com/Arsarneq/docent/issues/741
     #[test]
     fn regression_741_the_hook_timeout_is_read_from_either_value_type_and_capped() {
         assert_eq!(hook_timeout_ms(&HookTimeoutSetting::Number(600)), 600);
-        assert_eq!(
-            hook_timeout_ms(&HookTimeoutSetting::Text(" 750 ".into())),
-            750
-        );
         assert_eq!(hook_timeout_ms(&HookTimeoutSetting::Number(5000)), 1000);
         assert_eq!(
-            hook_timeout_ms(&HookTimeoutSetting::Text("5000".into())),
-            1000
+            hook_timeout_ms(&HookTimeoutSetting::Text(" 200 ".into())),
+            200
         );
+    }
+
+    // Regression: #741 review — whether Windows honours a text value here is
+    // not verified, so a text value above the default could set a budget past
+    // the timeout Windows actually uses, and the hook could be held past it.
+    // https://github.com/Arsarneq/docent/issues/741
+    #[test]
+    fn regression_741_a_text_hook_timeout_is_taken_only_up_to_the_default() {
+        for text in ["750", "5000"] {
+            assert_eq!(
+                hook_timeout_ms(&HookTimeoutSetting::Text(text.into())),
+                HOOK_TIMEOUT_DEFAULT_MS,
+                "{text}"
+            );
+        }
     }
 
     #[test]

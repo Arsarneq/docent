@@ -26,25 +26,30 @@ numeric sequence.
    right/middle button-down, the mouse hook asks a pre-capture describer for
    the clicked element and waits for the answer for at most a budget set at
    start from the system's low-level hook timeout: the user's
-   `LowLevelHooksTimeout` setting, capped at `HOOK_TIMEOUT_CAP_MS` (1000 ms,
-   the most Windows allows from Windows 10 version 1709), or
-   `HOOK_TIMEOUT_DEFAULT_MS` (300 ms) where the setting is absent, zero or
-   not a number, less `HOOK_WORK_MARGIN_MS` (50 ms) for the hook's own work
+   `LowLevelHooksTimeout` setting, as read at the session's start — a
+   `REG_DWORD` capped at `HOOK_TIMEOUT_CAP_MS` (1000 ms, the most Windows
+   allows from Windows 10 version 1709), a `REG_SZ` capped at
+   `HOOK_TIMEOUT_DEFAULT_MS` — or `HOOK_TIMEOUT_DEFAULT_MS` (300 ms) where
+   the setting is absent, zero or not a number, less `HOOK_WORK_MARGIN_MS` (50 ms) for the hook's own work
    (`src/capture/timing.rs`). The element is described while the target
    window is still alive, before the click takes effect (locator match
    statistics deliberately unmeasured there). Within the same budget the hook
    waits, where the clicked application still holds a describer with an
    earlier click's pre-capture, for that application to answer, and, where no
-   describer is free, for one to come free: when the hook itself made the
-   call, a later click waited behind the earlier call in the same way. The
+   describer is free, for one to come free. When the hook made the call
+   itself, a later click waited behind the earlier call without a bound; here
+   it waits no longer than its budget (DCP-13 states what that costs). The
    hook dispatches every click, in order, whether or not an element came; a
    click that got none is described by its worker (DCP-13 lists every way a
    click gets none, and what that costs). The waits dispatch no message, so
    no other hook call runs inside them. Windows passes input on without a
-   low-level hook that does not return within the system's hook timeout, and
-   can remove the hook after that, after which nothing the mouse does would
-   be recorded; the budget keeps a slow or unresponsive application from
-   holding the hook that long. Every other accessibility query runs on the
+   low-level hook that does not return within the system's hook timeout,
+   and, it is understood though not verified here, can remove the hook after
+   that, after which nothing the mouse does would be recorded. What the
+   budget buys: the hook is never held past the system's hook timeout,
+   whatever the clicked application does, so Windows does not pass the
+   clicks after a slow one on unrecorded, and probably does not remove the
+   hook. Every other accessibility query runs on the
    workers
 2. **Pre-capture Describers** (at most `MAX_DESCRIBERS`, 5, threads alive in
    the process at a time, those left by a stopped capture session included)
@@ -57,7 +62,10 @@ numeric sequence.
    application answers, never joined) and a new spare is started; a click in
    the application that holds a describer is not given another, since it
    would hold that one too. So an application that does not answer costs the
-   pre-capture of its own clicks only, until held describers reach the cap
+   pre-capture of its own clicks only, until held describers reach the cap.
+   A capture session that cannot start a describer (the cap reached) tries
+   again at a later click, at most once a second (`START_RETRY_INTERVAL`),
+   without waiting for it: that click's ask waits for it within the budget
 3. **Worker Pool** (3 threads) — accessibility queries, produces ActionEvents
 4. **Bridge Thread** — dispatches raw events from input thread to workers
 
@@ -679,8 +687,9 @@ with a caveat):
   - the answer described nothing (`ElementFromPoint` or the description
     failed, or the describer's accessibility client could not be built,
     which start reports); or
-  - no pre-capture was running (it could not be started, which start
-    reports)
+  - no pre-capture was running (none could be started, the process's
+    describers being at the cap, which start reports; a later click tries
+    again, at most once a second)
 
   Such a click is described by its worker after the click has taken effect, from the
   element then at the click's point: a different element, or none, where the
@@ -689,18 +698,28 @@ with a caveat):
   dialog's Save or Open button described so records no `file_dialog`, since
   the proxy tests the clicked element (DCP-6), and a double-click on a file in
   its item view records none when the dialog has closed before its first
-  click is described. In the first three cases the hook has waited the whole
-  budget. When the hook made the call itself, the same click's hook call took
-  at least as long, which reaches the system's hook timeout or ends within
-  `HOOK_WORK_MARGIN_MS` of it: past the timeout Windows passed the click on
-  unrecorded, and a description that came within that last margin is the
-  one this path loses. A click that waits for the first describer at start
-  would not have reached a hook at all: the hooks were registered only once
-  the client was built. In the last two cases the call made inside the hook
-  could not describe the click either. An
-  application that does not answer takes its own clicks down this path; once
-  held describers reach the cap, clicks in every application wait for one to
-  come free. The extension records the element the click event names as its
+  click is described. When the hook made the call itself, it waited for the
+  answer however long it took, and dispatched the click with it. Two kinds of
+  click took their element that way and take this path here, departures
+  this bound makes:
+  - a click in a slow but responsive application, whose description takes
+    longer than the budget (the first case);
+  - a click in an application still holding a describer with an earlier
+    click's pre-capture when its budget runs out (the second case). When the
+    hook made the call itself, such a click ran its own call once the
+    earlier one returned, and was recorded with its element. A click that
+    finds no describer free, or no pre-capture running, because describers
+    are held by applications that have not answered (the third and fifth
+    cases) is the same kind.
+
+  What the bound buys for them: the hook is never held past the system's
+  hook timeout, so Windows does not pass the clicks after a slow one on
+  unrecorded, as it did while a call made inside the hook ran past the
+  timeout, and probably does not remove the hook, which is not verified. A
+  click that waits for the first describer at start would not have reached a
+  hook at all: the hooks were registered only once the client was built. In
+  the fourth case the call made inside the hook could not describe the click
+  either. The extension records the element the click event names as its
   target, whatever the page does after the click, so this is a departure
   (core CP-18, CP-19;
   [docent#745](https://github.com/Arsarneq/docent/issues/745))

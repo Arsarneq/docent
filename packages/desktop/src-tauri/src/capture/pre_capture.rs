@@ -5,7 +5,8 @@
 // wait on the clicked application, and an application that is slow or does
 // not pump its messages can keep them waiting for seconds. Windows passes
 // input on without a low-level hook that does not return within the system's
-// hook timeout, and can remove the hook after that, so the hook must never
+// hook timeout, and, it is understood, can remove the hook after that, so
+// the hook must never
 // wait on an application without a bound (desktop capture principles DCP-1).
 //
 // `PreCapture` runs the calls on describer threads of its own and lets the
@@ -13,8 +14,10 @@
 // application that leaves a call unanswered holds the one describer that call
 // is on: the next ask about another application goes to a spare kept ready,
 // and an ask about the application that holds one waits, within its own
-// budget, for that application to answer, as the hook waited for it when the
-// call was made inside the hook. At most `MAX_DESCRIBERS` describer threads
+// budget, for that application to answer (the hook waited for it without a
+// bound when the call was made inside the hook). A session that could not
+// start a pre-capture tries again at a later click (`SessionPreCapture`). At
+// most `MAX_DESCRIBERS` describer threads
 // live at a time across the process, held ones included, whichever
 // `PreCapture` started them. Platform-agnostic: the state the calls need and
 // the call itself are injected, so the bound is unit-tested without Windows.
@@ -470,6 +473,62 @@ where
     element
 }
 
+/// How long a capture session waits before it tries again to start a
+/// pre-capture that could not be started (the process's describers at
+/// [`MAX_DESCRIBERS`], at start or at an earlier try).
+pub const START_RETRY_INTERVAL: Duration = Duration::from_secs(1);
+
+/// A capture session's pre-capture: the one started at the session's start,
+/// or, when none could be started then, one started at a later click, tried
+/// at most once every [`START_RETRY_INTERVAL`]. A pre-capture started at a
+/// click is not waited for: the click's ask waits for its describer within
+/// the budget.
+pub struct SessionPreCapture<P> {
+    running: Option<P>,
+    failed_at: Option<Instant>,
+}
+
+impl<P> Default for SessionPreCapture<P> {
+    fn default() -> Self {
+        Self {
+            running: None,
+            failed_at: None,
+        }
+    }
+}
+
+impl<P> SessionPreCapture<P> {
+    /// The session's pre-capture as its start left it, `now`: `started`, or
+    /// none, to be tried again from `now` on.
+    pub fn started(started: Option<P>, now: Instant) -> Self {
+        let failed_at = started.is_none().then_some(now);
+        Self {
+            running: started,
+            failed_at,
+        }
+    }
+
+    /// The pre-capture a click at `now` asks. When none runs and the last
+    /// try is [`START_RETRY_INTERVAL`] old, `start` is tried first.
+    pub fn for_click(&mut self, now: Instant, start: impl FnOnce() -> Option<P>) -> Option<&P> {
+        let due = self.running.is_none()
+            && self
+                .failed_at
+                .is_some_and(|at| now.saturating_duration_since(at) >= START_RETRY_INTERVAL);
+        if due {
+            self.running = start();
+            self.failed_at = self.running.is_none().then_some(now);
+        }
+        self.running.as_ref()
+    }
+
+    /// Take the pre-capture as the session ends, leaving none.
+    pub fn take(&mut self) -> Option<P> {
+        self.failed_at = None;
+        self.running.take()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -581,8 +640,7 @@ mod tests {
 
     // Regression: #741 review — a click in the application that holds a
     // describer is answered when that application answers within the click's
-    // own budget, as it was when the hook made the call itself; it takes no
-    // fresh describer meanwhile.
+    // own budget; it takes no fresh describer meanwhile.
     // https://github.com/Arsarneq/docent/issues/741
     #[test]
     fn regression_741_a_click_in_a_held_application_is_answered_once_it_answers_within_the_budget()
@@ -884,5 +942,80 @@ mod tests {
         assert!(seen.longest_pre_capture_us < (BUDGET + SLACK).as_micros() as u64);
         hook_diagnostics::reset();
         drop(release_tx);
+    }
+
+    // Regression: #741 — a session started while the process's describers
+    // were at the cap ran without a pre-capture for its whole length.
+    // https://github.com/Arsarneq/docent/issues/741
+    #[test]
+    fn regression_741_a_session_that_could_not_start_its_pre_capture_tries_again_at_a_later_click()
+    {
+        let t0 = Instant::now();
+        let mut session: SessionPreCapture<u32> = SessionPreCapture::started(None, t0);
+        let mut tries = 0;
+        // Within the interval: no try.
+        let at = t0 + START_RETRY_INTERVAL / 2;
+        assert_eq!(
+            session.for_click(at, || {
+                tries += 1;
+                Some(1)
+            }),
+            None
+        );
+        assert_eq!(tries, 0);
+        // Past it: tried, and still failing, the next try waits again.
+        let at = t0 + START_RETRY_INTERVAL;
+        assert_eq!(
+            session.for_click(at, || {
+                tries += 1;
+                None
+            }),
+            None
+        );
+        assert_eq!(tries, 1);
+        let soon = at + START_RETRY_INTERVAL / 2;
+        assert_eq!(
+            session.for_click(soon, || {
+                tries += 1;
+                Some(2)
+            }),
+            None
+        );
+        assert_eq!(tries, 1);
+        // A second past the failed try: started, and kept.
+        let later = at + START_RETRY_INTERVAL;
+        assert_eq!(
+            session.for_click(later, || {
+                tries += 1;
+                Some(3)
+            }),
+            Some(&3)
+        );
+        assert_eq!(
+            session.for_click(later + START_RETRY_INTERVAL * 5, || {
+                tries += 1;
+                Some(4)
+            }),
+            Some(&3)
+        );
+        assert_eq!(tries, 2);
+        assert_eq!(session.take(), Some(3));
+    }
+
+    #[test]
+    fn a_session_that_started_its_pre_capture_never_starts_another() {
+        let t0 = Instant::now();
+        let mut session = SessionPreCapture::started(Some(7u32), t0);
+        let at = t0 + START_RETRY_INTERVAL * 3;
+        assert_eq!(
+            session.for_click(at, || panic!("no second start")),
+            Some(&7)
+        );
+        assert_eq!(session.take(), Some(7));
+        // An ended session starts none.
+        assert_eq!(
+            session.for_click(at, || panic!("no start after the end")),
+            None
+        );
     }
 }
