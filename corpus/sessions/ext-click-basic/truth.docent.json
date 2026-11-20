@@ -23,6 +23,13 @@
             {
               "capture_mode": "dom",
               "context_id": 124686705,
+              "modifiers": {
+                "ctrl": false,
+                "shift": false,
+                "alt": false,
+                "meta": false
+              },
+              "held_keys": [],
               "element": {
                 "autocomplete": null,
                 "id": "save",
@@ -81,6 +88,13 @@
             {
               "capture_mode": "dom",
               "context_id": 124686705,
+              "modifiers": {
+                "ctrl": false,
+                "shift": false,
+                "alt": false,
+                "meta": false
+              },
+              "held_keys": [],
               "element": {
                 "autocomplete": null,
                 "id": "logo",
@@ -133,6 +147,13 @@
             {
               "capture_mode": "dom",
               "context_id": 124686705,
+              "modifiers": {
+                "ctrl": false,
+                "shift": false,
+                "alt": false,
+                "meta": false
+              },
+              "held_keys": [],
               "element": {
                 "autocomplete": null,
                 "id": null,

@@ -12,7 +12,7 @@ Tests live in two places:
 
 - **In-module unit tests** — `#[cfg(test)]` modules beside the code they pin,
   in `src/` (the capture modules — `action_mapping`, `coordinate`,
-  `element_mapping`, `scroll`, `timing`, `uia_core_api`, `variant`, `windows`,
+  `element_mapping`, `held_keys`, `scroll`, `timing`, `uia_core_api`, `variant`, `windows`,
   `worker_pool`, `stub` — plus `commands`, `secret_store`, and `sync_http`).
   These run under
   `cargo test --lib`.

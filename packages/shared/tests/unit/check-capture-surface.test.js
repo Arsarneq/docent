@@ -84,6 +84,7 @@ function makeSurface(overrides = {}) {
     ],
     beyondPairDomEvents: [],
     docDomEvents: ['click', 'change'],
+    docWindowEvents: [],
     docProxyWorkerEvents: ['chrome.tabs.onCreated'],
     docProxyDomEvents: ['change'],
     extensionUnreadable: [],
@@ -148,6 +149,26 @@ describe('evaluateCaptureSurface — the DOM leg (both ways)', () => {
     assert.equal(problems.length, 2);
     assert.ok(problems.some((p) => /registers `click` on `window`/.test(p)));
     assert.ok(problems.some((p) => /`click` is enumerated .* registers no listener/.test(p)));
+  });
+
+  it('holds the window listeners to the clause both ways', () => {
+    // An event the clause enumerates on `window` is the recorder's to register
+    // there, and only there.
+    const stated = { docWindowEvents: ['blur'] };
+    assert.deepEqual(
+      evaluateCaptureSurface(makeSurface({ ...stated, recorderWindowEvents: ['blur'] })),
+      [],
+    );
+    const unregistered = evaluateCaptureSurface(makeSurface(stated));
+    assert.equal(unregistered.length, 1);
+    assert.match(unregistered[0], /`blur` is enumerated .* on `window` .* registers no listener/);
+    // The same event on `document` is another surface: not what was stated.
+    const moved = evaluateCaptureSurface(
+      makeSurface({ ...stated, recorderDomEvents: ['click', 'change', 'blur'] }),
+    );
+    assert.equal(moved.length, 2);
+    assert.ok(moved.some((p) => /`blur` is registered/.test(p)));
+    assert.ok(moved.some((p) => /`blur` is enumerated .* on `window`/.test(p)));
   });
 });
 
@@ -570,6 +591,18 @@ describe('extractDomEnumeration', () => {
 
   it('reads the leading backticked token of each item inside the clause scope only', () => {
     assert.deepEqual(extractDomEnumeration(doc).events, ['click', 'change']);
+  });
+
+  it('reads an item stated on `window` as a window event, apart from the document ones', () => {
+    const withWindow = doc.replace(
+      '- `change` — a committed value',
+      '- `change` — a committed value\n- `blur` on `window` — the window lost the focus',
+    );
+    const { events, windowEvents, unreadable } = extractDomEnumeration(withWindow);
+    assert.deepEqual(events, ['click', 'change']);
+    assert.deepEqual(windowEvents, ['blur']);
+    assert.deepEqual(unreadable, []);
+    assert.deepEqual(extractDomEnumeration(doc).windowEvents, []);
   });
 
   it('returns an item whose lead is not a lone backticked name as unreadable', () => {
