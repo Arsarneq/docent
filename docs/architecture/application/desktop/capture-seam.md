@@ -51,6 +51,7 @@ backend implements observation, not delivery:
   coordinate fallback (`src/capture/action_mapping.rs`,
   `src/capture/element_mapping.rs`, `src/capture/coordinate.rs`) — all free
   of platform API calls, so they compile on every target.
+- **The language readers** (`src/capture/language.rs`) — the rules that read a platform's answers (a list of language names, a language tag, which locale identifiers name a language) are pure and compile on every target. The module also holds the one read the pipeline makes outside the `AccessibilityBackend` trait: the user's language preference, stamped on every action where it is built, buffered flushes included, which hold no backend. The module picks the platform's reader per target, and a platform with no reader reports none, which a recording states as null.
 - **The command layer and frontend** — Tauri commands and the panel speak
   only to the trait; nothing above the seam names a platform.
 

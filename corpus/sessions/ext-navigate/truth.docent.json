@@ -33,6 +33,7 @@
               "element": {
                 "autocomplete": null,
                 "id": "to-b",
+                "language": "en",
                 "locators": [
                   {
                     "match_count": 1,
@@ -77,12 +78,14 @@
               "timestamp": 1783348334734,
               "type": "click",
               "x": 33,
-              "y": 16
+              "y": 16,
+              "preferred_languages": ["en-US"]
             },
             {
               "capture_mode": "dom",
               "context_id": 1125226997,
               "nav_type": "typed",
+              "preferred_languages": ["en-US"],
               "timestamp": 1783348334789,
               "type": "navigate",
               "url": "http://127.0.0.1:41730/ext-navigate/a.html"
@@ -91,6 +94,7 @@
               "capture_mode": "dom",
               "context_id": 1125226997,
               "nav_type": "reload",
+              "preferred_languages": ["en-US"],
               "timestamp": 1783348334808,
               "type": "navigate",
               "url": "http://127.0.0.1:41730/ext-navigate/a.html"

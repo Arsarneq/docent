@@ -150,7 +150,7 @@ same value as the recorded `element.tag` — never to the localized
 **LR-12.** A candidate's single live match MUST NOT contradict the recorded
 element facts. The fact source is **exactly the top-level `element` object's
 non-null fields** — locator entries (masked or not) are never corroboration
-inputs.
+inputs. The element's `language` is not among the tested fields: it is the application's declaration about the element, and no test below reads it.
 
 - **LR-13.** **`tag`** — equality. On desktop, `tag` is the non-localized control type;
   the localized `element.role` is excluded from contradiction tests

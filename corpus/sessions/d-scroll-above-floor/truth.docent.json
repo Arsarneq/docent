@@ -31,6 +31,7 @@
                 "width": 600,
                 "height": 400
               },
+              "preferred_languages": ["en-US"],
               "type": "context_switch",
               "source": "corpus_capture-806379f16d469119.exe",
               "title": "Docent Corpus Session"
@@ -46,6 +47,7 @@
                 "width": 600,
                 "height": 400
               },
+              "preferred_languages": ["en-US"],
               "type": "click",
               "x": 500,
               "y": 400,
@@ -65,6 +67,7 @@
                 "text": "corpus line 1\ncorpus line 2\ncorpus line 3\ncorpus line 4\ncorpus line 5\ncorpus line 6\ncorpus line 7\nco…",
                 "selector": "Pane:Desktop 1 > Text:Docent Corpus Session > Edit",
                 "framework_id": "Win32",
+                "language": null,
                 "locators": [
                   {
                     "strategy": "class_name",
@@ -84,6 +87,7 @@
               "capture_mode": "accessibility",
               "frame_src": null,
               "window_rect": null,
+              "preferred_languages": ["en-US"],
               "type": "scroll",
               "element": {
                 "tag": "Edit",
@@ -92,7 +96,8 @@
                 "role": null,
                 "type": null,
                 "text": null,
-                "selector": "Window:Docent Corpus Session > Edit"
+                "selector": "Window:Docent Corpus Session > Edit",
+                "language": null
               },
               "scroll_top": 600,
               "scroll_left": 0,

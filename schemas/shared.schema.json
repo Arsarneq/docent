@@ -168,6 +168,9 @@
         "context_id": {
           "$ref": "#/$defs/context_id"
         },
+        "preferred_languages": {
+          "$ref": "#/$defs/preferred_languages"
+        },
         "capture_mode": {
           "$ref": "#/$defs/capture_mode"
         }
@@ -204,6 +207,9 @@
         "context_id": {
           "$ref": "#/$defs/context_id"
         },
+        "preferred_languages": {
+          "$ref": "#/$defs/preferred_languages"
+        },
         "capture_mode": {
           "$ref": "#/$defs/capture_mode"
         }
@@ -225,6 +231,9 @@
         "context_id": {
           "$ref": "#/$defs/context_id"
         },
+        "preferred_languages": {
+          "$ref": "#/$defs/preferred_languages"
+        },
         "capture_mode": {
           "$ref": "#/$defs/capture_mode"
         }
@@ -245,6 +254,9 @@
         },
         "context_id": {
           "$ref": "#/$defs/context_id"
+        },
+        "preferred_languages": {
+          "$ref": "#/$defs/preferred_languages"
         },
         "capture_mode": {
           "$ref": "#/$defs/capture_mode"
@@ -281,6 +293,9 @@
         "context_id": {
           "$ref": "#/$defs/context_id"
         },
+        "preferred_languages": {
+          "$ref": "#/$defs/preferred_languages"
+        },
         "capture_mode": {
           "$ref": "#/$defs/capture_mode"
         }
@@ -297,6 +312,9 @@
         },
         "context_id": {
           "$ref": "#/$defs/context_id"
+        },
+        "preferred_languages": {
+          "$ref": "#/$defs/preferred_languages"
         },
         "capture_mode": {
           "$ref": "#/$defs/capture_mode"
@@ -325,6 +343,9 @@
         },
         "context_id": {
           "$ref": "#/$defs/context_id"
+        },
+        "preferred_languages": {
+          "$ref": "#/$defs/preferred_languages"
         },
         "capture_mode": {
           "$ref": "#/$defs/capture_mode"
@@ -372,6 +393,9 @@
         },
         "context_id": {
           "$ref": "#/$defs/context_id"
+        },
+        "preferred_languages": {
+          "$ref": "#/$defs/preferred_languages"
         },
         "capture_mode": {
           "$ref": "#/$defs/capture_mode"
@@ -423,6 +447,9 @@
         "context_id": {
           "$ref": "#/$defs/context_id"
         },
+        "preferred_languages": {
+          "$ref": "#/$defs/preferred_languages"
+        },
         "capture_mode": {
           "$ref": "#/$defs/capture_mode"
         }
@@ -446,6 +473,9 @@
         "context_id": {
           "$ref": "#/$defs/context_id"
         },
+        "preferred_languages": {
+          "$ref": "#/$defs/preferred_languages"
+        },
         "source": {
           "type": "string",
           "description": "Identifies the switched-to context in the producing platform's own terms: a location or a process name (a process identifier stands in where the name cannot be read)."
@@ -468,6 +498,9 @@
         "context_id": {
           "$ref": "#/$defs/context_id"
         },
+        "preferred_languages": {
+          "$ref": "#/$defs/preferred_languages"
+        },
         "opener_context_id": {
           "type": ["integer", "null"],
           "description": "The context_id of the context that opened this one, or null when none is known or the producing platform records no opener."
@@ -489,6 +522,9 @@
         },
         "context_id": {
           "$ref": "#/$defs/context_id"
+        },
+        "preferred_languages": {
+          "$ref": "#/$defs/preferred_languages"
         },
         "window_closing": {
           "type": "boolean",
@@ -547,6 +583,10 @@
         "framework_id": {
           "type": ["string", "null"],
           "description": "Identifier of the UI framework that supplies this element, as reported by the source accessibility layer. Applications can mix frameworks, so this is recorded per element. Null or absent when not reported."
+        },
+        "language": {
+          "type": ["string", "null"],
+          "description": "The language the application declares for this element, as the application states it (a language tag such as \"da\" or \"en-GB\"; an application can state any string, the empty one included). Taken from the nearest element at or above this one that declares a language; the session-format document states each source. Null or absent when none declares one. A declaration, not a measurement of the text shown."
         },
         "text": {
           "type": ["string", "null"],
@@ -620,6 +660,11 @@
     "context_id": {
       "type": ["integer", "null"],
       "description": "Identifier for the window, tab, or surface in which the action occurred. Session-scoped; not persistent across restarts."
+    },
+    "preferred_languages": {
+      "type": ["array", "null"],
+      "items": { "type": "string" },
+      "description": "The user's ordered language preference that applications are offered, most preferred first, as language tags (for example \"da-DK\"). Recorded context beside the action, never part of it; the session-format document states each source. Null when it could not be read."
     },
     "metadata": {
       "type": "object",

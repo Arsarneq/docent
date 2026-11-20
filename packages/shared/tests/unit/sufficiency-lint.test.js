@@ -250,6 +250,7 @@ describe('Sufficiency lint: predicate pins', () => {
       { size_of_set: 2 },
       { level: 1 },
       { framework_id: 'Win32' },
+      { language: 'da-DK' },
       { described_after_ms: 0 },
     ]) {
       const withFact = lintRecordingFile(doc('desktop-windows', [mk(fact)]));

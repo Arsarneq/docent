@@ -66,6 +66,9 @@
         "context_id": {
           "$ref": "#/$defs/context_id"
         },
+        "preferred_languages": {
+          "$ref": "#/$defs/preferred_languages"
+        },
         "capture_mode": {
           "$ref": "#/$defs/capture_mode"
         }

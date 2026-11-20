@@ -33,6 +33,7 @@
               "element": {
                 "autocomplete": null,
                 "id": "trigger",
+                "language": "en",
                 "locators": [
                   {
                     "match_count": 1,
@@ -77,7 +78,8 @@
               "timestamp": 1783348347634,
               "type": "click",
               "x": 58,
-              "y": 18
+              "y": 18,
+              "preferred_languages": ["en-US"]
             },
             {
               "capture_mode": "dom",
@@ -92,6 +94,7 @@
               "element": {
                 "autocomplete": null,
                 "id": "plain",
+                "language": "en",
                 "locators": [
                   {
                     "match_count": 1,
@@ -136,7 +139,8 @@
               "timestamp": 1783348348187,
               "type": "click",
               "x": 135,
-              "y": 18
+              "y": 18,
+              "preferred_languages": ["en-US"]
             }
           ],
           "deleted": false,

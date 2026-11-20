@@ -413,10 +413,17 @@ async function resumeCaptureDespitePressure() {
 // Append already-redacted actions to pendingActions with storage-quota handling.
 // MUST be called inside swWriteQueue. Returns false when the append was dropped
 // (capture paused for storage, or a hard quota failure); true on success.
+// Every captured action is appended here, so this is where each one takes
+// its `preferred_languages`: the browser's ordered language preference as this
+// worker reads it, null where the browser gives no list (session-format states
+// the field).
 async function appendToPending(actions) {
   if (storagePaused) return false; // paused for storage pressure — drop new captures
   const { pendingActions } = await chrome.storage.local.get('pendingActions');
-  const updated = [...(pendingActions ?? []), ...actions];
+  const languages = globalThis.navigator?.languages;
+  const preferred = Array.isArray(languages) ? [...languages] : null;
+  const stamped = actions.map((action) => ({ ...action, preferred_languages: preferred }));
+  const updated = [...(pendingActions ?? []), ...stamped];
   try {
     await chrome.storage.local.set({ pendingActions: updated, pendingCount: updated.length });
   } catch (err) {

@@ -1528,6 +1528,7 @@ fn locator_rich_element() -> ElementDescription {
         size_of_set: Some(5),
         level: Some(1),
         framework_id: Some("WPF".to_string()),
+        language: Some("da-DK".to_string()),
         locators: vec![
             LocatorEntry::AutomationId {
                 value: "txtAmount".to_string(),
@@ -1665,6 +1666,51 @@ fn pre_captured_click_exports_zero_describe_latency() {
     }
 }
 
+/// Every action states the user's language preference as the platform lists
+/// it when the action is built, and states null when the platform could not
+/// be read.
+#[test]
+fn an_action_carries_the_platforms_preferred_languages() {
+    let harness = WorkerTestHarness::new(LocatorBackend);
+    harness.send_event(RawEvent {
+        event_type: RawEventType::Click,
+        sequence_id: 1,
+        timestamp: 1000,
+        screen_x: 10,
+        screen_y: 20,
+        window_handle: 1,
+        process_id: 1,
+        key_code: 0,
+        modifiers: (false, false, false, false),
+        scroll_delta: 0.0,
+        callback_params: [0; 4],
+        pre_captured_element: Some(locator_rich_element()),
+        focus_epoch: 0,
+        held: Vec::new(),
+    });
+
+    thread::sleep(Duration::from_millis(100));
+    let events = harness.shutdown();
+
+    let click = events
+        .iter()
+        .find(|e| matches!(e.payload, ActionPayload::Click { .. }))
+        .expect("expected a Click event");
+    let expected = docent_desktop_lib::capture::language::preferred_languages();
+    assert_eq!(click.preferred_languages, expected);
+    let json = serde_json::to_value(click).unwrap();
+    match expected {
+        Some(languages) => assert_eq!(json["preferred_languages"], serde_json::json!(languages)),
+        None => assert!(json["preferred_languages"].is_null()),
+    }
+    assert!(
+        json.as_object()
+            .unwrap()
+            .contains_key("preferred_languages"),
+        "the field is stated on every action, null included"
+    );
+}
+
 /// A described element whose click downgrades to coordinate mode must shed
 /// every element-identity claim (docent#220): coordinate mode records where
 /// the user acted, and the schema documents locators as absent there.
@@ -1742,6 +1788,7 @@ fn coordinate_downgrade_strips_locators_facts_and_latency() {
         assert_eq!(element.size_of_set, None);
         assert_eq!(element.level, None);
         assert_eq!(element.framework_id, None);
+        assert_eq!(element.language, None);
         assert_eq!(element.described_after_ms, None);
     } else {
         unreachable!("filtered to Click above");
@@ -2675,6 +2722,7 @@ fn held_key(key: &str) -> ActionEvent {
         capture_mode: CaptureMode::Accessibility,
         frame_src: None,
         window_rect: None,
+        preferred_languages: None,
         sequence_id: Some(1),
         payload: ActionPayload::Key {
             key: key.to_string(),

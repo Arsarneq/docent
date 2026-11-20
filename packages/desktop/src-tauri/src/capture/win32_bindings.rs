@@ -223,6 +223,23 @@ pub unsafe fn GetSystemMetrics(nindex: i32) -> i32 {
     unsafe { GetSystemMetrics(nindex) }
 }
 #[inline]
+pub unsafe fn GetUserPreferredUILanguages(
+    dwflags: u32,
+    pulnumlanguages: *mut u32,
+    pwszlanguagesbuffer: Option<*mut u16>,
+    pcchlanguagesbuffer: *mut u32,
+) -> windows_core::BOOL {
+    windows_core::link!("kernel32.dll" "system" fn GetUserPreferredUILanguages(dwflags : u32, pulnumlanguages : *mut u32, pwszlanguagesbuffer : *mut u16, pcchlanguagesbuffer : *mut u32) -> windows_core::BOOL);
+    unsafe {
+        GetUserPreferredUILanguages(
+            dwflags,
+            pulnumlanguages as _,
+            pwszlanguagesbuffer.unwrap_or(core::mem::zeroed()) as _,
+            pcchlanguagesbuffer as _,
+        )
+    }
+}
+#[inline]
 pub unsafe fn GetWindow(hwnd: HWND, ucmd: u32) -> HWND {
     windows_core::link!("user32.dll" "system" fn GetWindow(hwnd : HWND, ucmd : u32) -> HWND);
     unsafe { GetWindow(hwnd, ucmd) }
@@ -256,6 +273,23 @@ pub unsafe fn IsWindow(hwnd: Option<HWND>) -> windows_core::BOOL {
 pub unsafe fn IsWindowVisible(hwnd: HWND) -> windows_core::BOOL {
     windows_core::link!("user32.dll" "system" fn IsWindowVisible(hwnd : HWND) -> windows_core::BOOL);
     unsafe { IsWindowVisible(hwnd) }
+}
+#[inline]
+pub unsafe fn LCIDToLocaleName(
+    locale: LCID,
+    lpname: Option<windows_core::PWSTR>,
+    cchname: i32,
+    dwflags: u32,
+) -> i32 {
+    windows_core::link!("kernel32.dll" "system" fn LCIDToLocaleName(locale : LCID, lpname : windows_core::PWSTR, cchname : i32, dwflags : u32) -> i32);
+    unsafe {
+        LCIDToLocaleName(
+            locale,
+            lpname.unwrap_or(core::mem::zeroed()) as _,
+            cchname,
+            dwflags,
+        )
+    }
 }
 #[inline]
 pub unsafe fn MoveWindow(
@@ -4234,7 +4268,12 @@ pub struct KBDLLHOOKSTRUCT {
     pub dwExtraInfo: usize,
 }
 pub const LBS_NOTIFY: i32 = 1;
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub struct LCID(pub u32);
 pub const LLKHF_EXTENDED: i32 = 1;
+pub const LOCALE_ALLOW_NEUTRAL_NAMES: i32 = 134217728;
+pub const LOCALE_NAME_MAX_LENGTH: i32 = 85;
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub struct LPARAM(pub isize);
@@ -4260,6 +4299,7 @@ pub struct MSLLHOOKSTRUCT {
     pub time: u32,
     pub dwExtraInfo: usize,
 }
+pub const MUI_LANGUAGE_NAME: i32 = 8;
 pub type NavigateDirection = i32;
 pub const NavigateDirection_FirstChild: NavigateDirection = 3;
 pub const NavigateDirection_LastChild: NavigateDirection = 4;
