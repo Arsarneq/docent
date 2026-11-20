@@ -2210,13 +2210,13 @@ unsafe extern "system" fn input_keyboard_ll_proc(
             let excluded = input_get_excluded_pid();
             let foreground_kept = input_should_keep_event_cached(pid, excluded, hwnd);
             let modifiers = get_modifier_state();
-            // Which window the key is attributed to (DCP-14): the system, not
-            // the foreground window, acts on the Windows key and a key pressed
-            // while it is held, so such a key over an excluded foreground
-            // window is kept with no window.
+            // Which window the key is attributed to (DCP-14): a key the
+            // system acts on, not the foreground window (the Windows key,
+            // Ctrl+Esc, Alt+Tab, for example: `system_takes_key`), is kept
+            // with no window over an excluded foreground window.
             let attribution = super::scroll::keyboard_attribution(
                 kb_struct.vkCode,
-                modifiers.3,
+                modifiers,
                 pid,
                 input_get_included_pid(),
                 excluded,

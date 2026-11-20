@@ -153,22 +153,25 @@ event source of the DCP-4 surface names the window whose process is judged:
 | Event source            | Attributed window                                                                        |
 | ----------------------- | ---------------------------------------------------------------------------------------- |
 | Low-level mouse hook    | The window under the cursor (the foreground window when no window resolves at the point) |
-| Low-level keyboard hook | The foreground window, or no window for a key the shell takes (below)                    |
+| Low-level keyboard hook | The foreground window, or no window for a key the system takes (below)                   |
 | WinEvent callbacks      | The window the event names                                                               |
 
-A key the shell takes — the Windows key, or a key pressed while it is held —
+A key the system takes is one the system acts on, not the foreground window:
+the Windows key, or any key pressed while it is held; Escape with Ctrl held
+and Alt not (Ctrl+Esc opens Start); and Tab or Escape with Alt held (Alt+Tab
+and Alt+Esc switch windows). An Alt press alone is none of these. Such a key
 is attributed to no window when the self-capture exclusion (DCP-5) excludes
-the foreground window, since the system, not that window, acts on such a key,
-and that window stays out of the recording; under any other foreground window it is attributed to
-the foreground window, as every key is. With a target set, a key attributed
-to no window is not the target's input and is dropped. With none, it is
-recorded with `context_id` and `window_rect` null and with the stand-in
-element of a key whose element is unknown (tag `Unknown`, empty selector)
-with no name, also where the shell then acts on the foreground window
-(Win+Arrow, for example). Its press counts as low-level input for the window
-changes it causes (DCP-7), with the excluded foreground window as the input's
-window (DCP-8); it counts as no keyboard input, so no value change correlates
-with it.
+the foreground window, and that window stays out of the recording; under any
+other foreground window it is attributed to the foreground window, as every
+key is. With a target set, a key attributed to no window is not the target's
+input and is dropped. With none, it is recorded with `context_id` and
+`window_rect` null and with the stand-in element of a key whose element is
+unknown (tag `Unknown`, empty selector) with no name, also where the system
+then acts on the foreground window (Win+Arrow, for example). Its press counts
+as low-level input for the window changes it causes (DCP-7), the switch an
+Alt+Tab makes among them (DCP-6), with the excluded foreground window as the
+input's window (DCP-8); it counts as no keyboard input, so no value change
+correlates with it.
 
 WinEvents are additionally **foreground-gated**: the Input_Thread tracks the
 foreground process — seeded from the foreground window when capture starts,
