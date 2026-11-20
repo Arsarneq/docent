@@ -244,6 +244,17 @@ on a fresh clone the suite is red until it has run.
 first: [the integration suite's steps](../docs/test/integration/desktop.md#running-the-suite)
 and [the end-to-end suite's steps](../docs/test/e2e.md#running-the-suite).
 
+The reference implementations under `reference-implementations/` carry suites
+of their own, which CI runs when a diff touches what they read
+([Path-filtered test jobs](../docs/guides/ci.md#path-filtered-test-jobs)). From
+the repository root:
+
+| Suite          | Run                                                                                                                                                           |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Sync server    | `npm test --prefix reference-implementations/sync-server`, on the root install                                                                                |
+| Control client | `npm ci --prefix reference-implementations/control-client`, then `npm test --prefix reference-implementations/control-client`                                 |
+| MCP server     | install the control client as above, then `npm ci --prefix reference-implementations/mcp-server` and `npm test --prefix reference-implementations/mcp-server` |
+
 To opt a Rust test out of CI entirely (e.g. it depends on something unavailable on
 runners), add a `ci-skip` marker comment to the source of its test target under
 `tests/` — the marker opts that whole target out; an in-module `#[cfg(test)]`
