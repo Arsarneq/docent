@@ -52,6 +52,7 @@ import {
   TAB_CREATED_SWITCH_SUPPRESSION,
   TAB_REMOVED_SWITCH_SUPPRESSION,
   TAB_CREATED_NAVIGATION_SUPPRESSION,
+  END_TYPING_BOUND,
 } from '../lib/capture-timing.js';
 import { STORAGE_QUOTA_KEY, classifyStoragePressure } from '../lib/storage-quota.js';
 import { isTrustedActionSender } from '../lib/frame-trust.js';
@@ -102,16 +103,20 @@ let liveRecording = false;
 // an entry leaves as its subframe navigates away or its tab closes, and the
 // whole registry is cleared at record-start ahead of the seed and on every
 // record-stop path (extension capture-principles ECP-3). A frame is "trusted"
-// (its APPEND_ACTION messages are appended) only if it is in this registry —
+// (its APPEND_ACTION messages are appended, its POINTER_PRESSED acted on) only
+// if it is in this registry —
 // that is the per-frame sender check that stops an embedded third-party frame,
 // or any page that can reach the message port, from injecting actions into a
 // session.
 //
 // In-memory only — frameIds are session-scoped and churn as frames load/unload,
 // so this is NOT persisted. An SW restart leaves it empty, and a clear can leave
-// a live tab's key missing from a registry that is not; on either the
-// APPEND_ACTION handler lazily reseeds it from chrome.webNavigation rather than
-// false-rejecting a legitimate frame whose registration is gone.
+// a live tab's key missing from a registry that is not; on either, the sender
+// test of an APPEND_ACTION and of a POINTER_PRESSED lazily reseeds the sender's
+// tab from chrome.webNavigation rather than false-rejecting a legitimate frame
+// whose registration is gone, and a step commit and a stop reseed every
+// capture-target tab that is missing before they ask the frames to end their
+// typing.
 const activeFrames = new Map();
 
 /**
@@ -176,6 +181,121 @@ function clearActiveFrames() {
   activeFrames.clear();
 }
 
+/**
+ * Ask one frame to end its typing. Settles when the frame has answered, which
+ * it does once what it wrote is stored; never rejects (a frame with no
+ * recorder, or one that went away, answers nothing).
+ */
+async function askFrameToEndTyping(tabId, frameId) {
+  try {
+    await chrome.tabs.sendMessage(tabId, { type: 'END_TYPING' }, { frameId });
+  } catch {
+    // No recorder there, or the frame is gone: nothing to end.
+  }
+}
+
+/**
+ * Ask the frames given to end their typing, and wait for the answers up to
+ * END_TYPING_BOUND. A frame that has not answered by then is named in a
+ * warning, so an entry that came late can be explained.
+ *
+ * @param {Array<[number, number]>} frames — (tabId, frameId) pairs
+ */
+async function endTypingIn(frames) {
+  if (frames.length === 0) return;
+  const unanswered = new Set(frames);
+  const answers = Promise.all(
+    frames.map((frame) => askFrameToEndTyping(...frame).then(() => unanswered.delete(frame))),
+  );
+  let timer;
+  const bound = new Promise((resolve) => {
+    timer = setTimeout(resolve, END_TYPING_BOUND);
+  });
+  await Promise.race([answers, bound]);
+  clearTimeout(timer);
+  if (unanswered.size > 0) {
+    console.warn('[Docent] Frames did not end their typing within the bound', {
+      frames: [...unanswered].map(([tabId, frameId]) => ({ tabId, frameId })),
+    });
+  }
+}
+
+/**
+ * Seed the registry for the capture-target tabs it holds no entry for: a
+ * suspension lost the registry, and typing sends the worker nothing, so the
+ * tab typed into can be missing when the typing is to end.
+ */
+async function seedTabsMissingFromRegistry() {
+  try {
+    const tabs = await queryCaptureTargetTabs();
+    await Promise.allSettled(
+      tabs.filter((tab) => !activeFrames.has(tab.id)).map((tab) => seedFramesForTab(tab.id)),
+    );
+  } catch {
+    // Best-effort, as the record-start seed is.
+  }
+}
+
+/**
+ * Ask every registered frame to end its typing, and wait for the answers up
+ * to END_TYPING_BOUND: the end of typing at a step commit and at a stop. An
+ * entry typed into a field or editable content that still has the focus is
+ * the person's input of that step, and nothing in the page says the step has
+ * ended.
+ */
+async function endTypingInEveryFrame() {
+  await seedTabsMissingFromRegistry();
+  const frames = [];
+  for (const [tabId, frameIds] of activeFrames) {
+    for (const frameId of frameIds) frames.push([tabId, frameId]);
+  }
+  await endTypingIn(frames);
+}
+
+/**
+ * A pointer press in one frame ends the typing in the tab's other frames,
+ * which see nothing of it. Settles once those frames have answered, or at the
+ * bound; a press from a sender that is not trusted asks no frame.
+ */
+async function endTypingInOtherFrames(sender) {
+  await restoreWhatSuspensionLost(sender);
+  if (
+    !isTrustedActionSender({ sender, runtimeId: chrome.runtime.id, liveRecording, activeFrames })
+  ) {
+    return;
+  }
+  const tabId = sender.tab.id;
+  const others = [...(activeFrames.get(tabId) ?? [])].filter((id) => id !== sender.frameId);
+  await endTypingIn(others.map((frameId) => [tabId, frameId]));
+}
+
+// Press holds: "tabId:frameId" → a promise that settles once the typing a
+// press in that frame ended is written. What the pressing frame appends next
+// (the `click` its release writes) waits on it, so that entry is stored ahead
+// of the click however short the press was.
+const pressHolds = new Map();
+
+const pressHoldKey = (sender) =>
+  sender?.tab?.id == null || sender.frameId == null ? null : `${sender.tab.id}:${sender.frameId}`;
+
+/**
+ * Take a press hold for the frame that reported a pointer press. Called
+ * synchronously from the message listener, so the hold stands before the
+ * frame's next message is read.
+ */
+function holdAppendsBehindPress(sender) {
+  const key = pressHoldKey(sender);
+  if (key == null) return;
+  const hold = Promise.all([pressHolds.get(key), endTypingInOtherFrames(sender)]).then(
+    () => undefined,
+    () => undefined,
+  );
+  pressHolds.set(key, hold);
+  hold.then(() => {
+    if (pressHolds.get(key) === hold) pressHolds.delete(key);
+  });
+}
+
 // ─── Worker-state introspection handle ────────────────────────────────────────
 
 /**
@@ -219,8 +339,10 @@ chrome.runtime.onInstalled.addListener(async ({ reason }) => {
   console.log(`[Docent] onInstalled (${reason}).`);
 });
 
-// Restore persisted state on SW restart
-(async () => {
+// Restore persisted state on SW restart. A message that woke the worker is
+// read before this has finished, so the sender test waits on it: capture that
+// was on is still on.
+const stateRestored = (async () => {
   const stored = await chrome.storage.local.get([
     'projects',
     'activeProjectId',
@@ -251,13 +373,17 @@ chrome.runtime.onInstalled.addListener(async ({ reason }) => {
     storagePaused = quota.paused === true;
     publishedQuota = { band: quota.band, paused: quota.paused, override: quota.override === true };
   }
-
-  await reconcileAutoSync();
-  // Reconcile the gate against actual usage now (honouring any restored override),
-  // so the in-memory gate and the published key agree immediately on wake rather
-  // than after the next capture/persist/clear.
-  await evaluateStoragePressure();
 })();
+
+stateRestored
+  .then(async () => {
+    await reconcileAutoSync();
+    // Reconcile the gate against actual usage now (honouring any restored override),
+    // so the in-memory gate and the published key agree immediately on wake rather
+    // than after the next capture/persist/clear.
+    await evaluateStoragePressure();
+  })
+  .catch((err) => console.error('[Docent] Failed to restore state', err));
 
 // Open side panel when toolbar icon is clicked
 chrome.action.onClicked.addListener((tab) => {
@@ -447,20 +573,37 @@ async function appendSwAction(action) {
   return swWriteQueue;
 }
 
-// Validate an APPEND_ACTION sender against the active-frame registry, then append
-// on success. Drops untrusted senders silently (warn + return — never throw), so
-// a frame outside the registry cannot write actions into the recording.
-async function validateAndAppend(action, sender) {
-  // Lazy reseed: if a recording is live but this tab has no registry entry, its
-  // registration is missing — a suspension lost the registry, or a clear took a
-  // key the following seed does not re-cover. Rebuild this tab's frames from
-  // webNavigation BEFORE validating, rather than false-rejecting a legitimate
-  // frame.
+/**
+ * Bring back the two things a suspended worker comes back without, ahead of a
+ * sender test (extension capture-principles ECP-3): the stored recording flag,
+ * and the sender's tab in the registry. If a recording is live but the tab has
+ * no entry, its registration is missing — a suspension lost the registry, or a
+ * clear took a key the following seed does not re-cover — so the tab's frames
+ * are rebuilt from webNavigation BEFORE the test, rather than false-rejecting
+ * a legitimate frame.
+ */
+async function restoreWhatSuspensionLost(sender) {
+  await stateRestored.catch(() => undefined);
   const tabId = sender?.tab?.id;
   if (liveRecording && tabId != null && !activeFrames.has(tabId)) {
     await seedFramesForTab(tabId);
   }
+}
 
+// Validate an APPEND_ACTION sender against the active-frame registry, then append
+// on success. Drops untrusted senders silently (warn + return — never throw), so
+// a frame outside the registry cannot write actions into the recording.
+async function validateAndAppend(action, sender) {
+  // What a frame sends behind its pointer press is stored behind what the
+  // press made the tab's other frames write. The hold is read before anything
+  // is awaited, so the frame's messages keep their order, and waited on only
+  // after the sender test: the sender is judged as its message arrives, while
+  // the frame that sent it is still registered (the click that navigates its
+  // own frame away, or closes its tab).
+  const hold = pressHolds.get(pressHoldKey(sender));
+
+  await restoreWhatSuspensionLost(sender);
+  const tabId = sender?.tab?.id;
   const trusted = isTrustedActionSender({
     sender,
     runtimeId: chrome.runtime.id,
@@ -482,6 +625,7 @@ async function validateAndAppend(action, sender) {
   if (action && typeof action === 'object') {
     action.context_id = sender.tab.id;
   }
+  if (hold) await hold;
   await appendSwAction(action);
 }
 
@@ -982,6 +1126,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return false;
   }
 
+  // POINTER_PRESSED: a recorder reports a pointer press in its frame. The
+  // worker asks the tab's other frames to end their typing, held to the same
+  // sender test as an append, and holds what this frame appends next behind
+  // their answers. No response is sent.
+  if (message.type === 'POINTER_PRESSED') {
+    holdAppendsBehindPress(sender);
+    return false;
+  }
+
   // APPEND_ACTION: content script sends actions here for serialized storage
   // writes (this also serializes them with clearPendingActions). Each sender is
   // validated against the active-frame registry before its action is appended,
@@ -1194,7 +1347,10 @@ async function handle(msg) {
 
     case 'RECORDING_STOP': {
       // With capture off there is nothing to protect, whatever the stop names.
-      if ((await isRecording()) && !namesActive(msg)) return NOT_ACTIVE;
+      const capturing = await isRecording();
+      if (capturing && !namesActive(msg)) return NOT_ACTIVE;
+      // The typing not yet written is input of this recording.
+      if (capturing) await endTypingInEveryFrame();
       await setRecording(false);
       return { ok: true };
     }
@@ -1219,6 +1375,10 @@ async function handle(msg) {
       const recording = getActiveRecording();
       if (!recording) return { ok: false, error: 'No active recording' };
 
+      // The typing not yet written is input of this step. The panel and the
+      // control channel stop capture ahead of their commit, so their typing
+      // has ended at that stop; this is the commit sent with capture on.
+      if (await isRecording()) await endTypingInEveryFrame();
       const pendingActions = await getPendingActions();
       const activeSteps = resolveActiveSteps(recording);
       const isRerecord = !!msg.logical_id;

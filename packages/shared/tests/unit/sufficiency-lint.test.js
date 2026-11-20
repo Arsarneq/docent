@@ -261,14 +261,20 @@ describe('Sufficiency lint: predicate pins', () => {
     }
   });
 
-  it('type-value-nonempty fires on empty value but leaves redacted to masking-honesty', () => {
+  // An emptied field is a fact the file states: a `type` whose value is the
+  // empty string. Only a `type` with no value at all says nothing.
+  it('type-value-present admits an empty value and fires on a missing one', () => {
     const base = { type: 'type', context_id: 1, capture_mode: 'dom' };
-    const bad = lintRecordingFile(doc('extension', [{ ...base, value: '', element: el() }]));
-    assert.ok(ids(bad).includes('fail:type-value-nonempty'));
+    const emptied = lintRecordingFile(doc('extension', [{ ...base, value: '', element: el() }]));
+    assert.ok(!ids(emptied).some((id) => id.startsWith('fail:type-value')));
+    const missing = lintRecordingFile(doc('extension', [{ ...base, element: el() }]));
+    assert.ok(ids(missing).includes('fail:type-value-present'));
+    const notText = lintRecordingFile(doc('extension', [{ ...base, value: 3, element: el() }]));
+    assert.ok(ids(notText).includes('fail:type-value-present'));
     const redacted = lintRecordingFile(
       doc('extension', [{ ...base, value: '', element: el({ redacted: true, text: null }) }]),
     );
-    assert.ok(!ids(redacted).includes('fail:type-value-nonempty'));
+    assert.ok(!ids(redacted).includes('fail:type-value-present'));
   });
 
   it('masking-honesty requires the EXACT mask: empty value on a redacted action fails', () => {

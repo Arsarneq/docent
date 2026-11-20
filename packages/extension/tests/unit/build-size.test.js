@@ -139,6 +139,21 @@
  *     action type; the recorder keeps the written keys that are down and
  *     writes both fields; the rest landed earlier inside the previous budget;
  *     no new dependency.
+ *   - Raised to 789KB for the language facts (docent#142): measured 783,594 B
+ *     (`node_modules` inside the checkout); margin 24,342 B; growth since
+ *     759,127 B (the header's recorded size; the tree that recorded it
+ *     measures 760,487 B, and the per-file figures are against that tree):
+ *     `shared/generated/validate-extension.js` +9,708 B,
+ *     `background/service-worker.js` +6,736 B (+465 B in this change,
+ *     +6,271 B before it), `content/recorder.js` +5,050 B (+821 B in this
+ *     change, +4,229 B before it), `content/recorder-logic.js` +788 B,
+ *     `lib/capture-timing.js` +759 B and `lib/frame-trust.js` +66 B (both
+ *     before it). Deliberate: the validator is generated from the schema,
+ *     which states `preferred_languages` on every action type and `language`
+ *     on the element, and each statement is validation code per action type;
+ *     the recorder reads the nearest declared `lang` and the worker writes
+ *     the browser's language list on every stored action; the rest landed
+ *     earlier inside the previous budget; no new dependency.
  *
  * Requires `npm run sync-shared` to have been run first.
  */
@@ -189,7 +204,7 @@ function formatSize(bytes) {
 
 const extensionExcludes = ['node_modules', 'tests', '.git', 'coverage'];
 
-const JS_BUDGET_KB = 764;
+const JS_BUDGET_KB = 789;
 
 /** The headroom rule's figures for a measured size: the next budget and its margin. */
 function nextBudget(bytes) {

@@ -314,6 +314,13 @@ pub struct ElementDescription {
     pub locators: Vec<LocatorEntry>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub described_after_ms: Option<u64>,
+    /// The value the element holds, where it has one: `Some("")` for a field
+    /// that is empty, `None` for an element with no value at all and for a
+    /// password field. Internal to the capture layer (a `type` action's value
+    /// is read from it); never written. `text` cannot say this: it falls back
+    /// to the name when the value is empty.
+    #[serde(skip)]
+    pub value: Option<String>,
 }
 
 // ---------------------------------------------------------------------------

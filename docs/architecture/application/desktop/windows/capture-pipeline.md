@@ -29,17 +29,17 @@ hooks / WinEvents        bridge            worker pool               frontend
    counts focus changes and stamps every raw event with the count, so a
    worker can tell whether focus still is where a keystroke or value change
    happened, and stamps each keystroke with the window handle of the control
-   that holds the keyboard focus, read from the window system without a call
-   into the program, and with the number of the latest focus change that named
-   a part of that control (DCP-11). The keyboard hook also keeps the record of
-   which keys are down and stamps each key-down with whether its key was
-   already down, the mark a `key` action's `repeat` is written from (DCP-9).
-   From the same record each keystroke, click, right-click and drop is
-   stamped at dispatch with the keys that are down and the key-down each is
-   down by, and a drag start with those the mouse hook read when the pointer
-   first passed the drag threshold: what an action's
-   `held_keys` is written from. The mouse hook reads the modifier keys for
-   the pointer actions as the keyboard hook does for a key.
+   that holds the keyboard focus (none for a key attributed to no window,
+   DCP-14), read from the window system without a call into the program, and
+   with the number of the latest focus change that named a part of that
+   control (DCP-11). The keyboard hook also keeps the record of which keys are
+   down and stamps each key-down with whether its key was already down, the
+   mark a `key` action's `repeat` is written from (DCP-9). From the same record
+   each keystroke, click, right-click and drop is stamped at dispatch with the
+   keys that are down and the key-down each is down by, and a drag start with
+   those the mouse hook read when the pointer first passed the drag threshold:
+   what an action's `held_keys` is written from. The mouse hook reads the
+   modifier keys for the pointer actions as the keyboard hook does for a key.
 2. **Bridge_Thread** — receives raw events on a single FIFO channel and
    dispatches each to a worker; it also executes the pool-wide
    [flush barrier](#the-commit-flush-barrier) when a commit requests one.
@@ -67,10 +67,17 @@ events so the per-worker state that judges them stays coherent (DCP-12):
 - **Typing worker** — every keyboard and value-change event reaches one
   worker, so a value change is processed after the keystrokes that caused it
   and supersedes the buffered ones (DCP-9).
+- **End of typing** — an event that ends the typing in a field (a click, a
+  drag, a window change) is routed like any other, and
+  the dispatcher tells the typing worker behind the events already sent to
+  it, so the `type` that worker holds is written (DCP-9).
 - **Sticky routing** — focus and selection events for the same window handle
   always reach the same worker, keeping their deduplication correct.
 - **Drag pairing** — a drop routes to the worker that took its drag start, so
   the pair is built from the same recorded source element.
+- **Double-click pairing** — a click that completes a double-click routes to
+  the worker that took the click before it, so the file-dialog proxy reads the
+  pair in order on one worker (DCP-6, DCP-10).
 - **Shortest queue** — everything else goes to the least-loaded worker (ties
   to the lowest index).
 
@@ -97,8 +104,10 @@ find nothing to re-emit.
 Some completed actions are deliberately held on the worker before emission:
 the scroll accumulator (the shared debounce/coalesce rule,
 [core CP-16](../../../../architecture/system/capture-principles.md#capture-surface)),
-the coalescing `type` buffer, and the printable-key buffer (DCP-9). A
-periodic worker tick flushes them when their debounce windows elapse. These
+the `type` of the field being typed into, and the printable-key buffer
+(DCP-9). A periodic worker tick flushes the scroll accumulator and the
+printable-key buffer when their waits elapse; the `type` is written when the
+typing ends, never by the tick. These
 buffers are the "sacred" state: they hold real, completed user actions, so
 every drain path below empties them into the action stream rather than
 dropping them. They live behind a shared lock the worker only ever takes for

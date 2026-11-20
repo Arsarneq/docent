@@ -162,7 +162,7 @@
           "description": "Locator strategy identifier — selects which entry shape applies."
         }
       },
-      "description": "A locator candidate for the acted-on element. Match statistics (match_count / match_index) are measured against the capturing frame's document root (the same boundary selector derivation stops at), in document order, using standard non-piercing matching (shadow roots are not descended into), synchronously at the moment the acted-on element is described for capture: for immediately-captured actions that is inside the capture handler, before the action's effects run; for deliberately debounced or deferred captures (Tab-correlated focus, scroll settle, contenteditable typing pauses) it is when the capture commits, against the then-current document.",
+      "description": "A locator candidate for the acted-on element. Match statistics (match_count / match_index) are measured against the capturing frame's document root (the same boundary selector derivation stops at), in document order, using standard non-piercing matching (shadow roots are not descended into), synchronously at the moment the acted-on element is described for capture: for immediately-captured actions that is inside the capture handler, before the action's effects run; for deliberately debounced or deferred captures (Tab-correlated focus, scroll settle, the end of contenteditable typing) it is when the capture commits, against the then-current document.",
       "oneOf": [
         {
           "$ref": "#/$defs/locator_id"

@@ -229,7 +229,10 @@ e2e harness keys its waits on it
 ## Message protocol
 
 Transport is `chrome.runtime.sendMessage` into the worker's single
-`onMessage` dispatcher; message types are `UPPER_SNAKE_CASE` string constants
+`onMessage` dispatcher, with one request going the other way: `END_TYPING`,
+which the worker sends by `chrome.tabs.sendMessage` to one frame at a time and
+the recorder's own `onMessage` listener answers
+([capture path](#capture-path)); message types are `UPPER_SNAKE_CASE` string constants
 declared at their call sites. The panel↔worker surface has exactly two
 channels: the request/response messages below, and the watched storage keys
 listed under [Storage keys](#storage-keys-and-write-ownership).
@@ -264,11 +267,12 @@ change.
 
 Sent by the recorder to the worker:
 
-| Type            | Payload            | Response                                                                                                           |
-| --------------- | ------------------ | ------------------------------------------------------------------------------------------------------------------ |
-| `GET_TAB_ID`    | `—`                | `{ tabId }`, answered synchronously — the sender's tab identity exists only on the dispatcher's `sender` argument. |
-| `FRAME_READY`   | `{ readyAt, url }` | None — a one-way readiness beacon ([ECP-3](capture-principles.md#frame-trust-and-readiness)).                      |
-| `APPEND_ACTION` | `{ action }`       | The [response envelope](#response-contract) below.                                                                 |
+| Type              | Payload            | Response                                                                                                                                       |
+| ----------------- | ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET_TAB_ID`      | `—`                | `{ tabId }`, answered synchronously — the sender's tab identity exists only on the dispatcher's `sender` argument.                             |
+| `FRAME_READY`     | `{ readyAt, url }` | None — a one-way readiness beacon ([ECP-3](capture-principles.md#frame-trust-and-readiness)).                                                  |
+| `APPEND_ACTION`   | `{ action }`       | The [response envelope](#response-contract) below.                                                                                             |
+| `POINTER_PRESSED` | `—`                | None. A one-way signal that the pointer was pressed in the sender's frame; the worker asks the tab's other frames to end their typing (below). |
 
 `APPEND_ACTION` is the single path a captured action takes into storage: the
 worker validates the sender against the frame registry
@@ -279,6 +283,20 @@ storage chokepoint
 ([ECP-9](capture-principles.md#sensitive-value-redaction)), and appends to
 the pending buffer through a serialized write queue gated by storage
 pressure ([ECP-11](capture-principles.md#storage-pressure)).
+
+Sent by the worker to a recorder, one frame at a time, is the single request
+`END_TYPING`: the frame writes the entry typed into the field in focus and
+into editable content, through `APPEND_ACTION` as any action, and answers
+`{ ok: true }` once the worker has answered those appends. The worker sends
+it to every registered frame ahead of a step commit and ahead of a stop, and
+waits for the answers up to a bound, so the step and the recording hold the
+entry; and to the other frames of a tab on `POINTER_PRESSED`, held to the
+sender test of `APPEND_ACTION` (the lazy reseed included), where the worker
+holds the appends that arrive next from the pressing frame until those frames
+have answered, up to the same bound, so what the press made them write is
+stored ahead of the press's own `click`
+([ECP-6](capture-principles.md#capture-surface)). A sender test that runs as
+the worker wakes waits for the stored recording flag to be read back first.
 
 ### Panel protocol
 
@@ -359,10 +377,10 @@ departure SP-21 records.
 `{ ok: true, … }` on success (result data rides beside `ok`) or
 `{ ok: false, error }` on failure. Failures MUST be returned in-band — the
 dispatcher never throws through the message port — and a message type outside
-the enumerations above is answered `{ ok: false, error }`. The other two
+the enumerations above is answered `{ ok: false, error }`. The other three
 capture-path messages answer as their [table rows](#capture-path) state:
-`GET_TAB_ID` with the bare `{ tabId }` shape, `FRAME_READY` with no response
-at all. `APPEND_ACTION` acknowledges a trust-gate drop with `{ ok: true }`:
+`GET_TAB_ID` with the bare `{ tabId }` shape, `FRAME_READY` and
+`POINTER_PRESSED` with no response at all. `APPEND_ACTION` acknowledges a trust-gate drop with `{ ok: true }`:
 the acknowledgment confirms delivery, not acceptance
 (the drop itself is stated at
 [ECP-3](capture-principles.md#frame-trust-and-readiness)), and `{ ok: false }`

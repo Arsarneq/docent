@@ -97,8 +97,9 @@ pub struct NativeElementProperties {
     pub localized_control_type: String,
     /// Whether the element is a password field.
     pub is_password: bool,
-    /// The element's text value. May be empty.
-    pub value: String,
+    /// The value the element holds: `Some("")` for a field that holds
+    /// nothing, `None` for an element that has no value to hold.
+    pub value: Option<String>,
     /// The accessibility tree path segments leading to this element.
     /// Each entry is `"Tag:Name"` (or just `"Tag"` when the name is empty).
     /// The last entry is the element itself.
@@ -169,6 +170,9 @@ pub(crate) fn truncate_text(s: &str) -> String {
 /// - `element_type` is `Some("password")` when `is_password` is true.
 /// - `text` is `None` for password fields; otherwise the `value` (or `name`
 ///   as fallback) truncated to 100 characters, or `None` if both are empty.
+/// - `value` (internal, never written) is the value truncated alike, empty
+///   for a field that holds nothing; `None` for a password field and for an
+///   element that has no value.
 /// - `selector` is built from `tree_path` segments joined with `" > "`.
 pub fn map_element(props: &NativeElementProperties) -> ElementDescription {
     let tag = props.tag.clone();
@@ -188,8 +192,9 @@ pub fn map_element(props: &NativeElementProperties) -> ElementDescription {
         None
     } else {
         // Prefer the value; fall back to the name.
-        let raw = if !props.value.is_empty() {
-            &props.value
+        let held = props.value.as_deref().unwrap_or("");
+        let raw = if !held.is_empty() {
+            held
         } else if !props.name.is_empty() {
             &props.name
         } else {
@@ -197,6 +202,14 @@ pub fn map_element(props: &NativeElementProperties) -> ElementDescription {
         };
         non_empty_mapped(raw, truncate_text)
     };
+
+    // The value itself, cut as the text is: an empty one is kept, since a
+    // field that holds nothing is not an element with no value.
+    let value = props
+        .value
+        .as_deref()
+        .filter(|_| !props.is_password)
+        .map(truncate_text);
 
     let selector = build_selector(&props.tree_path);
 
@@ -217,6 +230,7 @@ pub fn map_element(props: &NativeElementProperties) -> ElementDescription {
         // Stamped by the worker at the describe site (docent#220) — the
         // mapping layer has no clock and no event timestamp.
         described_after_ms: None,
+        value,
     }
 }
 
@@ -337,9 +351,211 @@ fn build_selector(tree_path: &[String]) -> String {
 // Tests
 // ---------------------------------------------------------------------------
 
+/// The file-system path in a file dialog's address band name, which puts a
+/// label before it ("Address: " on an English system): the text from its
+/// first drive (`X:\`) or network (`\\`) root on, or none where the
+/// name holds no such path (a location such as Libraries).
+pub fn path_in_address_label(name: &str) -> Option<&str> {
+    let bytes = name.as_bytes();
+    (0..bytes.len())
+        .find(|&i| {
+            let rest = &bytes[i..];
+            let drive = rest.len() >= 3
+                && rest[0].is_ascii_alphabetic()
+                && rest[1] == b':'
+                && rest[2] == b'\\'
+                && (i == 0 || !bytes[i - 1].is_ascii_alphanumeric());
+            let network = rest.starts_with(br"\\")
+                && rest.get(2).is_some_and(|b| *b != b'\\')
+                && (i == 0 || bytes[i - 1] == b' ');
+            drive || network
+        })
+        .map(|i| &name[i..])
+}
+
+/// Whether `text` is a full file-system path: from a drive (`X:\\`) or
+/// network (`\\\\`) root at its start. Only such a path names a file
+/// wherever it is looked up.
+pub fn is_full_path(text: &str) -> bool {
+    path_in_address_label(text).is_some_and(|path| path.len() == text.len())
+}
+
+/// The path a file dialog's File name text names in the folder the dialog
+/// shows: the text itself where it is a full path (a drive `X:\\` or network
+/// `\\\\` root), else the folder and the text joined with a backslash, else
+/// the text alone when no folder was read.
+pub fn typed_file_path(directory: Option<&str>, text: &str) -> String {
+    match directory {
+        Some(dir) if !dir.is_empty() && !is_full_path(text) => {
+            format!("{}\\{text}", dir.trim_end_matches('\\'))
+        }
+        _ => text.to_string(),
+    }
+}
+
+/// The file on disk a file dialog's File name text names, decided without
+/// guessing (DCP-13). `typed_path` is [`typed_file_path`]'s path for the text;
+/// `listed` holds the folder's entries that could be shown as the text, each
+/// with the name the shell displays for it (its display name: without the
+/// extension where the system hides extensions) and its path. The text can
+/// name each entry whose display name is the text (case aside), and the
+/// typed path itself where that is a file (a name typed with its extension,
+/// or a full path). The file is the one such path when exactly one exists;
+/// else none: the text names no file, or it names several.
+pub fn chosen_file_on_disk(
+    typed_path: &str,
+    typed_path_is_file: bool,
+    listed: &[(String, String)],
+) -> Option<String> {
+    let shown = typed_path
+        .rsplit('\\')
+        .next()
+        .unwrap_or(typed_path)
+        .to_lowercase();
+    let mut named: Vec<&str> = listed
+        .iter()
+        .filter(|(display, _)| display.to_lowercase() == shown)
+        .map(|(_, path)| path.as_str())
+        .collect();
+    if typed_path_is_file {
+        named.push(typed_path);
+    }
+    let first = *named.first()?;
+    named
+        .iter()
+        .all(|path| path.to_lowercase() == first.to_lowercase())
+        .then(|| first.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // -- typed_file_path and chosen_file_on_disk ---------------------------
+
+    fn entry(display: &str, path: &str) -> (String, String) {
+        (display.to_string(), path.to_string())
+    }
+
+    #[test]
+    fn a_file_dialogs_text_is_joined_to_its_folder_unless_it_is_a_full_path() {
+        assert_eq!(
+            typed_file_path(Some(r"C:\Docs\"), "a.txt"),
+            r"C:\Docs\a.txt"
+        );
+        assert_eq!(
+            typed_file_path(Some(r"C:\Docs"), r"D:\x\b.txt"),
+            r"D:\x\b.txt"
+        );
+        assert_eq!(
+            typed_file_path(Some(r"C:\Docs"), r"\\srv\share\b.txt"),
+            r"\\srv\share\b.txt"
+        );
+        assert_eq!(typed_file_path(None, "a.txt"), "a.txt");
+        assert_eq!(typed_file_path(Some(""), "a.txt"), "a.txt");
+    }
+
+    /// regression #692: where the system hides extensions the File name text
+    /// is the file's display name, without its extension, and the recording
+    /// named no file on disk.
+    #[test]
+    fn regression_692_the_one_file_displayed_as_the_text_is_the_file_chosen() {
+        let listed = [entry("license", r"C:\Docs\license.txt")];
+        assert_eq!(
+            chosen_file_on_disk(r"C:\Docs\license", false, &listed),
+            Some(r"C:\Docs\license.txt".to_string())
+        );
+        // Case aside: the shell's names are case-insensitive.
+        let listed = [entry("License", r"C:\Docs\License.txt")];
+        assert_eq!(
+            chosen_file_on_disk(r"C:\Docs\license", false, &listed),
+            Some(r"C:\Docs\License.txt".to_string())
+        );
+    }
+
+    #[test]
+    fn a_text_several_files_display_as_names_no_file() {
+        // "a" and "a.txt" both display as "a" where extensions are hidden.
+        let listed = [entry("a", r"C:\Docs\a"), entry("a", r"C:\Docs\a.txt")];
+        assert_eq!(chosen_file_on_disk(r"C:\Docs\a", true, &listed), None);
+    }
+
+    #[test]
+    fn a_typed_name_that_is_a_file_is_taken_when_no_display_name_is_the_text() {
+        // "a.txt" typed where extensions are hidden: displayed as "a".
+        let listed = [entry("a", r"C:\Docs\a.txt")];
+        assert_eq!(
+            chosen_file_on_disk(r"C:\Docs\a.txt", true, &listed),
+            Some(r"C:\Docs\a.txt".to_string())
+        );
+    }
+
+    #[test]
+    fn a_typed_file_and_another_file_displayed_as_the_text_name_no_file() {
+        // "a.txt" is a file, and "a.txt.md" displays as "a.txt": two files.
+        let listed = [
+            entry("a", r"C:\Docs\a.txt"),
+            entry("a.txt", r"C:\Docs\a.txt.md"),
+        ];
+        assert_eq!(chosen_file_on_disk(r"C:\Docs\a.txt", true, &listed), None);
+    }
+
+    #[test]
+    fn a_typed_file_displayed_as_its_own_name_is_one_file() {
+        // Extensions shown: the display name is the typed name itself.
+        let listed = [entry("A.TXT", r"C:\Docs\a.txt")];
+        assert_eq!(
+            chosen_file_on_disk(r"C:\Docs\a.txt", true, &listed),
+            Some(r"C:\Docs\a.txt".to_string())
+        );
+    }
+
+    #[test]
+    fn only_a_path_from_a_drive_or_network_root_is_a_full_path() {
+        assert!(is_full_path(r"C:\Docs\a.txt"));
+        assert!(is_full_path(r"\\server\share\a.txt"));
+        assert!(!is_full_path(r"sub\notes"));
+        assert!(!is_full_path("notes"));
+        assert!(!is_full_path(r"Docs C:\a.txt"));
+        assert!(!is_full_path(""));
+    }
+
+    #[test]
+    fn a_text_naming_no_file_names_no_file() {
+        // A Save of a new file: nothing on disk yet.
+        assert_eq!(chosen_file_on_disk(r"C:\Docs\new", false, &[]), None);
+        let listed = [entry("newer", r"C:\Docs\newer.txt")];
+        assert_eq!(chosen_file_on_disk(r"C:\Docs\new", false, &listed), None);
+    }
+
+    // -- path_in_address_label ----------------------------------------------
+
+    /// regression #692: a file dialog's address band names its folder behind
+    /// a label ("Address: C:\\..." on an English system), which the folder
+    /// read wrote into `file_path`.
+    #[test]
+    fn regression_692_the_address_label_is_not_part_of_the_folder() {
+        assert_eq!(
+            path_in_address_label(r"Address: C:\Users\runner\Temp\docent-692"),
+            Some(r"C:\Users\runner\Temp\docent-692")
+        );
+        // Any language's label: the path starts at its drive.
+        assert_eq!(path_in_address_label(r"Adresse: D:\Data"), Some(r"D:\Data"));
+        // A network folder starts at its two backslashes.
+        assert_eq!(
+            path_in_address_label(r"Address: \\server\share\x"),
+            Some(r"\\server\share\x")
+        );
+        assert_eq!(path_in_address_label(r"C:\"), Some(r"C:\"));
+    }
+
+    #[test]
+    fn an_address_label_with_no_file_system_path_names_no_folder() {
+        assert_eq!(path_in_address_label("Address: Libraries"), None);
+        assert_eq!(path_in_address_label(""), None);
+        // A drive letter must be followed by its colon and backslash.
+        assert_eq!(path_in_address_label(r"Address: Docs\x"), None);
+    }
 
     // -- truncate_text -----------------------------------------------------
 
@@ -418,7 +634,7 @@ mod tests {
             name: "Save".into(),
             localized_control_type: "button".into(),
             is_password: false,
-            value: String::new(),
+            value: Some(String::new()),
             tree_path: vec!["Window:Notepad".into(), "Button:Save".into()],
             ..Default::default()
         };
@@ -442,7 +658,7 @@ mod tests {
             name: "Search".into(),
             localized_control_type: "edit".into(),
             is_password: false,
-            value: "hello world".into(),
+            value: Some("hello world".into()),
             tree_path: vec!["Window:App".into(), "Edit:Search".into()],
             ..Default::default()
         };
@@ -453,6 +669,60 @@ mod tests {
     }
 
     #[test]
+    fn an_empty_field_has_the_empty_value_and_its_name_as_text() {
+        let el = map_element(&NativeElementProperties {
+            tag: "Edit".into(),
+            name: "Search".into(),
+            value: Some(String::new()),
+            ..Default::default()
+        });
+        assert_eq!(el.value, Some(String::new()));
+        assert_eq!(el.text, Some("Search".into()));
+    }
+
+    #[test]
+    fn a_field_with_text_has_it_as_its_value() {
+        let el = map_element(&NativeElementProperties {
+            tag: "Edit".into(),
+            name: "Search".into(),
+            value: Some("docent".into()),
+            ..Default::default()
+        });
+        assert_eq!(el.value, Some("docent".into()));
+    }
+
+    #[test]
+    fn an_element_with_no_value_has_none() {
+        let el = map_element(&NativeElementProperties {
+            tag: "Button".into(),
+            name: "Save".into(),
+            ..Default::default()
+        });
+        assert_eq!(el.value, None);
+    }
+
+    #[test]
+    fn a_password_field_has_no_value() {
+        let el = map_element(&NativeElementProperties {
+            tag: "Edit".into(),
+            is_password: true,
+            value: Some("secret".into()),
+            ..Default::default()
+        });
+        assert_eq!(el.value, None);
+    }
+
+    #[test]
+    fn a_long_value_is_cut_as_the_text_is() {
+        let el = map_element(&NativeElementProperties {
+            tag: "Edit".into(),
+            value: Some("a".repeat(150)),
+            ..Default::default()
+        });
+        assert_eq!(el.value, el.text);
+    }
+
+    #[test]
     fn password_field_hides_text() {
         let props = NativeElementProperties {
             tag: "Edit".into(),
@@ -460,7 +730,7 @@ mod tests {
             name: "Password".into(),
             localized_control_type: "edit".into(),
             is_password: true,
-            value: "s3cret!".into(),
+            value: Some("s3cret!".into()),
             tree_path: vec!["Window:Login".into(), "Edit:Password".into()],
             ..Default::default()
         };
@@ -478,7 +748,7 @@ mod tests {
             name: String::new(),
             localized_control_type: String::new(),
             is_password: false,
-            value: String::new(),
+            value: Some(String::new()),
             tree_path: vec![],
             ..Default::default()
         };
@@ -502,7 +772,7 @@ mod tests {
             name: String::new(),
             localized_control_type: "edit".into(),
             is_password: false,
-            value: long_value,
+            value: Some(long_value),
             tree_path: vec!["Window:App".into(), "Edit".into()],
             ..Default::default()
         };
@@ -545,7 +815,7 @@ mod tests {
             name: "Country".into(),
             localized_control_type: "combo box".into(),
             is_password: false,
-            value: "Norway".into(),
+            value: Some("Norway".into()),
             tree_path: vec![
                 "Window:Settings".into(),
                 "Group:Region".into(),
@@ -574,7 +844,7 @@ mod tests {
             name: "Click here".into(),
             localized_control_type: "hyperlink".into(),
             is_password: false,
-            value: String::new(),
+            value: Some(String::new()),
             tree_path: vec!["Window:Browser".into(), "Hyperlink:Click here".into()],
             ..Default::default()
         };
@@ -593,7 +863,7 @@ mod tests {
             name: "Documents".into(),
             localized_control_type: "tree item".into(),
             is_password: false,
-            value: String::new(),
+            value: Some(String::new()),
             tree_path: vec![
                 "Window:Explorer".into(),
                 "Tree:Folders".into(),
@@ -823,7 +1093,7 @@ mod tests {
     fn password_element_keeps_identity_locators_and_no_text() {
         let mut props = full_props();
         props.is_password = true;
-        props.value = "secret".to_string();
+        props.value = Some("secret".to_string());
         let el = map_element(&props);
         assert_eq!(el.text, None);
         assert!(el
