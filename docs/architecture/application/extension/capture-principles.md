@@ -492,8 +492,10 @@ with a caveat):
   not written, no event reaching the recorder. The desktop's keyboard hook is
   handed such a key and writes it; the difference comes from the platforms
   themselves (core CP-19)
-- Arrow keys in native `<select>` are swallowed by the browser before the
-  recorder's listeners see them
+- Arrow keys in the open list of a native `<select>` are swallowed by the
+  browser before the recorder's listeners see them; on a closed `<select>`
+  each arrow key reaches the page and is written as the `key`, and the option
+  it chooses as the `select` its `change` commits
 - A key that is down but was pressed while another document had the focus
   (another frame, another tab or window) is not among an action's `held_keys`,
   and no key is known to be down once the document's window loses the focus
