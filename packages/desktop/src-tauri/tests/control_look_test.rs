@@ -3,6 +3,11 @@
 // The windows are real windows of this process, asked through UI Automation
 // the way a worker asks a recorded program. No input is sent, so nothing here
 // depends on which window is in front.
+//
+// The tests run one at a time (`#[serial]`): with several of them opening
+// windows and asking at once, UI Automation now and then answers E_FAIL for a
+// window that was just created, and the backend reads that as a window it
+// could not look at.
 #![cfg(windows)]
 
 use std::sync::mpsc;
@@ -15,6 +20,7 @@ use docent_desktop_lib::capture::win32_bindings::{
 };
 use docent_desktop_lib::capture::windows::WindowsAccessibilityBackend;
 use docent_desktop_lib::capture::worker_pool::{AccessibilityBackend, ControlLook, ControlNature};
+use serial_test::serial;
 use windows_core::w;
 
 /// A window with two fields of its own, kept alive and answering on its own
@@ -129,6 +135,7 @@ impl Drop for Backend {
 }
 
 #[test]
+#[serial]
 fn a_field_is_a_control_of_its_own_and_is_described() {
     let dialog = Dialog::open();
     let backend = Backend::new();
@@ -146,6 +153,7 @@ fn a_field_is_a_control_of_its_own_and_is_described() {
 }
 
 #[test]
+#[serial]
 fn a_password_field_is_seen_as_one() {
     let dialog = Dialog::open();
     let backend = Backend::new();
@@ -161,6 +169,7 @@ fn a_password_field_is_seen_as_one() {
 }
 
 #[test]
+#[serial]
 fn a_window_that_holds_fields_is_not_a_control_of_its_own() {
     let dialog = Dialog::open();
     let backend = Backend::new();
@@ -176,6 +185,7 @@ fn a_window_that_holds_fields_is_not_a_control_of_its_own() {
 }
 
 #[test]
+#[serial]
 fn the_value_is_read_from_the_control_as_it_is_now() {
     let dialog = Dialog::open();
     let backend = Backend::new();
@@ -196,6 +206,7 @@ fn the_value_is_read_from_the_control_as_it_is_now() {
 /// A control that has no value gives none, where an emptied field gives an
 /// empty one.
 #[test]
+#[serial]
 fn a_control_without_a_value_gives_none_and_an_emptied_field_an_empty_one() {
     let dialog = Dialog::open();
     let backend = Backend::new();
@@ -208,6 +219,7 @@ fn a_control_without_a_value_gives_none_and_an_emptied_field_an_empty_one() {
 }
 
 #[test]
+#[serial]
 fn a_handle_of_no_window_is_gone() {
     let mut dialog = Dialog::open();
     let backend = Backend::new();
@@ -228,6 +240,7 @@ fn a_handle_of_no_window_is_gone() {
 /// The focused control is read from the window system's own state: a handle
 /// or none, and never a wait on another program.
 #[test]
+#[serial]
 fn the_focused_control_is_read_without_asking_a_program() {
     let _dialog = Dialog::open();
     let backend = Backend::new();
