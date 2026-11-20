@@ -844,7 +844,7 @@ mod side_effects {
             let text = w!("Programmatic value change!");
             SetWindowTextW(hwnd, text).unwrap();
         }
-        thread::sleep(Duration::from_millis(600)); // Wait for type coalescing
+        thread::sleep(Duration::from_millis(600)); // Let the value changes arrive
 
         // Clean up.
         unsafe {
@@ -1537,7 +1537,7 @@ mod capture_behaviour {
     fn printable_keys_are_captured_when_no_type_event_arrives() {
         // Typing into a non-editable control (no EVENT_OBJECT_VALUECHANGE):
         // printable keys are buffered and flushed as individual key events when
-        // the TYPE_DEBOUNCE_MS window expires without a type event.
+        // KEY_TEXT_WAIT_MS passes without a value change.
         //
         // Like navigation_keys, this asserts the environment-independent
         // contract: capture must never hang, stop() always returns, and any
@@ -1568,7 +1568,7 @@ mod capture_behaviour {
         enigo
             .key(enigo::Key::Unicode('c'), Direction::Click)
             .unwrap();
-        // Wait for TYPE_DEBOUNCE_MS + buffer to flush. The window keeps
+        // Wait for KEY_TEXT_WAIT_MS + buffer to flush. The window keeps
         // answering the workers' queries on its own pump thread throughout.
         thread::sleep(Duration::from_millis(1500));
 
@@ -1617,7 +1617,7 @@ mod capture_behaviour {
 
         let mut enigo = Enigo::new(&Settings::default()).unwrap();
         enigo.text("hello").unwrap();
-        // Wait for TYPE_DEBOUNCE_MS (500ms) + buffer to flush.
+        // Let the value changes arrive; the type is written at the stop.
         thread::sleep(Duration::from_millis(1500));
 
         unsafe {
@@ -2986,7 +2986,7 @@ mod completeness {
 
         let mut enigo = Enigo::new(&Settings::default()).unwrap();
         enigo.text("the quick brown fox").unwrap();
-        // Wait for coalescing debounce (500ms).
+        // Let the value changes arrive; the type is written at the stop.
         thread::sleep(Duration::from_millis(800));
 
         unsafe {
@@ -3517,7 +3517,7 @@ mod deduplication {
         unsafe {
             SetWindowTextW(hwnd2, w!("dialog value")).unwrap();
         }
-        thread::sleep(Duration::from_millis(1500)); // Wait for debounce
+        thread::sleep(Duration::from_millis(1500)); // Let the value changes arrive
 
         unsafe {
             let _ = DestroyWindow(hwnd1);

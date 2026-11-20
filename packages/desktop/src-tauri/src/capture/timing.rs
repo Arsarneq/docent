@@ -73,11 +73,13 @@ pub const SCROLL_DEBOUNCE_MS: u64 = 300;
 /// and `|total_delta_y|` are ≤ this threshold are discarded.
 pub const SCROLL_MIN_DISTANCE_PX: f64 = 200.0;
 
-// ─── Type Coalescing ────────────────────────────────────────────────────────
+// ─── Typing ─────────────────────────────────────────────────────────────────
 
-/// Debounce interval for coalescing rapid value-change events into a single
-/// type action (milliseconds).
-pub const TYPE_DEBOUNCE_MS: u64 = 500;
+/// How long a typing key waits for the value change that makes it text
+/// (milliseconds). With none by then, the control took no text from the key
+/// and it is written as a key. The wait ends nothing else: a field's `type`
+/// is written when the typing in it ends, however long the pauses in it.
+pub const KEY_TEXT_WAIT_MS: u64 = 500;
 
 // ─── Worker ─────────────────────────────────────────────────────────────────
 
@@ -210,10 +212,10 @@ mod tests {
     }
 
     #[test]
-    fn type_debounce_boundary() {
-        // 500ms type window: 499 not elapsed, 500 elapsed, 501 elapsed.
-        assert!(!debounce_elapsed(10499, 10000, TYPE_DEBOUNCE_MS));
-        assert!(debounce_elapsed(10500, 10000, TYPE_DEBOUNCE_MS));
-        assert!(debounce_elapsed(10501, 10000, TYPE_DEBOUNCE_MS));
+    fn key_text_wait_boundary() {
+        // 500ms key wait: 499 not elapsed, 500 elapsed, 501 elapsed.
+        assert!(!debounce_elapsed(10499, 10000, KEY_TEXT_WAIT_MS));
+        assert!(debounce_elapsed(10500, 10000, KEY_TEXT_WAIT_MS));
+        assert!(debounce_elapsed(10501, 10000, KEY_TEXT_WAIT_MS));
     }
 }
