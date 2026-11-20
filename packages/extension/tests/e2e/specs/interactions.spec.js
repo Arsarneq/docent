@@ -101,6 +101,64 @@ test.describe('Drag and Drop', () => {
     expect(types).toEqual(['drag_start', 'drop']);
   });
 
+  // Regression: #715 — a right-click was written at the browser's menu
+  // request, which comes at the press or at the release as the system has it;
+  // the desktop writes it at the press.
+  // https://github.com/Arsarneq/docent/issues/715
+  test('regression_715_a_right_click_is_written_at_the_press_of_the_button', async ({
+    testPage,
+    serviceWorker,
+  }) => {
+    // The page keeps the menu request from every later listener, so only the
+    // press can have written the action; Shift is let go before the release.
+    await testPage.evaluate(() => {
+      window.addEventListener('contextmenu', (e) => e.stopImmediatePropagation(), true);
+    });
+    const box = await testPage.locator('#btn').boundingBox();
+    await testPage.mouse.move(box.x + 5, box.y + 5);
+    await testPage.keyboard.down('Shift');
+    await testPage.mouse.down({ button: 'right' });
+    await testPage.waitForTimeout(100);
+    const atThePress = (await getPendingActions(serviceWorker)).filter(
+      (a) => a.type === 'right_click',
+    );
+    await testPage.keyboard.up('Shift');
+    await testPage.mouse.up({ button: 'right' });
+    await waitForActionsToSettle(serviceWorker, testPage);
+
+    expect(atThePress.map((a) => [a.modifiers.shift, a.element.id])).toEqual([[true, 'btn']]);
+    const all = (await getPendingActions(serviceWorker)).filter((a) => a.type === 'right_click');
+    expect(all).toHaveLength(1);
+  });
+
+  test('regression_715_a_right_click_is_written_once_when_the_menu_request_follows', async ({
+    testPage,
+    serviceWorker,
+  }) => {
+    await testPage.click('#btn', { button: 'right' });
+    await testPage.click('#btn', { button: 'right' });
+    await waitForActionsToSettle(serviceWorker, testPage);
+
+    const actions = await getPendingActions(serviceWorker);
+    expect(actions.filter((a) => a.type === 'right_click')).toHaveLength(2);
+  });
+
+  test('regression_715_another_button_pressed_while_the_right_one_is_down_adds_no_right_click', async ({
+    testPage,
+    serviceWorker,
+  }) => {
+    const box = await testPage.locator('#btn').boundingBox();
+    await testPage.mouse.move(box.x + 5, box.y + 5);
+    await testPage.mouse.down({ button: 'right' });
+    await testPage.mouse.down({ button: 'left' });
+    await testPage.mouse.up({ button: 'left' });
+    await testPage.mouse.up({ button: 'right' });
+    await waitForActionsToSettle(serviceWorker, testPage);
+
+    const actions = await getPendingActions(serviceWorker);
+    expect(actions.filter((a) => a.type === 'right_click')).toHaveLength(1);
+  });
+
   test('regression_239_a_click_and_a_right_click_state_the_modifiers_held', async ({
     testPage,
     serviceWorker,

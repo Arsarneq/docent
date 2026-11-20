@@ -421,12 +421,8 @@ for a `drag_start` at the first pointer position past the threshold after the
 button-down, which is where the drag started (the release itself, when no
 earlier position passed it); the extension reads a `drag_start`'s at the
 browser's `dragstart`, the point at which the browser takes the gesture for a
-drag, by a threshold of its own. A `right_click`
-is written at the press where the extension writes it at the browser's
-context-menu request, which the browser sends at the press or at the release
-as the operating system has it, so the two can state different keys for one
-right-click — a departure (core CP-19;
-[docent#715](https://github.com/Arsarneq/docent/issues/715)).
+drag, by a threshold of its own. The extension writes a `right_click` at the
+press of the right button too.
 
 A left click whose press is the second press of a double-click is marked as
 completing one. The test is the system's own: the press lands in the same

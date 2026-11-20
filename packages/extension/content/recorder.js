@@ -1150,9 +1150,37 @@
       } catch {
         // Worker unavailable (a teardown): nothing to tell.
       }
+      // A right-click is the press of the right button, as on the desktop
+      // (#715): the browser's menu request comes at the press or at the
+      // release as the system has it, and a page can keep it from arriving.
+      if (e.button === 2) writeRightClick(e);
     },
     { capture: true, passive: true },
   );
+
+  /**
+   * Write a `right_click` with the position, the modifiers and the held keys
+   * of the event: the press of the right button, or a menu request that no
+   * such press came before. A press picked on the body or the document
+   * element is not written.
+   *
+   * @param {MouseEvent} e
+   */
+  function writeRightClick(e) {
+    const el = e.target.closest(INTERACTIVE) ?? e.target;
+    if (el === document.body || el === document.documentElement) return;
+    resolvePendingKeys();
+    appendAction({
+      type: 'right_click',
+      timestamp: Date.now(),
+      x: e.clientX,
+      y: e.clientY,
+      modifiers: modifiersOf(e),
+      held_keys: heldKeys(),
+      element: describeElement(el),
+    });
+    markUserAction();
+  }
 
   /**
    * Remember a trusted click on a file input: the `file_upload` its dialog
@@ -1235,7 +1263,7 @@
     { capture: true, passive: true },
   );
 
-  // ─── Right-click / context menu ───────────────────────────────────────────────
+  // ─── Context menu request ─────────────────────────────────────────────────────
 
   document.addEventListener(
     'contextmenu',
@@ -1248,19 +1276,14 @@
         markUserAction();
         return;
       }
-      const el = e.target.closest(INTERACTIVE) ?? e.target;
-      if (el === document.body || el === document.documentElement) return;
-      resolvePendingKeys();
-      appendAction({
-        type: 'right_click',
-        timestamp: Date.now(),
-        x: e.clientX,
-        y: e.clientY,
-        modifiers: modifiersOf(e),
-        held_keys: heldKeys(),
-        element: describeElement(el),
-      });
-      markUserAction();
+      // A request that carries the right button follows a press of that
+      // button, which is the record, wherever and whenever it was made:
+      // another button pressed in between, or a release over another
+      // document, changes nothing about that. A request that carries no
+      // right button (a long press on a touch screen) has no press, and is
+      // written here.
+      if (e.button === 2) return;
+      writeRightClick(e);
     },
     { capture: true, passive: true },
   );
