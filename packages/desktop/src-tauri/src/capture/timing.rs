@@ -124,6 +124,14 @@ pub fn debounce_elapsed(now_ms: u64, last_ms: u64, window_ms: u64) -> bool {
     now_ms.saturating_sub(last_ms) >= window_ms
 }
 
+// ─── Click pre-capture ─────────────────────────────────────────────────────
+
+/// The longest the low-level mouse hook waits for the click pre-capture's
+/// answer (DCP-1). Well under the system's low-level hook timeout, past which
+/// Windows passes input on without the hook and can remove it; long enough
+/// for a responsive application to answer `ElementFromPoint`.
+pub const PRE_CAPTURE_BUDGET_MS: u64 = 100;
+
 #[cfg(test)]
 mod tests {
     use super::*;

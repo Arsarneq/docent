@@ -24,8 +24,10 @@ hooks / WinEvents        bridge            worker pool               frontend
 
 1. **Input_Thread** — the low-level hooks and WinEvent callbacks classify each
    OS event into a raw event, stamp it with a monotonic sequence id, and send
-   it to the bridge. This thread performs no accessibility queries beyond the
-   click pre-capture (DCP-1), so hooks stay inside their latency budget. It also
+   it to the bridge. This thread performs no accessibility queries: the click
+   pre-capture runs on the pre-capture thread, which the mouse hook waits on
+   for a bounded time only (DCP-1), so hooks stay inside their latency budget
+   whatever the clicked application does. It also
    counts focus changes and stamps every raw event with the count, so a
    worker can tell whether focus still is where a keystroke or value change
    happened, and stamps each keystroke with the window handle of the control

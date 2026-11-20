@@ -19,17 +19,29 @@ numeric sequence.
 
 ## Architecture
 
-**DCP-1.** Capture runs on three thread roles:
+**DCP-1.** Capture runs on four thread roles:
 
-1. **Input Thread** — low-level hooks (WH_MOUSE_LL, WH_KEYBOARD_LL). Its one
-   accessibility call is the `ElementFromPoint` pre-capture of clicked
-   elements — at left mouse-up on a non-drag click, and at right/middle
-   button-down — which describes the element while the target window is still
-   alive, inside the hook's latency budget (locator match statistics
-   deliberately unmeasured there); every other accessibility query runs on the
-   workers
-2. **Worker Pool** (3 threads) — accessibility queries, produces ActionEvents
-3. **Bridge Thread** — dispatches raw events from input thread to workers
+1. **Input Thread** — low-level hooks (WH_MOUSE_LL, WH_KEYBOARD_LL). It makes
+   no accessibility call itself. At left mouse-up on a non-drag click, and at
+   right/middle button-down, the mouse hook asks the pre-capture thread for
+   the clicked element and waits for the answer for at most a fixed budget
+   (`PRE_CAPTURE_BUDGET_MS`), so the element is described while the target
+   window is still alive (locator match statistics deliberately unmeasured
+   there). The hook dispatches every click whether or not an answer came:
+   a click whose answer does not come within the budget, or that arrives
+   while an earlier pre-capture is still unanswered, is dispatched at once
+   with no element, and its worker describes it as it describes any click the
+   pre-capture did not describe. The wait dispatches no message, so no other
+   hook call runs inside it. Windows passes input on without a low-level hook
+   that does not return within the system's hook timeout, and can remove the
+   hook after that, after which nothing the mouse does would be recorded; the
+   budget keeps a slow or unresponsive application from holding the hook that
+   long. Every other accessibility query runs on the workers
+2. **Pre-capture Thread** (1 thread) — the `ElementFromPoint` pre-capture,
+   one at a time, with its own accessibility client; a call an application
+   leaves unanswered holds this thread only, and its late answer is discarded
+3. **Worker Pool** (3 threads) — accessibility queries, produces ActionEvents
+4. **Bridge Thread** — dispatches raw events from input thread to workers
 
 **DCP-2.** Events may arrive out-of-order from workers, and ordering is
 restored without delaying the user: the frontend delivers each event
