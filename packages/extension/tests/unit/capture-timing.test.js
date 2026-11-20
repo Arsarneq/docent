@@ -17,7 +17,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  ENTER_SYNTHETIC_CLICK_WINDOW,
   SELECT_SYNTHETIC_CLICK_WINDOW,
   TAB_FOCUS_CORRELATION_WINDOW,
   CLICK_FOCUS_DEDUP_WINDOW,
@@ -30,7 +29,6 @@ import {
 
 describe('capture-timing constants — validity', () => {
   const allConstants = {
-    ENTER_SYNTHETIC_CLICK_WINDOW,
     SELECT_SYNTHETIC_CLICK_WINDOW,
     TAB_FOCUS_CORRELATION_WINDOW,
     CLICK_FOCUS_DEDUP_WINDOW,
@@ -57,8 +55,7 @@ describe('capture-timing constants — validity', () => {
 });
 
 describe('capture-timing constants — relative ordering', () => {
-  it('synthetic click windows are shorter than focus correlation', () => {
-    assert.ok(ENTER_SYNTHETIC_CLICK_WINDOW <= TAB_FOCUS_CORRELATION_WINDOW);
+  it('the synthetic click window is shorter than focus correlation', () => {
     assert.ok(SELECT_SYNTHETIC_CLICK_WINDOW <= TAB_FOCUS_CORRELATION_WINDOW);
   });
 
