@@ -1,61 +1,26 @@
 # Test
 
-How Docent's own suites verify that the **application behaves as designed** — the
-inside-out lens. This is the counterpart to
-[Verification](../verification/scripted-truth-corpus.md): verification looks
-outside-in and proves the recorded **data** keeps the guarantees the format makes
-to a consumer ([Replay Sufficiency](../requirements/replay-sufficiency.md)); this
-area documents the tests that prove the capture **software** itself works.
+How Docent's own suites verify that the **application behaves as designed**: the inside-out lens, whose tests prove the capture **software** itself works. Its counterpart is [Verification](../verification/scripted-truth-corpus.md), which looks outside-in and proves the recorded **data** keeps the guarantees the format makes to a consumer ([Replay Sufficiency](../requirements/replay-sufficiency.md)).
 
-This area is documentation _about_ the suites — what each covers and the
-doctrine behind it. The commands that run the suites by layer and by package
-live in the [contributing guide](../../.github/CONTRIBUTING.md#running-tests).
-Where a suite doc has a "Running the suite" section, it carries what running
-that one suite takes: its one-time harness install, which the guide links, the
-invocations particular to the suite, and the guide's command for it beside them,
-so its first run reads in one place. Running the CI jobs on your own machine is
-covered in [Running CI locally](../guides/local-ci.md).
+This area is documentation _about_ the suites: what each covers and the doctrine behind it. The commands that run the suites by layer and by package are in the [contributing guide](../../.github/CONTRIBUTING.md#running-tests). A suite doc's "Running the suite" section, where it has one, carries what running that one suite takes: its one-time harness install (which the guide links), the invocations particular to the suite, and the guide's command for it beside them. So its first run reads in one place. [Running CI locally](../guides/local-ci.md) covers running the CI jobs on your own machine.
 
 ## Documents
 
-- [Test strategy — the pyramid](strategy/test-pyramid.md) — how the suites are
-  layered (unit / integration / e2e) and how each test's layer is determined,
-  including Rust test self-classification.
-- [Test strategy — coverage reporting](strategy/coverage.md) — how coverage reaches
-  Codecov and how it is sliced by flag (layer × language) and component (package).
-- [Test strategy — mutation testing](strategy/mutation.md) — the weekly mutation-score
-  signal (Stryker for JavaScript, cargo-mutants for Rust): what is mutated and why, and
-  the ratchet-not-fixed-bar thresholds.
-- [Unit tests — JavaScript](unit.md) — the shared, desktop, and extension unit
-  trees: what each suite covers, file by file, and the discovery shape they
-  share.
-- [End-to-end tests — extension](e2e.md) — the extension's Playwright suite
-  (real Chrome, real input): the capture specs plus the panel, service-worker,
-  and sync flows, and the harness contract they run under (frame readiness,
-  one-worker serialization, retries, settle waits).
-- [Desktop Rust tests](desktop-rust.md) — the Tauri crate's cargo suite: the
-  in-module unit tests, the test binaries (property tests included), the
-  real-input integration suite, and how each test classifies itself for CI.
-- [Desktop integration tests](integration/desktop.md) — the Playwright suite
-  that drives the built desktop frontend against a mocked Tauri backend.
-- [Manual tests — extension](manual/extension.md) — the retired manual capture
-  scenarios, each mapped to the automated test that replaced it.
-- [Manual tests — Windows desktop](manual/windows.md) — the retired manual desktop
-  scenarios, mapped to their Rust integration/unit replacements.
-- [Backward-compatibility fixtures](backward-compat.md) — the frozen-export corpus
-  that proves an older `.docent.json` still validates by shape against the current
-  schema.
+- [Test strategy — the pyramid](strategy/test-pyramid.md): how the suites are layered (unit / integration / e2e) and how each test's layer is determined, including Rust test self-classification.
+- [Test strategy — coverage reporting](strategy/coverage.md): how coverage reaches Codecov and how it is sliced by flag (layer × language) and component (package).
+- [Test strategy — mutation testing](strategy/mutation.md): the weekly mutation-score signal (Stryker for JavaScript, cargo-mutants for Rust), what is mutated and why, and the ratchet-not-fixed-bar thresholds.
+- [Unit tests — JavaScript](unit.md): the shared, desktop, and extension unit trees, with what each suite covers, file by file, and the discovery shape they share.
+- [End-to-end tests — extension](e2e.md): the extension's Playwright suite (real Chrome, real input), covering the capture specs plus the panel, service-worker, and sync flows, and the harness contract they run under (frame readiness, one-worker serialization, retries, settle waits).
+- [Desktop Rust tests](desktop-rust.md): the Tauri crate's cargo suite, covering the in-module unit tests, the test binaries (property tests included), the real-input integration suite, and how each test classifies itself for CI.
+- [Desktop integration tests](integration/desktop.md): the Playwright suite that drives the built desktop frontend against a mocked Tauri backend.
+- [Manual tests — extension](manual/extension.md): the retired manual capture scenarios, each mapped to the automated test that replaced it.
+- [Manual tests — Windows desktop](manual/windows.md): the retired manual desktop scenarios, mapped to their Rust integration/unit replacements.
+- [Backward-compatibility fixtures](backward-compat.md): the frozen-export corpus that proves an older `.docent.json` still validates by shape against the current schema.
 
 ## Reserved areas
 
-Named here so every future test doc has an obvious home; a folder is created only
-when its first real doc lands (no empty directories — the same anti-scaffolding
-rule as the [documentation map](../README.md)):
+Named here so every future test doc has an obvious home. A folder is created only when its first real doc lands (no empty directories, the same anti-scaffolding rule as the [documentation map](../README.md)):
 
-- `integration/<surface>.md` — a new surface's integration suite slots in
-  beside [`integration/desktop.md`](integration/desktop.md).
-- `e2e/<surface>/` — the flat `e2e.md` splits per surface if a second surface's
-  end-to-end suite is documented (the extension is the only one today).
-- `manual/<surface>.md` — a new capture surface's manual history slots in beside
-  `extension.md` and `windows.md` (e.g. `manual/linux.md` if Arsarneq/docent#84
-  lands).
+- `integration/<surface>.md`: a new surface's integration suite slots in beside [`integration/desktop.md`](integration/desktop.md).
+- `e2e/<surface>/`: the flat `e2e.md` splits per surface if a second surface's end-to-end suite is documented. The extension is the only one today.
+- `manual/<surface>.md`: a new capture surface's manual history slots in beside `extension.md` and `windows.md` (e.g. `manual/linux.md` if Arsarneq/docent#84 lands).

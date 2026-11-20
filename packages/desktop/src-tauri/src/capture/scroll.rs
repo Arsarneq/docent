@@ -1,7 +1,9 @@
 // Scroll debounce/threshold filtering, the platform-agnostic PID-exclusion
-// base rule, and the executable-name ground of DCP-5's self-capture exclusion
+// base rule, the executable-name ground of DCP-5's self-capture exclusion
 // (the whole-name comparison against the webview runtime's file name and
-// Docent's own binary name) — pure-Rust logic for capture noise reduction.
+// Docent's own binary name), and the keyboard hook's key attribution
+// (DCP-14: which window a keydown is attributed to, or none) — pure-Rust
+// logic for capture noise reduction and scoping.
 //
 // This module contains NO platform API calls so it can be compiled and tested
 // on any target. Platform-specific concerns layer on top elsewhere: the actual
@@ -251,6 +253,70 @@ pub fn is_recognized_exe_name(exe_name: &str, own_exe_name: Option<&str>) -> boo
     lower == WEBVIEW_RUNTIME_EXE || own_exe_name.is_some_and(|own| lower == own.to_lowercase())
 }
 
+/// Which window a keydown the keyboard hook sees is attributed to (desktop
+/// capture DCP-14), and so whether it is kept at all.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KeyAttribution {
+    /// Kept, attributed to the foreground window.
+    ForegroundWindow,
+    /// Kept, attributed to no window.
+    NoWindow,
+    /// Not kept.
+    Dropped,
+}
+
+/// The keyboard hook's attribution of a keydown as pure logic (DCP-14,
+/// DCP-5). `foreground_kept` is the scope filters' verdict on the foreground
+/// window's process `foreground_pid`; `key_code` and `modifiers` (ctrl,
+/// shift, alt, meta, as the hook reads them) say whether the system takes the
+/// key ([`system_takes_key`]).
+///
+/// A key the foreground window's verdict keeps stays on that window. A key
+/// the system takes is kept with no window when the verdict dropped the
+/// foreground window on the self-capture exclusion's grounds alone — no
+/// target set, so the target filter dropped nothing; the exclusion on; a
+/// resolvable foreground process, so the resolvable-window skip dropped
+/// nothing. Every other dropped key stays dropped.
+pub fn keyboard_attribution(
+    key_code: u32,
+    modifiers: (bool, bool, bool, bool),
+    foreground_pid: u32,
+    included_pid: Option<u32>,
+    excluded_pid: Option<u32>,
+    foreground_kept: bool,
+) -> KeyAttribution {
+    if foreground_kept {
+        return KeyAttribution::ForegroundWindow;
+    }
+    if system_takes_key(key_code, modifiers)
+        && included_pid.is_none()
+        && excluded_pid.is_some()
+        && foreground_pid != 0
+    {
+        KeyAttribution::NoWindow
+    } else {
+        KeyAttribution::Dropped
+    }
+}
+
+/// Whether the system, not the foreground window, acts on a keydown (DCP-14):
+/// the Windows key, or any key while it is held; Escape with Ctrl held and
+/// Alt not (Ctrl+Esc opens Start); Tab or Escape with Alt held (Alt+Tab and
+/// Alt+Esc switch windows). An Alt keydown alone is none of these.
+pub fn system_takes_key(key_code: u32, modifiers: (bool, bool, bool, bool)) -> bool {
+    let (ctrl, _shift, alt, meta) = modifiers;
+    meta || key_code == VK_LWIN
+        || key_code == VK_RWIN
+        || (key_code == VK_ESCAPE && ctrl && !alt)
+        || ((key_code == VK_TAB || key_code == VK_ESCAPE) && alt)
+}
+
+/// The virtual-key codes [`system_takes_key`] reads.
+const VK_LWIN: u32 = 0x5B;
+const VK_RWIN: u32 = 0x5C;
+const VK_TAB: u32 = 0x09;
+const VK_ESCAPE: u32 = 0x1B;
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -258,6 +324,137 @@ pub fn is_recognized_exe_name(exe_name: &str, own_exe_name: Option<&str>) -> boo
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // -- keyboard_attribution ------------------------------------------------
+
+    const DOCENT: u32 = 100;
+    const OTHER_APP: u32 = 200;
+    /// Modifier states as the hook reads them: (ctrl, shift, alt, meta).
+    const NONE: (bool, bool, bool, bool) = (false, false, false, false);
+    const WIN: (bool, bool, bool, bool) = (false, false, false, true);
+    const CTRL: (bool, bool, bool, bool) = (true, false, false, false);
+    const CTRL_SHIFT: (bool, bool, bool, bool) = (true, true, false, false);
+    const ALT: (bool, bool, bool, bool) = (false, false, true, false);
+    const ALT_SHIFT: (bool, bool, bool, bool) = (false, true, true, false);
+    const CTRL_ALT: (bool, bool, bool, bool) = (true, false, true, false);
+    const VK_MENU: u32 = 0x12;
+    const VK_LMENU: u32 = 0xA4;
+    const VK_R: u32 = 0x52;
+
+    // Regression: #687 — a Windows key press made while Docent's own window
+    // was in front was dropped as input to Docent, although the shell acts on
+    // it, so the recording began inside Start search with no key opening it.
+    // https://github.com/Arsarneq/docent/issues/687
+    #[test]
+    fn regression_687_win_key_over_docent_is_kept_with_no_window() {
+        // No target ("All applications"), exclusion on, Docent in front: the
+        // scope filters drop the foreground window's process.
+        for vk in [VK_LWIN, VK_RWIN] {
+            assert_eq!(
+                keyboard_attribution(vk, NONE, DOCENT, None, Some(DOCENT), false),
+                KeyAttribution::NoWindow
+            );
+        }
+        // Win+R: R pressed while the Windows key is held.
+        assert_eq!(
+            keyboard_attribution(VK_R, WIN, DOCENT, None, Some(DOCENT), false),
+            KeyAttribution::NoWindow
+        );
+    }
+
+    // Regression: #687 — Ctrl+Esc opens Start exactly as the Windows key
+    // does, and pressed over Docent's own window it was dropped the same way.
+    // https://github.com/Arsarneq/docent/issues/687
+    #[test]
+    fn regression_687_ctrl_esc_over_docent_is_kept_with_no_window() {
+        assert_eq!(
+            keyboard_attribution(VK_ESCAPE, CTRL, DOCENT, None, Some(DOCENT), false),
+            KeyAttribution::NoWindow
+        );
+        // Ctrl+Shift+Esc too, whenever the hook sees it.
+        assert_eq!(
+            keyboard_attribution(VK_ESCAPE, CTRL_SHIFT, DOCENT, None, Some(DOCENT), false),
+            KeyAttribution::NoWindow
+        );
+    }
+
+    #[test]
+    fn alt_tab_and_alt_esc_over_docent_are_kept_with_no_window() {
+        for mods in [ALT, ALT_SHIFT, CTRL_ALT] {
+            for vk in [VK_TAB, VK_ESCAPE] {
+                assert_eq!(
+                    keyboard_attribution(vk, mods, DOCENT, None, Some(DOCENT), false),
+                    KeyAttribution::NoWindow,
+                    "vk {vk:#x} with {mods:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn keys_the_system_does_not_take_over_docent_stay_dropped() {
+        let cases = [
+            (VK_LMENU, ALT),   // the Alt keydown alone
+            (VK_MENU, ALT),    // the generic Alt code alone
+            (VK_ESCAPE, NONE), // Escape alone
+            (VK_TAB, NONE),    // Tab alone
+            (VK_TAB, CTRL),    // Ctrl+Tab is the window's own
+            (VK_TAB, CTRL_SHIFT),
+            (VK_R, CTRL), // a Ctrl shortcut
+            (VK_R, ALT),  // an Alt shortcut
+        ];
+        for (vk, mods) in cases {
+            assert_eq!(
+                keyboard_attribution(vk, mods, DOCENT, None, Some(DOCENT), false),
+                KeyAttribution::Dropped,
+                "vk {vk:#x} with {mods:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_key_over_docent_without_the_windows_key_is_dropped() {
+        assert_eq!(
+            keyboard_attribution(VK_R, NONE, DOCENT, None, Some(DOCENT), false),
+            KeyAttribution::Dropped
+        );
+    }
+
+    #[test]
+    fn a_system_key_with_a_target_set_is_not_the_targets_input() {
+        // Docent in front, a target selected: the system key is dropped.
+        assert_eq!(
+            keyboard_attribution(VK_LWIN, NONE, DOCENT, Some(OTHER_APP), Some(DOCENT), false),
+            KeyAttribution::Dropped
+        );
+        // Another out-of-target window in front, exclusion off: dropped too.
+        assert_eq!(
+            keyboard_attribution(VK_LWIN, NONE, OTHER_APP, Some(DOCENT), None, false),
+            KeyAttribution::Dropped
+        );
+    }
+
+    #[test]
+    fn a_system_key_with_no_resolvable_foreground_window_is_dropped() {
+        assert_eq!(
+            keyboard_attribution(VK_LWIN, NONE, 0, None, Some(DOCENT), false),
+            KeyAttribution::Dropped
+        );
+        assert_eq!(
+            keyboard_attribution(VK_LWIN, NONE, 0, None, None, false),
+            KeyAttribution::Dropped
+        );
+    }
+
+    #[test]
+    fn a_kept_foreground_window_keeps_every_key_on_it() {
+        for (vk, mods) in [(VK_LWIN, NONE), (VK_R, WIN), (VK_R, NONE)] {
+            assert_eq!(
+                keyboard_attribution(vk, mods, OTHER_APP, None, Some(DOCENT), true),
+                KeyAttribution::ForegroundWindow
+            );
+        }
+    }
 
     // -- process_scroll_events ---------------------------------------------
 
