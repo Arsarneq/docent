@@ -4590,6 +4590,84 @@ fn regression_736_a_value_pasted_undone_and_pasted_again_is_recorded() {
     );
 }
 
+/// The same text pasted over itself: the value change that follows a paste
+/// key is the person's entry, also where it repeats the field's value.
+#[test]
+fn regression_751_the_same_text_pasted_over_itself_is_recorded() {
+    for (name, paste_code, paste_modifiers) in [
+        ("Ctrl+V", 0x56, (true, false, false, false)),
+        ("Shift+Insert", 0x2D, (false, true, false, false)),
+    ] {
+        let (backend, scene, _) = MovingFocusBackend::new(file_name_field(""));
+        let harness = WorkerTestHarness::new(backend);
+        let mut seq = 0;
+        // Paste, select all, paste again: the field holds "h" after each paste.
+        for (code, modifiers, reports) in [
+            (paste_code, paste_modifiers, true),
+            (0x41, (true, false, false, false), false), // Ctrl+A
+            (paste_code, paste_modifiers, true),
+        ] {
+            seq += 1;
+            let mut key = layout_key(seq, now_ms(), code);
+            key.modifiers = modifiers;
+            harness.send_event(in_dialog(key));
+            thread::sleep(Duration::from_millis(150));
+            if reports {
+                {
+                    let mut scene = scene.lock().unwrap();
+                    scene.element.text = Some("h".to_string());
+                    scene.element.value = Some("h".to_string());
+                }
+                seq += 1;
+                harness.send_event(in_dialog(value_change(seq, now_ms(), DIALOG)));
+                thread::sleep(Duration::from_millis(150));
+            }
+        }
+
+        thread::sleep(Duration::from_millis(900));
+        let events = harness.shutdown();
+
+        assert_eq!(
+            type_values_of(&events),
+            vec!["h", "h"],
+            "{name}: got {events:?}"
+        );
+    }
+}
+
+/// A paste key stands for one value change: the same value reported again
+/// after it is a repeated report, as after typing.
+#[test]
+fn regression_751_a_value_change_reported_twice_after_a_paste_is_one_type() {
+    let (backend, scene, _) = MovingFocusBackend::new(file_name_field(""));
+    let harness = WorkerTestHarness::new(backend);
+
+    let mut paste = layout_key(1, now_ms(), 0x56);
+    paste.modifiers = (true, false, false, false);
+    harness.send_event(in_dialog(paste));
+    thread::sleep(Duration::from_millis(150));
+    {
+        let mut scene = scene.lock().unwrap();
+        scene.element.text = Some("h".to_string());
+        scene.element.value = Some("h".to_string());
+    }
+    harness.send_event(in_dialog(value_change(2, now_ms(), DIALOG)));
+    thread::sleep(Duration::from_millis(150));
+    harness.send_event(in_dialog(value_change(3, now_ms(), DIALOG)));
+    thread::sleep(Duration::from_millis(150));
+    // A key that pastes nothing follows; the program reports once more.
+    let mut select_all = layout_key(4, now_ms(), 0x41);
+    select_all.modifiers = (true, false, false, false);
+    harness.send_event(in_dialog(select_all));
+    thread::sleep(Duration::from_millis(150));
+    harness.send_event(in_dialog(value_change(5, now_ms(), DIALOG)));
+
+    thread::sleep(Duration::from_millis(900));
+    let events = harness.shutdown();
+
+    assert_eq!(type_values_of(&events), vec!["h"], "got {events:?}");
+}
+
 /// A program that reports one change twice writes one `type`: the second
 /// report repeats the field's value and no key was typed for it.
 #[test]

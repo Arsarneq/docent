@@ -84,6 +84,9 @@
         editableTypedInto = null;
         forgetPendingKeys();
       }
+      // A composition open when a recording ends or begins is no part of the
+      // next one, and neither is a key the input method took.
+      forgetComposition();
     }
   });
 
@@ -773,6 +776,12 @@
     fieldsEditedByKey.delete(el);
     entryLastWritten.set(el, value);
     entryMadeAgain.delete(el);
+    // The text being composed in the field is in the entry written: the
+    // composition's end enters it again only if it is composed on from here.
+    if (composition?.field === el) {
+      composition.written = composition.text;
+      composition.composedOn = false;
+    }
     return sent;
   }
 
@@ -1151,6 +1160,86 @@
     entryMadeAgain.add(field);
     entryLastWritten.delete(field);
   }
+
+  // ─── Text composed by an input method (#744) ─────────────────────────────────
+  //
+  // One composition that ends with text is one act of entering text: what its
+  // field holds afterwards is a new entry, as after the same text typed with
+  // plain keys. A composition given up enters nothing. The keys pressed inside
+  // a composition are no `key` actions (`keyPressKind`).
+  //
+  //   Open: from the first trusted composing `input` on a field
+  //     (`insertCompositionText`) to the `compositionend` that follows it.
+  //   At its end the composition entered text when the text it showed last is
+  //     not empty, unless an entry written while it was open held that text
+  //     already and nothing was composed since. Text composed on after such a
+  //     write and taken back to the text written is entered again, as plain
+  //     typing writes `a`, then `ab`, then `a`.
+  //   Forgotten: when its field takes the focus, and when a recording ends or
+  //     begins.
+  //
+  // A `compositionend` counts only for the field whose composition is open.
+  // The browser does not mark every composition end it sends itself as
+  // trusted, so the mark cannot be asked for; a page that sends the event
+  // while the person composes ends the composition here early, with the text
+  // it showed then.
+  //
+  // The composition that is open: its field, the text it showed last, the
+  // composing text an entry written during it held (undefined when none was
+  // written), and whether another text was composed after that write.
+  let composition = null;
+  // The field a key the input method took was pressed in, until the next key
+  // press: text the browser inserts there in that time is the key's, also
+  // with no composition around it.
+  let fieldOfTakenKey = null;
+
+  /** Text was composed in a field: note it for the composition's end. */
+  function noteComposingText(e) {
+    const field = e.target;
+    if (!takesEntry(field)) return;
+    if (composition?.field !== field) {
+      composition = { field, text: '', written: undefined, composedOn: false };
+    }
+    composition.text = e.data ?? '';
+    if (composition.written !== undefined && composition.text !== composition.written) {
+      composition.composedOn = true;
+    }
+    fieldsEditedByKey.add(field);
+  }
+
+  /** The open composition ended: its text, if it entered any, is a new entry. */
+  function endComposition(field) {
+    const ended = composition;
+    if (ended?.field !== field) return;
+    composition = null;
+    if (ended.text === '') return;
+    if (ended.written !== undefined && !ended.composedOn) return;
+    fieldsEditedByKey.add(field);
+    noteEntryMadeAgain(field);
+  }
+
+  /** Nothing of a composition or of a key the input method took is kept. */
+  function forgetComposition() {
+    composition = null;
+    fieldOfTakenKey = null;
+  }
+
+  /**
+   * The browser inserted text in a field with no waiting press to stand for
+   * it: text a key the input method took entered with no composition, or text
+   * pasted. What the field holds is a new entry. Text a page inserts between
+   * a key the input method took and the next key press cannot be told from
+   * that key's own and is taken for it.
+   */
+  function noteTextInserted(e) {
+    const field = e.target;
+    if (!takesEntry(field)) return;
+    const byTakenKey = e.inputType === 'insertText' && fieldOfTakenKey === field;
+    if (!byTakenKey && e.inputType !== 'insertFromPaste') return;
+    fieldsEditedByKey.add(field);
+    noteEntryMadeAgain(field);
+  }
+
   /** The modifiers held at a trusted key, mouse or drag event (#239). */
   const modifiersOf = (e) => ({
     ctrl: e.ctrlKey,
@@ -1401,6 +1490,9 @@
       // A key the input method takes is reported with key code 229, also where
       // the browser names it as the key it would be without the input method.
       const kind = keyPressKind(e.key, e.isComposing || e.keyCode === 229);
+      // A key the input method took counts for its field until the next press.
+      fieldOfTakenKey =
+        kind === 'composed' && fieldInFocus && takesEntry(fieldInFocus) ? fieldInFocus : null;
       const shortcut = isShortcut(modifiers, ALT_ENTERS_CHARACTERS);
       const focused = focusPath();
       const field = focused.at(-1) ?? null;
@@ -1458,9 +1550,9 @@
       // field. Whether it makes what the field holds a new entry is known
       // when its text arrives (`noteEntryMadeAgain`): a key the page cancels
       // enters nothing, and the entry written before it is not written again.
-      // Text an input method composes is not followed: what the field holds
-      // after it is written where it differs from the entry last written
-      // since the focus or, where none was, from what it held at focus.
+      // For a key the input method takes it is known at the end of the
+      // composition (`endComposition`) or when its text is inserted with none
+      // (`noteTextInserted`).
       const entersText = mayBeText || kind === 'composed';
       if (entersText && fieldInFocus && takesEntry(fieldInFocus)) {
         fieldsEditedByKey.add(fieldInFocus);
@@ -1698,6 +1790,7 @@
         fieldsEditedByKey.delete(e.target);
         entryLastWritten.delete(e.target);
         entryMadeAgain.delete(e.target);
+        if (composition?.field === e.target) composition = null;
       }
       if (document.visibilityState === 'hidden') return;
       const el = e.target;
@@ -1860,6 +1953,8 @@
       if (!active) return;
       if (!e.isTrusted) return;
       pendingKeysBecameText(e);
+      if (e.inputType === 'insertCompositionText') noteComposingText(e);
+      else noteTextInserted(e);
       if (document.visibilityState === 'hidden') return;
       const el = e.target;
       if (
@@ -1879,6 +1974,17 @@
     (e) => {
       if (e.target === editableTypedInto) writeEditableEntry();
       writeEntryAtBlur(e);
+    },
+    { capture: true, passive: true },
+  );
+
+  // The end of a composition (see the map at `composition`). It writes
+  // nothing: the entry is written where plain typing's is.
+  document.addEventListener(
+    'compositionend',
+    (e) => {
+      if (!active) return;
+      endComposition(e.target);
     },
     { capture: true, passive: true },
   );

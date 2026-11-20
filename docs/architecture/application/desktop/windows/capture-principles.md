@@ -640,13 +640,14 @@ with a caveat):
   last, with no typing key pressed for it (a program that reports one change
   twice) — not written; a value the person types is written each time it is
   typed, also where it equals the one written before (the same text typed
-  over itself, a value undone and typed again). A value set twice to the same
-  text with no typing key (the same text pasted over itself) is one value
-  change the worker cannot tell from a repeated report, and for a password
-  field, whose value is the mask, so is every value change after the first
-  that no text-entering keystroke accompanies (a paste, for example); a
-  departure (core CP-18;
-  [docent#751](https://github.com/Arsarneq/docent/issues/751))
+  over itself, a value undone and typed again), and so is the first value
+  change after a paste key (Ctrl+V, Ctrl+Shift+V or Shift+Insert: the same
+  text pasted over itself). A value set twice to the same text with neither
+  key (the same text pasted over itself from a menu) is one value change the
+  worker cannot tell from a repeated report, and for a password field, whose
+  value is the mask, so is every value change after the first that neither a
+  text-entering keystroke nor a paste key accompanies; a departure (core
+  CP-18)
 - A focus whose selector equals the worker's last — not written; a departure
   (core CP-18)
 - A focus or value change on an element the accessibility layer cannot
