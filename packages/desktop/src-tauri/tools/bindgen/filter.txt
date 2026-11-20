@@ -38,6 +38,7 @@ Windows.Win32.GetAsyncKeyState
 Windows.Win32.GetClassNameW
 Windows.Win32.GetCurrentThreadId
 Windows.Win32.GetForegroundWindow
+Windows.Win32.GetGUIThreadInfo
 Windows.Win32.GetMessageW
 Windows.Win32.GetModuleFileNameExW
 Windows.Win32.GetParent

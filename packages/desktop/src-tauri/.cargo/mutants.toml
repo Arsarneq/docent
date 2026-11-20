@@ -34,6 +34,7 @@ additional_cargo_test_args = [
   "--lib",
   "--test", "action_mapping_test",
   "--test", "capture_mode_test",
+  "--test", "control_look_test",
   "--test", "coordinate_dpi_test",
   "--test", "coordinate_test",
   "--test", "element_mapping_test",

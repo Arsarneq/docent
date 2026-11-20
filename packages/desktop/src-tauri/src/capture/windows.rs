@@ -33,40 +33,42 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use super::uia_core_api::{
     UIA_AutomationIdPropertyId, UIA_ClassNamePropertyId, UIA_ControlTypePropertyId,
-    UIA_FrameworkIdPropertyId, UIA_IsControlElementPropertyId, UIA_IsPasswordPropertyId,
-    UIA_LabeledByPropertyId, UIA_LevelPropertyId, UIA_LocalizedControlTypePropertyId,
-    UIA_NamePropertyId, UIA_NativeWindowHandlePropertyId, UIA_PositionInSetPropertyId,
-    UIA_SelectionPatternId, UIA_SizeOfSetPropertyId, UIA_ToolBarControlTypeId,
-    UIA_ValueValuePropertyId,
+    UIA_FrameworkIdPropertyId, UIA_IsControlElementPropertyId, UIA_IsKeyboardFocusablePropertyId,
+    UIA_IsPasswordPropertyId, UIA_LabeledByPropertyId, UIA_LevelPropertyId,
+    UIA_LocalizedControlTypePropertyId, UIA_NamePropertyId, UIA_NativeWindowHandlePropertyId,
+    UIA_PositionInSetPropertyId, UIA_SelectionPatternId, UIA_SizeOfSetPropertyId,
+    UIA_ToolBarControlTypeId, UIA_ValueValuePropertyId,
 };
 use super::variant::Variant;
 use super::win32_bindings::{
     CUIAutomation, CallNextHookEx, CloseHandle, CoCreateInstance, CoInitializeEx, CoUninitialize,
     DispatchMessageW, EnumWindows, GetAncestor, GetAsyncKeyState, GetClassNameW,
-    GetCurrentThreadId, GetForegroundWindow, GetMessageW, GetParent, GetWindow, GetWindowLongW,
-    GetWindowTextW, GetWindowThreadProcessId, IUIAutomation, IUIAutomationCondition,
-    IUIAutomationElement, IUIAutomationSelectionPattern, IsWindow, IsWindowVisible, PeekMessageW,
-    PostThreadMessageW, SetProcessDpiAwarenessContext, SetWinEventHook, SetWindowsHookExW,
-    TranslateMessage, TreeScope_Subtree, UnhookWinEvent, UnhookWindowsHookEx, WindowFromPoint,
-    CHILDID_SELF, CLSCTX_ALL, COINIT_APARTMENTTHREADED, COINIT_MULTITHREADED,
-    DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, EVENT_OBJECT_CREATE, EVENT_OBJECT_DESTROY,
-    EVENT_OBJECT_FOCUS, EVENT_OBJECT_SELECTION, EVENT_OBJECT_VALUECHANGE, EVENT_SYSTEM_FOREGROUND,
-    GA_ROOT, GA_ROOTOWNER, GWL_STYLE, GW_OWNER, HANDLE, HHOOK, HWINEVENTHOOK, HWND,
-    INVALID_HANDLE_VALUE, KBDLLHOOKSTRUCT, LPARAM, LRESULT, MSG, MSLLHOOKSTRUCT, OBJID_WINDOW,
-    PM_NOREMOVE, POINT, PROPERTYID, UIA_HWND, VK_CONTROL, VK_LWIN, VK_MENU, VK_RWIN, VK_SHIFT,
-    VT_EMPTY, WH_KEYBOARD_LL, WH_MOUSE_LL, WINEVENT_OUTOFCONTEXT, WM_APP, WM_KEYDOWN,
-    WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MOUSEHWHEEL, WM_MOUSEWHEEL, WM_NULL, WM_QUIT,
-    WM_RBUTTONDOWN, WM_SYSKEYDOWN, WM_USER, WPARAM, WS_CHILD,
+    GetCurrentThreadId, GetForegroundWindow, GetGUIThreadInfo, GetMessageW, GetParent, GetWindow,
+    GetWindowLongW, GetWindowTextW, GetWindowThreadProcessId, IUIAutomation,
+    IUIAutomationCondition, IUIAutomationElement, IUIAutomationSelectionPattern, IsWindow,
+    IsWindowVisible, PeekMessageW, PostThreadMessageW, SetProcessDpiAwarenessContext,
+    SetWinEventHook, SetWindowsHookExW, TranslateMessage, TreeScope_Descendants, TreeScope_Subtree,
+    UnhookWinEvent, UnhookWindowsHookEx, WindowFromPoint, CHILDID_SELF, CLSCTX_ALL,
+    COINIT_APARTMENTTHREADED, COINIT_MULTITHREADED, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
+    EVENT_OBJECT_CREATE, EVENT_OBJECT_DESTROY, EVENT_OBJECT_FOCUS, EVENT_OBJECT_SELECTION,
+    EVENT_OBJECT_VALUECHANGE, EVENT_SYSTEM_FOREGROUND, GA_ROOT, GA_ROOTOWNER, GUITHREADINFO,
+    GWL_STYLE, GW_OWNER, HANDLE, HHOOK, HWINEVENTHOOK, HWND, INVALID_HANDLE_VALUE, KBDLLHOOKSTRUCT,
+    LPARAM, LRESULT, MSG, MSLLHOOKSTRUCT, OBJID_WINDOW, PM_NOREMOVE, POINT, PROPERTYID, UIA_HWND,
+    VK_CONTROL, VK_LWIN, VK_MENU, VK_RWIN, VK_SHIFT, VT_EMPTY, WH_KEYBOARD_LL, WH_MOUSE_LL,
+    WINEVENT_OUTOFCONTEXT, WM_APP, WM_KEYDOWN, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN,
+    WM_MOUSEHWHEEL, WM_MOUSEWHEEL, WM_NULL, WM_QUIT, WM_RBUTTONDOWN, WM_SYSKEYDOWN, WM_USER,
+    WPARAM, WS_CHILD,
 };
 use windows_core::{Error, Interface, BOOL, BSTR, PWSTR};
 
 use super::element_mapping::{
-    map_element, LocatorMeasurements, MeasuredIndex, MeasuredPair, NativeElementProperties,
+    map_element, truncate_text, LocatorMeasurements, MeasuredIndex, MeasuredPair,
+    NativeElementProperties,
 };
 use super::timing;
 use super::worker_pool::{
-    fallback_drain_and_seal, worker_loop, AccessibilityBackend, PendingDirectory, RawEvent,
-    RawEventType, WorkerPool, FLUSH_BARRIER_TIMEOUT,
+    fallback_drain_and_seal, worker_loop, AccessibilityBackend, ControlLook, ControlNature,
+    PendingDirectory, RawEvent, RawEventType, WorkerPool, FLUSH_BARRIER_TIMEOUT,
 };
 use super::{
     ActionEvent, BarrierCompletion, BarrierReport, CaptureError, CaptureLayer, ElementDescription,
@@ -395,6 +397,11 @@ thread_local! {
     /// PID of the current foreground window. Updated on EVENT_SYSTEM_FOREGROUND.
     /// Events from non-foreground processes are filtered out.
     static INPUT_FOREGROUND_PID: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+
+    /// The focus changes that named a part of a window, by window handle. A
+    /// keystroke is stamped with the number of its control's latest one.
+    static INPUT_PART_FOCUS: std::cell::RefCell<super::worker_pool::PartFocusNote> =
+        std::cell::RefCell::new(super::worker_pool::PartFocusNote::default());
 
     /// Root window handle of the last dispatched foreground event. Used to
     /// deduplicate foreground events (click-based + WinEvent-based).
@@ -1288,9 +1295,36 @@ fn input_thread_main(
 // Input_Thread helper: dispatch a RawEvent
 // ---------------------------------------------------------------------------
 
+/// The focus epoch, in two halves (`RawEvent::focus_epoch`): the low 32 bits
+/// count the focus and foreground changes programs reported to the
+/// Input_Thread, the high 32 bits the mouse-downs and focus-moving keys the
+/// hooks saw (each may move the focus without the program reporting it).
+/// Every raw event is stamped with the epoch of its dispatch, and a worker
+/// reads the current one when it describes the focused element for a
+/// keystroke or value change (`AccessibilityBackend::focus_epoch`). Starts at
+/// 1; 0 means "not counted". Process-wide, so the workers read it directly.
+static FOCUS_EPOCH: AtomicU64 = AtomicU64::new(1);
+
+/// Count a focus or foreground change a program reported (the low half of
+/// the epoch). One atomic add.
+fn focus_epoch_advance() {
+    FOCUS_EPOCH.fetch_add(1, Ordering::SeqCst);
+}
+
+/// Count something the person did that can move the focus: a mouse-down or a
+/// focus-moving key (the high half of the epoch). One atomic add: safe on the
+/// hooks.
+fn focus_epoch_advance_by_person() {
+    FOCUS_EPOCH.fetch_add(
+        super::worker_pool::FOCUS_EPOCH_PERSON_STEP,
+        Ordering::SeqCst,
+    );
+}
+
 /// Assign a sequence ID and dispatch a `RawEvent` to the bridge thread.
 /// Called from hook callbacks on the Input_Thread.
 fn input_dispatch_raw_event(mut event: RawEvent) {
+    event.focus_epoch = FOCUS_EPOCH.load(Ordering::SeqCst);
     // Assign monotonic sequence ID.
     let seq_id = INPUT_SEQUENCE_COUNTER.with(|c| {
         c.borrow()
@@ -1502,6 +1536,21 @@ unsafe extern "system" fn input_win_event_proc(
         return;
     }
 
+    // Count every focus and foreground change, before any filter below: a
+    // change into an excluded or background window still means the focused
+    // element is no longer the one earlier keystrokes went to.
+    if event == EVENT_OBJECT_FOCUS as u32 || event == EVENT_SYSTEM_FOREGROUND as u32 {
+        focus_epoch_advance();
+    }
+    // Beside the count: a focus change that names a part of a window is
+    // noted for that window, so a keystroke into the window tells a worker
+    // that what the window holds may have changed.
+    if event == EVENT_OBJECT_FOCUS as u32
+        && super::worker_pool::focus_names_a_part(i64::from(id_object), i64::from(id_child))
+    {
+        INPUT_PART_FOCUS.with(|note| note.borrow_mut().add(hwnd.0 as i64));
+    }
+
     let mut process_id: u32 = 0;
     GetWindowThreadProcessId(hwnd, Some(&mut process_id));
     let excluded = input_get_excluded_pid();
@@ -1562,6 +1611,7 @@ unsafe extern "system" fn input_win_event_proc(
                 scroll_delta: 0.0,
                 callback_params: [id_object as i64, id_child as i64, 0, 0],
                 pre_captured_element: None,
+                focus_epoch: 0,
             });
         }
 
@@ -1601,6 +1651,7 @@ unsafe extern "system" fn input_win_event_proc(
                 scroll_delta: 0.0,
                 callback_params: [id_object as i64, id_child as i64, 0, 0],
                 pre_captured_element: None,
+                focus_epoch: 0,
             });
             // Track this window so we only emit context_close for it.
             INPUT_OPENED_WINDOWS.with(|s| s.borrow_mut().insert(window_handle));
@@ -1662,6 +1713,7 @@ unsafe extern "system" fn input_win_event_proc(
                         scroll_delta: 0.0,
                         callback_params: [id_object as i64, id_child as i64, 0, 0],
                         pre_captured_element: None,
+                        focus_epoch: 0,
                     });
                 }
             }
@@ -1701,6 +1753,7 @@ unsafe extern "system" fn input_win_event_proc(
                 scroll_delta: 0.0,
                 callback_params: [id_object as i64, id_child as i64, 0, 0],
                 pre_captured_element: None,
+                focus_epoch: 0,
             });
         }
 
@@ -1753,6 +1806,7 @@ unsafe extern "system" fn input_win_event_proc(
                 scroll_delta: 0.0,
                 callback_params: [id_object as i64, id_child as i64, 0, 0],
                 pre_captured_element: None,
+                focus_epoch: 0,
             });
         }
 
@@ -1816,6 +1870,7 @@ unsafe extern "system" fn input_win_event_proc(
                 scroll_delta: 0.0,
                 callback_params: [id_object as i64, id_child as i64, 0, 0],
                 pre_captured_element: None,
+                focus_epoch: 0,
             });
         }
 
@@ -1840,6 +1895,17 @@ unsafe extern "system" fn input_mouse_ll_proc(
         let mouse_struct = &*(l_param.0 as *const MSLLHOOKSTRUCT);
         let msg = w_param.0 as u32;
         let pt = mouse_struct.pt;
+
+        // A mouse-down may move the focus, reported or not, in a captured or
+        // an excluded window: later keystrokes start a new focus epoch.
+        // The extra buttons (Back, Forward) count too.
+        const WM_XBUTTONDOWN: i32 = 0x020B;
+        if matches!(
+            msg as i32,
+            WM_LBUTTONDOWN | WM_RBUTTONDOWN | WM_MBUTTONDOWN | WM_XBUTTONDOWN
+        ) {
+            focus_epoch_advance_by_person();
+        }
 
         // Use WindowFromPoint for PID exclusion — determines WHETHER to capture
         // the event by checking if the click target is Docent's own window.
@@ -1915,6 +1981,7 @@ unsafe extern "system" fn input_mouse_ll_proc(
                                     scroll_delta: 0.0,
                                     callback_params: [0, 0, 0, 0],
                                     pre_captured_element: None,
+                                    focus_epoch: 0,
                                 });
                             }
                         }
@@ -1942,6 +2009,7 @@ unsafe extern "system" fn input_mouse_ll_proc(
                             scroll_delta: 0.0,
                             callback_params: [0, 0, 0, 0],
                             pre_captured_element: None,
+                            focus_epoch: 0,
                         });
 
                         input_dispatch_raw_event(RawEvent {
@@ -1957,6 +2025,7 @@ unsafe extern "system" fn input_mouse_ll_proc(
                             scroll_delta: 0.0,
                             callback_params: [0, 0, 0, 0],
                             pre_captured_element: None,
+                            focus_epoch: 0,
                         });
                     } else {
                         // Click detected — pre-capture the element while
@@ -1975,6 +2044,7 @@ unsafe extern "system" fn input_mouse_ll_proc(
                             scroll_delta: 0.0,
                             callback_params: [0, 0, 0, 0],
                             pre_captured_element: pre_element,
+                            focus_epoch: 0,
                         });
                         INPUT_LAST_CLICK_TIMESTAMP.with(|t| t.set(timestamp));
                     }
@@ -1999,6 +2069,7 @@ unsafe extern "system" fn input_mouse_ll_proc(
                         scroll_delta: delta,
                         callback_params: [0, 0, 0, 0],
                         pre_captured_element: None,
+                        focus_epoch: 0,
                     });
                 }
                 WM_MOUSEHWHEEL => {
@@ -2017,6 +2088,7 @@ unsafe extern "system" fn input_mouse_ll_proc(
                         scroll_delta: delta,
                         callback_params: [1, 0, 0, 0], // 1 = horizontal axis
                         pre_captured_element: None,
+                        focus_epoch: 0,
                     });
                 }
                 // The middle and right buttons record on the press itself, each
@@ -2039,6 +2111,7 @@ unsafe extern "system" fn input_mouse_ll_proc(
                             scroll_delta: 0.0,
                             callback_params: [0, 0, 0, 0],
                             pre_captured_element: pre_element,
+                            focus_epoch: 0,
                         });
                     }
                 }
@@ -2051,6 +2124,26 @@ unsafe extern "system" fn input_mouse_ll_proc(
     }
 
     CallNextHookEx(None, n_code, w_param, l_param)
+}
+
+/// The window handle of the control that holds the keyboard focus in the
+/// thread `thread_id` (the foreground window's thread), `0` when there is
+/// none or it cannot be read. `GetGUIThreadInfo` answers from the window
+/// system's own record of the thread's input state: it sends the thread no
+/// message, so it returns at once however busy the program is.
+unsafe fn focused_control_of_thread(thread_id: u32) -> i64 {
+    if thread_id == 0 {
+        return 0;
+    }
+    let mut info = GUITHREADINFO {
+        cbSize: std::mem::size_of::<GUITHREADINFO>() as u32,
+        ..Default::default()
+    };
+    if GetGUIThreadInfo(thread_id, &mut info).as_bool() {
+        info.hwndFocus.0 as i64
+    } else {
+        0
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -2071,7 +2164,7 @@ unsafe extern "system" fn input_keyboard_ll_proc(
 
             let hwnd = GetForegroundWindow();
             let mut pid: u32 = 0;
-            GetWindowThreadProcessId(hwnd, Some(&mut pid));
+            let thread_id = GetWindowThreadProcessId(hwnd, Some(&mut pid));
             let excluded = input_get_excluded_pid();
 
             if input_should_keep_event_cached(pid, excluded, hwnd) {
@@ -2085,6 +2178,7 @@ unsafe extern "system" fn input_keyboard_ll_proc(
                 INPUT_LAST_KEYBOARD_TIMESTAMP.with(|t| t.set(timestamp));
                 INPUT_LAST_KEYBOARD_WINDOW.with(|w| w.set(window_handle));
 
+                let control = focused_control_of_thread(thread_id);
                 input_dispatch_raw_event(RawEvent {
                     event_type: RawEventType::Keyboard,
                     sequence_id: 0,
@@ -2100,9 +2194,26 @@ unsafe extern "system" fn input_keyboard_ll_proc(
                     // injected UTF-16 code unit the worker names the key by
                     // (docent#260). A copy of a field of the struct already
                     // read above — no call, lock or allocation on the hook.
-                    callback_params: [i64::from(kb_struct.scanCode), 0, 0, 0],
+                    // Beside it the control that holds the keyboard focus at
+                    // this key: one read of the window system's own state,
+                    // which sends no message and waits on no program.
+                    // And the number of the latest focus change that named a
+                    // part of that control, from this thread's own note.
+                    callback_params: [
+                        i64::from(kb_struct.scanCode),
+                        control,
+                        INPUT_PART_FOCUS.with(|note| note.borrow().of(control)),
+                        0,
+                    ],
                     pre_captured_element: None,
+                    focus_epoch: 0,
                 });
+            }
+            // After the key's own dispatch, so the key keeps the epoch it was
+            // pressed under. Outside the exclusion gate: a focus-moving key
+            // pressed in an excluded window moves the focus all the same.
+            if super::worker_pool::key_may_move_focus(kb_struct.vkCode, get_modifier_state()) {
+                focus_epoch_advance_by_person();
             }
         }
     }
@@ -2771,6 +2882,49 @@ pub(crate) unsafe fn get_modifier_state() -> (bool, bool, bool, bool) {
 /// Therefore the `Send` bound is safe.
 pub struct WindowsAccessibilityBackend {
     uia: Option<IUIAutomation>,
+    /// The element last described by `focused_element_marked`, kept so
+    /// `focused_is_marked` can ask UIA whether the focused element is that
+    /// very element. `None` during the move into the worker thread, like
+    /// `uia`; set, read and dropped (in `cleanup`) on that thread only.
+    marked: std::cell::RefCell<Option<IUIAutomationElement>>,
+}
+
+impl WindowsAccessibilityBackend {
+    /// The element of the control with window handle `control` and what the
+    /// control is right now; `None` when the window is gone or UI Automation
+    /// gives no element for it.
+    ///
+    /// The control holds the focus only itself when nothing below it can take
+    /// the keyboard focus. `FindFirst` answers "none" as a null element, which
+    /// arrives here as an error that carries a success code; any real failure
+    /// leaves the question open, and an open question is answered as a window
+    /// that holds others.
+    unsafe fn control_element(
+        &self,
+        control: i64,
+    ) -> Option<(IUIAutomationElement, ControlNature)> {
+        let uia = self.uia.as_ref()?;
+        let hwnd = HWND(control as *mut _);
+        if control == 0 || !IsWindow(Some(hwnd)).as_bool() {
+            return None;
+        }
+        let element = uia
+            .ElementFromHandle(UIA_HWND(control as isize as *mut _))
+            .ok()?;
+        let Ok(focusable) = uia.CreatePropertyCondition(
+            UIA_IsKeyboardFocusablePropertyId,
+            Variant::from(true).as_raw(),
+        ) else {
+            return Some((element, ControlNature::Shared));
+        };
+        let nature = match element.FindFirst(TreeScope_Descendants, &focusable) {
+            Err(none) if none.code().is_ok() => ControlNature::Own {
+                password: get_is_password(&element),
+            },
+            _ => ControlNature::Shared,
+        };
+        Some((element, nature))
+    }
 }
 
 // SAFETY: See doc comment on the struct. The IUIAutomation instance is created
@@ -2781,7 +2935,10 @@ impl WindowsAccessibilityBackend {
     /// Create a new backend with no COM initialisation.
     /// Call `init()` on the worker thread to set up COM and UIA.
     pub fn new() -> Self {
-        Self { uia: None }
+        Self {
+            uia: None,
+            marked: std::cell::RefCell::new(None),
+        }
     }
 }
 
@@ -2821,7 +2978,8 @@ impl AccessibilityBackend for WindowsAccessibilityBackend {
     }
 
     fn cleanup(&mut self) {
-        // Drop the COM interface before uninitialising COM.
+        // Drop the COM interfaces before uninitialising COM.
+        *self.marked.borrow_mut() = None;
         self.uia = None;
         unsafe {
             CoUninitialize();
@@ -2839,6 +2997,116 @@ impl AccessibilityBackend for WindowsAccessibilityBackend {
         let uia = self.uia.as_ref()?;
         let focused = unsafe { uia.GetFocusedElement().ok()? };
         unsafe { uia_element_to_description(uia, &focused) }
+    }
+
+    fn focused_element_marked(&self) -> Option<ElementDescription> {
+        // Nothing is marked unless this call describes an element.
+        *self.marked.borrow_mut() = None;
+        let uia = self.uia.as_ref()?;
+        let focused = unsafe { uia.GetFocusedElement().ok()? };
+        let description = unsafe { uia_element_to_description(uia, &focused)? };
+        *self.marked.borrow_mut() = Some(focused);
+        Some(description)
+    }
+
+    fn focused_is_marked(&self) -> Option<bool> {
+        let uia = self.uia.as_ref()?;
+        let marked = self.marked.borrow();
+        let marked = marked.as_ref()?;
+        unsafe {
+            let focused = uia.GetFocusedElement().ok()?;
+            Some(uia.CompareElements(marked, &focused).ok()?.as_bool())
+        }
+    }
+
+    fn focus_epoch(&self) -> u64 {
+        FOCUS_EPOCH.load(Ordering::SeqCst)
+    }
+
+    fn is_foreground_window(&self, window_handle: i64) -> bool {
+        if window_handle == 0 {
+            return false;
+        }
+        let hwnd = HWND(window_handle as *mut _);
+        unsafe {
+            if !IsWindow(Some(hwnd)).as_bool() {
+                return false;
+            }
+            let foreground = GetForegroundWindow();
+            if foreground.0.is_null() {
+                return false;
+            }
+            // Compare top-level windows: a value change comes from a control
+            // inside the window, a keystroke from the window itself.
+            let root_of = |h: HWND| {
+                let root = GetAncestor(h, GA_ROOT as u32);
+                if root.0.is_null() {
+                    h.0
+                } else {
+                    root.0
+                }
+            };
+            root_of(hwnd) == root_of(foreground)
+        }
+    }
+
+    fn focused_control(&self) -> i64 {
+        unsafe {
+            let foreground = GetForegroundWindow();
+            if foreground.0.is_null() {
+                return 0;
+            }
+            focused_control_of_thread(GetWindowThreadProcessId(foreground, None))
+        }
+    }
+
+    fn control_nature(&self, control: i64) -> ControlNature {
+        match unsafe { self.control_element(control) } {
+            Some((_, nature)) => nature,
+            None => ControlNature::Gone,
+        }
+    }
+
+    fn describe_control(&self, control: i64) -> ControlLook {
+        let Some(uia) = self.uia.as_ref() else {
+            return ControlLook::Gone;
+        };
+        unsafe {
+            match self.control_element(control) {
+                Some((element, ControlNature::Own { .. })) => {
+                    match uia_element_to_description(uia, &element) {
+                        Some(description) => ControlLook::Own(Box::new(description)),
+                        None => ControlLook::Gone,
+                    }
+                }
+                Some((_, ControlNature::Shared)) => ControlLook::Shared,
+                _ => ControlLook::Gone,
+            }
+        }
+    }
+
+    fn control_value(&self, control: i64) -> Option<String> {
+        let uia = self.uia.as_ref()?;
+        let hwnd = HWND(control as *mut _);
+        unsafe {
+            if control == 0 || !IsWindow(Some(hwnd)).as_bool() {
+                return None;
+            }
+            let element = uia
+                .ElementFromHandle(UIA_HWND(control as isize as *mut _))
+                .ok()?;
+            // Asked without the default: a control that has no value answers
+            // with no string at all, where the plain read would answer an
+            // empty one, the same as a field the person emptied.
+            let value = Variant::from_raw(
+                element
+                    .GetCurrentPropertyValueEx(UIA_ValueValuePropertyId, true)
+                    .ok()?,
+            );
+            let value = String::from_utf16_lossy(value.as_bstr()?);
+            // Cut as a description's text is.
+            Some(truncate_text(&value))
+        }
     }
 
     fn window_title(&self, window_handle: i64) -> String {
