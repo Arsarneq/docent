@@ -139,6 +139,7 @@ export function redactSensitive(action) {
     delete action.key;
     delete action.modifiers;
     delete action.repeat;
+    delete action.code;
     delete action.held_keys;
     action.type = 'type';
     action.value = SENSITIVE_MASK;

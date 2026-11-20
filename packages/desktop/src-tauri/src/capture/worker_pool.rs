@@ -16,7 +16,9 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use super::action_mapping::PASSWORD_MASK;
 use super::coordinate;
+use super::held_keys::KEY_EXTENDED_PARAM;
 use super::language::preferred_languages;
+use super::physical_key::physical_key_code;
 use super::scroll::{RawScrollEvent, ScrollAccumulator};
 use super::{
     ActionEvent, ActionPayload, CaptureError, CaptureMode, ElementDescription, HeldKeysAtAction,
@@ -113,7 +115,9 @@ pub struct RawEvent {
     /// keyboard arm: `scan_code` is the hook's scan code, for a `VK_PACKET`
     /// keystroke the injected UTF-16 code unit, with the hook's extended mark
     /// for the key in the bit above it
-    /// ([`super::held_keys::KEY_EXTENDED_PARAM`]); `focused_control` the window
+    /// ([`super::held_keys::KEY_EXTENDED_PARAM`]), scan code and mark together
+    /// naming the physical key a `key` action's `code` states;
+    /// `focused_control` the window
     /// handle of the control that held the keyboard focus at the key (`0` when
     /// none was read, see `settle_key_on_its_control`); `part_focus` the
     /// number of the latest focus change that named a part of that control
@@ -1627,6 +1631,19 @@ fn is_repeat(raw: &RawEvent) -> bool {
     raw.callback_params[3] & super::held_keys::KEY_REPEAT_PARAM != 0
 }
 
+/// The physical key of a keystroke, by its W3C UI Events `code` value, from the
+/// hook's scan code and extended mark (the first callback parameter; see
+/// [`RawEvent::callback_params`]). An injected character has none: what it
+/// carries in the scan code's place is its code unit.
+fn physical_key_of(raw: &RawEvent) -> Option<&'static str> {
+    if raw.key_code == VK_PACKET {
+        return None;
+    }
+    let params = raw.callback_params[0];
+    // The low half is the hook's scan code, a 32-bit value.
+    physical_key_code(params as u32, params & KEY_EXTENDED_PARAM != 0)
+}
+
 /// The key names that enter no character: editing, navigation, lock, system
 /// and modifier keys. The function keys (`F1` to `F24`) join them by their
 /// form. The adapter's sensitive-field rule keeps the same list
@@ -1872,7 +1889,8 @@ pub fn worker_loop<B: AccessibilityBackend>(
 struct WorkerState {
     /// The focus last written: its context and its element's selector.
     last_focus: Option<(Option<i64>, String)>,
-    last_value_map: HashMap<String, String>,
+    /// The value of the field typed into last, as last taken for its `type`.
+    last_value: Option<LastValue>,
     last_drag_element: Option<ElementDescription>,
     /// The file the last click selected in a file dialog's item view, read
     /// from the dialog at that click, for the click that completes a
@@ -1895,7 +1913,7 @@ impl WorkerState {
     fn new() -> Self {
         Self {
             last_focus: None,
-            last_value_map: HashMap::new(),
+            last_value: None,
             last_drag_element: None,
             file_pick: None,
             typing_focus: None,
@@ -1929,6 +1947,9 @@ struct LastKey {
     context_id: Option<i64>,
     /// Empty when the key named no element.
     selector: String,
+    /// The element's place under its window (see [`same_field`]), where the
+    /// description knew it.
+    place: Option<String>,
     /// `WorkerState::mark_seq` of the description the element came from;
     /// `None` when the key named no element, or was recorded on its control.
     mark: Option<u64>,
@@ -2883,7 +2904,7 @@ fn handle_value_change<B: AccessibilityBackend>(
             action_sender,
             context_id,
             pending,
-            &mut state.last_value_map,
+            &mut state.last_value,
             window_rect,
             element,
             value,
@@ -2908,7 +2929,7 @@ fn handle_value_change<B: AccessibilityBackend>(
         keep_keys_of_dropped_value_change(pending, action_sender);
         return false;
     }
-    let key_selector = last_key.map(|k| k.selector.clone());
+    let key_field = last_key.map(|k| (k.selector.clone(), k.place.clone()));
     let described = describe_focused_for(raw, backend, &mut state.mark_seq);
     let Some(FocusedNow {
         element: Some(element),
@@ -2923,7 +2944,10 @@ fn handle_value_change<B: AccessibilityBackend>(
         keep_keys_of_dropped_value_change(pending, action_sender);
         return false;
     };
-    if same_as_key.is_none() && key_selector.is_some_and(|s| s != element.selector) {
+    if same_as_key.is_none()
+        && key_field
+            .is_some_and(|(selector, place)| !same_field_as(&selector, place.as_deref(), &element))
+    {
         if let Some(k) = state.last_key.as_mut() {
             k.mark = None;
         }
@@ -2939,6 +2963,7 @@ fn handle_value_change<B: AccessibilityBackend>(
     {
         k.mark = Some(state.mark_seq);
         k.selector = element.selector.clone();
+        k.place = element.place_in_window.clone();
     }
     if focus_stands {
         state.typing_focus = Some(TypingFocus {
@@ -2951,7 +2976,7 @@ fn handle_value_change<B: AccessibilityBackend>(
         // The remembered element, described again.
         if f.context_id == context_id
             && f.epoch == raw.focus_epoch
-            && f.element.selector == element.selector
+            && same_field(&f.element, &element)
         {
             f.mark = state.mark_seq;
         }
@@ -2976,7 +3001,7 @@ fn handle_value_change<B: AccessibilityBackend>(
         action_sender,
         context_id,
         pending,
-        &mut state.last_value_map,
+        &mut state.last_value,
         window_rect,
         element,
         value,
@@ -2992,7 +3017,7 @@ fn record_type_value(
     action_sender: &mpsc::Sender<ActionEvent>,
     context_id: Option<i64>,
     pending: &SharedPendingBuffers,
-    last_value_map: &mut HashMap<String, String>,
+    last_value: &mut Option<LastValue>,
     window_rect: Option<WindowRect>,
     mut element: ElementDescription,
     value: String,
@@ -3010,18 +3035,24 @@ fn record_type_value(
     // matching timestamp) is what the coalesced type action exports.
     stamp_described_after(&mut element, raw.timestamp);
 
-    // Value-change deduplication: skip if value unchanged for this element.
-    // (last_value_map is dedup state — stays thread-local in WorkerState.)
-    let value_key = last_value_key(context_id, &element.selector);
-    if let Some(last_val) = last_value_map.get(&value_key) {
-        if *last_val == value {
-            return true;
-        }
-    }
-    last_value_map.insert(value_key, value.clone());
-
     // In-memory buffer mutation only — short lock, no backend calls inside.
     let mut buffers = lock_buffers(pending);
+
+    // A value change that repeats the value just taken for this field, with
+    // no typing key pressed for it, is the same change reported again (a
+    // program that reports one change twice) and adds nothing. With a typing
+    // key buffered it is typing: the person typed the same text over itself.
+    // Only the field typed into last is remembered, so a value the field held
+    // in an earlier typing run is never what a later one is compared with.
+    let repeats_last = buffers.pending_keys.is_empty()
+        && last_value
+            .as_ref()
+            .is_some_and(|last| last.is_of(context_id, &element) && last.value == value);
+    if repeats_last {
+        return true;
+    }
+    *last_value = Some(LastValue::of(context_id, &element, &value));
+
     buffer_type_value(
         &mut buffers,
         action_sender,
@@ -3048,11 +3079,51 @@ fn keep_keys_of_dropped_value_change(
     }
 }
 
-/// The key an element's last recorded value is kept under: its selector within
-/// its window. Two windows can hold elements with equal selectors (two
-/// documents of one application), and each has its own last value.
-fn last_value_key(context_id: Option<i64>, selector: &str) -> String {
-    format!("{}\u{1f}{selector}", context_id.unwrap_or(0))
+/// The value last taken for a field's `type`, and the field it was taken for.
+/// One is kept: that of the field typed into last. It tells a value change
+/// reported twice from typing (see [`record_type_value`]).
+struct LastValue {
+    context_id: Option<i64>,
+    selector: String,
+    place: Option<String>,
+    value: String,
+}
+
+impl LastValue {
+    fn of(context_id: Option<i64>, element: &ElementDescription, value: &str) -> Self {
+        Self {
+            context_id,
+            selector: element.selector.clone(),
+            place: element.place_in_window.clone(),
+            value: value.to_string(),
+        }
+    }
+
+    /// Whether `element` of the window `context_id` is the field it was taken
+    /// for. Two windows can hold elements with equal selectors (two documents
+    /// of one application), and they are two fields.
+    fn is_of(&self, context_id: Option<i64>, element: &ElementDescription) -> bool {
+        self.context_id == context_id
+            && same_field_as(&self.selector, self.place.as_deref(), element)
+    }
+}
+
+/// Whether two descriptions read in one window are of the same element.
+///
+/// The selector holds the window's title, and a title changes while the
+/// element stays (an editor adds or drops its "modified" mark while the
+/// person types), so where both descriptions know their place under the
+/// window, the place decides. Where one does not, the selectors do.
+fn same_field(a: &ElementDescription, b: &ElementDescription) -> bool {
+    same_field_as(&a.selector, a.place_in_window.as_deref(), b)
+}
+
+/// [`same_field`], for an element remembered by its selector and its place.
+fn same_field_as(selector: &str, place: Option<&str>, element: &ElementDescription) -> bool {
+    match (place, element.place_in_window.as_deref()) {
+        (Some(a_place), Some(b_place)) => a_place == b_place,
+        _ => selector == element.selector,
+    }
 }
 
 /// Start the pending type event for `element`, or carry the one already
@@ -3075,9 +3146,8 @@ fn buffer_type_value(
 ) {
     // The pending type is this element's when it names the same selector in the
     // same window; a type pending for any other element is flushed first.
-    let same_element = |pt: &PendingTypeEvent| {
-        pt.context_id == context_id && pt.element.selector == element.selector
-    };
+    let same_element =
+        |pt: &PendingTypeEvent| pt.context_id == context_id && same_field(&pt.element, &element);
     if buffers
         .pending_type
         .as_ref()
@@ -3231,6 +3301,7 @@ fn handle_keyboard<B: AccessibilityBackend>(
             payload: ActionPayload::Key {
                 key,
                 modifiers: modifiers_of(raw),
+                code: physical_key_of(raw),
                 repeat: is_repeat(raw),
                 held: held_at(raw),
                 element,
@@ -3314,14 +3385,14 @@ fn handle_keyboard<B: AccessibilityBackend>(
     };
     // The gap to the moment this worker settled the key's element.
     stamp_described_after(&mut element, raw.timestamp);
-    let key_selector = element.selector.clone();
+    let key_element = element.clone();
     state.last_key = Some(LastKey {
         context_id,
-        selector: key_selector.clone(),
+        selector: element.selector.clone(),
+        place: element.place_in_window.clone(),
         mark,
         control,
     });
-    let last_value_map = &mut state.last_value_map;
 
     // Typing into a password field is its masked type, never a key: a key is
     // named by the character it carries, and a buffered key is written as
@@ -3337,10 +3408,7 @@ fn handle_keyboard<B: AccessibilityBackend>(
     if (element.element_type.as_deref() == Some("password") || unknowable)
         && enters_text_in_password_field(raw, &key)
     {
-        last_value_map.insert(
-            last_value_key(context_id, &element.selector),
-            PASSWORD_MASK.to_string(),
-        );
+        state.last_value = Some(LastValue::of(context_id, &element, PASSWORD_MASK));
         let mut buffers = lock_buffers(pending);
         // Keys still buffered were typed into another control, one that
         // reported no value change; write them before this type starts, so no
@@ -3376,6 +3444,7 @@ fn handle_keyboard<B: AccessibilityBackend>(
             key: key.clone(),
             modifiers: modifiers_of(raw),
             repeat: is_repeat(raw),
+            code: physical_key_of(raw),
             held: held_at(raw),
             element,
         },
@@ -3390,7 +3459,7 @@ fn handle_keyboard<B: AccessibilityBackend>(
         if buffers
             .pending_type
             .as_ref()
-            .is_some_and(|pt| pt.context_id != context_id || pt.element.selector != key_selector)
+            .is_some_and(|pt| pt.context_id != context_id || !same_field(&pt.element, &key_element))
         {
             buffers.flush_pending_type_only(action_sender);
         }
@@ -3400,7 +3469,7 @@ fn handle_keyboard<B: AccessibilityBackend>(
         if buffers.pending_keys.iter().any(|pending_key| {
             pending_key.context_id != context_id
                 || !matches!(&pending_key.payload,
-                    ActionPayload::Key { element, .. } if element.selector == key_selector)
+                    ActionPayload::Key { element, .. } if same_field(element, &key_element))
         }) {
             flush_pending_keys(&mut buffers.pending_keys, action_sender);
         }
@@ -3655,6 +3724,7 @@ mod tests {
                     meta: false,
                 },
                 repeat: false,
+                code: None,
                 held: HeldKeysAtAction::default(),
                 element: ElementDescription {
                     tag: "Edit".to_string(),

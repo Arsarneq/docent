@@ -243,6 +243,26 @@ function _keyEntersText(action) {
   return !_NON_TEXT_KEY_NAMES.has(key) && !/^F\d+$/.test(key);
 }
 
+// The element's path under its window's root, from its `tree_path` locator
+// (which starts at the root) with the root's own segment left out: the root
+// holds the window's title, and a title changes while the element stays (an
+// editor's unsaved mark). Null where the element carries no such path.
+function _placeInWindow(element) {
+  const path = element.locators?.find((l) => l?.strategy === 'tree_path')?.value;
+  if (typeof path !== 'string') return null;
+  const cut = path.indexOf(' > ');
+  return cut === -1 ? '' : path.slice(cut + 3);
+}
+
+// Whether two descriptions read in one window are of the same element: by
+// their place under the window where both carry one, by selector otherwise.
+function _sameField(a, b) {
+  const placeA = _placeInWindow(a);
+  const placeB = _placeInWindow(b);
+  if (placeA !== null && placeB !== null) return placeA === placeB;
+  return a.selector === b.selector;
+}
+
 function _isMaskedTypeOn(action, element, contextId) {
   return (
     !!action &&
@@ -252,7 +272,7 @@ function _isMaskedTypeOn(action, element, contextId) {
     !!action.element &&
     typeof element.selector === 'string' &&
     element.selector !== '' &&
-    action.element.selector === element.selector
+    _sameField(action.element, element)
   );
 }
 
@@ -262,6 +282,7 @@ function _maskedTypeFromKey(action) {
     key: _key,
     modifiers: _modifiers,
     repeat: _repeat,
+    code: _code,
     held_keys: _heldKeys,
     ...rest
   } = action;
