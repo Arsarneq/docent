@@ -35,12 +35,13 @@ Every worker's queue is FIFO, and all workers share one action channel. So per-w
 
 - **Typing worker.** Every keyboard and value-change event reaches one worker. So a value change is processed after the keystrokes that caused it, and supersedes the buffered ones (DCP-9).
 - **End of typing.** An event that ends the typing in a field (a click, a drag, a window change) is routed like any other. The dispatcher tells the typing worker behind the events already sent to it, so the `type` that worker holds is written (DCP-9).
-- **Sticky routing.** Focus and selection events for the same window handle always reach the same worker, which keeps their deduplication correct.
+- **Focus worker.** Every focus event reaches one worker, whatever window it names, so each focus is compared with the focus before it (DCP-12, DCP-13).
+- **Sticky routing.** Selection events for the same window handle always reach the same worker, which processes them in order.
 - **Drag pairing.** A drop routes to the worker that took its drag start, so the pair is built from the same recorded source element.
 - **Double-click pairing.** A click that completes a double-click routes to the worker that took the click before it, so the file-dialog proxy reads the pair in order on one worker (DCP-6, DCP-10).
 - **Shortest queue.** Everything else goes to the least-loaded worker (ties to the lowest index).
 
-A worker found dead at dispatch (its channel disconnected) is respawned in place at the same index, and the event is retried on the fresh worker. Sticky affinities pointing at the dead index are cleared so later events re-route. The typing worker stays that index, and gives the role up only when it fails to answer a commit's flush barrier in time (DCP-12).
+A worker found dead at dispatch (its channel disconnected) is respawned in place at the same index, and the event is retried on the fresh worker. Sticky affinities pointing at the dead index are cleared so later events re-route. The typing and focus workers stay that index. Each gives its role up only when it fails to answer a commit's flush barrier in time (DCP-12).
 
 A respawned worker starts fresh: empty queue, empty dedup state, empty held buffers. The held buffers the dead worker leaves behind are **drained into the action stream before the replacement is installed**, so its completed actions survive the respawn. Per-event processing, where held actions are built, is panic-contained (the worker survives a poison event), so a worker death is rare to begin with. When one happens anyway, every path that encounters the body drains what it held:
 

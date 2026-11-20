@@ -1387,6 +1387,11 @@ fn input_thread_main(
 /// 1; 0 means "not counted". Process-wide, so the workers read it directly.
 static FOCUS_EPOCH: AtomicU64 = AtomicU64::new(1);
 
+/// The number of the latest focus event the Input_Thread dispatched
+/// (`AccessibilityBackend::focus_events_dispatched`); `0` before the first.
+/// Process-wide, so the workers read it directly.
+static FOCUS_EVENTS_DISPATCHED: AtomicU64 = AtomicU64::new(0);
+
 /// Count a focus or foreground change a program reported (the low half of
 /// the epoch). One atomic add.
 fn focus_epoch_advance() {
@@ -2058,7 +2063,14 @@ unsafe fn input_win_event_handle(
                 key_code: 0,
                 modifiers: (false, false, false, false),
                 scroll_delta: 0.0,
-                callback_params: [id_object as i64, id_child as i64, 0, 0],
+                // The event's number among the focus events dispatched,
+                // counted here, where the event is sure to be sent.
+                callback_params: [
+                    id_object as i64,
+                    id_child as i64,
+                    (FOCUS_EVENTS_DISPATCHED.fetch_add(1, Ordering::SeqCst) + 1) as i64,
+                    0,
+                ],
                 pre_captured_element: None,
                 focus_epoch: 0,
                 held: Vec::new(),
@@ -3802,6 +3814,10 @@ impl AccessibilityBackend for WindowsAccessibilityBackend {
 
     fn focus_epoch(&self) -> u64 {
         FOCUS_EPOCH.load(Ordering::SeqCst)
+    }
+
+    fn focus_events_dispatched(&self) -> u64 {
+        FOCUS_EVENTS_DISPATCHED.load(Ordering::SeqCst)
     }
 
     fn is_foreground_window(&self, window_handle: i64) -> bool {
