@@ -11,6 +11,7 @@ pub mod action_mapping;
 pub mod coordinate;
 pub mod element_mapping;
 pub mod held_keys;
+pub mod physical_key;
 pub mod scroll;
 pub mod timing;
 pub mod worker_pool;
@@ -402,6 +403,12 @@ pub enum ActionPayload {
         /// True on a press key repeat generated while the key was held down,
         /// false on the press itself.
         repeat: bool,
+        /// The physical key that was pressed, named by the W3C UI Events
+        /// `code` values. `None` (left out of the file) where the keystroke
+        /// has no physical key the table names: an injected character, a key
+        /// whose scan code the table has no name for (zero among them).
+        #[serde(skip_serializing_if = "Option::is_none")]
+        code: Option<&'static str>,
         #[serde(flatten)]
         held: HeldKeysAtAction,
         element: ElementDescription,

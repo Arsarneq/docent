@@ -16,6 +16,8 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use super::action_mapping::PASSWORD_MASK;
 use super::coordinate;
+use super::held_keys::KEY_EXTENDED_PARAM;
+use super::physical_key::physical_key_code;
 use super::scroll::{RawScrollEvent, ScrollAccumulator};
 use super::{
     ActionEvent, ActionPayload, CaptureError, CaptureMode, ElementDescription, HeldKeysAtAction,
@@ -110,7 +112,9 @@ pub struct RawEvent {
     /// keyboard arm: `scan_code` is the hook's scan code, for a `VK_PACKET`
     /// keystroke the injected UTF-16 code unit, with the hook's extended mark
     /// for the key in the bit above it
-    /// ([`super::held_keys::KEY_EXTENDED_PARAM`]); `focused_control` the window
+    /// ([`super::held_keys::KEY_EXTENDED_PARAM`]), scan code and mark together
+    /// naming the physical key a `key` action's `code` states;
+    /// `focused_control` the window
     /// handle of the control that held the keyboard focus at the key (`0` when
     /// none was read, see `settle_key_on_its_control`); `part_focus` the
     /// number of the latest focus change that named a part of that control
@@ -1564,6 +1568,19 @@ pub fn key_may_move_focus(key_code: u32, modifiers: (bool, bool, bool, bool)) ->
 /// [`RawEvent::callback_params`]).
 fn is_repeat(raw: &RawEvent) -> bool {
     raw.callback_params[3] & super::held_keys::KEY_REPEAT_PARAM != 0
+}
+
+/// The physical key of a keystroke, by its W3C UI Events `code` value, from the
+/// hook's scan code and extended mark (the first callback parameter; see
+/// [`RawEvent::callback_params`]). An injected character has none: what it
+/// carries in the scan code's place is its code unit.
+fn physical_key_of(raw: &RawEvent) -> Option<&'static str> {
+    if raw.key_code == VK_PACKET {
+        return None;
+    }
+    let params = raw.callback_params[0];
+    // The low half is the hook's scan code, a 32-bit value.
+    physical_key_code(params as u32, params & KEY_EXTENDED_PARAM != 0)
 }
 
 /// The key names that enter no character: editing, navigation, lock, system
@@ -3047,6 +3064,7 @@ fn handle_keyboard<B: AccessibilityBackend>(
             payload: ActionPayload::Key {
                 key,
                 modifiers: modifiers_of(raw),
+                code: physical_key_of(raw),
                 repeat: is_repeat(raw),
                 held: held_at(raw),
                 element,
@@ -3191,6 +3209,7 @@ fn handle_keyboard<B: AccessibilityBackend>(
             key: key.clone(),
             modifiers: modifiers_of(raw),
             repeat: is_repeat(raw),
+            code: physical_key_of(raw),
             held: held_at(raw),
             element,
         },
@@ -3465,6 +3484,7 @@ mod tests {
                     meta: false,
                 },
                 repeat: false,
+                code: None,
                 held: HeldKeysAtAction::default(),
                 element: ElementDescription {
                     tag: "Edit".to_string(),

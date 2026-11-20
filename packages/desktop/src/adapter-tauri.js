@@ -262,6 +262,7 @@ function _maskedTypeFromKey(action) {
     key: _key,
     modifiers: _modifiers,
     repeat: _repeat,
+    code: _code,
     held_keys: _heldKeys,
     ...rest
   } = action;

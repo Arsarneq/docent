@@ -135,6 +135,7 @@
                 "shift": false
               },
               "repeat": false,
+              "code": "Enter",
               "timestamp": 1783348332823,
               "type": "key"
             },
@@ -194,6 +195,7 @@
                 "shift": false
               },
               "repeat": false,
+              "code": "Escape",
               "timestamp": 1783348332827,
               "type": "key"
             },
@@ -253,6 +255,7 @@
                 "shift": false
               },
               "repeat": false,
+              "code": "ArrowDown",
               "timestamp": 1783348332847,
               "type": "key"
             },
@@ -312,6 +315,7 @@
                 "shift": false
               },
               "repeat": false,
+              "code": "Enter",
               "timestamp": 1783348332867,
               "type": "key"
             }

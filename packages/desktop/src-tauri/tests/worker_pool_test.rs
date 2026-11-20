@@ -2680,6 +2680,7 @@ fn held_key(key: &str) -> ActionEvent {
                 meta: false,
             },
             repeat: false,
+            code: None,
             held: Default::default(),
             element: ElementDescription {
                 tag: "Edit".to_string(),
@@ -5979,6 +5980,99 @@ fn regression_696_a_held_key_writes_every_press_and_marks_the_repeats() {
     );
 }
 
+fn key_codes_of(events: &[ActionEvent]) -> Vec<(String, Option<&'static str>)> {
+    events
+        .iter()
+        .filter_map(|e| match &e.payload {
+            ActionPayload::Key { key, code, .. } => Some((key.clone(), *code)),
+            _ => None,
+        })
+        .collect()
+}
+
+/// A `key` names the physical key that was pressed in `code`, read from the
+/// hook's scan code and extended mark: the two Enter keys differ there, and a
+/// key is named the same on every layout (docent#717).
+#[test]
+fn regression_717_a_key_names_the_physical_key_that_was_pressed() {
+    let harness = WorkerTestHarness::new(MockBackend::new());
+    let t = now_ms();
+    // (virtual-key code, scan code, extended mark)
+    let presses: [(u32, i64, bool); 5] = [
+        (0x0D, 0x1C, false), // Enter
+        (0x0D, 0x1C, true),  // Enter on the numeric keypad
+        (0xBB, 0x0C, false), // the key right of 0 (`+` on a Danish layout)
+        (0x25, 0x4B, true),  // the left arrow
+        (0x25, 0x4B, false), // 4 on the numeric keypad with NumLock off
+    ];
+    for (i, (key_code, scan, extended)) in presses.into_iter().enumerate() {
+        let mut raw = layout_key(i as u64 + 1, t, key_code);
+        raw.callback_params[0] = scan | if extended { KEY_EXTENDED_PARAM } else { 0 };
+        harness.send_event(raw);
+    }
+    thread::sleep(Duration::from_millis(900));
+    let events = harness.shutdown();
+    let codes: Vec<Option<&str>> = key_codes_of(&events).into_iter().map(|(_, c)| c).collect();
+    // The field is written into the file under that name.
+    let numpad_enter = events
+        .iter()
+        .filter(|e| matches!(e.payload, ActionPayload::Key { .. }))
+        .nth(1)
+        .expect("the second key");
+    assert_eq!(
+        serde_json::to_value(numpad_enter).unwrap()["code"],
+        "NumpadEnter"
+    );
+    assert_eq!(
+        codes,
+        vec![
+            Some("Enter"),
+            Some("NumpadEnter"),
+            Some("Minus"),
+            Some("ArrowLeft"),
+            Some("Numpad4"),
+        ]
+    );
+}
+
+/// A key attributed to no window (a key the system takes) was pressed on a
+/// physical key like any other, and states it.
+#[test]
+fn regression_717_a_key_attributed_to_no_window_names_its_physical_key() {
+    let harness = WorkerTestHarness::new(MockBackend::new());
+    let mut raw = layout_key(1, now_ms(), 0x5B); // the left Windows key
+    raw.window_handle = 0;
+    raw.callback_params[0] = 0x5B | KEY_EXTENDED_PARAM;
+    harness.send_event(raw);
+    thread::sleep(Duration::from_millis(900));
+    let events = harness.shutdown();
+    let codes: Vec<Option<&str>> = key_codes_of(&events).into_iter().map(|(_, c)| c).collect();
+    assert_eq!(codes, vec![Some("MetaLeft")]);
+}
+
+/// An injected character has no physical key (its scan code is the character's
+/// code unit), and neither has a key the hook gave no scan code: the `key`
+/// carries no `code`, and the field is left out of the file.
+#[test]
+fn regression_717_a_key_with_no_physical_key_carries_no_code() {
+    let harness = WorkerTestHarness::new(MockBackend::new());
+    let t = now_ms();
+    harness.send_event(packet_key(1, t, 0x1C)); // a code unit that is also Enter's scan code
+    harness.send_event(layout_key(2, t, 0x0D)); // Enter with scan code 0
+    thread::sleep(Duration::from_millis(900));
+    let events = harness.shutdown();
+    let keys = key_codes_of(&events);
+    assert_eq!(keys.len(), 2, "{keys:?}");
+    assert!(keys.iter().all(|(_, code)| code.is_none()), "{keys:?}");
+    for event in events
+        .iter()
+        .filter(|e| matches!(e.payload, ActionPayload::Key { .. }))
+    {
+        let json = serde_json::to_value(event).unwrap();
+        assert!(json.get("code").is_none(), "{json}");
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Typing keys on a control that takes no typed text (docent#696)
 // ---------------------------------------------------------------------------
@@ -6112,7 +6206,9 @@ fn regression_696_keys_buffered_on_one_element_survive_typing_into_another() {
 // at a pointer action (docent#239)
 // ---------------------------------------------------------------------------
 
-use docent_desktop_lib::capture::held_keys::{HeldKeys, HeldPress, KEY_REPEAT_PARAM};
+use docent_desktop_lib::capture::held_keys::{
+    HeldKeys, HeldPress, KEY_EXTENDED_PARAM, KEY_REPEAT_PARAM,
+};
 use docent_desktop_lib::capture::HeldKeysAtAction;
 
 /// Keys the hook found down at an event: `(key code, scan code, key-down)`.

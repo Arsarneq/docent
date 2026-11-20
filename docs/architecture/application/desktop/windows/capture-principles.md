@@ -327,7 +327,13 @@ keypad's Enter, an arrow key and the keypad key that moves the same way with
 Num Lock off) are told apart by that mark, as the browser tells them apart by
 their `code`; the keyboard's state at the hook's install names a code and not
 which of such keys is down, and the first of them to send a key-down is taken
-as the one held. Each `key` also carries
+as the one held. Each `key` carries `code`, the physical key by the name a
+browser gives a key with the hook's scan code and extended mark (the W3C UI
+Events `code` values, by the scan-code table Chromium publishes), so one
+physical key has one name on both platforms whatever the keyboard layout. A
+keystroke injected as a character carries none, and neither does a key whose
+scan code the table has no name for (zero among them, which software sending
+a key by its virtual-key code alone can give). Each `key` also carries
 `held_keys`: the keys that were down at the press, other than the modifiers
 and the key itself, each a key whose own key-down is a `key` action, by the
 name that action carries, in the order they went down. The hook's record

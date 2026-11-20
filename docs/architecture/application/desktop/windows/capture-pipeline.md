@@ -34,7 +34,9 @@ hooks / WinEvents        bridge            worker pool               frontend
    with the number of the latest focus change that named a part of that
    control (DCP-11). The keyboard hook also keeps the record of which keys are
    down and stamps each key-down with whether its key was already down, the
-   mark a `key` action's `repeat` is written from (DCP-9). From the same record
+   mark a `key` action's `repeat` is written from (DCP-9); the scan code and
+   extended mark the hook is handed travel with the key-down, and a `key`
+   action's `code` is named from them (DCP-9). From the same record
    each keystroke, click, right-click and drop is stamped at dispatch with the
    keys that are down and the key-down each is down by, and a drag start with
    those the mouse hook read when the pointer first passed the drag threshold:
