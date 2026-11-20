@@ -1,7 +1,9 @@
 // Scroll debounce/threshold filtering, the platform-agnostic PID-exclusion
-// base rule, and the executable-name ground of DCP-5's self-capture exclusion
+// base rule, the executable-name ground of DCP-5's self-capture exclusion
 // (the whole-name comparison against the webview runtime's file name and
-// Docent's own binary name) — pure-Rust logic for capture noise reduction.
+// Docent's own binary name), and the keyboard hook's key attribution
+// (DCP-14: which window a keydown is attributed to, or none) — pure-Rust
+// logic for capture noise reduction and scoping.
 //
 // This module contains NO platform API calls so it can be compiled and tested
 // on any target. Platform-specific concerns layer on top elsewhere: the actual

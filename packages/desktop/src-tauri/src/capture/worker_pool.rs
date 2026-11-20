@@ -1278,10 +1278,11 @@ pub(crate) const fn is_punctuation_key(vk: u32) -> bool {
     matches!(vk, 0xBA..=0xC2 | 0xDB..=0xDF | 0xE1..=0xE4 | 0xE6)
 }
 
-/// The private-use range the keyboard layout tables keep for their own
-/// markers (`WCH_NONE` `0xF000`, `WCH_DEAD` `0xF001`, `WCH_LGTR` `0xF002`, for
-/// example): a value there names no character a key enters.
-const LAYOUT_TABLE_MARKERS: std::ops::RangeInclusive<char> = '\u{F000}'..='\u{F0FF}';
+/// The markers the keyboard layout tables write in place of a character:
+/// `WCH_NONE` `0xF000`, `WCH_DEAD` `0xF001` and `WCH_LGTR` `0xF002`, the
+/// documented ones. A value among them names no character a key enters; any
+/// other private-use value is a character the layout gives the key.
+const LAYOUT_TABLE_MARKERS: std::ops::RangeInclusive<char> = '\u{F000}'..='\u{F002}';
 
 /// Name a punctuation key by `layout_char`, the value the keyboard hook read
 /// for it from the keyboard layout of the foreground window's thread: the
@@ -1291,7 +1292,7 @@ const LAYOUT_TABLE_MARKERS: std::ops::RangeInclusive<char> = '\u{F000}'..='\u{F0
 /// keys are, where that is one character; a space is `Space`; a value that is
 /// no character (0 where the layout gives the key none or no layout was read,
 /// a control character, a surrogate half, or one of the layout tables' own
-/// markers in `0xF000`-`0xF0FF`) leaves the key to its code's name, `VK_0x..`.
+/// markers `0xF000`-`0xF002`) leaves the key to its code's name, `VK_0x..`.
 pub(crate) fn punctuation_key_name(vk: u32, layout_char: i64) -> String {
     match char::from_u32((layout_char & 0xFFFF) as u32) {
         Some(' ') => vk_to_key_name(0x20),
@@ -1966,13 +1967,27 @@ fn read_file_pick<B: AccessibilityBackend>(
     if items.is_empty() {
         return None;
     }
-    let (dialog_type, file_path) = backend.read_file_dialog_path(raw.window_handle)?;
+    let pick = read_file_dialog(raw, backend, context_id, window_rect)?;
     // `file_path` is the dialog's directory and File name joined with a
-    // backslash, or the File name alone (the backend's read).
-    let file_name = file_path.rsplit('\\').next().unwrap_or(&file_path);
+    // backslash, or the File name alone (the backend's read); `rsplit` always
+    // yields a first piece.
+    let file_name = pick.file_path.rsplit('\\').next()?;
     if file_name.is_empty() || !items.contains(&file_name) {
         return None;
     }
+    Some(pick)
+}
+
+/// The file dialog `raw`'s window is in, as the backend reads it now, with the
+/// opening application and the click's context: `None` when the window is in
+/// no file dialog or no File name could be read.
+fn read_file_dialog<B: AccessibilityBackend>(
+    raw: &RawEvent,
+    backend: &B,
+    context_id: Option<i64>,
+    window_rect: &Option<WindowRect>,
+) -> Option<FilePick> {
+    let (dialog_type, file_path) = backend.read_file_dialog_path(raw.window_handle)?;
     Some(FilePick {
         dialog_type,
         file_path,
@@ -2081,15 +2096,7 @@ fn handle_click<B: AccessibilityBackend>(
             .as_deref()
             .is_some_and(|name| matches!(name.to_lowercase().as_str(), "save" | "open"));
     let pick = if is_confirm_button {
-        backend
-            .read_file_dialog_path(raw.window_handle)
-            .map(|(dialog_type, file_path)| FilePick {
-                dialog_type,
-                file_path,
-                source: backend.process_name(raw.window_handle),
-                context_id,
-                window_rect,
-            })
+        read_file_dialog(raw, backend, context_id, &window_rect)
     } else if completes_double_click(raw) {
         // A double-click on a file in the item view: its second press closes
         // the dialog, often before this click is processed, so the dialog
@@ -3562,13 +3569,16 @@ mod tests {
         assert_eq!(name_with_layout_char(0xBB, 0x1B), "VK_0xBB");
         assert_eq!(name_with_layout_char(0xBB, 0xD800), "VK_0xBB");
         // Nor is a layout table's own marker (WCH_NONE, WCH_DEAD, WCH_LGTR).
-        for marker in [0xF000, 0xF001, 0xF002, 0xF0FF] {
+        for marker in [0xF000, 0xF001, 0xF002] {
             assert_eq!(
                 name_with_layout_char(0xBB, marker),
                 "VK_0xBB",
                 "{marker:#x}"
             );
         }
+        // Any other private-use value is a character the layout gives the key.
+        assert_eq!(name_with_layout_char(0xBB, 0xF003), "\u{F003}");
+        assert_eq!(name_with_layout_char(0xBB, 0xF0FF), "\u{F0FF}");
         assert_eq!(name_with_layout_char(0xBB, 0xF100), "\u{F100}");
         // A space is named as the space bar is.
         assert_eq!(name_with_layout_char(0xBB, ' ' as i64), "Space");

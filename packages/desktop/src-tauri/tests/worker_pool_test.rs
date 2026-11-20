@@ -3998,6 +3998,17 @@ fn item_name_cell(item: &str) -> ElementDescription {
     }
 }
 
+/// The dialog's Open button.
+fn open_button() -> ElementDescription {
+    ElementDescription {
+        tag: "Button".to_string(),
+        name: Some("Open".to_string()),
+        selector: "Pane:Desktop 1 > Window:license.txt - Notepad > Window:Open > Button:Open"
+            .to_string(),
+        ..Default::default()
+    }
+}
+
 /// Notepad's editor, where the second click of the double-click is described
 /// once the dialog has closed.
 fn notepad_editor() -> ElementDescription {
@@ -4231,13 +4242,7 @@ fn a_click_on_the_open_button_records_the_file_and_its_folder() {
     let (backend, _reads) = FileDialogBackend::showing("C:\\Users\\u\\Downloads", "license.txt");
     let harness = WorkerTestHarness::new(backend);
 
-    let open_button = ElementDescription {
-        tag: "Button".to_string(),
-        name: Some("Open".to_string()),
-        selector: "Pane:Desktop 1 > Window:license.txt - Notepad > Window:Open > Button:Open"
-            .to_string(),
-        ..Default::default()
-    };
+    let open_button = open_button();
     harness.send_event(left_click(1, 1000, ITEMS_VIEW, open_button, false));
 
     thread::sleep(Duration::from_millis(200));
@@ -4392,13 +4397,7 @@ fn regression_692_a_middle_press_on_the_open_button_records_no_file_dialog() {
     let (backend, reads) = FileDialogBackend::showing("C:\\Users\\u\\Downloads", "license.txt");
     let harness = WorkerTestHarness::new(backend);
 
-    let open_button = ElementDescription {
-        tag: "Button".to_string(),
-        name: Some("Open".to_string()),
-        selector: "Pane:Desktop 1 > Window:license.txt - Notepad > Window:Open > Button:Open"
-            .to_string(),
-        ..Default::default()
-    };
+    let open_button = open_button();
     let middle = |seq: u64, element: ElementDescription| RawEvent {
         callback_params: [CLICK_IS_MIDDLE_BUTTON, 0, 0, 0],
         ..left_click(seq, 1000 + seq, ITEMS_VIEW, element, false)
