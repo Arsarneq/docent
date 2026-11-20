@@ -31,7 +31,7 @@ import {
   findRecording,
 } from '../../shared/lib/session.js';
 import { isTrustedActionSender } from '../../lib/frame-trust.js';
-import { redactSensitive } from '../../lib/redaction-logic.js';
+import { keyEntersText, redactSensitive, repeatsMaskedEntry } from '../../lib/redaction-logic.js';
 import { END_TYPING_BOUND } from '../../lib/capture-timing.js';
 import { SENSITIVE_MASK } from '../../shared/lib/field-sensitivity.js';
 import { composePlatform, locatorStrategyDefs } from '../../../../scripts/build-schemas.js';
@@ -779,6 +779,144 @@ describe('SERVICE WORKER: redactSensitive masks value-derived locator entries in
       assert.equal(loc.match_count, 1, `${loc.strategy} match stats must survive masking`);
       assert.equal(loc.match_index, 0, `${loc.strategy} match stats must survive masking`);
     }
+  });
+});
+
+// Regression: #702 — every key press that is not text is written, so a key
+// that enters a character can be pressed on a sensitive field that takes no
+// text from it. Its name is the character: it is recorded as the field's
+// masked `type`, as the desktop records it.
+// https://github.com/Arsarneq/docent/issues/702
+describe('SERVICE WORKER: a key that enters a character on a sensitive field is a masked type', () => {
+  const MASK = '••••••••';
+  const none = { ctrl: false, shift: false, alt: false, meta: false };
+  const card = () => ({ tag: 'INPUT', type: 'text', name: 'card-number', selector: '#card' });
+  const key = (name, element, modifiers = none) => ({
+    type: 'key',
+    timestamp: 1,
+    context_id: 7,
+    key: name,
+    modifiers,
+    repeat: false,
+    held_keys: [],
+    element,
+  });
+
+  it('regression_702_a_character_key_becomes_the_masked_type_and_loses_its_key_fields', () => {
+    for (const name of ['4', 'a', 'Space', 'Dead', 'å']) {
+      const out = redactSensitive(key(name, card()));
+      assert.equal(out.type, 'type', name);
+      assert.equal(out.value, MASK, name);
+      assert.equal(out.element.redacted, true, name);
+      for (const field of ['key', 'modifiers', 'repeat', 'held_keys']) {
+        assert.equal(field in out, false, `${name}: ${field}`);
+      }
+    }
+  });
+
+  it('regression_702_a_key_that_enters_no_character_and_a_shortcut_stay_keys', () => {
+    for (const name of ['Enter', 'Backspace', 'ArrowLeft', 'F5', 'Tab']) {
+      assert.equal(redactSensitive(key(name, card())).type, 'key', name);
+    }
+    assert.equal(redactSensitive(key('v', card(), { ...none, ctrl: true })).type, 'key');
+    assert.equal(redactSensitive(key('v', card(), { ...none, meta: true })).type, 'key');
+    // Ctrl and Alt together is AltGr: a character.
+    assert.equal(
+      redactSensitive(key('@', card(), { ...none, ctrl: true, alt: true })).type,
+      'type',
+    );
+  });
+
+  it('regression_702_a_key_on_a_control_that_takes_no_text_stays_a_key_whatever_it_is_named', () => {
+    const controls = [
+      { tag: 'BUTTON', name: 'show-password' },
+      { tag: 'A', name: 'password-reset' },
+      { tag: 'SUMMARY', name: 'card-number' },
+      { tag: 'INPUT', type: 'checkbox', name: 'remember-password' },
+      { tag: 'INPUT', type: 'radio', name: 'card-number' },
+      { tag: 'INPUT', type: 'submit', name: 'password' },
+      { tag: 'DIV', role: 'button', name: 'password' },
+    ];
+    for (const element of controls) {
+      const out = redactSensitive(key('Space', { ...element, selector: '#x' }));
+      assert.equal(out.type, 'key', JSON.stringify(element));
+      assert.equal(out.key, 'Space');
+    }
+  });
+
+  it('regression_702_a_character_key_on_a_sensitive_list_is_masked_as_the_desktop_masks_it', () => {
+    // The desktop's controls that take no typed text hold no list: a letter
+    // pressed on a list picks the option that starts with it.
+    for (const element of [
+      { tag: 'SELECT', name: 'card-number' },
+      { tag: 'DIV', role: 'option', name: 'card-number' },
+    ]) {
+      const out = redactSensitive(key('4', { ...element, selector: '#x' }));
+      assert.equal(out.type, 'type', JSON.stringify(element));
+    }
+  });
+
+  it('regression_702_a_key_on_a_field_that_is_not_sensitive_stays_a_key', () => {
+    const out = redactSensitive(
+      key('a', { tag: 'INPUT', type: 'text', name: 'city', selector: '#c' }),
+    );
+    assert.equal(out.type, 'key');
+    assert.equal(out.key, 'a');
+  });
+
+  it('regression_702_a_character_key_with_alt_alone_is_a_shortcut_and_stays_a_key', () => {
+    // Alt with a character key reaches for a menu and enters no character.
+    const alt = { ...none, alt: true };
+    assert.equal(redactSensitive(key('a', card(), alt)).type, 'key');
+    assert.equal(keyEntersText(key('a', card(), alt), false), false);
+    // On a Mac it is the Option key, which enters characters of the layout.
+    assert.equal(keyEntersText(key('å', card(), alt), true), true);
+    assert.equal(keyEntersText(key('v', card(), { ...none, meta: true }), true), false);
+  });
+
+  it('regression_702_a_masked_type_that_repeats_the_one_before_it_on_the_same_field_is_not_stored_again', () => {
+    const typed = (over = {}) => ({
+      type: 'type',
+      context_id: 7,
+      frame_src: null,
+      value: MASK,
+      element: { ...card(), redacted: true },
+      ...over,
+    });
+    const first = { ...redactSensitive(key('4', card())), frame_src: null };
+    assert.equal(repeatsMaskedEntry(first, typed()), true, 'the entry after a key');
+    assert.equal(repeatsMaskedEntry(typed(), first), true, 'a key after the entry');
+    assert.equal(repeatsMaskedEntry(typed(), typed()), true, 'two entries in a row');
+  });
+
+  it('regression_702_a_masked_type_after_any_other_action_field_frame_or_context_is_stored', () => {
+    const typed = (over = {}) => ({
+      type: 'type',
+      context_id: 7,
+      frame_src: null,
+      value: MASK,
+      element: { ...card(), redacted: true },
+      ...over,
+    });
+    assert.equal(repeatsMaskedEntry(undefined, typed()), false, 'nothing before it');
+    assert.equal(
+      repeatsMaskedEntry({ type: 'click', context_id: 7, element: card() }, typed()),
+      false,
+    );
+    assert.equal(repeatsMaskedEntry({ type: 'navigate', context_id: 7 }, typed()), false);
+    const cvc = { ...card(), selector: '#cvc', redacted: true };
+    assert.equal(repeatsMaskedEntry(typed({ element: cvc }), typed()), false, 'another field');
+    assert.equal(repeatsMaskedEntry(typed({ context_id: 8 }), typed()), false, 'another context');
+    assert.equal(
+      repeatsMaskedEntry(typed({ frame_src: 'https://a.test/f' }), typed()),
+      false,
+      'another frame',
+    );
+    // A value that is not masked is an entry of its own.
+    assert.equal(repeatsMaskedEntry(typed(), typed({ value: 'x' })), false);
+    // A field with no selector cannot be told from another.
+    const bare = { ...card(), selector: '', redacted: true };
+    assert.equal(repeatsMaskedEntry(typed({ element: bare }), typed({ element: bare })), false);
   });
 });
 

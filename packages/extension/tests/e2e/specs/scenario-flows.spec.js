@@ -9,6 +9,7 @@
  * - a click on the page a link loaded, after the link's click
  * - a click on the label of a radio, selected and not yet selected
  * - Ctrl+Enter on a link, which opens the link in a background tab
+ * - arrow keys on a closed select reached with Tab
  * - arrow keys and Space on a range input, and the value it ends on
  * - Enter on a button inside a frame
  * - a number field: digits, Space, ArrowUp, then a click elsewhere
@@ -84,7 +85,7 @@ test.describe('A link and the page it loads', () => {
   });
 });
 
-test.describe('A label of a selected radio', () => {
+test.describe('A label of a radio', () => {
   test('a click on the label of a radio is one click on the label, selected or not', async ({
     testPage,
     serviceWorker,
@@ -155,13 +156,56 @@ test.describe('Ctrl+Enter on a link', () => {
     // Core CP-17: the new tab's entries are its `context_open` and the
     // navigation that loads the link's target, beside the key. The extension
     // withholds that `context_open` for a tab created within 500 ms of an
-    // in-page action, the capture gap ECP-7 records (docent#252); this pins the
-    // gap, and flips when it is fixed.
+    // in-page action, as the session format's `context_open` row states (a gap
+    // or a departure there, docent#252); this pins it, and flips when it is
+    // fixed.
     expect(actions.filter((a) => a.type === 'context_open')).toEqual([]);
     const navigations = actions.filter((a) => a.type === 'navigate');
     expect(navigations.map((a) => [a.nav_type, a.url])).toEqual([['link', target]]);
     expect(navigations[0].context_id).not.toBe(key.context_id);
     expect(summary(actions).map((row) => row[0])).toEqual(['key', 'navigate']);
+  });
+});
+
+test.describe('A closed select reached with Tab', () => {
+  test('each arrow key is the key, and the option it chose is a select', async ({
+    testPage,
+    serviceWorker,
+  }) => {
+    await start(
+      testPage,
+      serviceWorker,
+      /* html */ `<!DOCTYPE html><html><body>
+        <input id="name" type="text">
+        <select id="color"><option>Red</option><option>Green</option><option>Blue</option></select>
+      </body></html>`,
+    );
+    await testPage.click('#name');
+    await clearPendingActions(serviceWorker);
+
+    await testPage.keyboard.press('Tab');
+    await testPage.keyboard.press('ArrowDown');
+    await testPage.keyboard.press('ArrowDown');
+    await waitForActionsToSettle(serviceWorker, testPage);
+
+    // Tab is written on the field it was pressed in. The focus it moves onto
+    // the select is not written: a Tab focus move onto an element other than
+    // an input, a textarea or editable content writes no `focus`, a departure
+    // the extension capture document lists (ECP-12; the desktop writes it,
+    // docent#710). On the closed list each arrow reaches the page: it is the
+    // `key`, and the option it chooses is the `select` its `change` commits
+    // (ECP-6, `keydown` and `change`; ECP-12); the key comes first, as the
+    // press does.
+    const actions = await getPendingActions(serviceWorker);
+    const end = await testPage.locator('#color').inputValue();
+    expect(end).toBe('Blue');
+    expect(summary(actions)).toEqual([
+      ['key', 'Tab', '#name'],
+      ['key', 'ArrowDown', '#color'],
+      ['select', '#color', 'Green'],
+      ['key', 'ArrowDown', '#color'],
+      ['select', '#color', 'Blue'],
+    ]);
   });
 });
 

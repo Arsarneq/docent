@@ -36,19 +36,30 @@ test.describe('Manual Test 2 — Right-click link → Open in new tab', () => {
   });
 });
 
-test.describe('Manual Test 3 — Ctrl+L then Escape (nothing captured)', () => {
-  test('address bar focus and cancel produces no actions', async ({ testPage, serviceWorker }) => {
+test.describe('Manual Test 3 — Ctrl+L then Escape (the keys the page is sent)', () => {
+  // Regression: #702 — a key pressed with nothing focused, and a shortcut the
+  // page is sent, are key presses like any other and are written.
+  // https://github.com/Arsarneq/docent/issues/702
+  test('regression_702_the_keys_the_page_is_sent_are_written_on_the_body', async ({
+    testPage,
+    serviceWorker,
+  }) => {
     await setTestContent(testPage, '<html><body><p>Test</p></body></html>');
     await clearPendingActions(serviceWorker);
 
-    // Ctrl+L focuses the address bar, Escape returns to page
+    // Driven here, both presses reach the page, with nothing focused. In a
+    // browser a person drives, the address bar takes what follows Ctrl+L, and
+    // the page is sent none of it.
     await testPage.keyboard.press('Control+l');
     await testPage.waitForTimeout(200);
     await testPage.keyboard.press('Escape');
     await testPage.waitForTimeout(500);
 
     const actions = await getPendingActions(serviceWorker);
-    expect(actions).toHaveLength(0);
+    expect(actions.map((a) => [a.type, a.key, a.modifiers.ctrl, a.element.tag])).toEqual([
+      ['key', 'l', true, 'BODY'],
+      ['key', 'Escape', false, 'BODY'],
+    ]);
   });
 });
 
@@ -211,6 +222,16 @@ test.describe('Manual Test 10 — Ctrl+X (cut)', () => {
     const types = actions.map((a) => a.type);
     expect(types).toContain('click');
     expect(types).toContain('type');
+    // The keys that selected and removed the text are written, in order, and
+    // the emptied entry after the key that emptied it (#702).
+    expect(actions.map((a) => [a.type, a.key ?? a.value])).toEqual([
+      ['click', undefined],
+      ['key', 'Home'],
+      ['key', 'End'],
+      ['key', 'Delete'],
+      ['type', ''],
+      ['click', undefined],
+    ]);
 
     // The type action should have empty value (content was deleted)
     const typeAction = actions.find((a) => a.type === 'type');

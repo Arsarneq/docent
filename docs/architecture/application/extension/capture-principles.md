@@ -145,20 +145,64 @@ phase, for exactly these DOM events, on `document` unless the item names
   ancestor (the set the recorder tests is stated in the session-format
   document's action table; core CP-18); a click on a `label` is the label's,
   and the click the browser sends on to the labelled control is part of it; a
-  click the browser derives from a captured key press (Enter or Space on a
-  button, an arrow key in a radio group, for example) is that key's effect
+  click the browser derives from a key press (Enter or Space on a button, an
+  arrow key in a radio group, for example) is that key's effect
   (core CP-6) and writes nothing: it carries no pointer, and the browser sends
   it while it handles one of that key's events; the click a native `select`
   sends when its list closes from the keyboard is an effect of the same kind
   and writes nothing (the keys pressed inside the open list do not reach the
   page, so the closing leaves no other trace)
-- `contextmenu` — the right-click, its element picked as for `click`
-- `keydown` — the keys in the captured keyboard set: Enter, Escape, Tab and
-  the four arrow keys on the focused element, and Space on a focused element
-  that takes no typed text (in an `input` whose value is free text, a
-  `textarea` or editable content the space is text, which the field's `type`
-  records; on any other `input`, a date or number field included, it is a
-  key press);
+- `contextmenu` — the right-click, its element picked as for `click`; a menu
+  asked for with a key (the Menu key, Shift+F10) is that key's effect (core
+  CP-6) and writes nothing, as on the desktop: it does not carry the right button, and
+  the browser sends it while it handles one of that key's events
+- `keydown` — every key press that is not text, on the focused element, or on
+  the body when nothing is focused. Two presses are never written: Shift,
+  Ctrl, Alt or AltGr pressed alone (the actions made while it is held state
+  it; the Meta key's press is written, the system acting on that key by
+  itself, as the desktop writes it, and the key is a modifier while held,
+  never among the held keys), and a key the input method takes (the browser
+  reports it while a composition is open, or with key code 229; its text
+  arrives as a composition, which the field's `type` records). A third is
+  recorded as text and not as a `key`: a key whose press became text of a
+  field. A press can become text when all of this holds: the key enters a
+  character (its key value is one character, or it is a dead key), no
+  shortcut modifier is held, and the focused element, followed into shadow
+  roots, is one typing can change (a `textarea`, an `input` that holds an
+  entry, editable content). The shortcut modifiers are Meta, Ctrl without
+  Alt, and Alt without Ctrl, as on the desktop; Ctrl and Alt held together is
+  AltGr, which enters characters of the layout. On a Mac, Alt alone is the
+  Option key, which enters characters too, and is no shortcut modifier there.
+  A shortcut, and every key that cannot become text, is written at once. A
+  press that can become text is held back until it is known which it was. It
+  is text, which the field's `type` records, when the browser's `input` event
+  for typed text follows the press (in that element, or in the one the page
+  moved the focus to from its key handler), or when the element holds other
+  text once the wait ends than it held at the press (a page that cancels the
+  key and enters the character itself, an input mask for example). With
+  neither, whichever of these comes first ends the wait and makes the press
+  the `key` it was, written with the time and the held keys of the press: the
+  end of the browser's handling of the press's `keypress`, the release of any
+  key, the next key press, any other action (the `key` is written ahead of it),
+  the window losing the focus, or the page being left (a character key in a
+  read-only field, for example). Two kinds of press wait for more than
+  themselves. A date or time field (`date`, `datetime-local`, `month`,
+  `time`, `week`) is filled part by part and has a value, for which the
+  browser sends `input`, only once the parts make one: the character keys
+  pressed in such a field one after the other wait together, an `input` for
+  the field making all of them text, and a press of another kind, a key
+  pressed elsewhere, any other action, the window losing the focus or the
+  page being left making each the `key` it was; a space in such a field opens
+  its picker and is written at once. A dead key enters nothing until the
+  character key after it is pressed: in a field typing can change it waits
+  for that press and is text or a `key` together with it, and any other
+  press or action makes it the `key` it was. On any other element a
+  character key is written at once (a letter on a button). An entry a key
+  press writes ahead of itself (below) carries the time of that press. A
+  character key pressed with no shortcut modifier on a sensitive element is
+  never written as a `key` and never named among the held keys, as ECP-9
+  states. The key
+  is named by the browser's key value, a space as `Space`;
   each press is written with whether the browser's key repeat generated it:
   holding a key down is the person's input (core CP-5), and each repeated
   press is that hold as the browser reports it, written and marked so that it
@@ -175,12 +219,18 @@ phase, for exactly these DOM events, on `document` unless the item names
   those `key` actions carry, in the order they went down, and a `click`, a
   `contextmenu`, a `dragstart` and a `drop` write the same list beside the
   modifier keys their event reports
-- `keypress` — the character event of a captured key press, which writes
-  nothing: with `keydown` and `keyup` it marks the task in which the browser
-  derives a click from the key
-- `keyup` — the release of a captured key, which writes nothing and ends the
-  key's time among the held keys, while the recording is off as well; the
-  browser derives the click of a Space press from it
+- `keypress` — the character event of a key press, during which the browser
+  enters the key's text: a character key still held back once the browser is
+  done with the event entered none and is written as the `key` it was. The
+  event itself writes nothing: with `keydown` and `keyup` it marks the task
+  in which the browser derives a click from the key
+- `keyup` — the release of a key, which writes nothing of its own and ends
+  the key's time among the held keys, while the recording is off as well; a
+  character key still held back at a release entered no text and is written
+  as the `key` it was; the browser derives the click of a Space press from
+  the release; the release of the Meta key also ends the time among the held
+  keys of every key pressed while it was held, some systems sending the page
+  no release for such a key
 - `change` — a committed value: a `select` choice, an `input`/`textarea` entry,
   and a file chosen through the OS dialog; a checkbox or radio toggle is
   recorded by the `click` or the `key` that made it, so its `change` writes
@@ -197,14 +247,19 @@ phase, for exactly these DOM events, on `document` unless the item names
 - `scroll` — a scroll gesture, debounced and coalesced into one action
 - `input` — editing of a `contenteditable` host, which writes nothing by
   itself: the host's text is one `type`, written when the typing in it ends
-  (the host loses the focus, a captured key is pressed, the pointer is
-  pressed, or typing begins in another host); a pause between two keys ends
-  nothing, how fast a person types being no part of what they typed
+  (the host loses the focus, a key press is written, the pointer is pressed,
+  or typing begins in another host); a pause between two keys ends nothing,
+  how fast a person types being no part of what they typed; on any field,
+  `input` is also the sign that the character keys just pressed in it became
+  its text, so that none of them is written as a `key`
 - `blur` — a `contenteditable` host typed into lost the focus, which it also
   does when the window does: its `type` is written
-- `blur` on `window` — the window lost the focus, which writes nothing: a key
-  released while another window has the focus sends its release there, so no
-  key is known to be down from then on (the `held_keys` of later actions)
+- `blur` on `window` — the window lost the focus: a key press still held
+  back is written as the `key` it was, and a key released while another
+  window has the focus sends its release there, so no key is known to be
+  down from then on (the `held_keys` of later actions)
+- `pagehide` on `window` — the page is being left: a key press still held
+  back is written as the `key` it was, no text coming for it any more
 
 A step commit and a stop end the typing too, as on the desktop: the entry
 typed into a field or a `contenteditable` host that still has the focus is the
@@ -213,7 +268,8 @@ left the page first (a press in the panel takes it; a commit sent through the
 control channel does not). The page is sent no event for either, so the
 worker asks every registered frame to end its typing ahead of the commit and
 ahead of the stop, and waits for the answers up to a bound of 500 ms
-(extension runtime ERT-4). What happens to the entry of a frame that does not
+(extension runtime ERT-4). A frame asked writes a key press it still holds
+back first, as the `key` it was, and then its entries. What happens to the entry of a frame that does not
 answer in that time (its page is busy with a long task) is listed among the
 departures below.
 
@@ -255,6 +311,11 @@ or, where the immediate effect lands in the page instead, one of the recorder's
 | Ctrl+Shift+T                  | `context_open`                    | `chrome.tabs.onCreated`                                        |
 | Select file in OS dialog      | `file_upload`                     | `change` (the recorder's own surface, correlated with a click) |
 | Right-click → Open in new tab | `context_open` + `navigate(link)` | `chrome.tabs.onCreated` + `chrome.webNavigation.onCommitted`   |
+
+Where the page is sent the key press of such an action before the browser
+acts on it (F5 and Ctrl+R reach the page), the press is a key press like any
+other and is written as a `key` (ECP-6), with the proxy beside it; ECP-12
+lists the pair.
 
 The table's user-action rows illustrate; its event sources are the fixed set
 ECP-6 holds the worker's registrations to, as core CP-14 requires. Which
@@ -307,6 +368,37 @@ the service worker's **storage chokepoint**, which processes each action's
 detection and the redaction shape are the cross-platform rule
 ([core CP-11](../../../architecture/system/capture-principles.md#sensitive-values)).
 
+The recorder masks the value of an entry it writes for such a field as well,
+by a copy of the shared patterns that a test holds equal to them.
+
+A `key` that enters a character names that character, so a character key
+pressed on a sensitive element with no shortcut modifier (ECP-6) is never
+stored as a `key`. The recorder tests the focused element itself, followed
+into shadow roots, and every shadow host the focus passes through on the way
+(a widget named as a one-time code whose cells carry no name), and writes the
+masked `type` of the innermost sensitive one in the key's place where the
+press entered no text; it does not name the key among the held keys
+of later actions either. The chokepoint applies the same rule to every `key`
+it is sent, as a second test: a key whose name is one character, `Space` or a
+dead key, with no shortcut modifier, on a sensitive element is stored as the
+element's masked `type`. A masked `type` that follows another on the same
+element is already recorded by it and is not stored again: typing into a
+sensitive field is one masked `type`, and no key name carries a character
+typed into it. A key that enters no character, and a shortcut, stays a `key`,
+as does a key on a control that takes no typed text (a link, a button, a
+`summary`, an `input` that holds no entry, or an element with a button, link,
+checkbox, radio, switch, tab or menu-item role: a checkbox named "Remember
+password" is ticked by its Space, not typed into), the rule the desktop keeps
+by its own control types (DCP-11). Under a sensitive shadow host the exception does not apply: a key
+pressed inside the host is recorded on the host, so a character key on a
+control inside it is the host's masked `type` too. A key of the numeric
+keypad pressed with Alt alone is treated as a character key on a sensitive
+element, though Alt makes a shortcut elsewhere: a run of such keys enters the
+character with that code.
+A list is no such control on either
+platform: a character pressed on a `select`, or on an element with the option
+role, picks the entry that starts with it, and is masked.
+
 Locator candidates pass the chokepoint with one exception: the `text` strategy
 is value-derived, so its value is masked in place (`masked: true`) on
 sensitive elements; the derived `css` value is structural by construction —
@@ -350,14 +442,52 @@ interactions that would appear to be inside the
 [capture surface](#capture-surface) above but are not captured (or are captured
 with a caveat):
 
-- Keys and keyboard shortcuts outside the captured keyboard set ECP-6 states
-  (`CAPTURE_KEYS`, and Space where it is not typed text) are not captured as
-  key events — the keyboard surface is that set, not all keys; the desktop
-  writes such a key press where it enters no text into a field, so this is a
-  departure (core CP-19;
-  [docent#702](https://github.com/Arsarneq/docent/issues/702))
-- Arrow keys in native `<select>` are swallowed by the browser before the
-  recorder's listeners see them
+- A key press is named by the browser's key value, which follows the layout
+  and the shift state, where the desktop names it from the virtual-key code:
+  a departure (core CP-19;
+  [docent#717](https://github.com/Arsarneq/docent/issues/717))
+- A key the input method takes: not written as a `key`. Its text arrives as
+  a composition, which the field's `type` records, and a press whose
+  composition is given up with no text leaves no record; a departure (core
+  CP-18), and one from the desktop, whose keyboard hook is handed each key
+  ahead of the input method and writes the ones that are no typing keys (the
+  Enter that accepts a composition, for example) (core CP-19;
+  [docent#710](https://github.com/Arsarneq/docent/issues/710))
+- Character keys pressed in a date or time field whose parts made no value
+  (a date left half filled): written as `key` actions, though the field shows
+  what was typed. The field has no value for a `type` to carry; a departure
+  (core CP-18)
+- A character key the page cancels and enters into the field where the
+  recorder cannot tell (after the wait for it has ended, from a timer for
+  example, or from a listener that runs ahead of the recorder's, so that the
+  field already holds the character when the press is noted): written as the
+  `key`,
+  and the field's text as its `type` when the field is committed. And a
+  character key that entered nothing, pressed while the page changed the
+  field's text for a reason of its own: taken for text and not written as a
+  `key`. The recorder tells a page's own entering of a character by the
+  field's text alone; a departure (core CP-18)
+- A key press still held back, and an action the browser caused while it
+  handled that press, when capture is turned off by another route than a
+  stop: not written. Only a stop and a step commit ask the frame to end what
+  waits (both write the press as the `key` it was); a departure (core CP-18)
+- A character key that entered no text on a sensitive element: written as
+  the element's masked `type`, not as a `key`, so the recording does not name
+  a character of a sensitive value; a departure (core CP-18)
+- A reload asked for with a key the page is sent (F5, Ctrl+R): written as
+  the `key` and as the `navigate` (reload) the browser reports. One press,
+  two actions; a departure (core CP-18), and one from the desktop, which
+  writes the `key` alone (core CP-19;
+  [docent#710](https://github.com/Arsarneq/docent/issues/710))
+- A key the browser or the system takes before the page is sent its
+  `keydown` (a browser shortcut the page is not offered, a system hotkey):
+  not written, no event reaching the recorder. The desktop's keyboard hook is
+  handed such a key and writes it; the difference comes from the platforms
+  themselves (core CP-19)
+- Arrow keys in the open list of a native `<select>` are swallowed by the
+  browser before the recorder's listeners see them; on a closed `<select>`
+  each arrow key reaches the page and is written as the `key`, and the option
+  it chooses as the `select` its `change` commits
 - A key that is down but was pressed while another document had the focus
   (another frame, another tab or window) is not among an action's `held_keys`,
   and no key is known to be down once the document's window loses the focus
@@ -368,10 +498,21 @@ with a caveat):
   document, nothing the browser delivers says whether a key that was down
   still is: its release can reach another frame, a page the extension does not
   run in, the browser's own interface or another program. Carrying the key
-  over from the document that saw it go down would state a key as down that could already have been released, so it is not done. The desktop's keyboard hook is
+  over from the document that saw it go down would state a key as down that
+  could already have been released, so it is not done. The desktop's keyboard
+  hook is
   handed every key wherever the focus is and names such a key; the difference
-  comes from the platforms themselves (core CP-19). A key still held when the
-  focus returns or the drag has ended is named again from its next repeat
+  comes from the platforms themselves (core CP-19). Two things are exact all
+  the same: the modifiers held at an action, wherever they were pressed,
+  which the action's own event states and `modifiers` carries; and a key
+  still held when the focus arrives or returns or the drag has ended, which
+  is named again from its next repeat in the document that has the focus.
+  What is left out is a key other than a modifier, held in one document
+  while the person acts in another, until that key repeats there. A key
+  pressed while the Meta key was held is treated the same way from the
+  release of the Meta key: some systems send the page no release for such a
+  key, so it is no longer known to be down, and is named again from its next
+  repeat
 - Back/forward between same-document entries (an SPA's history) — a
   browser-chrome action; the worker's committed-navigation listener does not
   report it
@@ -407,22 +548,17 @@ with a caveat):
   against the shadow host: the label's click and the click the browser sends
   on to its control, since the closed root hides the label from the recorder;
   a departure (core CP-18)
-- A captured key other than Tab while nothing is focused — not written; a
-  departure (core CP-18), and one from the desktop, which writes the key on a
-  stand-in element (core CP-19;
-  [docent#710](https://github.com/Arsarneq/docent/issues/710))
-- A click that carries no pointer and reaches the page outside a captured
-  key's events (an activation an assistive technology sends, or one a key
-  outside the captured set causes, an `accesskey` shortcut for example) —
+- A click that carries no pointer and reaches the page outside a written
+  key's events (an activation an assistive technology sends, for example) —
   written as a `click` with the coordinates its event carries, though no
   pointer was at that point; a departure (core CP-18). A native `select` is
   the exception: a click with no pointer on one is not written, whatever sent
   it, an activation an assistive technology sends to a `select` included
 - A value entered with no key pressed in the field since it took focus (a
   paste from the context menu, a drop, an autofill) — its `type` is written
-  when the browser commits it, which can follow a captured key pressed after
+  when the browser commits it, which can follow a key pressed after
   it; a departure (core CP-18)
-- A captured key whose press also scrolls (an arrow key, or Space on a focused
+- A key whose press also scrolls (an arrow key, or Space on a focused
   element it does not activate, a link for example) — written as the `key`
   and, where the scroll clears the floor (core CP-16), as a `scroll` too: one
   press, two actions; a departure (core CP-18), and one from the desktop,
