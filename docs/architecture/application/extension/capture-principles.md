@@ -249,7 +249,13 @@ phase, for exactly these DOM events, on `document` unless the item names
   nothing
 - `focusin` — a focus move, recorded only when it follows a Tab key press; the
   value an `input` or `textarea` holds when it takes focus is noted, so an
-  entry made since can be told from one already written
+  entry made since can be told from one already written; text entered with
+  the keys makes what the field holds
+  a new entry, written also where it equals the value at focus or the entry
+  written before (the same text typed over itself, a value undone or removed
+  and typed again), while a character key that entered nothing, or a
+  composition given up, makes none; text an input method composes is not
+  followed (Exceptions Within the Surface)
 - `dragstart` — the start of a drag, which names the drag source; the browser
   sends the page no key events while a drag lasts, so no key is known to be
   down from here on, and the `drop` states none
@@ -265,7 +271,11 @@ phase, for exactly these DOM events, on `document` unless the item names
   `input` is also the sign that the character keys just pressed in it became
   its text, so that none of them is written as a `key`
 - `blur` — a `contenteditable` host typed into lost the focus, which it also
-  does when the window does: its `type` is written
+  does when the window does: its `type` is written; an `input` or `textarea`
+  lost the focus holding an entry not yet written: the entry is written, also
+  where the browser sends no `change` for it (an entry made again that equals
+  what the field held before), and not where the focus was lost to a press on
+  a submit control of the field's own form (Exceptions Within the Surface)
 - `blur` on `window` — the window lost the focus: a key press still held
   back is written as the `key` it was, and a key released while another
   window has the focus sends its release there, so no key is known to be
@@ -580,9 +590,23 @@ with a caveat):
   press, two actions; a departure (core CP-18), and one from the desktop,
   whose `scroll` comes from wheel input only (core CP-19;
   [docent#710](https://github.com/Arsarneq/docent/issues/710))
+- Text entered through an input method, or a dead key's accent shown as a
+  composition, that leaves the field holding the entry last written for it
+  since it took the focus or, where none was, what it held at focus — not
+  written, where the same text typed with plain keys is; text still being
+  composed is part of an entry written meanwhile, and where the composition
+  is then given up, what the field holds after it is a new entry; a
+  departure (core CP-18), and one from the desktop, which writes a value
+  composed again (core CP-19;
+  [docent#744](https://github.com/Arsarneq/docent/issues/744))
+- A value set again with no character key to the entry last written for the
+  field since it took the focus or, where none was, to what it held at focus
+  (the same text pasted over itself) — not written; a departure (core CP-18;
+  [docent#751](https://github.com/Arsarneq/docent/issues/751))
 - A `type` on an input or textarea when a button or input marked
   `type="submit"` in the same form was pressed, with any mouse button, within
-  100 ms of the change — not written (a `<button>` with no `type` attribute
+  100 ms of the change, or of the field losing the focus where the browser
+  sends no change — not written (a `<button>` with no `type` attribute
   does not trigger the skip); a departure (core CP-18;
   [docent#223](https://github.com/Arsarneq/docent/issues/223)), and one from
   the desktop, which writes the `type` ahead of the click (core CP-19;
