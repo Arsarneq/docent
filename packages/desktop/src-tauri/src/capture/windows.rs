@@ -5094,7 +5094,7 @@ mod file_dialog_read_tests {
     /// stem, as the system shows or hides extensions, and the answers are
     /// asserted for whichever it is: a stem names its one file; a name typed
     /// with its extension names that file even beside another file shown
-    /// under the same text; a text two files can be shown as names neither;
+    /// under the same text; a text two files are shown as names neither;
     /// a text more files than the candidate limit are listed under names
     /// none, where fewer resolve; and a path that is not a full one is not
     /// looked up.
@@ -5106,7 +5106,7 @@ mod file_dialog_read_tests {
         let canonical = std::fs::canonicalize(&made).unwrap();
         let dir = canonical.to_string_lossy();
         let dir = dir.strip_prefix(r"\\?\").unwrap_or(&dir).to_string();
-        for name in ["solo.txt", "pair.txt", "pair.md", "few.txt", "many.txt"] {
+        for name in ["solo.txt", "pair.txt", "pair.log", "few.txt", "many.txt"] {
             std::fs::write(canonical.join(name), b"692").unwrap();
         }
         for n in 0..3 {
@@ -5132,7 +5132,17 @@ mod file_dialog_read_tests {
         assert_eq!(file_on_disk(&path("many")), None);
 
         assert_eq!(file_on_disk(&path("pair.txt")), Some(path("pair.txt")));
-        assert_eq!(file_on_disk(&path("pair")), None);
+        assert_eq!(file_on_disk(&path("pair.log")), Some(path("pair.log")));
+        // The shell shows an extension of a type with no registered handler
+        // whatever the setting, so "pair" names both files only where both
+        // are shown as it.
+        let pair_shown = |name: &str| shell_display_name(&path(name)).as_deref() == Some("pair");
+        let pair_expected = match (pair_shown("pair.txt"), pair_shown("pair.log")) {
+            (true, false) => Some(path("pair.txt")),
+            (false, true) => Some(path("pair.log")),
+            _ => None,
+        };
+        assert_eq!(file_on_disk(&path("pair")), pair_expected);
         assert_eq!(file_on_disk(&path("absent")), None);
         assert_eq!(file_on_disk(&path("pair*")), None, "a filter");
         assert_eq!(file_on_disk("pair.txt"), None, "no folder");
