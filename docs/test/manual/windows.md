@@ -5,7 +5,7 @@ that has one, the automated case nearest to it and what that case leaves
 unexercised (a row an OS-level suppression covers says so). The capture logic
 is verified by the real-input integration suite in
 `src-tauri/tests/capture_integration.rs` (63 tests), the worker pool property
-tests in `src-tauri/tests/worker_pool_test.rs` (77 tests), and — locally only —
+tests in `src-tauri/tests/worker_pool_test.rs` (96 tests), and — locally only —
 the file-dialog navigation test in `src-tauri/tests/file_dialog_test.rs`, which
 carries the `ci-skip` marker and never runs in CI (it launches Notepad and a
 real file dialog); the suppressions it exercises are pinned on CI by the
