@@ -1,5 +1,6 @@
 // plan.test.mjs: node --test packages/desktop/tests/e2e/driver/plan.test.mjs
 import { test } from 'node:test';
+import { fileURLToPath } from 'node:url';
 import assert from 'node:assert/strict';
 import { plan } from './plan.mjs';
 
@@ -98,7 +99,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-const PLAN = new URL('./plan.mjs', import.meta.url).pathname;
+const PLAN = fileURLToPath(new URL('./plan.mjs', import.meta.url));
 
 test('the CLI reads a steps file that starts with a byte-order mark', () => {
   const f = join(mkdtempSync(join(tmpdir(), 'qad-')), 'steps.json');
