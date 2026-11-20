@@ -3285,6 +3285,7 @@ fn regression_735_one_focus_change_named_by_two_windows_is_one_focus() {
             let backend = LateFocusBackend {
                 gate: Arc::clone(&worker_gate),
                 epoch: Arc::new(AtomicU64::new(0)),
+                focus_events: Arc::new(AtomicU64::new(0)),
                 window: owner,
             };
             thread::spawn(move || {
@@ -3359,6 +3360,8 @@ fn a_focus_back_to_an_element_after_another_focus_is_written() {
 struct LateFocusBackend {
     gate: Gate,
     epoch: Arc<AtomicU64>,
+    /// The number of the latest focus event the Input_Thread dispatched.
+    focus_events: Arc<AtomicU64>,
     window: i64,
 }
 
@@ -3395,6 +3398,10 @@ impl AccessibilityBackend for LateFocusBackend {
         self.epoch.load(Ordering::SeqCst)
     }
 
+    fn focus_events_dispatched(&self) -> u64 {
+        self.focus_events.load(Ordering::SeqCst)
+    }
+
     fn window_title(&self, _window_handle: i64) -> String {
         "Test Window".to_string()
     }
@@ -3420,6 +3427,23 @@ impl AccessibilityBackend for LateFocusBackend {
     }
 }
 
+/// A focus event as the Input_Thread dispatches it: the focus change counted,
+/// the event numbered as the latest focus event dispatched, and stamped with
+/// both.
+fn dispatched_focus(
+    seq: u64,
+    timestamp: u64,
+    window_handle: i64,
+    epoch: &AtomicU64,
+    focus_events: &AtomicU64,
+) -> RawEvent {
+    epoch.fetch_add(1, Ordering::SeqCst);
+    let mut raw = focus_event(seq, timestamp, window_handle);
+    raw.focus_epoch = epoch.load(Ordering::SeqCst);
+    raw.callback_params[2] = (focus_events.fetch_add(1, Ordering::SeqCst) + 1) as i64;
+    raw
+}
+
 /// Regression (https://github.com/Arsarneq/docent/issues/735): the focus on
 /// a dialog's File name box waited behind a busy worker and was described
 /// after Enter had closed the dialog, as the owner's text area. Written at
@@ -3428,13 +3452,18 @@ impl AccessibilityBackend for LateFocusBackend {
 /// after a later focus change was reported writes nothing; the later focus
 /// is written at its own place.
 #[test]
-fn regression_735_a_focus_described_after_a_later_focus_change_writes_nothing() {
+fn regression_735_a_focus_described_after_a_later_focus_event_writes_nothing() {
     const DIALOG: i64 = 0x200;
     const OWNER: i64 = 0x100;
     let gate = closed_gate();
     let epoch = Arc::new(AtomicU64::new(1));
+    let focus_events = Arc::new(AtomicU64::new(0));
     let (action_tx, action_rx) = mpsc::channel::<ActionEvent>();
-    let (worker_gate, worker_epoch) = (Arc::clone(&gate), Arc::clone(&epoch));
+    let (worker_gate, worker_epoch, worker_focus_events) = (
+        Arc::clone(&gate),
+        Arc::clone(&epoch),
+        Arc::clone(&focus_events),
+    );
     let mut pool = WorkerPool::new(
         3,
         action_tx,
@@ -3442,6 +3471,7 @@ fn regression_735_a_focus_described_after_a_later_focus_change_writes_nothing() 
             let backend = LateFocusBackend {
                 gate: Arc::clone(&worker_gate),
                 epoch: Arc::clone(&worker_epoch),
+                focus_events: Arc::clone(&worker_focus_events),
                 window: OWNER,
             };
             thread::spawn(move || {
@@ -3452,11 +3482,8 @@ fn regression_735_a_focus_described_after_a_later_focus_change_writes_nothing() 
     );
 
     let t = now_ms();
-    // The File name box takes the focus: a reported change, then its event.
-    epoch.fetch_add(1, Ordering::SeqCst);
-    let mut focus_box = focus_event(1, t, DIALOG);
-    focus_box.focus_epoch = epoch.load(Ordering::SeqCst);
-    pool.dispatch(focus_box);
+    // The File name box takes the focus.
+    pool.dispatch(dispatched_focus(1, t, DIALOG, &epoch, &focus_events));
     // The path is typed into the box, then Enter (a key that may move the
     // focus, counted behind its own dispatch).
     for (i, key_code) in [0x41u32, 0x42, 0x0D].into_iter().enumerate() {
@@ -3467,10 +3494,7 @@ fn regression_735_a_focus_described_after_a_later_focus_change_writes_nothing() 
     }
     epoch.fetch_add(FOCUS_EPOCH_PERSON_STEP, Ordering::SeqCst);
     // The dialog closes and the focus returns to the owner's text area.
-    epoch.fetch_add(1, Ordering::SeqCst);
-    let mut focus_owner = focus_event(5, t + 50, OWNER);
-    focus_owner.focus_epoch = epoch.load(Ordering::SeqCst);
-    pool.dispatch(focus_owner);
+    pool.dispatch(dispatched_focus(5, t + 50, OWNER, &epoch, &focus_events));
     open_gate(&gate);
 
     thread::sleep(Duration::from_millis(300));
@@ -3487,6 +3511,65 @@ fn regression_735_a_focus_described_after_a_later_focus_change_writes_nothing() 
         vec![5],
         "one focus, at the owner's own focus event after the Enter"
     );
+}
+
+/// Regression (https://github.com/Arsarneq/docent/issues/735): a focus
+/// change the Input_Thread counts but sends no focus event for (a background
+/// or out-of-scope program focusing inside its own window, for one) does not
+/// make a worker drop a focus it describes after it: no later focus event
+/// would record the focus in its place.
+#[test]
+fn regression_735_a_focus_described_after_a_counted_change_with_no_focus_event_is_written() {
+    const FIELD_WINDOW: i64 = 0x100;
+    let gate = closed_gate();
+    let epoch = Arc::new(AtomicU64::new(1));
+    let focus_events = Arc::new(AtomicU64::new(0));
+    let (action_tx, action_rx) = mpsc::channel::<ActionEvent>();
+    let (worker_gate, worker_epoch, worker_focus_events) = (
+        Arc::clone(&gate),
+        Arc::clone(&epoch),
+        Arc::clone(&focus_events),
+    );
+    let mut pool = WorkerPool::new(
+        3,
+        action_tx,
+        move |index, rx, queue_len, sender, pending| {
+            let backend = LateFocusBackend {
+                gate: Arc::clone(&worker_gate),
+                epoch: Arc::clone(&worker_epoch),
+                focus_events: Arc::clone(&worker_focus_events),
+                window: FIELD_WINDOW,
+            };
+            thread::spawn(move || {
+                let ep = Arc::new(AtomicU32::new(0));
+                worker_loop(index, backend, rx, queue_len, sender, ep, pending, None);
+            })
+        },
+    );
+
+    // Tab moves the focus to the field while the worker is busy.
+    pool.dispatch(dispatched_focus(
+        1,
+        now_ms(),
+        FIELD_WINDOW,
+        &epoch,
+        &focus_events,
+    ));
+    // Another program reports a focus change inside its own window: counted,
+    // and filtered out with no focus event sent.
+    epoch.fetch_add(1, Ordering::SeqCst);
+    open_gate(&gate);
+
+    thread::sleep(Duration::from_millis(300));
+    pool.shutdown();
+    let events: Vec<ActionEvent> = action_rx.try_iter().collect();
+
+    let focuses: Vec<u64> = events
+        .iter()
+        .filter(|e| matches!(e.payload, ActionPayload::Focus { .. }))
+        .map(|e| e.sequence_id.unwrap_or(0))
+        .collect();
+    assert_eq!(focuses, vec![1], "the field's focus is written");
 }
 
 /// A focus on an element whose selector equals that of the focus before it,

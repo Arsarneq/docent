@@ -104,7 +104,9 @@ pub struct RawEvent {
     ///
     /// On Windows: `[id_object, id_child, 0, 0]` from `SetWinEventHook`
     /// callbacks, which workers use to determine which sub-element triggered
-    /// the event; `[axis, 0, 0, 0]` from the mouse hook's wheel path, where
+    /// the event, a focus event carrying its number among the focus events
+    /// dispatched in the third slot (see
+    /// [`AccessibilityBackend::focus_events_dispatched`]); `[axis, 0, 0, 0]` from the mouse hook's wheel path, where
     /// 1 = horizontal (read by the scroll arm); `[scan_code, focused_control,
     /// part_focus, layout_char]` from the keyboard hook, all read by the
     /// keyboard arm: `scan_code` is the hook's scan code, for a `VK_PACKET`
@@ -1123,6 +1125,15 @@ pub trait AccessibilityBackend: Send + 'static {
         0
     }
 
+    /// The number of the latest focus event the Input_Thread dispatched,
+    /// counted from 1; each focus event carries its own number
+    /// ([`RawEvent::callback_params`]). While the two are equal, no later
+    /// focus event has been dispatched, so no later event records the focus.
+    /// A platform that does not number its focus events returns `0` always.
+    fn focus_events_dispatched(&self) -> u64 {
+        0
+    }
+
     /// Whether `window_handle`'s top-level window is the foreground window
     /// right now. The focused element belongs to the foreground window, so an
     /// event's window that is no longer in front (closed, or left for another
@@ -1961,6 +1972,13 @@ fn key_control(raw: &RawEvent) -> i64 {
     }
 }
 
+/// The number the Input_Thread gave this focus event among the focus events
+/// it dispatched (`callback_params[2]`, see
+/// [`AccessibilityBackend::focus_events_dispatched`]); `0` when not numbered.
+fn focus_event_number(raw: &RawEvent) -> u64 {
+    raw.callback_params[2] as u64
+}
+
 /// The number of the latest focus change that named a part of this key's
 /// control, as the Input_Thread noted it when the key was pressed
 /// (`callback_params[2]`, see [`PartFocusNote`]); `0` when there was none.
@@ -2754,14 +2772,14 @@ fn handle_focus<B: AccessibilityBackend>(
         Some(found) => found,
         None => return, // Can't resolve focused element — skip.
     };
-    // A focus change a program reported after this event's own means the
-    // element described now need not be the one this event named: the
-    // later change's own event records the focus, at its own place in the
-    // recording (docent#735). Read after the description, so a change during
-    // it counts. Only the reported half of the epoch: a key or a press of
-    // the person's that moves no focus brings no later focus event.
-    let reported = |epoch: u64| epoch & (FOCUS_EPOCH_PERSON_STEP - 1);
-    if raw.focus_epoch != 0 && reported(backend.focus_epoch()) != reported(raw.focus_epoch) {
+    // A focus event dispatched after this one means the element described
+    // now need not be the one this event named, and the later event records
+    // the focus at its own place in the recording (docent#735). Read after
+    // the description, so an event dispatched during it counts. Only focus
+    // events actually dispatched count: a focus change the Input_Thread
+    // filters out sends no event that would record the focus instead.
+    let number = focus_event_number(raw);
+    if number != 0 && backend.focus_events_dispatched() != number {
         return;
     }
     stamp_described_after(&mut element, raw.timestamp);
