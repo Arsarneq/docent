@@ -299,7 +299,9 @@ with a caveat):
 
 - Keys and keyboard shortcuts outside the captured keyboard set ECP-6 states
   (`CAPTURE_KEYS`, and Space where it is not typed text) are not captured as
-  key events — the keyboard surface is that set, not all keys
+  key events — the keyboard surface is that set, not all keys; the desktop
+  writes such a key press, so this is a departure (core CP-19;
+  [docent#702](https://github.com/Arsarneq/docent/issues/702))
 - Arrow keys in native `<select>` are swallowed by the browser before the
   recorder's listeners see them
 - Back/forward between same-document entries (an SPA's history) — a

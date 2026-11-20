@@ -59,6 +59,8 @@ pub enum NativeEvent {
     Keyboard {
         key: String,
         modifiers: Modifiers,
+        /// Whether key repeat generated this press while the key was held.
+        repeat: bool,
         element: ElementDescription,
     },
     /// Focus change on an element.
@@ -173,10 +175,12 @@ pub fn map_event(
         NativeEvent::Keyboard {
             key,
             modifiers,
+            repeat,
             element,
         } => ActionPayload::Key {
             key: key.clone(),
             modifiers: modifiers.clone(),
+            repeat: *repeat,
             element: element.clone(),
         },
         NativeEvent::Focus { element } => ActionPayload::Focus {
@@ -377,12 +381,19 @@ mod tests {
         let event = NativeEvent::Keyboard {
             key: "Enter".to_string(),
             modifiers: mods.clone(),
+            repeat: true,
             element: test_element(),
         };
         let action = map_event(&event, 5000, Some(1), CaptureMode::Accessibility, None);
 
         match &action.payload {
-            ActionPayload::Key { key, modifiers, .. } => {
+            ActionPayload::Key {
+                key,
+                modifiers,
+                repeat,
+                ..
+            } => {
+                assert!(*repeat, "the repeat mark is carried over");
                 assert_eq!(key, "Enter");
                 assert!(modifiers.ctrl);
             }

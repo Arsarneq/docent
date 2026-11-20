@@ -77,6 +77,21 @@ classes are closed: a held fact left unwritten outside them is a defect.
 
 ---
 
+## One Recording Across Platforms
+
+**CP-19.** The same input is recorded the same way on every platform: the
+same action type, the same fields, the same values, wherever the platforms
+observe the same thing. A key press that activates a control is a `key` on
+both; text typed into a field is that field's `type` on both. A difference is
+admitted only where the platforms' own inputs differ — an input one platform's
+surface cannot observe, or a quantity that is each platform's own (CP-16's
+scroll deltas) — and it is then stated as a departure, in the field's
+documentation or on the platform's exception list (CP-15). A departure is the
+exception, never the way a change is finished: a change to what one platform
+records for an input the other also observes MUST change the other with it.
+
+---
+
 ## What IS a User Action
 
 **CP-5.** A user action is a physical input the user deliberately performed:

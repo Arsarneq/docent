@@ -31,7 +31,9 @@ hooks / WinEvents        bridge            worker pool               frontend
    happened, and stamps each keystroke with the window handle of the control
    that holds the keyboard focus, read from the window system without a call
    into the program, and with the number of the latest focus change that named
-   a part of that control (DCP-11).
+   a part of that control (DCP-11). The keyboard hook also keeps the record of
+   which keys are down and stamps each key-down with whether its key was
+   already down, the mark a `key` action's `repeat` is written from (DCP-9).
 2. **Bridge_Thread** — receives raw events on a single FIFO channel and
    dispatches each to a worker; it also executes the pool-wide
    [flush barrier](#the-commit-flush-barrier) when a commit requests one.

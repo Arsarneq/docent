@@ -108,9 +108,14 @@ pub struct RawEvent {
     /// 1 = horizontal (read by the scroll arm); `[scan_code, 0, 0, 0]` from the
     /// keyboard hook, where a `VK_PACKET` keystroke's scan code is the injected
     /// UTF-16 code unit (read by the keyboard arm); `[scan_code,
-    /// focused_control, 0, 0]` in full, the second being the window handle of
-    /// the control that held the keyboard focus at the key, `0` when none was
-    /// read (see `settle_key_on_its_control`). On other platforms: unused or
+    /// focused_control, part_focus, repeat]` in full, the second being the
+    /// window handle of the control that held the keyboard focus at the key,
+    /// `0` when none was read (see `settle_key_on_its_control`), the third the
+    /// number of the latest focus change that named a part of that control
+    /// (see [`PartFocusNote`]), and the fourth `1` on a key-down for a key that
+    /// was already down (a press key repeat generated while the key was held),
+    /// `0` on the press itself (see [`super::held_keys::HeldKeys`]). On other
+    /// platforms: unused or
     /// platform-defined.
     pub callback_params: [i64; 4],
     /// Pre-captured element description from the Input_Thread.
@@ -1228,8 +1233,8 @@ fn is_modifier_only_key(key: &str) -> bool {
 }
 
 /// Determine whether a keystroke is printable input (should be buffered, not
-/// emitted immediately): a single-character key name, or any `VK_PACKET`
-/// keystroke (it carries text, whatever its name), with no Ctrl/Alt/Meta held.
+/// emitted immediately): a key that enters a character (see [`carries_text`])
+/// with no Ctrl/Alt/Meta held.
 fn is_printable_key(raw: &RawEvent, key: &str) -> bool {
     carries_text(raw, key) && !raw.modifiers.0 && !raw.modifiers.2 && !raw.modifiers.3
 }
@@ -1290,10 +1295,21 @@ pub fn key_may_move_focus(key_code: u32, modifiers: (bool, bool, bool, bool)) ->
     }
 }
 
-/// Whether a keystroke carries text by its name alone: a single-character key
-/// name, or any `VK_PACKET` keystroke.
+/// Whether a keystroke enters a character: a single-character key name, any
+/// `VK_PACKET` keystroke, the space bar, or a key of the numeric keypad (its
+/// digits, operators, decimal and separator keys; with NumLock off the keypad
+/// sends the navigation keys' own codes instead).
 fn carries_text(raw: &RawEvent, key: &str) -> bool {
-    raw.key_code == VK_PACKET || key.chars().count() == 1
+    raw.key_code == VK_PACKET
+        || key.chars().count() == 1
+        || matches!(raw.key_code, 0x20 | 0x60..=0x6F)
+}
+
+/// Whether the keyboard hook marked this key-down as one that key repeat
+/// generated while the key was held down (the fourth callback parameter; see
+/// [`RawEvent::callback_params`]).
+fn is_repeat(raw: &RawEvent) -> bool {
+    raw.callback_params[3] != 0
 }
 
 /// The key names that enter no character: editing, navigation, lock, system
@@ -2744,6 +2760,7 @@ fn handle_keyboard<B: AccessibilityBackend>(
                 alt: raw.modifiers.2,
                 meta: raw.modifiers.3,
             },
+            repeat: is_repeat(raw),
             element,
         },
     };
@@ -2986,6 +3003,7 @@ mod tests {
                     alt: false,
                     meta: false,
                 },
+                repeat: false,
                 element: ElementDescription {
                     tag: "Edit".to_string(),
                     id: None,
@@ -3303,6 +3321,7 @@ mod tests {
                     key,
                     modifiers,
                     element,
+                    ..
                 } => {
                     assert_eq!(key, expected_key, "key value intact");
                     assert!(

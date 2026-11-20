@@ -55,9 +55,9 @@ use super::win32_bindings::{
     GWL_STYLE, GW_OWNER, HANDLE, HHOOK, HWINEVENTHOOK, HWND, INVALID_HANDLE_VALUE, KBDLLHOOKSTRUCT,
     LPARAM, LRESULT, MSG, MSLLHOOKSTRUCT, OBJID_WINDOW, PM_NOREMOVE, POINT, PROPERTYID, UIA_HWND,
     VK_CONTROL, VK_LWIN, VK_MENU, VK_RWIN, VK_SHIFT, VT_EMPTY, WH_KEYBOARD_LL, WH_MOUSE_LL,
-    WINEVENT_OUTOFCONTEXT, WM_APP, WM_KEYDOWN, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN,
-    WM_MOUSEHWHEEL, WM_MOUSEWHEEL, WM_NULL, WM_QUIT, WM_RBUTTONDOWN, WM_SYSKEYDOWN, WM_USER,
-    WPARAM, WS_CHILD,
+    WINEVENT_OUTOFCONTEXT, WM_APP, WM_KEYDOWN, WM_KEYUP, WM_LBUTTONDOWN, WM_LBUTTONUP,
+    WM_MBUTTONDOWN, WM_MOUSEHWHEEL, WM_MOUSEWHEEL, WM_NULL, WM_QUIT, WM_RBUTTONDOWN, WM_SYSKEYDOWN,
+    WM_SYSKEYUP, WM_USER, WPARAM, WS_CHILD,
 };
 use windows_core::{Error, Interface, BOOL, BSTR, PWSTR};
 
@@ -450,6 +450,12 @@ thread_local! {
     /// correlates in time with the Ctrl+O or click that opened the dialog,
     /// but fires in a root window the user has not acted in yet.
     static INPUT_LAST_INPUT_WINDOW: std::cell::Cell<i64> = const { std::cell::Cell::new(0) };
+
+    /// The keys that are down, as the keyboard hook saw them go down and up
+    /// (seeded from the keyboard's state when the hook is installed). A
+    /// key-down for a key already in it is a press key repeat generated.
+    static INPUT_HELD_KEYS: std::cell::RefCell<super::held_keys::HeldKeys> =
+        const { std::cell::RefCell::new(super::held_keys::HeldKeys::new()) };
 
     /// Timestamp of the most recent low-level keyboard event only.
     /// Used specifically for value-change correlation — mouse clicks should not
@@ -1203,6 +1209,14 @@ fn input_thread_main(
             return Err(CaptureError::HookFailed(format!("WH_KEYBOARD_LL: {e}")));
         }
         ll_hooks.push(kb_hook);
+        // A key already held now is a held key at its next key-down.
+        INPUT_HELD_KEYS.with(|held| {
+            *held.borrow_mut() = super::held_keys::HeldKeys::seeded(|vk| {
+                // SAFETY: GetAsyncKeyState takes any virtual-key code and
+                // reads the keyboard's state; it has no other precondition.
+                unsafe { GetAsyncKeyState(vk as i32) < 0 }
+            });
+        });
 
         Ok(())
     })();
@@ -2157,6 +2171,27 @@ unsafe extern "system" fn input_keyboard_ll_proc(
     w_param: WPARAM,
     l_param: LPARAM,
 ) -> LRESULT {
+    // Which keys are down is kept for every keystroke the hook is handed, in
+    // an excluded window and outside an active capture too: a key held down
+    // across either boundary is still a held key when its next key-down is
+    // captured.
+    let mut repeat = false;
+    if n_code >= 0 {
+        let msg = w_param.0 as u32;
+        let kb_struct = &*(l_param.0 as *const KBDLLHOOKSTRUCT);
+        if msg == WM_KEYDOWN as u32 || msg == WM_SYSKEYDOWN as u32 {
+            repeat = INPUT_HELD_KEYS.with(|held| {
+                held.borrow_mut()
+                    .press(kb_struct.vkCode, kb_struct.scanCode)
+            });
+        } else if msg == WM_KEYUP as u32 || msg == WM_SYSKEYUP as u32 {
+            INPUT_HELD_KEYS.with(|held| {
+                held.borrow_mut()
+                    .release(kb_struct.vkCode, kb_struct.scanCode)
+            });
+        }
+    }
+
     if n_code >= 0 && input_is_active() {
         let msg = w_param.0 as u32;
         if msg == WM_KEYDOWN as u32 || msg == WM_SYSKEYDOWN as u32 {
@@ -2199,11 +2234,13 @@ unsafe extern "system" fn input_keyboard_ll_proc(
                     // which sends no message and waits on no program.
                     // And the number of the latest focus change that named a
                     // part of that control, from this thread's own note.
+                    // Last, whether the key was already down at this
+                    // key-down: a press key repeat generated (docent#696).
                     callback_params: [
                         i64::from(kb_struct.scanCode),
                         control,
                         INPUT_PART_FOCUS.with(|note| note.borrow().of(control)),
-                        0,
+                        i64::from(repeat),
                     ],
                     pre_captured_element: None,
                     focus_epoch: 0,
@@ -3942,6 +3979,7 @@ mod tests {
                     alt: false,
                     meta: false,
                 },
+                repeat: false,
                 element: ElementDescription {
                     tag: "Edit".to_string(),
                     selector: "win > edit".to_string(),

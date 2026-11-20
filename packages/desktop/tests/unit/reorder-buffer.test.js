@@ -266,6 +266,7 @@ describe('_insertOrdered redacts sensitive field values', () => {
     sequence_id: seq,
     key,
     modifiers: { ctrl: false, shift: false, alt: false, meta: false, ...modifiers },
+    repeat: false,
     element,
     context_id: 7,
     capture_mode: 'accessibility',
@@ -296,6 +297,27 @@ describe('_insertOrdered redacts sensitive field values', () => {
     assert.equal(actions[0].element.redacted, true);
     assert.equal(actions[0].context_id, 7);
     assert.equal(actions[0].capture_mode, 'accessibility');
+  });
+
+  it('regression_696_a_key_recorded_as_the_masked_type_carries_no_repeat', () => {
+    // `repeat` is a fact of a `key`; the masked `type` a text key becomes on
+    // a sensitive field has no such field, held key or not.
+    insertOrdered(keyOn(cardField(), '4', 1));
+    insertOrdered({ ...keyOn(cardField(), '4', 2), repeat: true });
+
+    assert.deepEqual(shape(), [`type ${SENSITIVE_MASK}`]);
+    assert.equal('repeat' in adapter.getPendingActions()[0], false);
+  });
+
+  it('keeps repeat on a key that stays a key on a sensitive field', () => {
+    insertOrdered(keyOn(cardField(), 'Backspace', 1));
+    insertOrdered({ ...keyOn(cardField(), 'Backspace', 2), repeat: true });
+    stripSeqFields();
+
+    assert.deepEqual(
+      adapter.getPendingActions().map((a) => a.repeat),
+      [false, true],
+    );
   });
 
   it('regression_noissue_text_keys_beside_the_masked_type_of_a_sensitive_field_join_it', () => {

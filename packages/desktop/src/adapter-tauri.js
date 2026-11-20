@@ -244,7 +244,7 @@ function _isMaskedTypeOn(action, element, contextId) {
 
 /** The masked `type` a text-entering key on a sensitive field is recorded as. */
 function _maskedTypeFromKey(action) {
-  const { key: _key, modifiers: _modifiers, ...rest } = action;
+  const { key: _key, modifiers: _modifiers, repeat: _repeat, ...rest } = action;
   return { ...rest, type: 'type', value: SENSITIVE_MASK, _typedKey: true };
 }
 

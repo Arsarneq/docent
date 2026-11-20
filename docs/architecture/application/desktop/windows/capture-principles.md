@@ -231,6 +231,12 @@ state; a right or middle button's release, and an extra button's press (see
 the exceptions), refresh none.
 
 **DCP-9.** **Printable key buffering:** Printable keystrokes are buffered.
+A printable keystroke is one that enters a character, with no Ctrl, Alt or
+Meta held: a key named by a single character, the space bar, a key of the
+numeric keypad (digits, operators, decimal and separator), and a keystroke
+injected as Unicode. So a space or a keypad digit typed into a text field is
+part of that field's `type` value, as on the extension, and a `key` (`Space`,
+`Numpad1`) where no value change follows it — on a button or a checkbox.
 If a value-change event arrives (producing a `type` action), the buffered
 keys are discarded (superseded). If no value-change arrives (non-editable
 control like Calculator), the keys are emitted individually. A keystroke
@@ -245,7 +251,13 @@ thread dispatched them, so a value change is processed after the keystrokes
 that caused it and supersedes each buffered one, however busy the pool is
 (DCP-12 states the one hand-over of the role);
 every keystroke a value change does not supersede is written, so a repeated
-key is recorded once per press. A keystroke that enters text into a password
+key is recorded once per press. Each `key` carries `repeat`: the keyboard
+hook keeps a record of which keys are down, from every key-down and key-up it
+is handed (in an excluded window and outside an active capture too) and
+seeded from the keyboard's state when the hook is installed; a key-down for a
+key already down is a press key repeat generated while the key was held, and
+is written with `repeat` true, the press itself with false. An injected
+character is told apart by the code unit it carries. A keystroke that enters text into a password
 field (DCP-11's signal) is never buffered as a key: it starts or extends that
 field's masked `type` action, so typing into a password field is recorded as
 that `type` whether or not the field reports a value change. Every keystroke
