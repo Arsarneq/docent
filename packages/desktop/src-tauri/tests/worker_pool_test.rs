@@ -3449,7 +3449,7 @@ fn dispatched_focus(
 /// after Enter had closed the dialog, as the owner's text area. Written at
 /// its own place, before the path was typed, it also made the owner's own
 /// focus after the Enter compare equal and go unwritten. A focus described
-/// after a later focus change was reported writes nothing; the later focus
+/// after a later focus event was dispatched writes nothing; the later focus
 /// is written at its own place.
 #[test]
 fn regression_735_a_focus_described_after_a_later_focus_event_writes_nothing() {
