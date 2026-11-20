@@ -757,7 +757,7 @@ jobs:
       # Uploaded whether the job passes or fails: a test that passed only on a
       # retry leaves the trace of its first retry here. The first attempt is
       # not traced; its error is printed in the log above, under the test's
-      # flaky entry.
+      # numbered entry in the failure listing ahead of the run's summary.
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
