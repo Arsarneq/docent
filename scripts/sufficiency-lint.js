@@ -163,6 +163,7 @@ const IDENTITY_FACT_FIELDS = [
   'size_of_set',
   'level',
   'framework_id',
+  'language',
   'described_after_ms',
 ];
 

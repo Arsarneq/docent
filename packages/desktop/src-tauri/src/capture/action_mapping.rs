@@ -8,6 +8,7 @@
 //
 // Governance declared in scripts/area-map.json (see its declared-governance entry): the actions mapped here are .docent.json fields; the per-platform schemas are authoritative for field semantics.
 
+use super::language::preferred_languages;
 use super::{
     ActionEvent, ActionPayload, CaptureMode, ElementDescription, HeldKeysAtAction, Modifiers,
     WindowRect,
@@ -295,6 +296,7 @@ pub fn map_event(
         capture_mode,
         frame_src: None, // Always null for desktop actions
         window_rect,
+        preferred_languages: preferred_languages(),
         sequence_id: None,
         payload,
     }

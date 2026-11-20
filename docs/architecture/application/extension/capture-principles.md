@@ -105,6 +105,8 @@ worker and leak recording state to the page.
 **ECP-4.** The action's `context_id` is stamped from the **trusted sender**,
 never from the message body, so a frame cannot claim to be a different tab.
 
+The language facts are written in two places. The recorder reads the element's `language` with the rest of its description: the value of the `lang` attribute on the nearest element at or above the acted-on one that carries the attribute, as the page stands at the action. The service worker writes `preferred_languages` on every action as it stores it, the actions it records itself included, from the browser's `navigator.languages` as the worker reads it, so a frame cannot state another list for its actions ([Session Format — Shown text](../../../technical/session-format.md#shown-text)).
+
 **ECP-5.** Injecting only while recording costs no capture fidelity because of
 a measured bound: from a frame finishing load to the recorder reporting ready
 MUST complete within half the ~200 ms deliberate-action floor — the shortest

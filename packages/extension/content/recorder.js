@@ -514,6 +514,26 @@
   }
 
   /**
+   * The language the application declares for an element (session-format's
+   * `language` row states the rule): the `lang` attribute of the nearest element
+   * at or above `el` that carries one, as written, the empty value included. A
+   * shadow tree's top takes its host's declaration, as HTML resolves a node's
+   * language; the walk ends at the top of the element's own document.
+   *
+   * @param {object} el — DOM-like element
+   * @returns {string|null} the attribute's value, or null when none declares one
+   */
+  function declaredLanguage(el) {
+    let node = el;
+    while (node) {
+      const lang = node.getAttribute?.('lang');
+      if (lang != null) return lang;
+      node = node.parentElement ?? node.parentNode?.host ?? null;
+    }
+    return null;
+  }
+
+  /**
    * Describe a DOM element for capture output, including its locator
    * candidates. The selector is derived once and reused as the css entry.
    *
@@ -533,6 +553,7 @@
       // Captured so the service worker can flag sensitive payment fields via the
       // shared field-sensitivity util, on the description it stores.
       autocomplete: el.getAttribute?.('autocomplete') || null,
+      language: declaredLanguage(el),
       text: isPassword ? null : (el.innerText ?? el.value ?? '').trim().slice(0, 100) || null,
       selector,
       // Password value is masked at the type site; mark the element redacted.

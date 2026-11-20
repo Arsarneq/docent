@@ -33,6 +33,7 @@
               "element": {
                 "autocomplete": null,
                 "id": "save",
+                "language": "en",
                 "locators": [
                   {
                     "match_count": 1,
@@ -83,7 +84,8 @@
               "timestamp": 1783348326303,
               "type": "click",
               "x": 31,
-              "y": 51
+              "y": 51,
+              "preferred_languages": ["en-US"]
             },
             {
               "capture_mode": "dom",
@@ -98,6 +100,7 @@
               "element": {
                 "autocomplete": null,
                 "id": "logo",
+                "language": "en",
                 "locators": [
                   {
                     "match_count": 1,
@@ -142,7 +145,8 @@
               "timestamp": 1783348326351,
               "type": "click",
               "x": 82,
-              "y": 32
+              "y": 32,
+              "preferred_languages": ["en-US"]
             },
             {
               "capture_mode": "dom",
@@ -157,6 +161,7 @@
               "element": {
                 "autocomplete": null,
                 "id": null,
+                "language": "da",
                 "locators": [
                   {
                     "match_count": 2,
@@ -188,7 +193,8 @@
               "timestamp": 1783348326398,
               "type": "click",
               "x": 133,
-              "y": 51
+              "y": 51,
+              "preferred_languages": ["en-US"]
             }
           ],
           "deleted": false,

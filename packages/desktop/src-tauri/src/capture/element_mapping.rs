@@ -111,6 +111,11 @@ pub struct NativeElementProperties {
     /// Per-element UI-framework identity (Windows UIA FrameworkId,
     /// e.g. "Win32"/"WPF"/"XAML"). May be empty.
     pub framework_id: String,
+    /// The language the provider reports for the element, as a language tag
+    /// (Windows: the UIA Culture of the nearest element at or above it, up to
+    /// its top-level window, that reports one; an ancestor's answer counts
+    /// only when the walk confirmed the window root). Empty when none does.
+    pub language: String,
     /// Accessible name of the element referenced by the LabeledBy property.
     /// Empty when the provider reports no label relation.
     pub labeled_by: String,
@@ -220,6 +225,7 @@ pub fn map_element(props: &NativeElementProperties) -> ElementDescription {
         size_of_set: (props.size_of_set >= 1).then_some(props.size_of_set),
         level: (props.level >= 1).then_some(props.level),
         framework_id: non_empty(&props.framework_id),
+        language: non_empty(&props.language),
         locators: build_locators(props),
         // Stamped by the worker at the describe site (docent#220) — the
         // mapping layer has no clock and no event timestamp.
@@ -584,6 +590,41 @@ mod tests {
     }
 
     // -- map_element -------------------------------------------------------
+
+    #[test]
+    fn the_reported_language_is_the_elements_language() {
+        let props = NativeElementProperties {
+            tag: "Button".into(),
+            name: "Gem".into(),
+            language: "da-DK".into(),
+            ..Default::default()
+        };
+
+        let el = map_element(&props);
+        assert_eq!(el.language, Some("da-DK".into()));
+        let json = serde_json::to_value(&el).unwrap();
+        assert_eq!(json["language"], "da-DK");
+    }
+
+    #[test]
+    fn an_element_with_no_reported_language_states_null() {
+        let props = NativeElementProperties {
+            tag: "Button".into(),
+            name: "Save".into(),
+            ..Default::default()
+        };
+
+        let el = map_element(&props);
+        assert_eq!(el.language, None);
+        let json = serde_json::to_value(&el).unwrap();
+        assert!(json["language"].is_null());
+        assert!(json.as_object().unwrap().contains_key("language"));
+    }
+
+    #[test]
+    fn a_fallback_description_carries_no_language() {
+        assert_eq!(map_element_fallback("Button", (0, 1)).language, None);
+    }
 
     #[test]
     fn basic_button_mapping() {
