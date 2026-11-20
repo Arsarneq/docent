@@ -47,7 +47,10 @@
  *      since the hash is the whole of what tells the two apart and a prefix
  *      drops it. A fallback reaching a DIFFERENT stem in the
  *      group is left alone: that is the warm start the Fallback column
- *      records.
+ *      records. And a family whose job runs `cargo llvm-cov` over a cached
+ *      `target` tree names the toolchain that built it: the `cachekey` output
+ *      of one of that job's own `dtolnay/rust-toolchain` steps sits in its
+ *      prefix and in every restore key (docent#700; `toolchainKeyProblems`).
  *   4. pinned tools — every cache entry that IS such a single file takes a row
  *      stating the tool, the version segment of its key, the version its job's
  *      `cargo install` pins, and the version the local-CI guide states beside
@@ -199,6 +202,23 @@ export const CACHE_USES = {
   'actions/cache/restore': 'restore',
   'actions/cache/save': 'save',
 };
+
+/** The action whose `cachekey` output names the toolchain a job installed. */
+export const TOOLCHAIN_ACTION = 'dtolnay/rust-toolchain';
+
+/** A toolchain segment in a key: that action's `cachekey` output, by step id. */
+const TOOLCHAIN_SEGMENT_RE = /\$\{\{\s*steps\.([A-Za-z0-9_-]+)\.outputs\.cachekey\s*\}\}/;
+
+/**
+ * A run step measuring coverage over the cargo tree it builds into: the cargo
+ * subcommand, with or without a `+<toolchain>` override, or the binary called
+ * as a command of its own. Its install (`cargo install cargo-llvm-cov`) is
+ * neither, since the name there follows `install` rather than opening a command.
+ */
+const COVERAGE_RUN_RE = /(^|[;&|(]\s*)(cargo(\s+\+\S+)?\s+llvm-cov|cargo-llvm-cov(\.exe)?)(\s|$)/m;
+
+/** A cached path inside a cargo target tree: a `target` segment anywhere in it. */
+const TARGET_TREE_RE = /(^|\/)target(\/|$)/;
 
 /**
  * The pathspec the tracked listing is taken over, and the filter its answer is
@@ -684,7 +704,7 @@ export function readCacheClasses(jobsAt, paths) {
       for (const entry of cacheEntries(path, id, cacheStepsOf(path, id, steps, reads))) {
         if (entry.pathDrift) pathDrift.push(entry.pathDrift);
         if (isToolCache(entry)) tools.push(readToolEntry(entry, steps));
-        else families.push(readFamilyEntry(entry));
+        else families.push({ ...readFamilyEntry(entry), ...toolchainFactsOf(steps) });
       }
     }
   }
@@ -1052,6 +1072,93 @@ export function fallbackReachProblems(families) {
 }
 
 /**
+ * What the toolchain leg reads from a family's own job: whether a run step
+ * measures coverage with `cargo llvm-cov`, and the ids of the job's
+ * {@link TOOLCHAIN_ACTION} steps — the steps whose `cachekey` output a key can
+ * name. The steps are the ones the job's read already admitted.
+ * @param {unknown[]} steps the job's admitted steps
+ * @returns {{ measuresCoverage: boolean, toolchainSteps: string[] }}
+ */
+function toolchainFactsOf(steps) {
+  const measuresCoverage = steps.some(
+    (step) => typeof step.run === 'string' && COVERAGE_RUN_RE.test(step.run.trim()),
+  );
+  // Only a step that runs before the job's first cache step, on every run, has
+  // written its output by the time a key reads it: a later or skippable one
+  // leaves the segment empty, and an empty segment names no toolchain.
+  const firstCache = steps.findIndex(
+    (step) => typeof step.uses === 'string' && CACHE_USES[usesAction(step.uses)] !== undefined,
+  );
+  const toolchainSteps = steps
+    .filter(
+      (step, index) =>
+        typeof step.uses === 'string' &&
+        usesAction(step.uses) === TOOLCHAIN_ACTION &&
+        typeof step.id === 'string' &&
+        step.if === undefined &&
+        (firstCache === -1 || index < firstCache),
+    )
+    .map((step) => step.id);
+  return { measuresCoverage, toolchainSteps };
+}
+
+/**
+ * Which toolchain built a restored tree, held where a job measures coverage
+ * over it (docent#700). `cargo llvm-cov` reports on every test binary under its
+ * target directory whose name matches a workspace target, and its clean is
+ * `cargo clean --package`, which reaches only the files the CURRENT toolchain's
+ * layout names. A tree another toolchain built — restored from the cache —
+ * therefore keeps that toolchain's test binaries, and their coverage mappings,
+ * built from older source, join the report as never-hit lines. So:
+ *
+ *   1. a family whose job runs `cargo llvm-cov` and whose path list holds a
+ *      `target` tree names the toolchain in its family prefix: the `cachekey`
+ *      output of one of the job's own {@link TOOLCHAIN_ACTION} steps, by id;
+ *   2. a family naming that segment names a step that IS such a step in its
+ *      job, with no `if:` of its own and ahead of the job's first cache step —
+ *      any other id, a step that may be skipped, or one that runs after the
+ *      restore expands to nothing there, and the key stops naming a toolchain
+ *      while still reading as though it did;
+ *   3. every restore key of such a family carries the segment too: a fallback
+ *      without it reaches this family's older entries whatever toolchain wrote
+ *      them, which is the reach the segment exists to close.
+ *
+ * A family whose job measures nothing, or that caches no target tree, is left
+ * alone: nothing reads its tree by walking it, so a leftover there costs space
+ * and not correctness.
+ * @param {object[]} families the family entries, each carrying its job's
+ *   `measuresCoverage` and `toolchainSteps`
+ * @returns {string[]} problem lines
+ */
+export function toolchainKeyProblems(families) {
+  const problems = [];
+  for (const entry of families) {
+    const where = `${entry.workflow} job \`${entry.job}\``;
+    const toolchainSteps = entry.toolchainSteps ?? [];
+    const segment = TOOLCHAIN_SEGMENT_RE.exec(entry.family);
+    if (segment === null) {
+      const tree = entry.paths.find((path) => TARGET_TREE_RE.test(path));
+      if (entry.measuresCoverage && tree !== undefined) {
+        const how =
+          toolchainSteps.length > 0
+            ? `\`\${{ steps.${toolchainSteps[0]}.outputs.cachekey }}\``
+            : `\`steps.<id>.outputs.cachekey\` — give the job's \`${TOOLCHAIN_ACTION}\` step an id`;
+        problems.push(`${where} runs \`cargo llvm-cov\` over the restored path \`${tree}\` while its family \`${entry.family}\` names no toolchain — a tree another toolchain built keeps that toolchain's test binaries, which the report then counts; name it in the family prefix with ${how}`); // prettier-ignore
+      }
+      continue;
+    }
+    if (!toolchainSteps.includes(segment[1])) {
+      problems.push(`${where} keys on \`steps.${segment[1]}.outputs.cachekey\`, but the job states no \`${TOOLCHAIN_ACTION}\` step with the id \`${segment[1]}\` that runs unconditionally before its first cache step — the segment expands to nothing and the key names no toolchain`); // prettier-ignore
+    }
+    for (const key of entry.restoreKeys) {
+      if (TOOLCHAIN_SEGMENT_RE.exec(key)?.[0] === segment[0]) continue;
+      problems.push(`${where} states the restore key \`${key}\`, which drops the toolchain segment its family \`${entry.family}\` carries — that prefix reaches this family's entries whatever toolchain wrote them`); // prettier-ignore
+    }
+  }
+  return problems;
+}
+
+/**
  * Both cache legs over every workflow a listing yields and the guides that
  * describe what they cache. The workflows are read through the jobs reader
  * these legs are handed; the guides through the file reader beside it.
@@ -1089,6 +1196,7 @@ export function auditCachesOver(jobsAt, readFile, listWorkflows) {
     ...pathDrift,
     ...prefixFreeProblems(families),
     ...fallbackReachProblems(families),
+    ...toolchainKeyProblems(families),
     ...compareRows({
       table: familiesTable,
       docPath: CI_DOC_PATH,
@@ -1243,6 +1351,8 @@ function run() {
         `  nesting inside another saved under the same path list — two writers sharing\n` +
         `  one stem there hash different inputs — each family's own prefix first in its\n` +
         `  \`restore-keys\` and no fallback reaching an entry under a shared stem, a\n` +
+        `  coverage job's cached target tree keyed on its toolchain step's cachekey in\n` +
+        `  the family prefix and in every fallback, a\n` +
         `  tool's key version segment equal to the version its install pins, and a\n` +
         `  version a guide states beside a tool equal to that same pin.\n` +
         `  See ${SELF_PATH} for what these legs hold, and ${GUIDE_SECTION} for the\n` +

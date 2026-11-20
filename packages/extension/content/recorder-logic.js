@@ -430,6 +430,71 @@ export function describeElement(el) {
   };
 }
 
+/**
+ * The keys written as a `key` action on whatever element has focus.
+ */
+export const CAPTURE_KEYS = [
+  'Enter',
+  'Escape',
+  'Tab',
+  'ArrowUp',
+  'ArrowDown',
+  'ArrowLeft',
+  'ArrowRight',
+];
+
+/**
+ * The `input` types whose value is not free text: a Space pressed on one is a
+ * key press on the control (it opens a date field's picker, for example),
+ * never a character of its value.
+ */
+export const NON_TEXT_INPUT_TYPES = [
+  'button',
+  'checkbox',
+  'color',
+  'date',
+  'datetime-local',
+  'file',
+  'image',
+  'month',
+  'number',
+  'radio',
+  'range',
+  'reset',
+  'submit',
+  'time',
+  'week',
+];
+
+/**
+ * Whether a Space pressed on the element is typed text: a `textarea`, an
+ * `input` whose value is free text, or editable content. The text such a field
+ * holds is recorded by its `type` action.
+ *
+ * @param {object} el — DOM-like element
+ * @returns {boolean}
+ */
+export function takesTypedText(el) {
+  if (el.isContentEditable === true) return true;
+  if (el.tagName === 'TEXTAREA') return true;
+  return el.tagName === 'INPUT' && !NON_TEXT_INPUT_TYPES.includes(el.type);
+}
+
+/**
+ * The name a key press is written under, or null when the press is not
+ * captured. The fixed set is captured on any element; Space is captured where
+ * it is not typed text (#695), and named `Space` as the schema names it.
+ *
+ * @param {string} key — the event's key value
+ * @param {object|null} el — the element the press lands on, when one has focus
+ * @returns {string|null}
+ */
+export function capturedKeyName(key, el) {
+  if (CAPTURE_KEYS.includes(key)) return key;
+  if (key === ' ' && el && !takesTypedText(el)) return 'Space';
+  return null;
+}
+
 // -- END MIRRORED CAPTURE LOGIC --
 
 /**

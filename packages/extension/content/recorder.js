@@ -27,7 +27,8 @@
  * Captures:
  *   - clicks (interactive elements + fallback to any clicked element)
  *   - keyboard: Enter/Escape/Tab/arrow keys (CAPTURE_KEYS) on the focused
- *     element, whatever it is (Tab also with nothing focused)
+ *     element, whatever it is (Tab also with nothing focused), and Space where
+ *     it is not typed text; the click the browser derives from one is its effect
  *   - text input (value on change)
  *   - file uploads
  *   - select changes
@@ -54,7 +55,6 @@
   // Content scripts can't use ES imports, so values are duplicated here.
   // The scroll handler below additionally duplicates SCROLL_DEBOUNCE (300) and
   // SCROLL_MIN_DISTANCE_PX (200) inline at its setTimeout/threshold sites.
-  const ENTER_SYNTHETIC_CLICK_WINDOW = 50;
   const SELECT_SYNTHETIC_CLICK_WINDOW = 50;
   const TAB_FOCUS_CORRELATION_WINDOW = 150;
   const CLICK_FOCUS_DEDUP_WINDOW = 100;
@@ -498,6 +498,71 @@
     };
   }
 
+  /**
+   * The keys written as a `key` action on whatever element has focus.
+   */
+  const CAPTURE_KEYS = [
+    'Enter',
+    'Escape',
+    'Tab',
+    'ArrowUp',
+    'ArrowDown',
+    'ArrowLeft',
+    'ArrowRight',
+  ];
+
+  /**
+   * The `input` types whose value is not free text: a Space pressed on one is a
+   * key press on the control (it opens a date field's picker, for example),
+   * never a character of its value.
+   */
+  const NON_TEXT_INPUT_TYPES = [
+    'button',
+    'checkbox',
+    'color',
+    'date',
+    'datetime-local',
+    'file',
+    'image',
+    'month',
+    'number',
+    'radio',
+    'range',
+    'reset',
+    'submit',
+    'time',
+    'week',
+  ];
+
+  /**
+   * Whether a Space pressed on the element is typed text: a `textarea`, an
+   * `input` whose value is free text, or editable content. The text such a field
+   * holds is recorded by its `type` action.
+   *
+   * @param {object} el — DOM-like element
+   * @returns {boolean}
+   */
+  function takesTypedText(el) {
+    if (el.isContentEditable === true) return true;
+    if (el.tagName === 'TEXTAREA') return true;
+    return el.tagName === 'INPUT' && !NON_TEXT_INPUT_TYPES.includes(el.type);
+  }
+
+  /**
+   * The name a key press is written under, or null when the press is not
+   * captured. The fixed set is captured on any element; Space is captured where
+   * it is not typed text (#695), and named `Space` as the schema names it.
+   *
+   * @param {string} key — the event's key value
+   * @param {object|null} el — the element the press lands on, when one has focus
+   * @returns {string|null}
+   */
+  function capturedKeyName(key, el) {
+    if (CAPTURE_KEYS.includes(key)) return key;
+    if (key === ' ' && el && !takesTypedText(el)) return 'Space';
+    return null;
+  }
+
   // -- END MIRRORED CAPTURE LOGIC --
 
   // ─── Click capture ────────────────────────────────────────────────────────────
@@ -530,7 +595,12 @@
 
   let lastClickedEl = null;
   let lastClickTime = 0;
-  let lastKeyEnterTimestamp = 0;
+  // A captured key's keydown, keypress or keyup is being dispatched. The
+  // browser derives a key's click while it handles one of them (#695); the
+  // flag stays up until the next timer task.
+  let capturedKeyEventInTask = false;
+  // The physical keys whose latest keydown was written, by `code`.
+  const capturedKeysDown = new Set();
   let lastTabKeyTimestamp = 0;
   let lastSelectTimestamp = 0;
   let lastFileInputClickEl = null;
@@ -555,17 +625,34 @@
     { capture: true, passive: true },
   );
 
+  /**
+   * Remember a trusted click on a file input: the `file_upload` its dialog
+   * leads to is written only when the input saw one.
+   *
+   * @param {Element} el — the clicked element
+   */
+  function noteFileInputClick(el) {
+    if (el.tagName === 'INPUT' && el.type === 'file') {
+      lastFileInputClickEl = el;
+      lastFileInputClickTime = Date.now();
+    }
+  }
+
   document.addEventListener(
     'click',
     (e) => {
       if (!active) return;
       if (!e.isTrusted) return;
-      if (
-        e.detail === 0 &&
-        lastKeyEnterTimestamp > 0 &&
-        Date.now() - lastKeyEnterTimestamp < ENTER_SYNTHETIC_CLICK_WINDOW
-      )
+      // A click with no pointer, sent while the browser handles a captured key
+      // (Enter or Space on a button, an arrow key in a radio group, Enter's
+      // implicit submission), is that key's effect: the key is the record
+      // (#695). It still opens a file input's dialog, and it is the moment the
+      // activation happens, which a Space press reaches only at its release.
+      if (e.pointerType === '' && capturedKeyEventInTask) {
+        noteFileInputClick(e.target);
+        markUserAction();
         return;
+      }
       // Suppress synthetic clicks from native select confirmation (Enter/click on option)
       if (
         e.detail === 0 &&
@@ -577,11 +664,7 @@
       if (el === document.body || el === document.documentElement) return;
       lastClickedEl = e.target; // track raw target for focus deduplication
       lastClickTime = Date.now();
-      // Track file input clicks for file_upload correlation
-      if (el.tagName === 'INPUT' && el.type === 'file') {
-        lastFileInputClickEl = el;
-        lastFileInputClickTime = Date.now();
-      }
+      noteFileInputClick(el);
       // A label's activation sends a second click on to its control before the
       // next task: the person made one click, recorded as the first (#670). The
       // composed path finds a label in an open shadow root and one holding an
@@ -639,40 +722,78 @@
   //   Escape — modal/dialog/dropdown dismiss
   //   Tab    — focus navigation
   //   Arrow keys — list/menu/slider navigation
+  //   Space  — button/checkbox activation, where it is not typed text
+  // Each press is written with the browser's own repeat flag, so a held key's
+  // generated presses are told from the physical one.
 
-  const CAPTURE_KEYS = new Set([
-    'Enter',
-    'Escape',
-    'Tab',
-    'ArrowUp',
-    'ArrowDown',
-    'ArrowLeft',
-    'ArrowRight',
-  ]);
+  /**
+   * The element focus rests on, followed through shadow roots: the document's
+   * active element is the host of a shadow tree that holds the focus. A closed
+   * root is read through the extension's own accessor, so a Space typed into a
+   * field inside one is still seen as typed text.
+   *
+   * @returns {Element|null}
+   */
+  function focusedElement() {
+    let el = document.activeElement;
+    while (el) {
+      let root = el.shadowRoot;
+      if (!root) {
+        try {
+          root = chrome.dom?.openOrClosedShadowRoot(el) ?? null;
+        } catch {
+          root = null; // not an element that can host a shadow tree
+        }
+      }
+      const inner = root?.activeElement;
+      if (!inner) break;
+      el = inner;
+    }
+    return el;
+  }
+
+  /**
+   * Mark that a captured key's event is being dispatched. The browser sends a
+   * derived click from inside that dispatch, as the event's default action, so
+   * the mark must outlive this listener and is dropped by the next timer task.
+   * A microtask would drop it too early: it runs as the listener returns,
+   * ahead of the default action.
+   */
+  function markCapturedKeyEvent() {
+    capturedKeyEventInTask = true;
+    setTimeout(() => {
+      capturedKeyEventInTask = false;
+    }, 0);
+  }
 
   document.addEventListener(
     'keydown',
     (e) => {
       if (!active) return;
       if (!e.isTrusted) return;
-      if (!CAPTURE_KEYS.has(e.key)) return;
+      // Every keydown restates whether this physical key's press is a written one.
+      capturedKeysDown.delete(e.code);
+      const key = capturedKeyName(e.key, focusedElement());
+      if (key === null) return;
       // Set Tab timestamp BEFORE the body check — focus after Tab on body
       // still needs to be captured (it tells us where focus went).
-      if (e.key === 'Tab') lastTabKeyTimestamp = Date.now();
+      if (key === 'Tab') lastTabKeyTimestamp = Date.now();
       const el = document.activeElement;
       // Allow Tab even when body is focused — the user pressed Tab to navigate.
-      if (!el || (el === document.body && e.key !== 'Tab')) return;
-      if (e.key === 'Enter') lastKeyEnterTimestamp = Date.now();
+      if (!el || (el === document.body && key !== 'Tab')) return;
+      capturedKeysDown.add(e.code);
+      markCapturedKeyEvent();
       appendAction({
         type: 'key',
         timestamp: Date.now(),
-        key: e.key,
+        key,
         modifiers: {
           ctrl: e.ctrlKey,
           shift: e.shiftKey,
           alt: e.altKey,
           meta: e.metaKey,
         },
+        repeat: e.repeat,
         element:
           el === document.body
             ? {
@@ -691,6 +812,30 @@
     { capture: true, passive: true },
   );
 
+  // The later events of a captured press write nothing. Each marks its task,
+  // because the browser derives a key's click from whichever of the three it
+  // acts on: an arrow key's and a link's Enter from keydown, a button's Enter
+  // from keypress, a Space press from keyup.
+  document.addEventListener(
+    'keypress',
+    (e) => {
+      if (!active) return;
+      if (!e.isTrusted) return;
+      if (capturedKeysDown.has(e.code)) markCapturedKeyEvent();
+    },
+    { capture: true, passive: true },
+  );
+
+  document.addEventListener(
+    'keyup',
+    (e) => {
+      if (!active) return;
+      if (!e.isTrusted) return;
+      if (capturedKeysDown.delete(e.code)) markCapturedKeyEvent();
+    },
+    { capture: true, passive: true },
+  );
+
   // ─── Text input & file upload capture ────────────────────────────────────────
 
   document.addEventListener(
@@ -702,7 +847,8 @@
 
       // File inputs: allow if preceded by a click on the same file input (user selected via dialog).
       // Playwright's fileChooser.setFiles() produces untrusted change events, but the preceding
-      // click on the file input is trusted and already captured.
+      // click on the file input is trusted and already recorded, as the click or as
+      // the key that opened the dialog.
       if (el.tagName === 'INPUT' && el.type === 'file') {
         if (el === lastFileInputClickEl && Date.now() - lastFileInputClickTime < 10000) {
           const files = Array.from(el.files ?? []).map((f) => ({
@@ -735,8 +881,9 @@
         return;
       }
 
-      // A checkbox or radio toggle is recorded by the person's click, on the
-      // control or on its label; its change carries no entered value (#654).
+      // A checkbox or radio toggle is recorded by what the person did: the
+      // click, on the control or on its label, or the key that toggled it
+      // (#695); its change carries no entered value (#654).
       if (el.tagName === 'INPUT' && (el.type === 'checkbox' || el.type === 'radio')) return;
 
       if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') {
