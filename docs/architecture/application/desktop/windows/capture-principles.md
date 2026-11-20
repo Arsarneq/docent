@@ -279,8 +279,10 @@ A focus is recorded on the element focused when a worker describes it, and in
 the context of the top-level window that element is in, as its description
 resolved it, with that window's rectangle — not the window the focus event
 named, which differs when the focus moved on before the worker described it (a
-dialog that closed as the focus went back to its owner, for example); where
-the description resolved no window, the event's window gives the context. The
+dialog that closed as the focus went back to its owner, for example) and no
+later focus change was counted before the description (a focus described after
+one writes nothing, DCP-12); where the description resolved no window, the
+event's window gives the context. The
 Input_Thread introduces the event's window, not the element's (above), so a
 focus recorded in a window the session introduced no other way has no
 `context_switch` before it.
@@ -552,7 +554,18 @@ barrier as the typing worker is. A worker describes the element focused when
 it reaches a focus event, which need not be in the window the event named, so
 focus events naming two windows can describe one element (a dialog that closed
 as the focus went back to its owner), and only on one worker are they compared
-with the same last focus (DCP-13). A respawned worker starts with no last
+with the same last focus (DCP-13). A focus is compared with the last focus
+written by its element's selector within the window it is recorded in. A focus
+event described after the input thread counted a later focus or foreground
+change a program reported (the reported half of the count of focus changes, DCP-11) writes
+nothing and leaves the last focus as it was, so the later change's own event
+records the focus at its place in the recording; a key or a press of the
+person's does not count here, since it brings no focus event of its own when it
+moves no focus. Two cases stay open: a later change that is a foreground
+change only, or a focus into an excluded window, brings no focus event, so the
+earlier focus is then recorded by none; and a description made after the focus
+moved but before the program's report reached the input thread is written at
+the earlier event's place. A respawned worker starts with no last
 focus, and a worker that takes the role over compares with the last focus it
 wrote itself, none unless it held the role before: the first focus after
 either is compared with that, not with the focus written last. Exactly the selection
@@ -642,8 +655,12 @@ with a caveat):
   discarded with it, and for a password field, whose value is the mask, every
   value change after the first that no text-entering keystroke accompanies (a
   paste, for example); a departure (core CP-18)
-- A focus whose selector equals the focus worker's last (DCP-12) — not
-  written; a departure (core CP-18)
+- A focus on the element of the last focus written (its selector within its
+  window; DCP-12) — not written; a departure (core CP-18)
+- A focus that a worker describes after the input thread counted a later
+  focus or foreground change a program reported (DCP-12) — not written: the
+  element focused by then need not be the one the event named, and the later
+  change records the focus at its own event; a departure (core CP-18)
 - A focus or value change on an element the accessibility layer cannot
   describe — not written; the keys buffered for the value change are
   superseded by nothing and are written as keys (DCP-11); a departure (core

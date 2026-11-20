@@ -1854,7 +1854,8 @@ pub fn worker_loop<B: AccessibilityBackend>(
 /// separately in [`PendingBuffers`] behind a shared lock, so they survive a
 /// detach — see that type's docs.
 struct WorkerState {
-    last_focus_selector: String,
+    /// The focus last written: its context and its element's selector.
+    last_focus: Option<(Option<i64>, String)>,
     last_value_map: HashMap<String, String>,
     last_drag_element: Option<ElementDescription>,
     /// The file the last click selected in a file dialog's item view, read
@@ -1877,7 +1878,7 @@ struct WorkerState {
 impl WorkerState {
     fn new() -> Self {
         Self {
-            last_focus_selector: String::new(),
+            last_focus: None,
             last_value_map: HashMap::new(),
             last_drag_element: None,
             file_pick: None,
@@ -2396,7 +2397,7 @@ fn process_raw_event<B: AccessibilityBackend>(
                 backend,
                 action_sender,
                 context_id,
-                &mut state.last_focus_selector,
+                &mut state.last_focus,
                 window_rect.clone(),
             );
         }
@@ -2746,13 +2747,23 @@ fn handle_focus<B: AccessibilityBackend>(
     backend: &B,
     action_sender: &mpsc::Sender<ActionEvent>,
     context_id: Option<i64>,
-    last_focus_selector: &mut String,
+    last_focus: &mut Option<(Option<i64>, String)>,
     window_rect: Option<WindowRect>,
 ) {
     let (mut element, element_window) = match backend.focused_element_in_window() {
         Some(found) => found,
         None => return, // Can't resolve focused element — skip.
     };
+    // A focus change a program reported after this event's own means the
+    // element described now need not be the one this event named: the
+    // later change's own event records the focus, at its own place in the
+    // recording (docent#735). Read after the description, so a change during
+    // it counts. Only the reported half of the epoch: a key or a press of
+    // the person's that moves no focus brings no later focus event.
+    let reported = |epoch: u64| epoch & (FOCUS_EPOCH_PERSON_STEP - 1);
+    if raw.focus_epoch != 0 && reported(backend.focus_epoch()) != reported(raw.focus_epoch) {
+        return;
+    }
     stamp_described_after(&mut element, raw.timestamp);
     // The element is the one focused when it is described, which need not be
     // in the window the focus event named: a dialog that closed as the focus
@@ -2765,11 +2776,13 @@ fn handle_focus<B: AccessibilityBackend>(
         (context_id, window_rect)
     };
 
-    // Focus deduplication: skip if same selector as last focus event.
-    if element.selector == *last_focus_selector {
+    // Focus deduplication: skip the element of the last focus written, its
+    // selector within its window.
+    let key = (context_id, element.selector.clone());
+    if last_focus.as_ref() == Some(&key) {
         return;
     }
-    *last_focus_selector = element.selector.clone();
+    *last_focus = Some(key);
 
     let _ = action_sender.send(ActionEvent {
         timestamp: raw.timestamp,

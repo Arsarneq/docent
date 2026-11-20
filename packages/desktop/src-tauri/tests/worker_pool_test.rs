@@ -3270,6 +3270,8 @@ fn focus_selectors_of(events: &[ActionEvent]) -> Vec<String> {
 /// with its own last focus only.
 #[test]
 fn regression_735_one_focus_change_named_by_two_windows_is_one_focus() {
+    let dialog = 0x200;
+    let owner = 0x100;
     let gate = closed_gate();
     let (action_tx, action_rx) = mpsc::channel::<ActionEvent>();
     let worker_gate = Arc::clone(&gate);
@@ -3277,8 +3279,14 @@ fn regression_735_one_focus_change_named_by_two_windows_is_one_focus() {
         3,
         action_tx,
         move |index, rx, queue_len, sender, pending| {
-            // Every description, however late, finds the same element focused.
-            let backend = TypingBackend::edit(&worker_gate, "text");
+            // Every description, however late, finds the same element
+            // focused, in the owner's window. The events count no focus
+            // epoch, so only the comparison with the last focus judges them.
+            let backend = LateFocusBackend {
+                gate: Arc::clone(&worker_gate),
+                epoch: Arc::new(AtomicU64::new(0)),
+                window: owner,
+            };
             thread::spawn(move || {
                 let ep = Arc::new(AtomicU32::new(0));
                 worker_loop(index, backend, rx, queue_len, sender, ep, pending, None);
@@ -3286,8 +3294,6 @@ fn regression_735_one_focus_change_named_by_two_windows_is_one_focus() {
         },
     );
 
-    let dialog = 0x200;
-    let owner = 0x100;
     let t = now_ms();
     // The dialog's field reports the focus twice while the worker is busy,
     // then the focus returns to the owner as the dialog closes.
@@ -3302,7 +3308,7 @@ fn regression_735_one_focus_change_named_by_two_windows_is_one_focus() {
 
     assert_eq!(
         focus_selectors_of(&events),
-        vec!["Edit#field1".to_string()],
+        vec!["Window:delete_me.txt - Notepad > Edit:Text Editor".to_string()],
         "focus events described as one element, with no other focus between \
          them, are one focus action"
     );
@@ -3346,6 +3352,183 @@ fn a_focus_back_to_an_element_after_another_focus_is_written() {
         focus_selectors_of(&events),
         vec!["Edit#a", "Edit#b", "Edit#a"],
     );
+}
+
+/// A focused element in Notepad's window `window`, described only once
+/// `gate` is open, under a focus epoch the test moves on.
+struct LateFocusBackend {
+    gate: Gate,
+    epoch: Arc<AtomicU64>,
+    window: i64,
+}
+
+impl AccessibilityBackend for LateFocusBackend {
+    fn init(&mut self) -> Result<(), CaptureError> {
+        Ok(())
+    }
+
+    fn cleanup(&mut self) {}
+
+    fn element_at_point(&self, _x: i32, _y: i32) -> Option<ElementDescription> {
+        None
+    }
+
+    fn focused_element(&self) -> Option<ElementDescription> {
+        let (open, signal) = &*self.gate;
+        let guard = open.lock().unwrap();
+        let _open = signal
+            .wait_timeout_while(guard, Duration::from_secs(10), |open| !*open)
+            .unwrap();
+        Some(ElementDescription {
+            tag: "Edit".to_string(),
+            name: Some("Text Editor".to_string()),
+            selector: "Window:delete_me.txt - Notepad > Edit:Text Editor".to_string(),
+            ..Default::default()
+        })
+    }
+
+    fn focused_element_in_window(&self) -> Option<(ElementDescription, i64)> {
+        self.focused_element().map(|element| (element, self.window))
+    }
+
+    fn focus_epoch(&self) -> u64 {
+        self.epoch.load(Ordering::SeqCst)
+    }
+
+    fn window_title(&self, _window_handle: i64) -> String {
+        "Test Window".to_string()
+    }
+
+    fn process_name(&self, _window_handle: i64) -> String {
+        "test.exe".to_string()
+    }
+
+    fn read_file_dialog_path(&self, _window_handle: i64) -> Option<(String, String)> {
+        None
+    }
+
+    fn root_window_handle(&self, window_handle: i64) -> i64 {
+        window_handle
+    }
+
+    fn window_rect(&self, _window_handle: i64) -> Option<docent_desktop_lib::capture::WindowRect> {
+        None
+    }
+
+    fn selected_item_name(&self, _window_handle: i64) -> Option<(ElementDescription, String)> {
+        None
+    }
+}
+
+/// Regression (https://github.com/Arsarneq/docent/issues/735): the focus on
+/// a dialog's File name box waited behind a busy worker and was described
+/// after Enter had closed the dialog, as the owner's text area. Written at
+/// its own place, before the path was typed, it also made the owner's own
+/// focus after the Enter compare equal and go unwritten. A focus described
+/// after a later focus change was reported writes nothing; the later focus
+/// is written at its own place.
+#[test]
+fn regression_735_a_focus_described_after_a_later_focus_change_writes_nothing() {
+    const DIALOG: i64 = 0x200;
+    const OWNER: i64 = 0x100;
+    let gate = closed_gate();
+    let epoch = Arc::new(AtomicU64::new(1));
+    let (action_tx, action_rx) = mpsc::channel::<ActionEvent>();
+    let (worker_gate, worker_epoch) = (Arc::clone(&gate), Arc::clone(&epoch));
+    let mut pool = WorkerPool::new(
+        3,
+        action_tx,
+        move |index, rx, queue_len, sender, pending| {
+            let backend = LateFocusBackend {
+                gate: Arc::clone(&worker_gate),
+                epoch: Arc::clone(&worker_epoch),
+                window: OWNER,
+            };
+            thread::spawn(move || {
+                let ep = Arc::new(AtomicU32::new(0));
+                worker_loop(index, backend, rx, queue_len, sender, ep, pending, None);
+            })
+        },
+    );
+
+    let t = now_ms();
+    // The File name box takes the focus: a reported change, then its event.
+    epoch.fetch_add(1, Ordering::SeqCst);
+    let mut focus_box = focus_event(1, t, DIALOG);
+    focus_box.focus_epoch = epoch.load(Ordering::SeqCst);
+    pool.dispatch(focus_box);
+    // The path is typed into the box, then Enter (a key that may move the
+    // focus, counted behind its own dispatch).
+    for (i, key_code) in [0x41u32, 0x42, 0x0D].into_iter().enumerate() {
+        let mut key = layout_key(2 + i as u64, t + 10 * (i as u64 + 1), key_code);
+        key.window_handle = DIALOG;
+        key.focus_epoch = epoch.load(Ordering::SeqCst);
+        pool.dispatch(key);
+    }
+    epoch.fetch_add(FOCUS_EPOCH_PERSON_STEP, Ordering::SeqCst);
+    // The dialog closes and the focus returns to the owner's text area.
+    epoch.fetch_add(1, Ordering::SeqCst);
+    let mut focus_owner = focus_event(5, t + 50, OWNER);
+    focus_owner.focus_epoch = epoch.load(Ordering::SeqCst);
+    pool.dispatch(focus_owner);
+    open_gate(&gate);
+
+    thread::sleep(Duration::from_millis(300));
+    pool.shutdown();
+    let events: Vec<ActionEvent> = action_rx.try_iter().collect();
+
+    let focuses: Vec<u64> = events
+        .iter()
+        .filter(|e| matches!(e.payload, ActionPayload::Focus { .. }))
+        .map(|e| e.sequence_id.unwrap_or(0))
+        .collect();
+    assert_eq!(
+        focuses,
+        vec![5],
+        "one focus, at the owner's own focus event after the Enter"
+    );
+}
+
+/// A focus on an element whose selector equals that of the focus before it,
+/// in another window (two windows of one program with the same title), is a
+/// focus change and is written; the same element twice is one focus.
+#[test]
+fn a_focus_is_compared_with_the_last_within_its_window() {
+    let (action_tx, action_rx) = mpsc::channel::<ActionEvent>();
+    let selectors = Arc::new(Mutex::new(VecDeque::from(vec![
+        "Edit#a".to_string(),
+        "Edit#a".to_string(),
+        "Edit#a".to_string(),
+    ])));
+    let worker_selectors = Arc::clone(&selectors);
+    let mut pool = WorkerPool::new(
+        3,
+        action_tx,
+        move |index, rx, queue_len, sender, pending| {
+            let backend = QueuedFocusBackend {
+                selectors: Arc::clone(&worker_selectors),
+            };
+            thread::spawn(move || {
+                let ep = Arc::new(AtomicU32::new(0));
+                worker_loop(index, backend, rx, queue_len, sender, ep, pending, None);
+            })
+        },
+    );
+
+    let t = now_ms();
+    for (seq, window) in [(1, 0x100), (2, 0x200), (3, 0x200)] {
+        pool.dispatch(focus_event(seq, t + seq * 5, window));
+        thread::sleep(Duration::from_millis(60));
+    }
+    pool.shutdown();
+    let events: Vec<ActionEvent> = action_rx.try_iter().collect();
+
+    let focuses: Vec<(u64, Option<i64>)> = events
+        .iter()
+        .filter(|e| matches!(e.payload, ActionPayload::Focus { .. }))
+        .map(|e| (e.sequence_id.unwrap_or(0), e.context_id))
+        .collect();
+    assert_eq!(focuses, vec![(1, Some(0x100)), (2, Some(0x200))]);
 }
 
 /// A backend whose focused element is the next selector of a shared queue.
