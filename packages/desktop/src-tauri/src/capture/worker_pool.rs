@@ -18,8 +18,8 @@ use super::action_mapping::PASSWORD_MASK;
 use super::coordinate;
 use super::scroll::{RawScrollEvent, ScrollAccumulator};
 use super::{
-    ActionEvent, ActionPayload, CaptureError, CaptureMode, ElementDescription, Modifiers,
-    WindowRect,
+    ActionEvent, ActionPayload, CaptureError, CaptureMode, ElementDescription, HeldKeysAtAction,
+    Modifiers, WindowRect,
 };
 
 /// Maximum total time [`WorkerPool::shutdown`] waits for all worker threads to
@@ -108,9 +108,16 @@ pub struct RawEvent {
     /// 1 = horizontal (read by the scroll arm); `[scan_code, 0, 0, 0]` from the
     /// keyboard hook, where a `VK_PACKET` keystroke's scan code is the injected
     /// UTF-16 code unit (read by the keyboard arm); `[scan_code,
-    /// focused_control, 0, 0]` in full, the second being the window handle of
-    /// the control that held the keyboard focus at the key, `0` when none was
-    /// read (see `settle_key_on_its_control`). On other platforms: unused or
+    /// focused_control, part_focus, repeat]` in full, the second being the
+    /// window handle of the control that held the keyboard focus at the key,
+    /// `0` when none was read (see `settle_key_on_its_control`), the third the
+    /// number of the latest focus change that named a part of that control
+    /// (see [`PartFocusNote`]), and the fourth `1` on a key-down for a key that
+    /// was already down (a press key repeat generated while the key was held),
+    /// `0` on the press itself (see [`super::held_keys::HeldKeys`]). The bit
+    /// above the scan code ([`super::held_keys::KEY_EXTENDED_PARAM`]) is the
+    /// hook's extended mark for the key. On other
+    /// platforms: unused or
     /// platform-defined.
     pub callback_params: [i64; 4],
     /// Pre-captured element description from the Input_Thread.
@@ -136,6 +143,13 @@ pub struct RawEvent {
     /// and foreground changes programs reported, which reach the Input_Thread
     /// a moment after they happen. See [`person_moved_focus_between`].
     pub focus_epoch: u64,
+    /// The keys that were down when the Input_Thread dispatched this event
+    /// and whose key-down it had dispatched, in the order they went down,
+    /// without the modifier keys and without a keystroke's own key (see
+    /// [`super::held_keys::HeldKeys::dispatched_down`]). Filled for the
+    /// keystrokes and the pointer events an action's `held_keys` is written
+    /// from; empty otherwise.
+    pub held: Vec<super::held_keys::HeldPress>,
 }
 
 // ---------------------------------------------------------------------------
@@ -1204,7 +1218,7 @@ fn vk_to_key_name(vk: u32) -> String {
 /// software keyboards, automation) reaches the low-level hook with. Its scan
 /// code carries the injected UTF-16 code unit, which the hook passes on in
 /// `RawEvent::callback_params[0]` (docent#260).
-const VK_PACKET: u32 = 0xE7;
+pub(crate) const VK_PACKET: u32 = 0xE7;
 
 /// The key value for a key whose identity is not known — the browser's own
 /// value for that case, so the desktop names it the way the extension would.
@@ -1217,14 +1231,45 @@ const UNIDENTIFIED_KEY: &str = "Unidentified";
 /// character) is `Unidentified`. Every other code goes through
 /// [`vk_to_key_name`].
 fn key_name(raw: &RawEvent) -> String {
-    if raw.key_code != VK_PACKET {
-        return vk_to_key_name(raw.key_code);
+    key_name_of(raw.key_code, raw.callback_params[0])
+}
+
+/// [`key_name`] for a key by its code and its scan code.
+fn key_name_of(key_code: u32, scan_code: i64) -> String {
+    if key_code != VK_PACKET {
+        return vk_to_key_name(key_code);
     }
-    let unit = (raw.callback_params[0] & 0xFFFF) as u32;
+    let unit = (scan_code & 0xFFFF) as u32;
     match char::from_u32(unit) {
         Some(' ') => vk_to_key_name(0x20),
         Some(c) if !c.is_control() => c.to_string(),
         _ => UNIDENTIFIED_KEY.to_string(),
+    }
+}
+
+/// The modifier keys held at a raw event, as its action states them.
+fn modifiers_of(raw: &RawEvent) -> Modifiers {
+    Modifiers {
+        ctrl: raw.modifiers.0,
+        shift: raw.modifiers.1,
+        alt: raw.modifiers.2,
+        meta: raw.modifiers.3,
+    }
+}
+
+/// The keys that were down at a raw event, as its action states them.
+///
+/// Each key is named as its own `key` action names it. The hook's record
+/// lists no modifier key, so every key here has such a name.
+fn held_at(raw: &RawEvent) -> HeldKeysAtAction {
+    let (held_keys, held_presses) = raw
+        .held
+        .iter()
+        .map(|k| (key_name_of(k.key_code, i64::from(k.scan_code)), k.press))
+        .unzip();
+    HeldKeysAtAction {
+        held_keys,
+        held_presses,
     }
 }
 
@@ -1236,10 +1281,55 @@ fn is_modifier_only_key(key: &str) -> bool {
 }
 
 /// Determine whether a keystroke is printable input (should be buffered, not
-/// emitted immediately): a single-character key name, or any `VK_PACKET`
-/// keystroke (it carries text, whatever its name), with no Ctrl/Alt/Meta held.
-fn is_printable_key(raw: &RawEvent, key: &str) -> bool {
-    carries_text(raw, key) && !raw.modifiers.0 && !raw.modifiers.2 && !raw.modifiers.3
+/// emitted immediately): a typing key (see [`is_typing_key_code`]) pressed with
+/// no modifier or as a character of its layout. Ctrl and Alt held together is
+/// AltGr, which enters a character; Ctrl, Alt or Meta held otherwise is a
+/// shortcut.
+fn is_printable_key(raw: &RawEvent) -> bool {
+    let (ctrl, _shift, alt, meta) = raw.modifiers;
+    is_typing_key_code(raw.key_code) && !meta && ctrl == alt
+}
+
+/// Whether a virtual-key code is a typing key's: one that enters a character
+/// on some layout. A closed table: the space bar, digits, letters, the numeric
+/// keypad (digits, operators, decimal and separator; with NumLock off the
+/// keypad sends the navigation keys' own codes instead), punctuation (the OEM
+/// keys of every layout: 0xBA-0xC2, 0xDB-0xDF, 0xE1-0xE4, 0xE6) and
+/// `VK_PACKET`. Called on the keyboard hook: no allocation, no lock.
+pub const fn is_typing_key_code(key_code: u32) -> bool {
+    matches!(
+        key_code,
+        0x20 | 0x30..=0x39
+            | 0x41..=0x5A
+            | 0x60..=0x6F
+            | 0xBA..=0xC2
+            | 0xDB..=0xDF
+            | 0xE1..=0xE4
+            | 0xE6
+            | VK_PACKET
+    )
+}
+
+/// The control types that take no typed text: a key pressed on one presses,
+/// toggles or opens it, and no value change makes that key text. A closed
+/// list of the accessibility control types a platform backend names (see the
+/// backend's control-type table); every other type may take text, and a value
+/// change decides. The adapter's sensitive-field rule keeps the same list
+/// (`packages/desktop/src/adapter-tauri.js`).
+const NON_TEXT_CONTROL_TAGS: &[&str] = &[
+    "Button",
+    "CheckBox",
+    "Hyperlink",
+    "MenuItem",
+    "RadioButton",
+    "SplitButton",
+    "TabItem",
+];
+
+/// Whether `element` is a control that takes no typed text (see
+/// [`NON_TEXT_CONTROL_TAGS`]).
+fn takes_no_typed_text(element: &ElementDescription) -> bool {
+    NON_TEXT_CONTROL_TAGS.contains(&element.tag.as_str())
 }
 
 /// One step of the person's half of the focus epoch (see
@@ -1283,25 +1373,17 @@ pub fn key_may_move_focus(key_code: u32, modifiers: (bool, bool, bool, bool)) ->
         0x10 | 0x11 | 0xA0..=0xA3 | 0x14 | 0x90 | 0x91 => false,
         // Alt (generic and left/right).
         0x12 | 0xA4 | 0xA5 => !ctrl,
-        // Space, digits, letters, numeric keypad, punctuation (the OEM keys of
-        // every layout: 0xBA-0xC2, 0xDB-0xDF, 0xE1-0xE4, 0xE6), VK_PACKET.
-        0x20
-        | 0x30..=0x39
-        | 0x41..=0x5A
-        | 0x60..=0x6F
-        | 0xBA..=0xC2
-        | 0xDB..=0xDF
-        | 0xE1..=0xE4
-        | 0xE6
-        | VK_PACKET => meta || ctrl != alt,
+        // A typing key moves the focus only as a shortcut.
+        code if is_typing_key_code(code) => meta || ctrl != alt,
         _ => true,
     }
 }
 
-/// Whether a keystroke carries text by its name alone: a single-character key
-/// name, or any `VK_PACKET` keystroke.
-fn carries_text(raw: &RawEvent, key: &str) -> bool {
-    raw.key_code == VK_PACKET || key.chars().count() == 1
+/// Whether the keyboard hook marked this key-down as one that key repeat
+/// generated while the key was held down (the fourth callback parameter; see
+/// [`RawEvent::callback_params`]).
+fn is_repeat(raw: &RawEvent) -> bool {
+    raw.callback_params[3] != 0
 }
 
 /// The key names that enter no character: editing, navigation, lock, system
@@ -2253,12 +2335,16 @@ fn handle_click<B: AccessibilityBackend>(
         ActionPayload::RightClick {
             x: screen_x,
             y: screen_y,
+            modifiers: modifiers_of(raw),
+            held: held_at(raw),
             element: element_desc.clone(),
         }
     } else {
         ActionPayload::Click {
             x: screen_x,
             y: screen_y,
+            modifiers: modifiers_of(raw),
+            held: held_at(raw),
             element: element_desc.clone(),
         }
     };
@@ -2512,6 +2598,14 @@ fn record_type_value(
     value: String,
     is_password: bool,
 ) -> bool {
+    // A control that takes no typed text has no `type`: a value change
+    // attributed to it is the effect of pressing it (the field a button
+    // clears), and the key that pressed it stays the record.
+    if takes_no_typed_text(&element) {
+        keep_keys_of_dropped_value_change(pending, action_sender);
+        return false;
+    }
+
     // The first value-change describes the element; that element (and the
     // matching timestamp) is what the coalesced type action exports.
     stamp_described_after(&mut element, raw.timestamp);
@@ -2831,6 +2925,10 @@ fn handle_keyboard<B: AccessibilityBackend>(
         return;
     }
 
+    // A typing key waits for the value change that would make it text, except
+    // on a control that takes no typed text, where it is a key at once.
+    let buffered = is_printable_key(raw) && !takes_no_typed_text(&element);
+
     let event = ActionEvent {
         timestamp: raw.timestamp,
         context_id,
@@ -2840,19 +2938,16 @@ fn handle_keyboard<B: AccessibilityBackend>(
         sequence_id: Some(raw.sequence_id),
         payload: ActionPayload::Key {
             key: key.clone(),
-            modifiers: Modifiers {
-                ctrl: raw.modifiers.0,
-                shift: raw.modifiers.1,
-                alt: raw.modifiers.2,
-                meta: raw.modifiers.3,
-            },
+            modifiers: modifiers_of(raw),
+            repeat: is_repeat(raw),
+            held: held_at(raw),
             element,
         },
     };
 
     // In-memory buffer mutation only — short lock, no backend calls inside.
     let mut buffers = lock_buffers(pending);
-    if is_printable_key(raw, &key) {
+    if buffered {
         // A `type` pending for another element is not this key's: it is
         // written now, so that it cannot count this key superseded when it is
         // written later.
@@ -2862,6 +2957,16 @@ fn handle_keyboard<B: AccessibilityBackend>(
             .is_some_and(|pt| pt.context_id != context_id || pt.element.selector != key_selector)
         {
             buffers.flush_pending_type_only(action_sender);
+        }
+        // Keys buffered on another element are not this element's typing
+        // either: its value change must not supersede them, so they are
+        // written now, as the keys they are.
+        if buffers.pending_keys.iter().any(|pending_key| {
+            pending_key.context_id != context_id
+                || !matches!(&pending_key.payload,
+                    ActionPayload::Key { element, .. } if element.selector == key_selector)
+        }) {
+            flush_pending_keys(&mut buffers.pending_keys, action_sender);
         }
         // Buffer printable keys — they may be superseded by a type event.
         buffers.pending_keys.push(event);
@@ -2931,7 +3036,11 @@ fn handle_drag_start<B: AccessibilityBackend>(
         frame_src: None,
         window_rect,
         sequence_id: Some(raw.sequence_id),
-        payload: ActionPayload::DragStart { element },
+        payload: ActionPayload::DragStart {
+            modifiers: modifiers_of(raw),
+            held: held_at(raw),
+            element,
+        },
     });
 }
 
@@ -2964,6 +3073,8 @@ fn handle_drop<B: AccessibilityBackend>(
         payload: ActionPayload::Drop {
             x: raw.screen_x as f64,
             y: raw.screen_y as f64,
+            modifiers: modifiers_of(raw),
+            held: held_at(raw),
             element,
             source_element,
         },
@@ -3088,6 +3199,8 @@ mod tests {
                     alt: false,
                     meta: false,
                 },
+                repeat: false,
+                held: HeldKeysAtAction::default(),
                 element: ElementDescription {
                     tag: "Edit".to_string(),
                     id: None,
@@ -3328,6 +3441,7 @@ mod tests {
             callback_params: [0; 4],
             pre_captured_element: None,
             focus_epoch: 0,
+            held: Vec::new(),
         };
 
         pool.dispatch(key()); // worker 0 takes the typing role and wedges
@@ -3405,6 +3519,7 @@ mod tests {
                     key,
                     modifiers,
                     element,
+                    ..
                 } => {
                     assert_eq!(key, expected_key, "key value intact");
                     assert!(
@@ -3553,6 +3668,7 @@ mod tests {
             callback_params: [0; 4],
             pre_captured_element: None,
             focus_epoch: 0,
+            held: Vec::new(),
         }
     }
 
@@ -3572,6 +3688,7 @@ mod tests {
             callback_params: [0; 4],
             pre_captured_element: None,
             focus_epoch: 0,
+            held: Vec::new(),
         }
     }
 

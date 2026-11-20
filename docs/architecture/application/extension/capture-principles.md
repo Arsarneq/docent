@@ -122,8 +122,9 @@ end-to-end spec enforces the readiness bound.
 
 **ECP-6.** This platform's capture surface applies
 [core CP-14](../../../architecture/system/capture-principles.md#capture-surface)'s
-closed positive-enumeration principle. The recorder listens on `document`, in
-the capture phase, for exactly these DOM events:
+closed positive-enumeration principle. The recorder listens, in the capture
+phase, for exactly these DOM events, on `document` unless the item names
+`window`:
 
 - `mousedown` — the press ahead of a click, held so a blur-caused `change` can
   be attributed to the element the user moved to
@@ -134,7 +135,10 @@ the capture phase, for exactly these DOM events:
   click the browser derives from a captured key press (Enter or Space on a
   button, an arrow key in a radio group, for example) is that key's effect
   (core CP-6) and writes nothing: it carries no pointer, and the browser sends
-  it while it handles one of that key's events
+  it while it handles one of that key's events; the click a native `select`
+  sends when its list closes from the keyboard is an effect of the same kind
+  and writes nothing (the keys pressed inside the open list do not reach the
+  page, so the closing leaves no other trace)
 - `contextmenu` — the right-click, its element picked as for `click`
 - `keydown` — the keys in the captured keyboard set: Enter, Escape, Tab and
   the four arrow keys on the focused element, and Space on a focused element
@@ -145,24 +149,42 @@ the capture phase, for exactly these DOM events:
   each press is written with whether the browser's key repeat generated it:
   holding a key down is the person's input (core CP-5), and each repeated
   press is that hold as the browser reports it, written and marked so that it
-  is told from a separate physical press
+  is told from a separate physical press; a press made while an `input` or
+  `textarea` holds an entry not yet written writes that entry's `type` first,
+  the entry being complete before the press that follows it; a value the page
+  set, with no key pressed in the field, is not an entry, and an entry already
+  written writes nothing again when the browser commits the field; each
+  press is also written with `held_keys`, the other keys that are down and
+  whose key-down was written as a `key` (the press, or the first repeat the
+  document saw when it did not see the press; not yet released), by the names
+  those `key` actions carry, in the order they went down, and a `click`, a
+  `contextmenu`, a `dragstart` and a `drop` write the same list beside the
+  modifier keys their event reports
 - `keypress` — the character event of a captured key press, which writes
   nothing: with `keydown` and `keyup` it marks the task in which the browser
   derives a click from the key
-- `keyup` — the release of a captured key, which writes nothing; the browser
-  derives the click of a Space press from it
+- `keyup` — the release of a captured key, which writes nothing and ends the
+  key's time among the held keys, while the recording is off as well; the
+  browser derives the click of a Space press from it
 - `change` — a committed value: a `select` choice, an `input`/`textarea` entry,
   and a file chosen through the OS dialog; a checkbox or radio toggle is
   recorded by the `click` or the `key` that made it, so its `change` writes
   nothing
-- `focusin` — a focus move, recorded only when it follows a Tab key press
-- `dragstart` — the start of a drag, which names the drag source
+- `focusin` — a focus move, recorded only when it follows a Tab key press; the
+  value an `input` or `textarea` holds when it takes focus is noted, so an
+  entry made since can be told from one already written
+- `dragstart` — the start of a drag, which names the drag source; the browser
+  sends the page no key events while a drag lasts, so no key is known to be
+  down from here on, and the `drop` states none
 - `dragover` — the target tracking the browser requires before a drop can fire
 - `drop` — the end of a drag, paired with the source the drag started from
 - `dragend` — the drag's terminal signal, which releases the source
 - `scroll` — a scroll gesture, debounced and coalesced into one action
 - `input` — in-progress editing of a `contenteditable` host, debounced
 - `blur` — the flush that commits pending `contenteditable` editing
+- `blur` on `window` — the window lost the focus, which writes nothing: a key
+  released while another window has the focus sends its release there, so no
+  key is known to be down from then on (the `held_keys` of later actions)
 
 The service worker captures the browser-chrome proxies in the table below, each
 row naming the worker event it is captured from.
@@ -299,9 +321,26 @@ with a caveat):
 
 - Keys and keyboard shortcuts outside the captured keyboard set ECP-6 states
   (`CAPTURE_KEYS`, and Space where it is not typed text) are not captured as
-  key events — the keyboard surface is that set, not all keys
+  key events — the keyboard surface is that set, not all keys; the desktop
+  writes such a key press where it enters no text into a field, so this is a
+  departure (core CP-19;
+  [docent#702](https://github.com/Arsarneq/docent/issues/702))
 - Arrow keys in native `<select>` are swallowed by the browser before the
   recorder's listeners see them
+- A key that is down but was pressed while another document had the focus
+  (another frame, another tab or window) is not among an action's `held_keys`,
+  and no key is known to be down once the document's window loses the focus
+  or a drag starts:
+  the browser delivers a key's events to the focused document only, sends the
+  page none while a drag lasts, and offers
+  no reading of the keyboard's state. From the moment the focus leaves a
+  document, nothing the browser delivers says whether a key that was down
+  still is: its release can reach another frame, a page the extension does not
+  run in, the browser's own interface or another program. Carrying the key
+  over from the document that saw it go down would state a key as down that could already have been released, so it is not done. The desktop's keyboard hook is
+  handed every key wherever the focus is and names such a key; the difference
+  comes from the platforms themselves (core CP-19). A key still held when the
+  focus returns or the drag has ended is named again from its next repeat
 - Back/forward between same-document entries (an SPA's history) — a
   browser-chrome action; the worker's committed-navigation listener does not
   report it
@@ -338,16 +377,26 @@ with a caveat):
   on to its control, since the closed root hides the label from the recorder;
   a departure (core CP-18)
 - A captured key other than Tab while nothing is focused — not written; a
-  departure (core CP-18)
+  departure (core CP-18), and one from the desktop, which writes the key on a
+  stand-in element (core CP-19;
+  [docent#710](https://github.com/Arsarneq/docent/issues/710))
 - A click that carries no pointer and reaches the page outside a captured
   key's events (an activation an assistive technology sends, or one a key
   outside the captured set causes, an `accesskey` shortcut for example) —
   written as a `click` with the coordinates its event carries, though no
-  pointer was at that point; a departure (core CP-18)
+  pointer was at that point; a departure (core CP-18). A native `select` is
+  the exception: a click with no pointer on one is not written, whatever sent
+  it, an activation an assistive technology sends to a `select` included
+- A value entered with no key pressed in the field since it took focus (a
+  paste from the context menu, a drop, an autofill) — its `type` is written
+  when the browser commits it, which can follow a captured key pressed after
+  it; a departure (core CP-18)
 - A captured key whose press also scrolls (an arrow key, or Space on a focused
   element it does not activate, a link for example) — written as the `key`
   and, where the scroll clears the floor (core CP-16), as a `scroll` too: one
-  press, two actions; a departure (core CP-18)
+  press, two actions; a departure (core CP-18), and one from the desktop,
+  whose `scroll` comes from wheel input only (core CP-19;
+  [docent#710](https://github.com/Arsarneq/docent/issues/710))
 - A `type` on an input or textarea when a button or input marked
   `type="submit"` in the same form was pressed, with any mouse button, within
   100 ms of the change — not written (a `<button>` with no `type` attribute
@@ -363,7 +412,8 @@ with a caveat):
 - A Tab focus move onto an element other than an input, a textarea or a
   contenteditable host (a button, a link or a select, for example) — no
   `focus` is written; the Tab `key` is written against the element it left; a
-  departure (core CP-18)
+  departure (core CP-18), and one from the desktop, which writes the `focus` (core CP-19;
+  [docent#710](https://github.com/Arsarneq/docent/issues/710))
 - Scroll gestures are debounced and coalesced with a sub-threshold discard —
   the shared rule in
   [core CP-16](../../../architecture/system/capture-principles.md#capture-surface);
@@ -378,14 +428,20 @@ with a caveat):
   not captured
 - A middle-button click — the recorder listens for no `auxclick`, so the click
   is not recorded; a tab it opens arrives as a `context_open` with no action
-  behind it
+  behind it; the desktop records the click, so this is a departure (core CP-19;
+  [docent#707](https://github.com/Arsarneq/docent/issues/707))
 - A pointer drag that is not HTML5 drag-and-drop (a slider, a splitter, a text
   selection) — recorded as the click its release produces, not as a
-  `drag_start`/`drop` pair
+  `drag_start`/`drop` pair, which the desktop records; a departure (core CP-19;
+  [docent#707](https://github.com/Arsarneq/docent/issues/707))
 - Moving between two browser windows — the worker listens for no
-  `windows.onFocusChanged`, so the switch records no `context_switch`
+  `windows.onFocusChanged`, so the switch records no `context_switch`, which
+  the desktop records between its windows; a departure (core CP-19;
+  [docent#707](https://github.com/Arsarneq/docent/issues/707))
 - Closing a whole browser window — the tab-removal listener skips tabs removed
-  by a window close, so no `context_close` is recorded
+  by a window close, so no `context_close` is recorded, which the desktop
+  records for a window the person closes; a departure (core CP-19;
+  [docent#707](https://github.com/Arsarneq/docent/issues/707))
 - A file chosen without a trusted click on the input within the 10 s before
   the change — a click the page scripted on the input, or a choice made
   later — no `file_upload` is recorded; a departure (core CP-18). The click
@@ -394,7 +450,9 @@ with a caveat):
 - Input in a page between its navigation and the completion of its load — the
   recorder is injected as the frame finishes loading (ECP-2), so an action
   taken while the page is still loading is not captured; ECP-5's readiness
-  bound runs from that load completion
+  bound runs from that load completion; the desktop records input in a window
+  that is still starting, so this is a departure (core CP-19;
+  [docent#710](https://github.com/Arsarneq/docent/issues/710))
 - Input in a page or frame the browser does not let the extension inject (the
   browser decides which: the Chrome Web Store, a PDF in the built-in viewer, a
   `file://` page while file access is off and a host an enterprise policy
@@ -405,7 +463,9 @@ with a caveat):
   neither is written; a departure (core CP-18)
 - A value committed in an input, textarea or select inside a shadow root —
   `change` does not cross the shadow boundary to the recorder's `document`
-  listener, so no `type` or `select` is written
+  listener, so no `type` or `select` is written; the desktop records a
+  field's `type` wherever the field sits, so this is a departure (core CP-19;
+  [docent#710](https://github.com/Arsarneq/docent/issues/710))
 - Actions in a tab after a service-worker suspension, once one frame of that
   tab has registered again and the frame acted in has not — the tab's registry
   entry exists, so no lazy reseed runs (ECP-3), and the frame-trust gate drops

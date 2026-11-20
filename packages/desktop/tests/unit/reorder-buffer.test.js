@@ -266,6 +266,8 @@ describe('_insertOrdered redacts sensitive field values', () => {
     sequence_id: seq,
     key,
     modifiers: { ctrl: false, shift: false, alt: false, meta: false, ...modifiers },
+    repeat: false,
+    held_keys: [],
     element,
     context_id: 7,
     capture_mode: 'accessibility',
@@ -296,6 +298,135 @@ describe('_insertOrdered redacts sensitive field values', () => {
     assert.equal(actions[0].element.redacted, true);
     assert.equal(actions[0].context_id, 7);
     assert.equal(actions[0].capture_mode, 'accessibility');
+  });
+
+  it('regression_696_a_key_recorded_as_the_masked_type_carries_no_repeat', () => {
+    // `repeat` is a fact of a `key`; the masked `type` a text key becomes on
+    // a sensitive field has no such field, held key or not.
+    insertOrdered(keyOn(cardField(), '4', 1));
+    insertOrdered({ ...keyOn(cardField(), '4', 2), repeat: true });
+
+    assert.deepEqual(shape(), [`type ${SENSITIVE_MASK}`]);
+    assert.equal('repeat' in adapter.getPendingActions()[0], false);
+  });
+
+  it('regression_696_a_key_on_a_sensitive_named_control_that_takes_no_text_stays_a_key', () => {
+    // Space on a "Remember password" checkbox ticks it; no text is typed into
+    // a checkbox, so the key is the record, on every such control type.
+    const tags = [
+      'Button',
+      'CheckBox',
+      'Hyperlink',
+      'MenuItem',
+      'RadioButton',
+      'SplitButton',
+      'TabItem',
+    ];
+    tags.forEach((tag, i) =>
+      insertOrdered(
+        keyOn({ tag, name: 'Remember password', selector: `c${i}`, text: null }, 'Space', i + 1),
+      ),
+    );
+    // The same name on a control that may take text is still masked typing.
+    insertOrdered(
+      keyOn({ tag: 'Edit', name: 'Remember password', selector: 'e', text: null }, 'Space', 9),
+    );
+
+    assert.deepEqual(shape(), [...tags.map(() => 'key Space'), `type ${SENSITIVE_MASK}`]);
+  });
+
+  // The native layer states, for each key that was down at an action, its
+  // name and the key-down it is down by (docent#706). Only a key whose
+  // key-down is a `key` action of the step is a held key of the recording.
+  const heldBy = (names, presses) => ({ held_keys: names, held_presses: presses });
+  const clickAt = (seq, held) => ({
+    type: 'click',
+    timestamp: seq,
+    sequence_id: seq,
+    x: 1,
+    y: 2,
+    modifiers: { ctrl: false, shift: false, alt: false, meta: false },
+    ...held,
+    element: { tag: 'Button', name: 'OK', selector: 'ok', text: null },
+    context_id: 7,
+    capture_mode: 'accessibility',
+  });
+  const plainField = () => ({ tag: 'Edit', name: 'Title', selector: 'title', text: null });
+
+  it('regression_706_held_keys_names_only_keys_whose_key_down_is_a_key_action', () => {
+    // Space (1) is a `key` action; the letter (2) became text and has none.
+    insertOrdered(keyOn(plainField(), 'Space', 1));
+    insertOrdered(clickAt(3, heldBy(['Space', 'a'], [1, 2])));
+    insertOrdered({ ...keyOn(plainField(), 'Tab', 4), ...heldBy(['a', 'Space'], [2, 1]) });
+    stripSeqFields();
+
+    const [space, click, tab] = adapter.getPendingActions();
+    assert.deepEqual(space.held_keys, []);
+    assert.deepEqual(click.held_keys, ['Space']);
+    assert.deepEqual(tab.held_keys, ['Space']);
+    for (const action of [space, click, tab]) {
+      assert.equal('held_presses' in action, false);
+      assert.deepEqual(
+        Object.keys(action).filter((k) => k.startsWith('_')),
+        [],
+      );
+    }
+  });
+
+  it('regression_706_a_held_key_is_named_whichever_of_the_two_actions_arrives_first', () => {
+    insertOrdered(clickAt(2, heldBy(['Enter'], [1])));
+    insertOrdered(keyOn(plainField(), 'Enter', 1));
+    stripSeqFields();
+
+    assert.deepEqual(
+      adapter.getPendingActions().map((a) => a.held_keys),
+      [[], ['Enter']],
+    );
+  });
+
+  it('regression_706_no_held_key_name_is_exposed_before_the_step_is_complete', () => {
+    // Until the step's actions are all in, nothing shows which names are of
+    // written keys: a name could be a character typed into a field.
+    insertOrdered(clickAt(3, heldBy(['p'], [2])));
+
+    const [click] = adapter.getPendingActions();
+    assert.deepEqual(click.held_keys, []);
+    assert.equal('held_presses' in click, false);
+  });
+
+  it('regression_706_a_key_recorded_as_the_masked_type_is_no_held_key_and_states_none', () => {
+    // A character typed into a sensitive field is its masked `type`: the
+    // `type` states no held keys, and no action names that character as held.
+    insertOrdered({ ...keyOn(cardField(), '4', 1), ...heldBy(['Space'], [9]) });
+    insertOrdered(clickAt(2, heldBy(['4'], [1])));
+    stripSeqFields();
+
+    const [typed, click] = adapter.getPendingActions();
+    assert.equal(typed.type, 'type');
+    assert.equal('held_keys' in typed, false);
+    assert.equal('held_presses' in typed, false);
+    assert.deepEqual(click.held_keys, []);
+  });
+
+  it('an action that states no held keys keeps what it has', () => {
+    insertOrdered(clickAt(1, { held_keys: [] }));
+    insertOrdered({ type: 'focus', timestamp: 2, sequence_id: 2, element: plainField() });
+    stripSeqFields();
+
+    const [click, focus] = adapter.getPendingActions();
+    assert.deepEqual(click.held_keys, []);
+    assert.equal('held_keys' in focus, false);
+  });
+
+  it('keeps repeat on a key that stays a key on a sensitive field', () => {
+    insertOrdered(keyOn(cardField(), 'Backspace', 1));
+    insertOrdered({ ...keyOn(cardField(), 'Backspace', 2), repeat: true });
+    stripSeqFields();
+
+    assert.deepEqual(
+      adapter.getPendingActions().map((a) => a.repeat),
+      [false, true],
+    );
   });
 
   it('regression_noissue_text_keys_beside_the_masked_type_of_a_sensitive_field_join_it', () => {

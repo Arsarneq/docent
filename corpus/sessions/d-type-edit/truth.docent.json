@@ -49,6 +49,13 @@
               "type": "click",
               "x": 500,
               "y": 400,
+              "modifiers": {
+                "ctrl": false,
+                "shift": false,
+                "alt": false,
+                "meta": false
+              },
+              "held_keys": [],
               "element": {
                 "tag": "Edit",
                 "id": null,
@@ -106,7 +113,7 @@
                 ],
                 "described_after_ms": 32
               },
-              "value": "hello"
+              "value": "hello you"
             }
           ],
           "deleted": false,

@@ -8,7 +8,10 @@
 //
 // Governance declared in scripts/area-map.json (see its declared-governance entry): the actions mapped here are .docent.json fields; the per-platform schemas are authoritative for field semantics.
 
-use super::{ActionEvent, ActionPayload, CaptureMode, ElementDescription, Modifiers, WindowRect};
+use super::{
+    ActionEvent, ActionPayload, CaptureMode, ElementDescription, HeldKeysAtAction, Modifiers,
+    WindowRect,
+};
 
 // ---------------------------------------------------------------------------
 // Masked password value
@@ -36,12 +39,20 @@ pub enum NativeEvent {
     Click {
         x: f64,
         y: f64,
+        /// The modifier keys held at the action.
+        modifiers: Modifiers,
+        /// The other keys that were down at the action.
+        held: HeldKeysAtAction,
         element: ElementDescription,
     },
     /// Right-click (context menu) on an element.
     RightClick {
         x: f64,
         y: f64,
+        /// The modifier keys held at the action.
+        modifiers: Modifiers,
+        /// The other keys that were down at the action.
+        held: HeldKeysAtAction,
         element: ElementDescription,
     },
     /// Text input into an editable element.
@@ -59,16 +70,30 @@ pub enum NativeEvent {
     Keyboard {
         key: String,
         modifiers: Modifiers,
+        /// Whether key repeat generated this press while the key was held.
+        repeat: bool,
+        /// The other keys that were down at the press.
+        held: HeldKeysAtAction,
         element: ElementDescription,
     },
     /// Focus change on an element.
     Focus { element: ElementDescription },
     /// Drag operation started.
-    DragStart { element: ElementDescription },
+    DragStart {
+        /// The modifier keys held at the action.
+        modifiers: Modifiers,
+        /// The other keys that were down at the action.
+        held: HeldKeysAtAction,
+        element: ElementDescription,
+    },
     /// Drop operation completed.
     Drop {
         x: f64,
         y: f64,
+        /// The modifier keys held at the action.
+        modifiers: Modifiers,
+        /// The other keys that were down at the action.
+        held: HeldKeysAtAction,
         element: ElementDescription,
         source_element: Option<ElementDescription>,
     },
@@ -141,14 +166,30 @@ pub fn map_event(
     window_rect: Option<WindowRect>,
 ) -> ActionEvent {
     let payload = match event {
-        NativeEvent::Click { x, y, element } => ActionPayload::Click {
+        NativeEvent::Click {
+            x,
+            y,
+            modifiers,
+            held,
+            element,
+        } => ActionPayload::Click {
             x: *x,
             y: *y,
+            modifiers: modifiers.clone(),
+            held: held.clone(),
             element: element.clone(),
         },
-        NativeEvent::RightClick { x, y, element } => ActionPayload::RightClick {
+        NativeEvent::RightClick {
+            x,
+            y,
+            modifiers,
+            held,
+            element,
+        } => ActionPayload::RightClick {
             x: *x,
             y: *y,
+            modifiers: modifiers.clone(),
+            held: held.clone(),
             element: element.clone(),
         },
         NativeEvent::TextInput {
@@ -173,26 +214,40 @@ pub fn map_event(
         NativeEvent::Keyboard {
             key,
             modifiers,
+            repeat,
+            held,
             element,
         } => ActionPayload::Key {
             key: key.clone(),
             modifiers: modifiers.clone(),
+            repeat: *repeat,
+            held: held.clone(),
             element: element.clone(),
         },
         NativeEvent::Focus { element } => ActionPayload::Focus {
             element: element.clone(),
         },
-        NativeEvent::DragStart { element } => ActionPayload::DragStart {
+        NativeEvent::DragStart {
+            modifiers,
+            held,
+            element,
+        } => ActionPayload::DragStart {
+            modifiers: modifiers.clone(),
+            held: held.clone(),
             element: element.clone(),
         },
         NativeEvent::Drop {
             x,
             y,
+            modifiers,
+            held,
             element,
             source_element,
         } => ActionPayload::Drop {
             x: *x,
             y: *y,
+            modifiers: modifiers.clone(),
+            held: held.clone(),
             element: element.clone(),
             source_element: source_element.clone(),
         },
@@ -253,6 +308,24 @@ pub fn map_event(
 mod tests {
     use super::*;
 
+    /// Helper: a modifier state with one key held, so a dropped field shows.
+    fn test_modifiers() -> Modifiers {
+        Modifiers {
+            ctrl: true,
+            shift: false,
+            alt: false,
+            meta: false,
+        }
+    }
+
+    /// Helper: one held key, so a dropped field shows.
+    fn test_held() -> HeldKeysAtAction {
+        HeldKeysAtAction {
+            held_keys: vec!["Space".to_string()],
+            held_presses: vec![7],
+        }
+    }
+
     /// Helper: create a minimal element description for tests.
     fn test_element() -> ElementDescription {
         ElementDescription {
@@ -272,6 +345,8 @@ mod tests {
     #[test]
     fn click_maps_to_click_payload() {
         let event = NativeEvent::Click {
+            modifiers: test_modifiers(),
+            held: test_held(),
             x: 100.0,
             y: 200.0,
             element: test_element(),
@@ -295,6 +370,8 @@ mod tests {
     #[test]
     fn right_click_maps_to_right_click_payload() {
         let event = NativeEvent::RightClick {
+            modifiers: test_modifiers(),
+            held: test_held(),
             x: 50.0,
             y: 75.0,
             element: test_element(),
@@ -377,12 +454,20 @@ mod tests {
         let event = NativeEvent::Keyboard {
             key: "Enter".to_string(),
             modifiers: mods.clone(),
+            repeat: true,
+            held: test_held(),
             element: test_element(),
         };
         let action = map_event(&event, 5000, Some(1), CaptureMode::Accessibility, None);
 
         match &action.payload {
-            ActionPayload::Key { key, modifiers, .. } => {
+            ActionPayload::Key {
+                key,
+                modifiers,
+                repeat,
+                ..
+            } => {
+                assert!(*repeat, "the repeat mark is carried over");
                 assert_eq!(key, "Enter");
                 assert!(modifiers.ctrl);
             }
@@ -410,6 +495,8 @@ mod tests {
     #[test]
     fn drag_start_maps_to_drag_start_payload() {
         let event = NativeEvent::DragStart {
+            modifiers: test_modifiers(),
+            held: test_held(),
             element: test_element(),
         };
         let action = map_event(&event, 7000, Some(1), CaptureMode::Accessibility, None);
@@ -423,6 +510,8 @@ mod tests {
     #[test]
     fn drop_maps_to_drop_payload() {
         let event = NativeEvent::Drop {
+            modifiers: test_modifiers(),
+            held: test_held(),
             x: 300.0,
             y: 400.0,
             element: test_element(),
@@ -554,6 +643,8 @@ mod tests {
     fn frame_src_is_always_none() {
         let events = vec![
             NativeEvent::Click {
+                modifiers: test_modifiers(),
+                held: test_held(),
                 x: 0.0,
                 y: 0.0,
                 element: test_element(),

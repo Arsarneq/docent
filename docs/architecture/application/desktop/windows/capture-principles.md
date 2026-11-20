@@ -273,6 +273,24 @@ state; a right or middle button's release, and an extra button's press (see
 the exceptions), refresh none.
 
 **DCP-9.** **Printable key buffering:** Printable keystrokes are buffered.
+A printable keystroke is a typing key pressed with no modifier or as a
+character of its layout (Ctrl and Alt held together is AltGr; Ctrl, Alt or Meta
+held otherwise is a shortcut, written at once). The typing keys are a closed
+table of the key codes that enter a character on some layout: the space bar,
+digits, letters, the numeric keypad (digits, operators, decimal and
+separator), the punctuation keys of every layout, and a keystroke injected as
+Unicode. So a space, a keypad digit or an AltGr character typed into a text
+field is part of that field's `type` value, as on the extension, and a `key`
+(`Space`, `Numpad1`) where no value change of its own element follows it. On
+a control that takes no typed text (a closed list of control types: `Button`,
+`CheckBox`, `Hyperlink`, `MenuItem`, `RadioButton`, `SplitButton`, `TabItem`)
+a typing key is not buffered at all: it is written at once as the `key` that
+presses the control, and a value change attributed to such a control is the
+effect of pressing it (the field a button clears), no `type` and no reason
+to discard a key; the panel's sensitive-field rule (DCP-11) leaves a key on
+such a control a `key` too, whatever the control is named. Keys buffered on one element are written, as keys, when a
+typing key arrives for another element, so typing into the second supersedes
+none of them.
 If a value-change event arrives (producing a `type` action), the buffered
 keys are discarded (superseded). If no value-change arrives (non-editable
 control like Calculator), the keys are emitted individually. A keystroke
@@ -287,7 +305,42 @@ thread dispatched them, so a value change is processed after the keystrokes
 that caused it and supersedes each buffered one, however busy the pool is
 (DCP-12 states the one hand-over of the role);
 every keystroke a value change does not supersede is written, so a repeated
-key is recorded once per press. A keystroke that enters text into a password
+key is recorded once per press. Each `key` carries `repeat`: the keyboard
+hook keeps a record of which keys are down, from every key-down and key-up it
+is handed (in an excluded window and outside an active capture too) and
+seeded from the keyboard's state when the hook is installed; a key-down for a
+key already down is a press key repeat generated while the key was held, and
+is written with `repeat` true, the press itself with false. The keyboard's own
+state, read before it takes the key-down in, has to agree that the key was
+down: a key whose release the hook was never handed is a press again at its
+next key-down. An injected
+character is told apart by the code unit it carries. Two keys that share a
+virtual-key code and differ in the hook's extended mark (Enter and the numeric
+keypad's Enter, an arrow key and the keypad key that moves the same way with
+Num Lock off) are told apart by that mark, as the browser tells them apart by
+their `code`; the keyboard's state at the hook's install names a code and not
+which of such keys is down, and the first of them to send a key-down is taken
+as the one held. Each `key` also carries
+`held_keys`: the keys that were down at the press, other than the modifiers
+and the key itself, each a key whose own key-down is a `key` action, by the
+name that action carries, in the order they went down. The hook's record
+supplies them: it notes, for each key that is down, the key-down that was
+dispatched for recording (the press, or the first repeat dispatched when the
+press was not, in an excluded window or before the capture started), and
+stamps each keystroke with the keys so noted. The panel keeps a name only
+where that key-down is a `key` action of the step, once the step's actions are
+complete: a key-down that became text (part of a `type`, masked or not) names
+no held key, and a typing key that was written as a `key` (one no value change
+superseded) is named as any key is. No key is
+known to be down when a capture starts, which each step's capture does anew;
+a key held across that start is named from its next repeat. On the extension
+no key is known to be down once the window loses the focus or a drag starts:
+the browser sends
+the document no key release from then on and offers no reading of the
+keyboard's state, so nothing says whether the key still is down, and a `drop`
+there states no held key. The
+desktop's hook is handed every release, so it keeps the key. That difference
+comes from the platforms themselves (core CP-19). A keystroke that enters text into a password
 field (DCP-11's signal) is never buffered as a key: it starts or extends that
 field's masked `type` action, so typing into a password field is recorded as
 that `type` whether or not the field reports a value change. Every keystroke
@@ -308,7 +361,21 @@ more than 5 px on either axis between button-down and button-up records a
 `drag_start`/`drop` pair (both dispatched at release, the source described
 from the button-down point); movement within the threshold records a `click`.
 A middle-button press records a `click` (the format has no separate
-middle-click type); a right-button press records a `right_click`.
+middle-click type); a right-button press records a `right_click`. Each of
+these actions carries `modifiers`, the modifier keys held, and `held_keys`,
+the other keys that were down (DCP-9), as they stood at the input the action
+stands for: for a left `click` and a `drop` at the release of the button, for
+a middle-button `click` and a `right_click` at the press of their button, and
+for a `drag_start` at the first pointer position past the threshold after the
+button-down, which is where the drag started (the release itself, when no
+earlier position passed it); the extension reads a `drag_start`'s at the
+browser's `dragstart`, the point at which the browser takes the gesture for a
+drag, by a threshold of its own. A `right_click`
+is written at the press where the extension writes it at the browser's
+context-menu request, which the browser sends at the press or at the release
+as the operating system has it, so the two can state different keys for one
+right-click — a departure (core CP-19;
+[docent#715](https://github.com/Arsarneq/docent/issues/715)).
 
 ---
 
@@ -332,7 +399,9 @@ field's masked `type` it sits beside (a field with an empty selector joins
 none), so no key name carries a character typed into a sensitive field; a key
 that enters no character, and a shortcut, stays a `key`, as does a key whose
 element could not be described (the `Unknown` element with an empty selector,
-whose name is the window's title and no field name). Both the shared detection
+whose name is the window's title and no field name), and a key on a control
+that takes no typed text (DCP-9's list of control types: a checkbox named
+"Remember password" is ticked by its Space, not typed into). Both the shared detection
 and the redaction shape are the cross-platform rule ([core
 CP-11](../../../../architecture/system/capture-principles.md#sensitive-values)).
 (Tokened-URL redaction is extension-only, since the desktop app has no captured
@@ -362,7 +431,7 @@ the ones it never carries are exactly the locators, the provider facts
 latency: coordinate mode records where the user acted and in which window, not
 which element the accessibility layer resolved (core CP-18).
 
-A keystroke and a value change belong to the element that had focus when they happened, and a worker describes them later, by which time focus can have moved on. The input thread therefore counts focus changes and stamps each event with the count at its dispatch, in two parts: what the person did that can move the focus (a mouse-down, a key from the closed table of keys that are not plain typing keys), counted on the hooks at the moment of the input, and the focus and foreground changes programs reported, which arrive a moment after they happen. A keystroke is recorded on the element described under its own count, however late it is processed. While that description is the worker's latest, the keystroke's window is the foreground window and the count has not moved, the worker first confirms that the focused element is that very element, and describes afresh when a program moved the focus without reporting it. When no element was described under its count, the focused element is taken only while the keystroke's window is still the foreground window and the person has not moved the focus since. Otherwise, and when the window gives no focused element, nothing can be said about the element the keystroke went to: the action names no element (tag `Unknown`, empty selector) instead of whatever has focus by then, and a keystroke that enters text is held to the password rule above, since nothing shows its field was not a password field: it is recorded as a masked `type` on no element, never as a `key` carrying its character. A value change is the `type` of the element its keystrokes were recorded on. It writes no `type` and supersedes no buffered key (DCP-9) when its window is no longer the foreground window, when the window's last keystroke named no element, or when the focused element is not the element that keystroke was recorded on; that is judged on the element itself where the worker's latest description is still that keystroke's, and on the selector otherwise. A `type` already pending is then written ahead of the buffered keys. What such a value change would have recorded beyond the keys (pasted text, a composed character) is not recorded. Three cases stay open. Where a program moves the focus by itself and reports it late or not at all, a keystroke stamped before the report reaches the input thread is recorded on the element described under the old count when it is processed after its window was left, and the first keystroke under a count is recorded on the focused element of its window as the worker finds it. And the person's input is counted before the program has acted on it, so a keystroke described in between is recorded on the element that still had focus. A key that moves the focus itself (Tab) is recorded on the element it was pressed in when that element was described under its count, and otherwise on the focused element as the worker finds it.
+A keystroke and a value change belong to the element that had focus when they happened, and a worker describes them later, by which time focus can have moved on. The input thread therefore counts focus changes and stamps each event with the count at its dispatch, in two parts: what the person did that can move the focus (a mouse-down, a key from the closed table of keys that are not plain typing keys), counted on the hooks at the moment of the input, and the focus and foreground changes programs reported, which arrive a moment after they happen. A keystroke is recorded on the element described under its own count, however late it is processed. While that description is the worker's latest, the keystroke's window is the foreground window and the count has not moved, the worker first confirms that the focused element is that very element, and describes afresh when a program moved the focus without reporting it. When no element was described under its count, the focused element is taken only while the keystroke's window is still the foreground window and the person has not moved the focus since. Otherwise, and when the window gives no focused element, nothing can be said about the element the keystroke went to: the action names no element (tag `Unknown`, empty selector, no locator candidates) instead of whatever has focus by then. The extension reads a key's element from the key's own event; the keyboard hook is handed a key without the element it went to, and the element is described afterwards, so the difference comes from the platforms themselves (core CP-19). Such an action does not say where its key went, and the sufficiency lint fails it for carrying no locator candidates ([docent#713](https://github.com/Arsarneq/docent/issues/713)). A keystroke that names no element and enters text is also held to the password rule above, since nothing shows its field was not a password field: it is recorded as a masked `type` on no element, never as a `key` carrying its character. A value change is the `type` of the element its keystrokes were recorded on. It writes no `type` and supersedes no buffered key (DCP-9) when its window is no longer the foreground window, when the window's last keystroke named no element, or when the focused element is not the element that keystroke was recorded on; that is judged on the element itself where the worker's latest description is still that keystroke's, and on the selector otherwise. A `type` already pending is then written ahead of the buffered keys. What such a value change would have recorded beyond the keys (pasted text, a composed character) is not recorded. Three cases stay open. Where a program moves the focus by itself and reports it late or not at all, a keystroke stamped before the report reaches the input thread is recorded on the element described under the old count when it is processed after its window was left, and the first keystroke under a count is recorded on the focused element of its window as the worker finds it. And the person's input is counted before the program has acted on it, so a keystroke described in between is recorded on the element that still had focus. A key that moves the focus itself (Tab) is recorded on the element it was pressed in when that element was described under its count, and otherwise on the focused element as the worker finds it.
 
 Where the focused control has a window handle of its own, the keystroke does not depend on that description at all. The input thread reads the handle of the control that holds the keyboard focus when the key is pressed (the window system's record of the foreground thread's input state, read without sending the program a message) and stamps the keystroke with it. A handle names one control for as long as the control lives. A worker looks at a control once: when nothing inside it can take the keyboard focus (an edit field), the control is the element of every keystroke stamped with its handle; a window that holds other focusable elements (a browser's page) says nothing about which of them a key went to, and its keystrokes are described as above. The worker looks again at what the control is (whether it still can hold the focus only itself, whether it is a password field: a field can become one when the person unticks a box, and a page can finish loading and focus its password field) at the first keystroke under each later count of the person's, and at the first keystroke after a program reported a focus change that named a part of the control: the input thread notes those per window (a focus change names a window as a whole by the window's own object or its client area with no child, and a part of it by anything else) and stamps each keystroke with the number of its control's latest one; the note remembers a fixed number of windows, and a window it let go answers the number of the latest change let go, so never one from before its own latest change. The look takes no description; the control is described again when what it is changed, and at a new count of the person's also when the title of its window did, since the description names the window. Any other focus change a program reports (the suggestion list of a file-name field) asks for no look, because a look waits on the program, and a keystroke that waits while the person presses Enter finds its dialog gone. Keystrokes with no such change and nothing done by the person since the control was last looked at are recorded on it however late they are processed, after its window closed as well; a keystroke whose control is gone at the second look is described as above, except a keystroke that enters no text (Enter after a file name) under the count of the person's the control was last looked at under: it stays on the control, since what the control had become cannot put a character on record. The handle can be read before the program acted on what the person did just before the key (Tab, then a character at once), so the first keystroke under a new count of the person's is taken on its handle only when the present confirms it: the person has done nothing since that can move the focus, and the handle holds the focus when the worker looks. While nothing at all was counted since a keystroke and its window is the foreground window, a handle that no longer holds the focus means a program moved it by itself. In both cases the keystroke is described as above. A value change is the `type` of such a control when the control reported it about itself and the window's last keystroke was recorded on that control; the value is read from the control, not from the focused element, and a control that is gone or gives no value leaves the keystrokes as `key` actions on it. A value change from anywhere else in the window (another control, the control's scroll bar) is passed over. The value of a control last looked at as a password control is not read. Four cases stay open here. A program that changes what a control is without the person doing anything, and reports no focus change that names a part of the control (a field turned into a password field in place), is found out only at the next count of the person's. The worker's confirmation can itself come before the program has acted on what the person did (Tab, a character, and a worker faster than the program): the keystroke, and the keystrokes after it that carry the same handle under that count, are then recorded on the control the focus was still in. A keystroke whose handle was read before the program moved the focus by itself, and which is processed before the program has done so, is recorded on the control the handle names. And a first keystroke in a control no worker has looked at yet waits for that look, which takes as long as the program takes to answer; keystrokes behind it wait with it, and a first keystroke under a new count that is reached only after the person moved the focus again names no element.
 
@@ -455,10 +524,14 @@ with a caveat):
   `src/capture/timing.rs`, whose `_PX` suffix is historical
 - A file dialog confirmed from the keyboard (Enter on the filename field)
   produces no `file_dialog` action — the proxy triggers only on a click of
-  the dialog's Save/Open button
+  the dialog's Save/Open button; the extension records its `file_upload`
+  whatever confirmed the chooser, so this is a departure (core CP-19;
+  [docent#710](https://github.com/Arsarneq/docent/issues/710))
 - A file dialog whose confirm button is named other than "Save" or "Open", or
   whose window title contains none of "save as", "save" or "open" — both tests
-  English-only, so a localized dialog — produces no `file_dialog` action
+  English-only, so a localized dialog — produces no `file_dialog` action; a
+  departure (core CP-19;
+  [docent#710](https://github.com/Arsarneq/docent/issues/710))
 - A `type` whose value equals the typing worker's last for the same element
   (its selector within its window) — not written, the keys buffered for it
   discarded with it, and for a password field, whose value is the mask, every
@@ -467,8 +540,9 @@ with a caveat):
 - A focus whose selector equals the worker's last — not written; a departure
   (core CP-18)
 - A focus or value change on an element the accessibility layer cannot
-  describe — not written, the keys buffered for the value change discarded
-  with it; a departure (core CP-18)
+  describe — not written; the keys buffered for the value change are
+  superseded by nothing and are written as keys (DCP-11); a departure (core
+  CP-18)
 - A title-bar close of a window the recording did not see open (a window open
   before the recording started — the target window itself, introduced by a
   `context_switch`, among them) — records no `context_close`:

@@ -101,6 +101,79 @@ test.describe('Drag and Drop', () => {
     expect(types).toEqual(['drag_start', 'drop']);
   });
 
+  test('regression_239_a_click_and_a_right_click_state_the_modifiers_held', async ({
+    testPage,
+    serviceWorker,
+  }) => {
+    // A Ctrl+click and a plain click were recorded alike.
+    await testPage.click('#btn', { modifiers: ['Control'] });
+    await testPage.click('#btn', { modifiers: ['Shift', 'Alt'], button: 'right' });
+    await testPage.click('#btn');
+    await waitForActionsToSettle(serviceWorker, testPage);
+
+    const actions = await getPendingActions(serviceWorker);
+    const none = { ctrl: false, shift: false, alt: false, meta: false };
+    expect(
+      actions
+        .filter((a) => a.type === 'click' || a.type === 'right_click')
+        .map((a) => [a.type, a.modifiers]),
+    ).toEqual([
+      ['click', { ...none, ctrl: true }],
+      ['right_click', { ...none, shift: true, alt: true }],
+      ['click', none],
+    ]);
+  });
+
+  test('regression_239_a_drag_and_its_drop_state_the_modifiers_held', async ({
+    testPage,
+    serviceWorker,
+  }) => {
+    await testPage.keyboard.down('Shift');
+    await testPage.dragAndDrop('#source', '#target');
+    await testPage.keyboard.up('Shift');
+    await testPage.dragAndDrop('#source', '#target');
+    await waitForActionsToSettle(serviceWorker, testPage);
+
+    const actions = await getPendingActions(serviceWorker);
+    const none = { ctrl: false, shift: false, alt: false, meta: false };
+    expect(
+      actions
+        .filter((a) => a.type === 'drag_start' || a.type === 'drop')
+        .map((a) => [a.type, a.modifiers]),
+    ).toEqual([
+      ['drag_start', { ...none, shift: true }],
+      ['drop', { ...none, shift: true }],
+      ['drag_start', none],
+      ['drop', none],
+    ]);
+  });
+
+  test('regression_706_a_drag_names_the_key_held_at_its_start_and_none_is_known_down_from_then_on', async ({
+    testPage,
+    serviceWorker,
+  }) => {
+    // The browser sends the page no key events during a drag, so a release in
+    // that time is never seen: from the start of the drag no key is known to
+    // be down, at the drop included.
+    await testPage.focus('#btn');
+    await testPage.keyboard.down('ArrowDown');
+    await testPage.dragAndDrop('#source', '#target');
+    await testPage.click('#btn');
+    await testPage.keyboard.up('ArrowDown');
+    await waitForActionsToSettle(serviceWorker, testPage);
+
+    const actions = await getPendingActions(serviceWorker);
+    expect(
+      actions
+        .filter((a) => ['drag_start', 'drop', 'click'].includes(a.type))
+        .map((a) => [a.type, a.held_keys]),
+    ).toEqual([
+      ['drag_start', ['ArrowDown']],
+      ['drop', []],
+      ['click', []],
+    ]);
+  });
+
   test('programmatic drag events should NOT be captured', async ({ testPage, serviceWorker }) => {
     await testPage.evaluate(() => {
       document.getElementById('btn').addEventListener('click', () => {

@@ -36,6 +36,7 @@ fn make_raw_event(event_type: RawEventType, window_handle: i64) -> RawEvent {
         callback_params: [0; 4],
         pre_captured_element: None,
         focus_epoch: 0,
+        held: Vec::new(),
     }
 }
 
@@ -362,6 +363,7 @@ proptest! {
             callback_params: [0; 4],
             pre_captured_element: None,
             focus_epoch: 0,
+            held: Vec::new(),
         };
 
         let drop_event = RawEvent {
@@ -380,6 +382,7 @@ proptest! {
             callback_params: [0; 4],
             pre_captured_element: None,
             focus_epoch: 0,
+            held: Vec::new(),
         };
 
         pool.dispatch(drag_start);
@@ -685,6 +688,7 @@ proptest! {
             callback_params: [0; 4],
             pre_captured_element: None,
             focus_epoch: 0,
+            held: Vec::new(),
         };
 
         let harness = WorkerTestHarness::new(MockBackend::new());
@@ -761,6 +765,7 @@ proptest! {
                 callback_params: [0; 4],
             pre_captured_element: None,
             focus_epoch: 0,
+            held: Vec::new(),
             };
             harness.send_event(raw);
         }
@@ -852,6 +857,7 @@ proptest! {
                 callback_params: [0; 4],
             pre_captured_element: None,
             focus_epoch: 0,
+            held: Vec::new(),
             };
             harness.send_event(raw);
         }
@@ -879,6 +885,7 @@ proptest! {
             callback_params: [0; 4],
             pre_captured_element: None,
             focus_epoch: 0,
+            held: Vec::new(),
         };
         harness.send_event(context_event);
 
@@ -1144,6 +1151,7 @@ fn worker_shutdown_flushes_pending_type_event() {
             callback_params: [0; 4],
             pre_captured_element: None,
             focus_epoch: 0,
+            held: Vec::new(),
         };
         harness.send_event(raw);
     }
@@ -1202,6 +1210,7 @@ fn regression_298_flush_drains_pending_and_worker_continues() {
             callback_params: [0; 4],
             pre_captured_element: None,
             focus_epoch: 0,
+            held: Vec::new(),
         });
     }
     thread::sleep(Duration::from_millis(50)); // queued, debounce not yet expired
@@ -1244,6 +1253,7 @@ fn regression_298_flush_drains_pending_and_worker_continues() {
         callback_params: [0; 4],
         pre_captured_element: None,
         focus_epoch: 0,
+        held: Vec::new(),
     });
     let after_click = harness.drain_actions();
     assert!(
@@ -1293,6 +1303,7 @@ fn regression_298_flush_all_drains_workers_and_emits_sentinel_last() {
             callback_params: [0; 4],
             pre_captured_element: None,
             focus_epoch: 0,
+            held: Vec::new(),
         });
     }
     thread::sleep(Duration::from_millis(80)); // buffered, debounce not expired
@@ -1432,6 +1443,7 @@ fn poison_event_does_not_kill_worker() {
         callback_params: [0; 4],
         pre_captured_element: None,
         focus_epoch: 0,
+        held: Vec::new(),
     });
 
     // Send the poison event (will panic inside element_at_point).
@@ -1449,6 +1461,7 @@ fn poison_event_does_not_kill_worker() {
         callback_params: [0; 4],
         pre_captured_element: None,
         focus_epoch: 0,
+        held: Vec::new(),
     });
 
     // Send another normal click event after the poison.
@@ -1466,6 +1479,7 @@ fn poison_event_does_not_kill_worker() {
         callback_params: [0; 4],
         pre_captured_element: None,
         focus_epoch: 0,
+        held: Vec::new(),
     });
 
     // Give the worker time to process all three events.
@@ -1582,6 +1596,7 @@ fn locators_and_provider_facts_pass_through_the_pipeline_verbatim() {
         callback_params: [0; 4],
         pre_captured_element: None,
         focus_epoch: 0,
+        held: Vec::new(),
     });
 
     thread::sleep(Duration::from_millis(100));
@@ -1629,6 +1644,7 @@ fn pre_captured_click_exports_zero_describe_latency() {
         callback_params: [0; 4],
         pre_captured_element: Some(locator_rich_element()),
         focus_epoch: 0,
+        held: Vec::new(),
     });
 
     thread::sleep(Duration::from_millis(100));
@@ -1709,6 +1725,7 @@ fn coordinate_downgrade_strips_locators_facts_and_latency() {
         callback_params: [0; 4],
         pre_captured_element: None,
         focus_epoch: 0,
+        held: Vec::new(),
     });
 
     thread::sleep(Duration::from_millis(100));
@@ -1755,6 +1772,7 @@ fn context_open_carries_process_source_and_no_fabricated_opener() {
         callback_params: [0; 4],
         pre_captured_element: None,
         focus_epoch: 0,
+        held: Vec::new(),
     });
 
     thread::sleep(Duration::from_millis(100));
@@ -1853,6 +1871,7 @@ fn coordinate_fallback_emits_screen_space_verbatim_for_non_origin_window() {
         callback_params: [0; 4],
         pre_captured_element: None,
         focus_epoch: 0,
+        held: Vec::new(),
     });
 
     thread::sleep(Duration::from_millis(100));
@@ -1875,7 +1894,10 @@ fn coordinate_fallback_emits_screen_space_verbatim_for_non_origin_window() {
         "window_rect is carried verbatim (physical pixels)"
     );
 
-    if let ActionPayload::Click { x, y, ref element } = click.payload {
+    if let ActionPayload::Click {
+        x, y, ref element, ..
+    } = click.payload
+    {
         // Screen space, verbatim: NOT (412-100, 633-50) = (312, 583).
         assert_eq!((x, y), (412.0, 633.0), "action x/y are raw screen values");
         assert_eq!(
@@ -1923,6 +1945,7 @@ fn scroll_accumulator_flushes_on_timeout() {
             callback_params: [0, 0, 0, 0], // vertical scroll
             pre_captured_element: None,
             focus_epoch: 0,
+            held: Vec::new(),
         };
         harness.send_event(raw);
     }
@@ -1974,6 +1997,7 @@ fn scroll_accumulator_flushes_on_shutdown() {
             callback_params: [0, 0, 0, 0], // vertical scroll
             pre_captured_element: None,
             focus_epoch: 0,
+            held: Vec::new(),
         };
         harness.send_event(raw);
     }
@@ -2019,6 +2043,7 @@ fn focus_deduplication_suppresses_consecutive_same_element() {
             callback_params: [0; 4],
             pre_captured_element: None,
             focus_epoch: 0,
+            held: Vec::new(),
         };
         harness.send_event(raw);
     }
@@ -2070,6 +2095,7 @@ fn value_change_deduplication_same_value() {
             callback_params: [0; 4],
             pre_captured_element: None,
             focus_epoch: 0,
+            held: Vec::new(),
         };
         harness.send_event(raw);
     }
@@ -2112,6 +2138,7 @@ fn keyboard_event_produces_key_action() {
         callback_params: [0; 4],
         pre_captured_element: None,
         focus_epoch: 0,
+        held: Vec::new(),
     };
     harness.send_event(raw);
 
@@ -2153,6 +2180,7 @@ fn modifier_only_key_is_skipped() {
         callback_params: [0; 4],
         pre_captured_element: None,
         focus_epoch: 0,
+        held: Vec::new(),
     };
     harness.send_event(raw);
 
@@ -2193,6 +2221,7 @@ fn foreground_event_produces_context_switch() {
         callback_params: [0; 4],
         pre_captured_element: None,
         focus_epoch: 0,
+        held: Vec::new(),
     };
     harness.send_event(raw);
 
@@ -2232,6 +2261,7 @@ fn right_click_event_produces_right_click_action() {
         callback_params: [0; 4],
         pre_captured_element: None,
         focus_epoch: 0,
+        held: Vec::new(),
     };
     harness.send_event(raw);
 
@@ -2285,6 +2315,7 @@ fn excluded_pid_events_are_discarded() {
             callback_params: [0; 4],
             pre_captured_element: None,
             focus_epoch: 0,
+            held: Vec::new(),
         })))
         .unwrap();
 
@@ -2305,6 +2336,7 @@ fn excluded_pid_events_are_discarded() {
             callback_params: [0; 4],
             pre_captured_element: None,
             focus_epoch: 0,
+            held: Vec::new(),
         })))
         .unwrap();
 
@@ -2357,6 +2389,7 @@ fn selection_event_produces_select_action() {
         callback_params: [0, 0, 0, 0],
         pre_captured_element: None,
         focus_epoch: 0,
+        held: Vec::new(),
     });
 
     thread::sleep(Duration::from_millis(200));
@@ -2402,6 +2435,7 @@ fn modifier_only_keys_produce_no_events() {
             callback_params: [0, 0, 0, 0],
             pre_captured_element: None,
             focus_epoch: 0,
+            held: Vec::new(),
         });
     }
 
@@ -2441,6 +2475,7 @@ fn win_l_key_combo_is_captured_if_received() {
         callback_params: [0, 0, 0, 0],
         pre_captured_element: None,
         focus_epoch: 0,
+        held: Vec::new(),
     });
 
     thread::sleep(Duration::from_millis(200));
@@ -2498,6 +2533,7 @@ fn packet_key(seq: u64, timestamp: u64, unit: u16) -> RawEvent {
         callback_params: [i64::from(unit), 0, 0, 0],
         pre_captured_element: None,
         focus_epoch: 0,
+        held: Vec::new(),
     }
 }
 
@@ -2648,6 +2684,8 @@ fn held_key(key: &str) -> ActionEvent {
                 alt: false,
                 meta: false,
             },
+            repeat: false,
+            held: Default::default(),
             element: ElementDescription {
                 tag: "Edit".to_string(),
                 selector: "win > edit".to_string(),
@@ -5011,4 +5049,464 @@ fn a_right_press_into_an_inactive_window_writes_one_switch() {
 fn a_press_in_the_window_in_front_switches_nothing() {
     let mut contexts = ContextIntroductions::default();
     assert!(!contexts.press_switches(NOTEPAD, NOTEPAD));
+}
+
+// ---------------------------------------------------------------------------
+// Keys that enter a character, and repeated presses of a held key (docent#696)
+// ---------------------------------------------------------------------------
+
+/// Regression: a space typed through the keyboard layout inside a typing burst
+/// was written as a `key` between two `type` actions, the first cut off at the
+/// space. The space bar enters a character like any letter, so the field's
+/// one `type` carries it.
+#[test]
+fn regression_696_a_space_typed_into_an_edit_field_stays_in_the_one_type() {
+    let events = burst_through_busy_pool("hi you there", 3);
+    assert_eq!(
+        key_names_of(&events),
+        Vec::<String>::new(),
+        "got {events:?}"
+    );
+    assert_eq!(type_values_of(&events), vec!["hi you there".to_string()]);
+}
+
+/// A space pressed where no value change follows (a button, a checkbox) is
+/// the `key` `Space`, in its place among the other keys.
+#[test]
+fn regression_696_a_space_with_no_value_change_is_the_key_space() {
+    let events = burst_through_busy_pool("a b", 0);
+    assert_eq!(key_names_of(&events), vec!["A", "Space", "B"]);
+    assert_eq!(type_values_of(&events), Vec::<String>::new());
+}
+
+/// A key's modifiers: `(ctrl, shift, alt, meta)`.
+type Mods = (bool, bool, bool, bool);
+/// No modifier held.
+const PLAIN: Mods = (false, false, false, false);
+/// AltGr: the keyboard reports it as Ctrl and Alt held together.
+const ALT_GR: Mods = (true, false, true, false);
+
+/// A burst of layout keys, each with its modifiers, into an edit field holding `field_text`, with `value_changes` behind it.
+fn layout_burst(keys: &[(u32, Mods)], field_text: &str, value_changes: usize) -> Vec<ActionEvent> {
+    let gate = closed_gate();
+    let (action_tx, action_rx) = mpsc::channel::<ActionEvent>();
+    let worker_gate = Arc::clone(&gate);
+    let field_text = field_text.to_string();
+    let mut pool = WorkerPool::new(
+        3,
+        action_tx,
+        move |index, rx, queue_len, sender, pending| {
+            let backend = TypingBackend::edit(&worker_gate, &field_text);
+            thread::spawn(move || {
+                let ep = Arc::new(AtomicU32::new(0));
+                worker_loop(index, backend, rx, queue_len, sender, ep, pending, None);
+            })
+        },
+    );
+    let t = now_ms();
+    let mut seq = 0;
+    for (key_code, modifiers) in keys {
+        seq += 1;
+        let mut raw = layout_key(seq, t, *key_code);
+        raw.modifiers = *modifiers;
+        pool.dispatch(raw);
+    }
+    for _ in 0..value_changes {
+        seq += 1;
+        pool.dispatch(value_change(seq, t + 5, 5678));
+    }
+    open_gate(&gate);
+    thread::sleep(Duration::from_millis(900));
+    pool.shutdown();
+    action_rx.try_iter().collect()
+}
+
+/// The burst a numeric keypad types: `1`, `2`, the decimal key, `5`
+/// (VK_NUMPAD1, VK_NUMPAD2, VK_DECIMAL, VK_NUMPAD5).
+fn keypad_burst(field_text: &str, value_changes: usize) -> Vec<ActionEvent> {
+    let keys = [0x61, 0x62, 0x6E, 0x65].map(|key_code| (key_code, PLAIN));
+    layout_burst(&keys, field_text, value_changes)
+}
+
+/// Regression: a character typed with AltGr (`@` as AltGr+2 on many layouts)
+/// and a layout key the name table has no name for (the extra key of an ISO
+/// keyboard, VK_OEM_102) were written as keys that cut the field's `type` in
+/// two, as the space was. Every key that enters a character is typing.
+#[test]
+fn regression_696_altgr_and_unnamed_layout_keys_stay_in_the_one_type() {
+    // a, AltGr+2, b, VK_OEM_102.
+    let keys = [(0x41, PLAIN), (0x32, ALT_GR), (0x42, PLAIN), (0xE2, PLAIN)];
+    let events = layout_burst(&keys, "a@b<", 3);
+    assert_eq!(
+        key_names_of(&events),
+        Vec::<String>::new(),
+        "got {events:?}"
+    );
+    assert_eq!(type_values_of(&events), vec!["a@b<".to_string()]);
+}
+
+/// With no value change behind them the same keys are keys, in order, each
+/// with the modifiers it was pressed with.
+#[test]
+fn regression_696_altgr_and_unnamed_layout_keys_with_no_value_change_are_keys() {
+    let keys = [(0x41, PLAIN), (0x32, ALT_GR), (0xE2, PLAIN)];
+    let events = layout_burst(&keys, "", 0);
+    assert_eq!(key_names_of(&events), vec!["A", "2", "VK_0xE2"]);
+}
+
+/// A shortcut is no typing: Ctrl+S right behind typed keys is written at
+/// once, behind the keys typed before it.
+#[test]
+fn a_shortcut_behind_typed_keys_is_a_key_in_its_place() {
+    let ctrl = (true, false, false, false);
+    let events = layout_burst(&[(0x41, PLAIN), (0x53, ctrl), (0x42, PLAIN)], "", 0);
+    assert_eq!(key_names_of(&events), vec!["A", "S", "B"]);
+}
+
+/// Regression: a numeric-keypad key typed into an edit field was written as a
+/// `key` that cut the field's `type` in two, as the space was.
+#[test]
+fn regression_696_keypad_keys_typed_into_an_edit_field_stay_in_the_one_type() {
+    let events = keypad_burst("12.5", 3);
+    assert_eq!(
+        key_names_of(&events),
+        Vec::<String>::new(),
+        "got {events:?}"
+    );
+    assert_eq!(type_values_of(&events), vec!["12.5".to_string()]);
+}
+
+#[test]
+fn regression_696_keypad_keys_with_no_value_change_are_keys_in_order() {
+    let events = keypad_burst("", 0);
+    assert_eq!(
+        key_names_of(&events),
+        vec!["Numpad1", "Numpad2", "Decimal", "Numpad5"]
+    );
+}
+
+fn key_repeats_of(events: &[ActionEvent]) -> Vec<(String, bool)> {
+    events
+        .iter()
+        .filter_map(|e| match &e.payload {
+            ActionPayload::Key { key, repeat, .. } => Some((key.clone(), *repeat)),
+            _ => None,
+        })
+        .collect()
+}
+
+/// A key-down the hook marked as a repeat (fourth callback parameter 1) is a
+/// `key` with `repeat` true; the press itself carries false. Every press is
+/// written.
+#[test]
+fn regression_696_a_held_key_writes_every_press_and_marks_the_repeats() {
+    let harness = WorkerTestHarness::new(MockBackend::new());
+    let t = now_ms();
+    // Enter pressed and held: the press, then two presses key repeat made.
+    for (seq, repeat) in [(1, 0), (2, 1), (3, 1)] {
+        let mut raw = layout_key(seq, t, 0x0D);
+        raw.callback_params[3] = repeat;
+        harness.send_event(raw);
+    }
+    // A buffered key (a letter with no value change) keeps its mark too.
+    for (seq, repeat) in [(4, 0), (5, 1)] {
+        let mut raw = layout_key(seq, t, 0x41);
+        raw.callback_params[3] = repeat;
+        harness.send_event(raw);
+    }
+    thread::sleep(Duration::from_millis(900));
+    let events = harness.shutdown();
+    assert_eq!(
+        key_repeats_of(&events),
+        vec![
+            ("Enter".to_string(), false),
+            ("Enter".to_string(), true),
+            ("Enter".to_string(), true),
+            ("A".to_string(), false),
+            ("A".to_string(), true),
+        ]
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Typing keys on a control that takes no typed text (docent#696)
+// ---------------------------------------------------------------------------
+
+/// The dialog with one of its controls focused.
+fn dialog_control(tag: &str, selector: &str) -> FocusScene {
+    FocusScene {
+        epoch: 1,
+        foreground: DIALOG,
+        element: scene_element(tag, selector, Some("")),
+    }
+}
+
+/// A space pressed on a button is the key that presses it. A value change the
+/// press causes elsewhere in the window (the field a "Clear" button empties)
+/// is no typing into the button: it supersedes no key and is no `type`.
+#[test]
+fn regression_696_a_space_on_a_button_survives_a_value_change_in_its_window() {
+    for (tag, selector) in [
+        ("Button", "Dialog > Button:Clear"),
+        ("CheckBox", "Dialog > CheckBox:Remember"),
+        ("RadioButton", "Dialog > RadioButton:First"),
+        ("Hyperlink", "Dialog > Hyperlink:More"),
+        ("MenuItem", "Dialog > MenuItem:Open"),
+        ("SplitButton", "Dialog > SplitButton:Paste"),
+        ("TabItem", "Dialog > TabItem:General"),
+    ] {
+        let (backend, _scene, _) = MovingFocusBackend::new(dialog_control(tag, selector));
+        let harness = WorkerTestHarness::new(backend);
+
+        let t = now_ms();
+        harness.send_event(in_dialog(layout_key(1, t, 0x20)));
+        harness.send_event(in_dialog(value_change(2, t + 5, DIALOG)));
+
+        thread::sleep(Duration::from_millis(900));
+        let events = harness.shutdown();
+        assert_eq!(
+            typed_actions_of(&events),
+            vec![format!("key Space on {selector}")],
+            "got {events:?}"
+        );
+    }
+}
+
+/// A typing key on such a control is written at once: no value change can
+/// make it text, so nothing is waited for.
+#[test]
+fn a_typing_key_on_a_button_is_written_without_waiting() {
+    let (backend, _scene, _) =
+        MovingFocusBackend::new(dialog_control("Button", "Dialog > Button:Seven"));
+    let harness = WorkerTestHarness::new(backend);
+
+    let t = now_ms();
+    harness.send_event(in_dialog(layout_key(1, t, 0x67))); // keypad 7
+    harness.send_event(in_dialog(layout_key(2, t + 1, 0x20)));
+
+    // Well inside TYPE_DEBOUNCE_MS (500 ms).
+    thread::sleep(Duration::from_millis(200));
+    let early = harness.drain_actions();
+    assert_eq!(
+        typed_actions_of(&early),
+        vec![
+            "key Numpad7 on Dialog > Button:Seven",
+            "key Space on Dialog > Button:Seven"
+        ],
+        "got {early:?}"
+    );
+    harness.shutdown();
+}
+
+/// Enter on a button, and a value change its press causes elsewhere in the
+/// window: the key, and no `type` on the button.
+#[test]
+fn a_value_change_behind_enter_on_a_button_is_no_type_on_the_button() {
+    let (backend, _scene, _) =
+        MovingFocusBackend::new(dialog_control("Button", "Dialog > Button:Clear"));
+    let harness = WorkerTestHarness::new(backend);
+
+    let t = now_ms();
+    harness.send_event(in_dialog(layout_key(1, t, 0x0D)));
+    harness.send_event(in_dialog(value_change(2, t + 5, DIALOG)));
+
+    thread::sleep(Duration::from_millis(900));
+    let events = harness.shutdown();
+    assert_eq!(
+        typed_actions_of(&events),
+        vec!["key Enter on Dialog > Button:Clear"],
+        "got {events:?}"
+    );
+}
+
+/// Keys buffered on one element are not superseded by typing into another:
+/// a letter pressed on a pane (which may or may not take text), then, focus
+/// having moved, a letter typed into a field whose value change follows. The
+/// first is a key on the pane, the second the field's `type`.
+#[test]
+fn regression_696_keys_buffered_on_one_element_survive_typing_into_another() {
+    let (backend, scene, _) =
+        MovingFocusBackend::new(dialog_control("Pane", "Dialog > Pane:Board"));
+    let harness = WorkerTestHarness::new(backend);
+
+    let t = now_ms();
+    harness.send_event(in_dialog(layout_key(1, t, 0x58))); // x, on the pane
+    thread::sleep(Duration::from_millis(100));
+    *scene.lock().unwrap() = FocusScene {
+        epoch: 2,
+        foreground: DIALOG,
+        element: scene_element("Edit", "Dialog > Edit:Name", Some("a")),
+    };
+    let mut key = in_dialog(layout_key(2, t + 100, 0x41)); // a, in the field
+    key.focus_epoch = 2;
+    harness.send_event(key);
+    let mut change = in_dialog(value_change(3, t + 105, DIALOG));
+    change.focus_epoch = 2;
+    harness.send_event(change);
+
+    thread::sleep(Duration::from_millis(900));
+    let events = harness.shutdown();
+    assert_eq!(
+        typed_actions_of(&events),
+        vec![
+            "key X on Dialog > Pane:Board",
+            "type a on Dialog > Edit:Name"
+        ],
+        "got {events:?}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// The keys that were down at an action (docent#706), and the modifiers held
+// at a pointer action (docent#239)
+// ---------------------------------------------------------------------------
+
+use docent_desktop_lib::capture::held_keys::HeldPress;
+use docent_desktop_lib::capture::HeldKeysAtAction;
+
+/// Keys the hook found down at an event: `(key code, scan code, key-down)`.
+fn held_presses(keys: &[(u32, u32, u64)]) -> Vec<HeldPress> {
+    keys.iter()
+        .map(|&(key_code, scan_code, press)| HeldPress {
+            key_code,
+            scan_code,
+            press,
+        })
+        .collect()
+}
+
+/// What an action states about held keys: `(names, key-downs)`.
+fn stated(names: &[&str], presses: &[u64]) -> HeldKeysAtAction {
+    HeldKeysAtAction {
+        held_keys: names.iter().map(|n| n.to_string()).collect(),
+        held_presses: presses.to_vec(),
+    }
+}
+
+/// Each action that states held keys, as `(type, modifiers, held)`.
+fn held_statements_of(events: &[ActionEvent]) -> Vec<(&'static str, Mods, HeldKeysAtAction)> {
+    let mods = |m: &Modifiers| (m.ctrl, m.shift, m.alt, m.meta);
+    events
+        .iter()
+        .filter_map(|e| match &e.payload {
+            ActionPayload::Key {
+                modifiers, held, ..
+            } => Some(("key", mods(modifiers), held.clone())),
+            ActionPayload::Click {
+                modifiers, held, ..
+            } => Some(("click", mods(modifiers), held.clone())),
+            ActionPayload::RightClick {
+                modifiers, held, ..
+            } => Some(("right_click", mods(modifiers), held.clone())),
+            ActionPayload::DragStart {
+                modifiers, held, ..
+            } => Some(("drag_start", mods(modifiers), held.clone())),
+            ActionPayload::Drop {
+                modifiers, held, ..
+            } => Some(("drop", mods(modifiers), held.clone())),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Regression for docent#706: Tab pressed while Space was held down was
+/// recorded like any Tab, so the Space that pressed nothing (its release went
+/// to another element) read as a press of its button. A key states the keys
+/// that were down at it, by the names their own key actions carry, in the
+/// order they went down, each with the key-down it is down by.
+#[test]
+fn regression_706_a_key_states_the_keys_that_were_down_at_it() {
+    let harness = WorkerTestHarness::new(MockBackend::new());
+    let t = now_ms();
+    let mut tab = layout_key(4, t, 0x09);
+    tab.held = held_presses(&[
+        (0x20, 0x39, 1),
+        (VK_PACKET, u32::from(b'x'), 2),
+        (VK_PACKET, u32::from(b' '), 3),
+    ]);
+    harness.send_event(tab);
+    // A buffered key (a letter with no value change) states them too.
+    let mut letter = layout_key(5, t, 0x41);
+    letter.held = held_presses(&[(0x0D, 0x1C, 2)]);
+    harness.send_event(letter);
+    thread::sleep(Duration::from_millis(900));
+    let events = harness.shutdown();
+    assert_eq!(
+        held_statements_of(&events),
+        vec![
+            ("key", PLAIN, stated(&["Space", "x", "Space"], &[1, 2, 3])),
+            ("key", PLAIN, stated(&["Enter"], &[2])),
+        ]
+    );
+}
+
+/// Regression for docent#706 and docent#239: a click, a right-click and both
+/// halves of a drag made with a key or a modifier held down were recorded like
+/// plain ones. Each states the modifiers held and the keys that were down.
+#[test]
+fn regression_706_pointer_actions_state_modifiers_and_held_keys() {
+    let harness = WorkerTestHarness::new(MockBackend::new());
+    let ctrl_shift = (true, true, false, false);
+    let pointer_events = [
+        RawEventType::Click,
+        RawEventType::RightClick,
+        RawEventType::DragStart {
+            source_coords: (10, 10),
+        },
+        RawEventType::Drop {
+            source_coords: (10, 10),
+        },
+    ];
+    for (i, event_type) in pointer_events.into_iter().enumerate() {
+        let mut raw = make_raw_event(event_type, 100);
+        raw.sequence_id = i as u64 + 10;
+        raw.timestamp = now_ms();
+        raw.modifiers = ctrl_shift;
+        raw.held = held_presses(&[(0x20, 0x39, 3)]);
+        harness.send_event(raw);
+    }
+    thread::sleep(Duration::from_millis(300));
+    let events = harness.shutdown();
+    let space = stated(&["Space"], &[3]);
+    assert_eq!(
+        held_statements_of(&events),
+        vec![
+            ("click", ctrl_shift, space.clone()),
+            ("right_click", ctrl_shift, space.clone()),
+            ("drag_start", ctrl_shift, space.clone()),
+            ("drop", ctrl_shift, space),
+        ]
+    );
+}
+
+/// An action with no key down states so: `held_keys` is written, empty, and
+/// the key-downs (internal to the frontend's filter) are not.
+#[test]
+fn an_action_with_no_key_down_writes_an_empty_held_keys() {
+    let harness = WorkerTestHarness::new(MockBackend::new());
+    let mut click = make_raw_event(RawEventType::Click, 100);
+    click.sequence_id = 1;
+    click.timestamp = now_ms();
+    harness.send_event(click);
+    let mut enter = layout_key(2, now_ms(), 0x0D);
+    enter.held = held_presses(&[(0x20, 0x39, 1)]);
+    harness.send_event(enter);
+    thread::sleep(Duration::from_millis(300));
+    let events = harness.shutdown();
+    let written: Vec<serde_json::Value> = events
+        .iter()
+        .map(|e| serde_json::to_value(e).unwrap())
+        .filter(|v| v["type"] == "click" || v["type"] == "key")
+        .collect();
+    assert_eq!(written.len(), 2, "got {written:?}");
+    assert_eq!(written[0]["held_keys"], serde_json::json!([]));
+    assert!(written[0].get("held_presses").is_none(), "{:?}", written[0]);
+    assert_eq!(
+        written[0]["modifiers"],
+        serde_json::json!({"ctrl": false, "shift": false, "alt": false, "meta": false})
+    );
+    assert_eq!(written[1]["held_keys"], serde_json::json!(["Space"]));
+    assert_eq!(written[1]["held_presses"], serde_json::json!([1]));
+    // The payload's own grouping is not part of what is written.
+    assert!(written[1].get("held").is_none(), "{:?}", written[1]);
 }

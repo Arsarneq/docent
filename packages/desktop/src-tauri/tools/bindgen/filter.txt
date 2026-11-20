@@ -67,6 +67,7 @@ Windows.Win32.IsWindow
 Windows.Win32.IsWindowVisible
 Windows.Win32.KBDLLHOOKSTRUCT
 Windows.Win32.LBS_NOTIFY
+Windows.Win32.LLKHF_EXTENDED
 Windows.Win32.LPARAM
 Windows.Win32.LRESULT
 Windows.Win32.MSG
@@ -137,15 +138,18 @@ Windows.Win32.WINEVENT_OUTOFCONTEXT
 Windows.Win32.WM_APP
 Windows.Win32.WM_GETOBJECT
 Windows.Win32.WM_KEYDOWN
+Windows.Win32.WM_KEYUP
 Windows.Win32.WM_LBUTTONDOWN
 Windows.Win32.WM_LBUTTONUP
 Windows.Win32.WM_MBUTTONDOWN
 Windows.Win32.WM_MOUSEHWHEEL
+Windows.Win32.WM_MOUSEMOVE
 Windows.Win32.WM_MOUSEWHEEL
 Windows.Win32.WM_NULL
 Windows.Win32.WM_QUIT
 Windows.Win32.WM_RBUTTONDOWN
 Windows.Win32.WM_SYSKEYDOWN
+Windows.Win32.WM_SYSKEYUP
 Windows.Win32.WM_USER
 Windows.Win32.WNDCLASSW
 Windows.Win32.WPARAM

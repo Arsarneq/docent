@@ -23,6 +23,13 @@
             {
               "capture_mode": "dom",
               "context_id": 1616494171,
+              "modifiers": {
+                "ctrl": false,
+                "shift": false,
+                "alt": false,
+                "meta": false
+              },
+              "held_keys": [],
               "element": {
                 "autocomplete": null,
                 "id": "q",
@@ -126,6 +133,13 @@
             {
               "capture_mode": "dom",
               "context_id": 1616494171,
+              "modifiers": {
+                "ctrl": false,
+                "shift": false,
+                "alt": false,
+                "meta": false
+              },
+              "held_keys": [],
               "element": {
                 "autocomplete": null,
                 "id": "submit",

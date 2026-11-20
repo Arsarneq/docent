@@ -647,7 +647,7 @@ application has its own suite, documented in
 | `integration-suite-locks.test.js` | Locks over the desktop integration suite. [Detail](#integration-suite-lockstestjs) |
 | `persistence-unit.test.js` | The persistence module's public surface, from the empty state through the load and save paths. |
 | `persistence.test.js` | Serializing a session state and reading it back yields an equivalent state. |
-| `reorder-buffer.test.js` | Ordered insertion over the adapter: sequence ordering, immediate delivery, completeness, id stripping, and in-place redaction. |
+| `reorder-buffer.test.js` | Ordered insertion over the adapter: sequence ordering, immediate delivery, completeness, id stripping, in-place redaction, and the held keys an action names once its step is complete. |
 | `rust-action-types-lock.test.js` | The Rust action-mapping test's `VALID_ACTION_TYPES` list equals, as a set, the action types the composed desktop schema declares. |
 | `schema-validation.test.js` | Desktop export data validates against the desktop schema composed from its source layers, negative cases included. |
 | `settings.test.js` | Dispatch settings survive a save and load round trip. |

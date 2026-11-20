@@ -9,7 +9,9 @@
 // (d) have a `type` field matching one of the defined schema action types.
 
 use docent_desktop_lib::capture::action_mapping::{map_event, NativeEvent};
-use docent_desktop_lib::capture::{CaptureMode, ElementDescription, Modifiers, WindowRect};
+use docent_desktop_lib::capture::{
+    CaptureMode, ElementDescription, HeldKeysAtAction, Modifiers, WindowRect,
+};
 use proptest::prelude::*;
 
 // ---------------------------------------------------------------------------
@@ -104,15 +106,50 @@ fn arb_window_rect() -> impl Strategy<Value = Option<WindowRect>> {
     )
 }
 
+/// Strategy for the keys held at an action: names with their key-downs.
+fn arb_held() -> impl Strategy<Value = HeldKeysAtAction> {
+    prop::collection::vec(("[a-zA-Z]{1,10}", 1..1000u64), 0..3).prop_map(|keys| {
+        let (held_keys, held_presses) = keys.into_iter().unzip();
+        HeldKeysAtAction {
+            held_keys,
+            held_presses,
+        }
+    })
+}
+
 /// Strategy for a random `NativeEvent`.
 fn arb_native_event() -> impl Strategy<Value = NativeEvent> {
     prop_oneof![
         // Click
-        (any::<f64>(), any::<f64>(), arb_element())
-            .prop_map(|(x, y, element)| NativeEvent::Click { x, y, element }),
+        (
+            any::<f64>(),
+            any::<f64>(),
+            arb_modifiers(),
+            arb_held(),
+            arb_element()
+        )
+            .prop_map(|(x, y, modifiers, held, element)| NativeEvent::Click {
+                x,
+                y,
+                modifiers,
+                held,
+                element,
+            }),
         // RightClick
-        (any::<f64>(), any::<f64>(), arb_element())
-            .prop_map(|(x, y, element)| NativeEvent::RightClick { x, y, element }),
+        (
+            any::<f64>(),
+            any::<f64>(),
+            arb_modifiers(),
+            arb_held(),
+            arb_element()
+        )
+            .prop_map(|(x, y, modifiers, held, element)| NativeEvent::RightClick {
+                x,
+                y,
+                modifiers,
+                held,
+                element,
+            }),
         // TextInput
         (arb_element(), "[a-zA-Z0-9 ]{0,50}", any::<bool>()).prop_map(
             |(element, value, is_password)| NativeEvent::TextInput {
@@ -125,29 +162,50 @@ fn arb_native_event() -> impl Strategy<Value = NativeEvent> {
         (arb_element(), "[a-zA-Z0-9 ]{0,50}")
             .prop_map(|(element, value)| NativeEvent::Selection { element, value }),
         // Keyboard
-        ("[a-zA-Z]{1,10}", arb_modifiers(), arb_element(),).prop_map(
-            |(key, modifiers, element)| NativeEvent::Keyboard {
-                key,
-                modifiers,
-                element,
-            }
-        ),
+        (
+            "[a-zA-Z]{1,10}",
+            arb_modifiers(),
+            any::<bool>(),
+            arb_held(),
+            arb_element(),
+        )
+            .prop_map(
+                |(key, modifiers, repeat, held, element)| NativeEvent::Keyboard {
+                    key,
+                    modifiers,
+                    repeat,
+                    held,
+                    element,
+                }
+            ),
         // Focus
         arb_element().prop_map(|element| NativeEvent::Focus { element }),
         // DragStart
-        arb_element().prop_map(|element| NativeEvent::DragStart { element }),
+        (arb_modifiers(), arb_held(), arb_element()).prop_map(|(modifiers, held, element)| {
+            NativeEvent::DragStart {
+                modifiers,
+                held,
+                element,
+            }
+        }),
         // Drop
         (
             any::<f64>(),
             any::<f64>(),
+            arb_modifiers(),
+            arb_held(),
             arb_element(),
             prop::option::of(arb_element()),
         )
-            .prop_map(|(x, y, element, source_element)| NativeEvent::Drop {
-                x,
-                y,
-                element,
-                source_element,
+            .prop_map(|(x, y, modifiers, held, element, source_element)| {
+                NativeEvent::Drop {
+                    x,
+                    y,
+                    modifiers,
+                    held,
+                    element,
+                    source_element,
+                }
             }),
         // Scroll
         (

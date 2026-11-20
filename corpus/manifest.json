@@ -31,7 +31,7 @@
       "page": "page.html",
       "script": "script.js",
       "knownDiffIssues": [],
-      "notes": "captured control keys on a focused input (Enter, Escape)"
+      "notes": "captured control keys on a focused input (Enter, Escape), and Enter pressed while ArrowDown is held"
     },
     {
       "id": "ext-navigate",
@@ -190,7 +190,7 @@
       "truth": "truth.docent.json",
       "overrides": "overrides.json",
       "knownDiffIssues": [],
-      "notes": "click-to-focus the empty EDIT, then per-char layout-VK typing at human cadence: printables buffer and the value-change coalesces one type(hello). AUTHORING NOTES: enigo.text() injects VK_PACKET keystrokes, which leaked as phantom key(VK_0xE7) actions beside the type until docent#260 was fixed; the session keeps per-char layout-VK typing so it pins the layout path; under post-compile load, partial key leaks (key(E),key(L)) were observed once — supersede race, watch on CI. element.text is stably the first value-change snapshot (h)"
+      "notes": "click-to-focus the empty EDIT, then per-char layout-VK typing at human cadence: printables buffer and the value-change coalesces one type(hello you), the typed space included (docent#696). AUTHORING NOTES: enigo.text() injects VK_PACKET keystrokes, which leaked as phantom key(VK_0xE7) actions beside the type until docent#260 was fixed; the session keeps per-char layout-VK typing so it pins the layout path; under post-compile load, partial key leaks (key(E),key(L)) were observed once — supersede race, watch on CI. element.text is stably the first value-change snapshot (h)"
     },
     {
       "id": "d-redaction",
