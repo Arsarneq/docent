@@ -308,10 +308,14 @@ machinery under `scripts/`.
 
 ### `check-doc-closure.test.js`
 
-- each closure leg of the guides, the job partition, the registered script-key citations held in
-  both directions, the runner cells read through each table's own grammar and the act verdicts
-  against the boundaries the workflow states, the anchor phrase held to its one home among the
-  checks with the routing predicate carrying the classification, and a real-tree lock.
+- each closure leg of the guides and the job partition
+- the registered script-key citations, held in both directions
+- the runner cells, read through each table's own grammar, and the act verdicts against the
+  boundaries the workflow states
+- the diagnosis for a workflow with no top-level `jobs:` key: its wording lives in this check alone,
+  and another check that acts on the condition asks `isJobAnchorProblem` instead of repeating the
+  words
+- a real-tree lock.
 
 ### `check-docs-disposition.test.js`
 
