@@ -166,6 +166,12 @@ pub enum WorkerMessage {
     /// (capture continues after the step commit). Contrast
     /// [`WorkerMessage::Shutdown`], which drains and then exits.
     Flush(mpsc::Sender<usize>),
+    /// The typing in a field has ended (a pointer press, a drag or a window
+    /// change was dispatched): write the pending `type`, so that it stands
+    /// ahead of what follows. Sent to the typing worker only, on its FIFO
+    /// channel, so it is processed after every keystroke and value change
+    /// dispatched before it.
+    EndTyping,
     /// Poison pill — drain remaining events then exit.
     Shutdown,
 }
@@ -267,11 +273,11 @@ pub fn fallback_drain_and_seal(
 pub struct PendingBuffers {
     /// Accumulated scroll deltas awaiting debounce/threshold flush.
     pub scroll_acc: ScrollAccumulator,
-    /// Buffered type event awaiting coalesce-window flush.
+    /// The `type` of the field being typed into, held until the typing ends.
     pub pending_type: Option<PendingTypeEvent>,
-    /// Buffered printable key events awaiting debounce flush.
+    /// Typing keys waiting for the value change that makes them text.
     pub pending_keys: Vec<ActionEvent>,
-    /// Timestamp of the last buffered key (for debounce flush).
+    /// Timestamp of the last buffered key (the wait is counted from it).
     pub pending_keys_last_timestamp: u64,
 }
 
@@ -290,8 +296,8 @@ impl PendingBuffers {
     /// Drain all buffered actions, emitting them via `action_sender`.
     ///
     /// Pending type takes precedence over pending keys (the type value
-    /// supersedes the individual keystrokes), matching the live debounce
-    /// behaviour. Returns after the buffers are empty. Safe to call more than
+    /// supersedes the individual keystrokes), as it does when the typing
+    /// ends. Returns after the buffers are empty. Safe to call more than
     /// once and from either the worker or the shutdown drainer — whoever calls
     /// first empties the buffers; subsequent calls are no-ops.
     fn drain_into(&mut self, action_sender: &mpsc::Sender<ActionEvent>) {
@@ -492,8 +498,21 @@ impl WorkerPool {
     /// worker are cleared so subsequent events are re-routed; the typing
     /// worker stays the respawned index.
     pub fn dispatch(&mut self, event: RawEvent) {
+        if ends_typing(&event.event_type) {
+            self.end_typing();
+        }
         let worker_index = self.select_worker(&event);
         self.send_to_worker(worker_index, event);
+    }
+
+    /// Tell the typing worker that the typing in a field has ended. With no
+    /// typing worker yet there is no pending `type`; a worker whose channel is
+    /// gone has its buffers drained when it is respawned.
+    fn end_typing(&mut self) {
+        let index = self.typing_worker.load(Ordering::SeqCst);
+        if let Some(worker) = self.workers.get(index) {
+            let _ = worker.sender.send(WorkerMessage::EndTyping);
+        }
     }
 
     /// Select the target worker index for an event based on routing rules.
@@ -1063,13 +1082,14 @@ pub enum ControlLook {
 // PendingTypeEvent
 // ---------------------------------------------------------------------------
 
-/// Buffered type event for coalescing rapid value-change events into a single
-/// `type` ActionEvent.
+/// The `type` of the field being typed into, held until the typing in it
+/// ends.
 ///
-/// When the user types into a text field, each keystroke produces a
-/// `ValueChange` event. Rather than emitting one `type` ActionEvent per
-/// keystroke, the worker buffers them and emits a single event after a 500ms
-/// debounce interval with no new value changes.
+/// Each keystroke in a text field produces a `ValueChange` event. The worker
+/// writes no `type` per keystroke: it holds one for the field, carries it
+/// forward to each new value, and writes it when the typing ends (see
+/// [`ends_typing`] and the key handler). A pause between two keys ends
+/// nothing.
 #[derive(Debug, Clone)]
 pub struct PendingTypeEvent {
     /// The element being typed into.
@@ -1086,12 +1106,9 @@ pub struct PendingTypeEvent {
     pub window_rect: Option<WindowRect>,
     /// Sequence_id from the most recent value-change RawEvent.
     pub sequence_id: u64,
-    /// Timestamp of the last value-change update (used for debounce).
-    pub last_update: u64,
 }
 
-/// Debounce interval for type event coalescing (imported from timing.rs).
-use super::timing::{debounce_elapsed, TYPE_DEBOUNCE_MS, WORKER_RECV_TIMEOUT as RECV_TIMEOUT};
+use super::timing::{debounce_elapsed, KEY_TEXT_WAIT_MS, WORKER_RECV_TIMEOUT as RECV_TIMEOUT};
 
 // ---------------------------------------------------------------------------
 // Timestamp helper
@@ -1531,21 +1548,39 @@ pub fn worker_loop<B: AccessibilityBackend>(
                 lock_buffers(&pending).drain_into(&action_sender);
                 let _ = ack.send(worker_index);
             }
+            Ok(WorkerMessage::EndTyping) => {
+                // In-memory buffer mutation only — no backend calls inside.
+                lock_buffers(&pending).flush_pending_type_only(&action_sender);
+            }
             Ok(WorkerMessage::Shutdown) => {
-                // Drain remaining events in the queue.
-                while let Ok(WorkerMessage::Event(raw)) = receiver.try_recv() {
-                    queue_len.fetch_sub(1, Ordering::SeqCst);
-                    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                        process_raw_event(
-                            worker_index,
-                            &raw,
-                            &backend,
-                            &action_sender,
-                            &excluded_pid,
-                            &mut state,
-                            &pending,
-                        );
-                    }));
+                // Drain remaining events in the queue. A message that is no
+                // event does not end the drain: the events behind it are the
+                // person's too.
+                while let Ok(message) = receiver.try_recv() {
+                    match message {
+                        WorkerMessage::Event(raw) => {
+                            queue_len.fetch_sub(1, Ordering::SeqCst);
+                            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                                process_raw_event(
+                                    worker_index,
+                                    &raw,
+                                    &backend,
+                                    &action_sender,
+                                    &excluded_pid,
+                                    &mut state,
+                                    &pending,
+                                );
+                            }));
+                        }
+                        WorkerMessage::EndTyping => {
+                            lock_buffers(&pending).flush_pending_type_only(&action_sender);
+                        }
+                        WorkerMessage::Flush(ack) => {
+                            lock_buffers(&pending).drain_into(&action_sender);
+                            let _ = ack.send(worker_index);
+                        }
+                        WorkerMessage::Shutdown => {}
+                    }
                 }
                 // Flush all buffered (completed) actions. Holds the lock only
                 // for the in-memory drain — no backend calls inside.
@@ -1553,7 +1588,8 @@ pub fn worker_loop<B: AccessibilityBackend>(
                 break;
             }
             Err(mpsc::RecvTimeoutError::Timeout) => {
-                // Periodic flush for scroll debounce and type debounce.
+                // Periodic flush for the scroll debounce and for typing keys
+                // that got no value change.
                 let now = current_timestamp_ms();
                 let mut buffers = lock_buffers(&pending);
                 if let Some(result) = buffers.scroll_acc.try_flush(now) {
@@ -1573,7 +1609,7 @@ pub fn worker_loop<B: AccessibilityBackend>(
                         },
                     });
                 }
-                try_flush_type_debounce(&mut buffers, now, &action_sender);
+                write_keys_that_took_no_text(&mut buffers, now, &action_sender);
             }
             Err(mpsc::RecvTimeoutError::Disconnected) => {
                 // Channel closed — flush and exit.
@@ -2018,6 +2054,13 @@ fn process_raw_event<B: AccessibilityBackend>(
         None
     };
 
+    // The typing in a field has ended: its `type` goes out ahead of this
+    // event's action. The dispatcher tells the typing worker the same when
+    // the event is another worker's.
+    if ends_typing(&raw.event_type) {
+        lock_buffers(pending).flush_pending_type_only(action_sender);
+    }
+
     match &raw.event_type {
         RawEventType::Click => {
             handle_click(
@@ -2084,8 +2127,6 @@ fn process_raw_event<B: AccessibilityBackend>(
             );
         }
         RawEventType::Foreground => {
-            // Flush pending type before context switch.
-            lock_buffers(pending).flush_pending_type_only(action_sender);
             handle_foreground(raw, backend, action_sender, context_id, window_rect.clone());
         }
         RawEventType::WindowCreate => {
@@ -2467,7 +2508,16 @@ fn handle_value_change<B: AccessibilityBackend>(
     let value = if is_password {
         PASSWORD_MASK.to_string()
     } else {
-        element.text.clone().unwrap_or_default()
+        // The value, never the text: the text of a field that holds nothing
+        // is its name, which nobody typed.
+        match element.value.clone() {
+            Some(value) => value,
+            None => {
+                // The element has no value: no `type`.
+                keep_keys_of_dropped_value_change(pending, action_sender);
+                return false;
+            }
+        }
     };
     record_type_value(
         raw,
@@ -2557,7 +2607,7 @@ fn last_value_key(context_id: Option<i64>, selector: &str) -> String {
 /// pending for it forward to `value`.
 ///
 /// A type pending for a different element is flushed first. For the same
-/// element the value, the sequence id and the debounce stamp move to this
+/// element the value and the sequence id move to this
 /// event; the action's own timestamp and described element stay those of the
 /// event that started it.
 #[allow(clippy::too_many_arguments)]
@@ -2587,10 +2637,9 @@ fn buffer_type_value(
     // Buffer or update the pending type event.
     match buffers.pending_type {
         Some(ref mut pt) => {
-            // Same element — update value and reset debounce timer.
+            // Same element — carry the value forward.
             pt.value = value;
             pt.sequence_id = raw.sequence_id;
-            pt.last_update = raw.timestamp;
         }
         None => {
             // New element or no pending event.
@@ -2602,7 +2651,6 @@ fn buffer_type_value(
                 context_id,
                 window_rect,
                 sequence_id: raw.sequence_id,
-                last_update: raw.timestamp,
             });
         }
     }
@@ -3007,7 +3055,7 @@ fn flush_pending_type(
 }
 
 /// Flush buffered printable key events — emit them as individual key actions.
-/// Called when the TYPE_DEBOUNCE_MS window expires without a type event arriving
+/// Called when the KEY_TEXT_WAIT_MS wait passes with no value change arriving
 /// (meaning the app doesn't fire EVENT_OBJECT_VALUECHANGE for these keystrokes).
 fn flush_pending_keys(
     pending_keys: &mut Vec<ActionEvent>,
@@ -3018,32 +3066,46 @@ fn flush_pending_keys(
     }
 }
 
-/// Check if the type debounce interval has elapsed and flush if so.
-/// Also flushes pending keys if the type debounce expired without a type event.
-fn try_flush_type_debounce(
+/// Write the buffered typing keys as keys once no value change has followed
+/// the last of them for [`KEY_TEXT_WAIT_MS`]: the control took no text from
+/// them (a calculator's digit keys).
+///
+/// The pending `type` is not written here. How long a person pauses between
+/// keys is no part of what they typed: a field's `type` is written when the
+/// typing in it ends (a key that is no text, typing in another element, a
+/// pointer press, a drag, a window change, a step commit or a stop).
+fn write_keys_that_took_no_text(
     buffers: &mut PendingBuffers,
     now: u64,
     action_sender: &mpsc::Sender<ActionEvent>,
 ) {
-    let should_flush_type = buffers
-        .pending_type
-        .as_ref()
-        .map(|pt| debounce_elapsed(now, pt.last_update, TYPE_DEBOUNCE_MS))
-        .unwrap_or(false);
-
-    if should_flush_type {
-        flush_pending_type(&mut buffers.pending_type, action_sender);
-        // Type event was produced — discard pending keys (superseded).
-        buffers.pending_keys.clear();
-        buffers.pending_keys_last_timestamp = 0;
-    } else if !buffers.pending_keys.is_empty()
+    if !buffers.pending_keys.is_empty()
         && buffers.pending_keys_last_timestamp > 0
-        && debounce_elapsed(now, buffers.pending_keys_last_timestamp, TYPE_DEBOUNCE_MS)
+        && debounce_elapsed(now, buffers.pending_keys_last_timestamp, KEY_TEXT_WAIT_MS)
     {
-        // No type event arrived within the debounce window — emit the keys.
         flush_pending_keys(&mut buffers.pending_keys, action_sender);
         buffers.pending_keys_last_timestamp = 0;
     }
+}
+
+/// Whether a dispatched event ends the typing in a field: the person
+/// clicked, right-clicked or dragged, or another window came to the front. A
+/// `type` pending then is complete, and is written ahead of that event's
+/// action.
+///
+/// A focus event is none: the key that moved the focus (Tab) has ended the
+/// typing already, and a program that reports the focus again on the field
+/// being typed into ends nothing. A value change that reaches the worker
+/// after one of these events starts the field's next `type`.
+fn ends_typing(event_type: &RawEventType) -> bool {
+    matches!(
+        event_type,
+        RawEventType::Click
+            | RawEventType::RightClick
+            | RawEventType::DragStart { .. }
+            | RawEventType::Drop { .. }
+            | RawEventType::Foreground
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -3321,6 +3383,7 @@ mod tests {
                     Ok(WorkerMessage::Flush(ack)) => {
                         let _ = ack.send(idx);
                     }
+                    Ok(WorkerMessage::EndTyping) => {}
                     Ok(WorkerMessage::Shutdown) | Err(_) => break,
                 }
             })

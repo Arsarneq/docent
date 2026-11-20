@@ -67,6 +67,10 @@ events so the per-worker state that judges them stays coherent (DCP-12):
 - **Typing worker** — every keyboard and value-change event reaches one
   worker, so a value change is processed after the keystrokes that caused it
   and supersedes the buffered ones (DCP-9).
+- **End of typing** — an event that ends the typing in a field (a click, a
+  drag, a window change) is routed like any other, and
+  the dispatcher tells the typing worker behind the events already sent to
+  it, so the `type` that worker holds is written (DCP-9).
 - **Sticky routing** — focus and selection events for the same window handle
   always reach the same worker, keeping their deduplication correct.
 - **Drag pairing** — a drop routes to the worker that took its drag start, so
@@ -97,8 +101,10 @@ find nothing to re-emit.
 Some completed actions are deliberately held on the worker before emission:
 the scroll accumulator (the shared debounce/coalesce rule,
 [core CP-16](../../../../architecture/system/capture-principles.md#capture-surface)),
-the coalescing `type` buffer, and the printable-key buffer (DCP-9). A
-periodic worker tick flushes them when their debounce windows elapse. These
+the `type` of the field being typed into, and the printable-key buffer
+(DCP-9). A periodic worker tick flushes the scroll accumulator and the
+printable-key buffer when their waits elapse; the `type` is written when the
+typing ends, never by the tick. These
 buffers are the "sacred" state: they hold real, completed user actions, so
 every drain path below empties them into the action stream rather than
 dropping them. They live behind a shared lock the worker only ever takes for

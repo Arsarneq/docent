@@ -77,6 +77,8 @@
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area === 'local' && changes.recording) {
       active = changes.recording.newValue === true;
+      // Typing a stopped recording left unwritten is no part of the next one.
+      if (!active) editableTypedInto = null;
     }
   });
 
@@ -600,6 +602,75 @@
     entryLastWritten.set(el, el.value);
   }
 
+  // The editable content being typed into: its entry is one `type`, written
+  // when the typing in it ends. Null while none has been typed into since the
+  // last entry was written.
+  let editableTypedInto = null;
+
+  /**
+   * Write the text the editable content typed into holds, as its `type`. The
+   * typing in it has ended: it lost the focus, a key that is written as a
+   * `key` was pressed, or the pointer was pressed. A pause between two keys
+   * ends nothing: how fast a person types is no part of what they typed.
+   */
+  function writeEditableEntry() {
+    const el = editableTypedInto;
+    if (!el) return;
+    editableTypedInto = null;
+    if (!active) return;
+    appendAction({
+      type: 'type',
+      timestamp: Date.now(),
+      element: describeElement(el),
+      value: el.innerText.trim().slice(0, 500),
+    });
+    markUserAction();
+  }
+
+  /**
+   * Whether the field holds an entry made with the keys and not yet written.
+   *
+   * @param {Element} el
+   * @returns {boolean}
+   */
+  function hasUnwrittenEntry(el) {
+    return takesEntry(el) && fieldsEditedByKey.has(el) && el.value !== fieldValueAtFocus.get(el);
+  }
+
+  /**
+   * Whether a press on `pressed` is a press on a submit control of the form
+   * `field` is in: the press whose `change` writes no `type` (docent#223).
+   *
+   * @param {Element} field
+   * @param {Element} pressed
+   * @returns {boolean}
+   */
+  function pressesSubmitOfItsForm(field, pressed) {
+    const form = field.closest?.('form');
+    if (!form || !form.contains(pressed)) return false;
+    return !!pressed.closest?.('button[type="submit"], input[type="submit"]');
+  }
+
+  /**
+   * Write the entry the typing made so far, ahead of the pointer press that
+   * ends it, wherever the press is: the editable content typed into, and the
+   * field in focus. A press that takes the focus from the field sends its
+   * `change` next, which finds the entry written; a press that leaves the
+   * focus where it is (in the field itself, or on an element that keeps the
+   * focus from moving) sends none, and the entry stands ahead of the click
+   * all the same. The press on a submit control of the field's own form is
+   * left to the `change` rule that writes nothing for it.
+   *
+   * @param {Element} pressed — the element the pointer went down on
+   */
+  function writeEntryEndedByPointer(pressed) {
+    writeEditableEntry();
+    const field = document.activeElement;
+    if (!field || !hasUnwrittenEntry(field)) return;
+    if (field !== pressed && pressesSubmitOfItsForm(field, pressed)) return;
+    writeEntry(field);
+  }
+
   // ─── Click capture ────────────────────────────────────────────────────────────
   // Tries to find a known interactive ancestor first. Falls back to the
   // clicked element itself so custom components and web components are captured.
@@ -686,6 +757,7 @@
       if (!e.isTrusted) return;
       lastMousedownTime = Date.now();
       lastMousedownEl = e.target;
+      writeEntryEndedByPointer(e.target);
     },
     { capture: true, passive: true },
   );
@@ -884,9 +956,9 @@
       // the browser's `change` for it comes only while it handles the press
       // (Enter's submission, the blur Tab causes): written here, the entry
       // stands ahead of the key it precedes (#703).
-      if (takesEntry(el) && fieldsEditedByKey.has(el) && el.value !== fieldValueAtFocus.get(el)) {
-        writeEntry(el);
-      }
+      if (hasUnwrittenEntry(el)) writeEntry(el);
+      // The same for editable content: the key ends the typing in it.
+      writeEditableEntry();
       appendAction({
         type: 'key',
         timestamp: Date.now(),
@@ -1002,14 +1074,13 @@
         // intent is captured by the click — the type was already captured earlier (or will
         // be captured when the user explicitly tabs/clicks away without submitting).
         // Event order: mousedown(submit) → blur(input) → change(input) → click(submit)
-        if (lastMousedownEl && lastMousedownEl !== el && Date.now() - lastMousedownTime < 100) {
-          const form = el.closest?.('form');
-          if (form && form.contains(lastMousedownEl)) {
-            const isSubmit = lastMousedownEl.closest?.(
-              'button[type="submit"], input[type="submit"]',
-            );
-            if (isSubmit) return;
-          }
+        if (
+          lastMousedownEl &&
+          lastMousedownEl !== el &&
+          Date.now() - lastMousedownTime < 100 &&
+          pressesSubmitOfItsForm(el, lastMousedownEl)
+        ) {
+          return;
         }
         writeEntry(el);
       }
@@ -1181,12 +1252,9 @@
   );
 
   // ─── Contenteditable capture ──────────────────────────────────────────────────
-  // Captures typing in contenteditable elements via the input event.
-  // Debounced at 500ms — records the final text when typing pauses.
-  // Flushes immediately on blur so no input is lost when the user leaves the field.
-
-  let contenteditableTimer = null;
-  let contenteditableEl = null;
+  // Typing in editable content is noted at its `input` and written as one
+  // `type` when the typing ends (`writeEditableEntry`): here when the element
+  // loses the focus, which it also does when the window does.
 
   document.addEventListener(
     'input',
@@ -1200,21 +1268,9 @@
         el.getAttribute('contenteditable') !== ''
       )
         return;
-
-      contenteditableEl = el;
-      clearTimeout(contenteditableTimer);
-      contenteditableTimer = setTimeout(() => {
-        if (!active) return;
-        appendAction({
-          type: 'type',
-          timestamp: Date.now(),
-          element: describeElement(contenteditableEl),
-          value: contenteditableEl.innerText.trim().slice(0, 500),
-        });
-        markUserAction();
-        contenteditableEl = null;
-        contenteditableTimer = null;
-      }, 500);
+      // Typing in another element ends the typing in the one before it.
+      if (editableTypedInto !== el) writeEditableEntry();
+      editableTypedInto = el;
     },
     { capture: true, passive: true },
   );
@@ -1222,23 +1278,8 @@
   document.addEventListener(
     'blur',
     (e) => {
-      if (!contenteditableTimer || !contenteditableEl) return;
-      if (e.target !== contenteditableEl) return;
-      clearTimeout(contenteditableTimer);
-      if (!active) {
-        contenteditableEl = null;
-        contenteditableTimer = null;
-        return;
-      }
-      appendAction({
-        type: 'type',
-        timestamp: Date.now(),
-        element: describeElement(contenteditableEl),
-        value: contenteditableEl.innerText.trim().slice(0, 500),
-      });
-      markUserAction();
-      contenteditableEl = null;
-      contenteditableTimer = null;
+      if (e.target !== editableTypedInto) return;
+      writeEditableEntry();
     },
     { capture: true, passive: true },
   );
