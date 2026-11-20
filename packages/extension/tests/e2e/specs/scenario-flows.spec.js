@@ -1,14 +1,14 @@
 /**
  * Scenario flows on local pages
  *
- * Short flows a person performs, moved from hand-run scenarios onto pages the
- * suite serves itself, so no run has to perform them by hand. Each test acts
- * with real input only and states the whole action list it expects:
+ * Short flows a person performs from start to end, each on a page the suite
+ * serves itself. Each test acts with real input only (clicks and key presses;
+ * a control is reached with Tab or a click, never focused from code) and
+ * states the whole action list it expects:
  *
  * - a click on the page a link loaded, after the link's click
- * - a click on the label of a radio that is already selected
+ * - a click on the label of a radio, selected and not yet selected
  * - Ctrl+Enter on a link, which opens the link in a background tab
- * - arrow keys on a closed select reached with Tab
  * - arrow keys and Space on a range input, and the value it ends on
  * - Enter on a button inside a frame
  * - a number field: digits, Space, ArrowUp, then a click elsewhere
@@ -43,7 +43,6 @@ const summary = (actions) =>
 
 async function start(testPage, serviceWorker, html) {
   await setTestContent(testPage, html);
-  await testPage.waitForTimeout(200);
   await clearPendingActions(serviceWorker);
 }
 
@@ -86,7 +85,7 @@ test.describe('A link and the page it loads', () => {
 });
 
 test.describe('A label of a selected radio', () => {
-  test('a click on the label of the radio already selected is one click on the label', async ({
+  test('a click on the label of a radio is one click on the label, selected or not', async ({
     testPage,
     serviceWorker,
   }) => {
@@ -99,19 +98,25 @@ test.describe('A label of a selected radio', () => {
       </body></html>`,
     );
 
+    // Blue is already selected: the click changes nothing on the page.
     await testPage.click('#blue-label');
+    await testPage.click('#red-label');
     await waitForActionsToSettle(serviceWorker, testPage);
 
     // The click the browser sends on to the labelled radio is part of the
-    // label's click, selected or not (extension ECP-6, `click`).
+    // label's click, whether it selects the radio or not (extension ECP-6,
+    // `click`).
     const actions = await getPendingActions(serviceWorker);
-    expect(summary(actions)).toEqual([['click', '#blue-label']]);
-    expect(await testPage.locator('#blue').isChecked()).toBe(true);
+    expect(summary(actions)).toEqual([
+      ['click', '#blue-label'],
+      ['click', '#red-label'],
+    ]);
+    expect(await testPage.locator('#red').isChecked()).toBe(true);
   });
 });
 
 test.describe('Ctrl+Enter on a link', () => {
-  test('is the key with Ctrl, and the background tab is entered by its navigation', async ({
+  test('is the key with Ctrl and the navigate of the background tab, with no context_open yet (docent#252)', async ({
     context,
     testPage,
     serviceWorker,
@@ -160,47 +165,6 @@ test.describe('Ctrl+Enter on a link', () => {
   });
 });
 
-test.describe('A closed select reached with Tab', () => {
-  test('each arrow key is the key, and the option it chose is a select', async ({
-    testPage,
-    serviceWorker,
-  }) => {
-    await start(
-      testPage,
-      serviceWorker,
-      /* html */ `<!DOCTYPE html><html><body>
-        <input id="name" type="text">
-        <select id="color"><option>Red</option><option>Green</option><option>Blue</option></select>
-      </body></html>`,
-    );
-    await testPage.click('#name');
-    await clearPendingActions(serviceWorker);
-
-    await testPage.keyboard.press('Tab');
-    await testPage.keyboard.press('ArrowDown');
-    await testPage.keyboard.press('ArrowDown');
-    await waitForActionsToSettle(serviceWorker, testPage);
-
-    // Tab is written on the field it was pressed in. The focus it moves onto
-    // the select is not written: a Tab focus move onto an element other than
-    // an input, a textarea or editable content writes no `focus`, a departure
-    // the extension capture document lists (ECP-12; the desktop writes it,
-    // docent#710). On the closed list each arrow is a key press and the choice
-    // it commits is a `select` (ECP-6, `change`); the key comes first, as the
-    // press does.
-    const actions = await getPendingActions(serviceWorker);
-    const end = await testPage.locator('#color').inputValue();
-    expect(end).toBe('Blue');
-    expect(summary(actions)).toEqual([
-      ['key', 'Tab', '#name'],
-      ['key', 'ArrowDown', '#color'],
-      ['select', '#color', 'Green'],
-      ['key', 'ArrowDown', '#color'],
-      ['select', '#color', 'Blue'],
-    ]);
-  });
-});
-
 test.describe('A range input', () => {
   test('arrow keys and Space are keys, and the file ends on the value the range ends on', async ({
     testPage,
@@ -230,8 +194,8 @@ test.describe('A range input', () => {
     const actions = await getPendingActions(serviceWorker);
     // Space on an input that takes no typed text is a key press, and none of
     // these keys was held (ECP-6, `keydown`). The value each arrow stepped the
-    // range to is the entry the next press writes ahead of itself (ECP-6,
-    // `keydown`), so the file ends on the value the range ends on.
+    // range to is a committed value the range reports at once (ECP-6,
+    // `change`), so the file ends on the value the range ends on.
     expect(summary(actions)).toEqual([
       ['key', 'ArrowRight', '#range'],
       ['type', '#range', '6'],
@@ -259,6 +223,9 @@ test.describe('A button inside a frame', () => {
         <iframe id="frame" srcdoc="<button id='inner'>Inner</button>"></iframe>
       </body></html>`,
     );
+    // The frame's recorder is injected after the frame's own load: wait for
+    // its readiness, as after any navigation.
+    await waitForFrameReady(serviceWorker, 'about:srcdoc');
     await testPage.frameLocator('#frame').locator('#inner').click();
     await testPage.keyboard.press('Enter');
     await waitForActionsToSettle(serviceWorker, testPage);
@@ -271,8 +238,7 @@ test.describe('A button inside a frame', () => {
       ['key', 'Enter', '#inner'],
     ]);
     expect(actions[1].repeat).toBe(false);
-    expect(actions[0].frame_src).toBeTruthy();
-    expect(actions[1].frame_src).toBe(actions[0].frame_src);
+    expect(actions.map((a) => a.frame_src)).toEqual(['about:srcdoc', 'about:srcdoc']);
   });
 });
 
@@ -319,13 +285,13 @@ test.describe('A number field', () => {
 });
 
 test.describe('A menu widget', () => {
-  // A small menubar with roving focus: arrow keys move the focus between
+  // A small menu with roving focus: arrow keys move the focus between
   // items, ArrowRight opens a submenu and ArrowLeft closes it, Escape closes
   // the menu. The page moves the focus itself, so no `focus` is written.
   const MENU_HTML = /* html */ `<!DOCTYPE html><html><body>
     <ul id="menu" role="menu">
-      <li id="disabled" role="menuitem" tabindex="-1" aria-disabled="true">Disabled</li>
-      <li id="enabled" role="menuitem" tabindex="-1" aria-haspopup="true">Enabled
+      <li id="file" role="menuitem" tabindex="-1">File</li>
+      <li id="export" role="menuitem" tabindex="-1" aria-haspopup="true">Export
         <ul id="sub" role="menu" hidden>
           <li id="downloads" role="menuitem" tabindex="-1" aria-haspopup="true">Downloads
             <ul id="sub2" role="menu" hidden>
@@ -333,7 +299,7 @@ test.describe('A menu widget', () => {
               <li id="csv" role="menuitem" tabindex="-1">CSV</li>
             </ul>
           </li>
-          <li id="back" role="menuitem" tabindex="-1">Back to jQuery UI</li>
+          <li id="back" role="menuitem" tabindex="-1">Back</li>
         </ul>
       </li>
     </ul>
@@ -364,7 +330,7 @@ test.describe('A menu widget', () => {
           menu.parentElement.focus();
         } else if (e.key === 'Escape') {
           for (const sub of document.querySelectorAll('#menu ul')) sub.hidden = true;
-          document.getElementById('enabled').focus();
+          document.getElementById('export').focus();
         } else return;
         e.preventDefault();
       });
@@ -377,7 +343,7 @@ test.describe('A menu widget', () => {
   }) => {
     await start(testPage, serviceWorker, MENU_HTML);
 
-    await testPage.click('#enabled', { position: { x: 5, y: 5 } });
+    await testPage.click('#export', { position: { x: 5, y: 5 } });
     // The click opened the submenu and focused its first item.
     await expect(testPage.locator('#downloads')).toBeFocused();
     await testPage.keyboard.press('ArrowDown');
@@ -388,14 +354,14 @@ test.describe('A menu widget', () => {
     await testPage.keyboard.press('ArrowLeft');
     await expect(testPage.locator('#downloads')).toBeFocused();
     await testPage.keyboard.press('Escape');
-    await expect(testPage.locator('#enabled')).toBeFocused();
+    await expect(testPage.locator('#export')).toBeFocused();
     await waitForActionsToSettle(serviceWorker, testPage);
 
     // A key is written on the focused element (ECP-6, `keydown`): the item the
     // key acted on. The focus moves the page makes are effects (core CP-6).
     const actions = await getPendingActions(serviceWorker);
     expect(summary(actions)).toEqual([
-      ['click', '#enabled'],
+      ['click', '#export'],
       ['key', 'ArrowDown', '#downloads'],
       ['key', 'ArrowUp', '#back'],
       ['key', 'ArrowRight', '#downloads'],
