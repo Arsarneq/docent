@@ -231,7 +231,17 @@ pub fn map_element(props: &NativeElementProperties) -> ElementDescription {
         // mapping layer has no clock and no event timestamp.
         described_after_ms: None,
         value,
+        place_in_window: place_in_window(props),
     }
+}
+
+/// The element's place under its top-level window: the path's segments below
+/// the window's root, joined by a character no name is split on. The root and
+/// what is above it are left out, whatever kind of element the root is, so
+/// the window's title is no part of it. `None` where the root was not found.
+fn place_in_window(props: &NativeElementProperties) -> Option<String> {
+    let below_root = props.tree_path.get(props.window_root_offset? + 1..)?;
+    Some(below_root.join("\u{1f}"))
 }
 
 // ---------------------------------------------------------------------------
@@ -1017,6 +1027,35 @@ mod tests {
             .locators
             .iter()
             .any(|l| matches!(l, LocatorEntry::RoleName { .. })));
+    }
+
+    #[test]
+    fn regression_734_the_place_in_the_window_leaves_the_window_and_what_is_above_it_out() {
+        let mut props = full_props();
+        // The window's root is the first segment.
+        assert_eq!(
+            map_element(&props).place_in_window.as_deref(),
+            Some("Pane:Toolbar\u{1f}Button:Save")
+        );
+        // Another title, and another kind of root, give the same place.
+        props.tree_path[0] = "Pane:*App - changed".to_string();
+        assert_eq!(
+            map_element(&props).place_in_window.as_deref(),
+            Some("Pane:Toolbar\u{1f}Button:Save")
+        );
+        // A segment above the window is left out with it.
+        props.tree_path.insert(0, "Pane:Desktop 1".to_string());
+        props.window_root_offset = Some(1);
+        assert_eq!(
+            map_element(&props).place_in_window.as_deref(),
+            Some("Pane:Toolbar\u{1f}Button:Save")
+        );
+        // The window itself is the empty place.
+        props.tree_path.truncate(2);
+        assert_eq!(map_element(&props).place_in_window.as_deref(), Some(""));
+        // No root found on the path: no place is known.
+        props.window_root_offset = None;
+        assert_eq!(map_element(&props).place_in_window, None);
     }
 
     #[test]

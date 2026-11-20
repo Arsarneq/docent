@@ -300,6 +300,37 @@ describe('_insertOrdered redacts sensitive field values', () => {
     assert.equal(actions[0].capture_mode, 'accessibility');
   });
 
+  it('regression_734_typed_keys_across_a_change_of_the_window_title_are_one_masked_type', () => {
+    // The selector holds the window's title; the field is the same field
+    // under another title, told by its path under the window's root.
+    const cardUnder = (title, field = 'Edit:Card') => ({
+      tag: 'Edit',
+      name: 'creditCardNumber',
+      selector: `Window:${title} > Pane > ${field}`,
+      locators: [{ strategy: 'tree_path', value: `Window:${title} > Pane > ${field}` }],
+      text: null,
+    });
+    insertOrdered(keyOn(cardUnder('Pay - Shop'), '4', 1));
+    insertOrdered(keyOn(cardUnder('*Pay - Shop'), '1', 2));
+    assert.deepEqual(shape(), [`type ${SENSITIVE_MASK}`]);
+  });
+
+  it('regression_734_typed_keys_on_two_fields_of_one_window_stay_two_masked_types', () => {
+    const cardUnder = (field) => ({
+      tag: 'Edit',
+      name: 'creditCardNumber',
+      selector: `Window:Pay > ${field}`,
+      locators: [{ strategy: 'tree_path', value: `Window:Pay > ${field}` }],
+      text: null,
+    });
+    insertOrdered(keyOn(cardUnder('Edit:Card'), '4', 1));
+    insertOrdered(keyOn(cardUnder('Edit:Card again'), '1', 2));
+    // A field with no path under a window is told by its selector, as before.
+    insertOrdered(keyOn({ ...cardField(), selector: 'a' }, '4', 3));
+    insertOrdered(keyOn({ ...cardField(), selector: 'b' }, '4', 4));
+    assert.deepEqual(shape(), Array(4).fill(`type ${SENSITIVE_MASK}`));
+  });
+
   it('regression_696_a_key_recorded_as_the_masked_type_carries_no_repeat', () => {
     // `repeat` is a fact of a `key`; the masked `type` a text key becomes on
     // a sensitive field has no such field, held key or not.

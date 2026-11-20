@@ -1896,6 +1896,9 @@ struct LastKey {
     context_id: Option<i64>,
     /// Empty when the key named no element.
     selector: String,
+    /// The element's place under its window (see [`same_field`]), where the
+    /// description knew it.
+    place: Option<String>,
     /// `WorkerState::mark_seq` of the description the element came from;
     /// `None` when the key named no element, or was recorded on its control.
     mark: Option<u64>,
@@ -2856,7 +2859,7 @@ fn handle_value_change<B: AccessibilityBackend>(
         keep_keys_of_dropped_value_change(pending, action_sender);
         return false;
     }
-    let key_selector = last_key.map(|k| k.selector.clone());
+    let key_field = last_key.map(|k| (k.selector.clone(), k.place.clone()));
     let described = describe_focused_for(raw, backend, &mut state.mark_seq);
     let Some(FocusedNow {
         element: Some(element),
@@ -2871,7 +2874,10 @@ fn handle_value_change<B: AccessibilityBackend>(
         keep_keys_of_dropped_value_change(pending, action_sender);
         return false;
     };
-    if same_as_key.is_none() && key_selector.is_some_and(|s| s != element.selector) {
+    if same_as_key.is_none()
+        && key_field
+            .is_some_and(|(selector, place)| !same_field_as(&selector, place.as_deref(), &element))
+    {
         if let Some(k) = state.last_key.as_mut() {
             k.mark = None;
         }
@@ -2887,6 +2893,7 @@ fn handle_value_change<B: AccessibilityBackend>(
     {
         k.mark = Some(state.mark_seq);
         k.selector = element.selector.clone();
+        k.place = element.place_in_window.clone();
     }
     if focus_stands {
         state.typing_focus = Some(TypingFocus {
@@ -2899,7 +2906,7 @@ fn handle_value_change<B: AccessibilityBackend>(
         // The remembered element, described again.
         if f.context_id == context_id
             && f.epoch == raw.focus_epoch
-            && f.element.selector == element.selector
+            && same_field(&f.element, &element)
         {
             f.mark = state.mark_seq;
         }
@@ -3003,6 +3010,24 @@ fn last_value_key(context_id: Option<i64>, selector: &str) -> String {
     format!("{}\u{1f}{selector}", context_id.unwrap_or(0))
 }
 
+/// Whether two descriptions read in one window are of the same element.
+///
+/// The selector holds the window's title, and a title changes while the
+/// element stays (an editor adds or drops its "modified" mark while the
+/// person types), so where both descriptions know their place under the
+/// window, the place decides. Where one does not, the selectors do.
+fn same_field(a: &ElementDescription, b: &ElementDescription) -> bool {
+    same_field_as(&a.selector, a.place_in_window.as_deref(), b)
+}
+
+/// [`same_field`], for an element remembered by its selector and its place.
+fn same_field_as(selector: &str, place: Option<&str>, element: &ElementDescription) -> bool {
+    match (place, element.place_in_window.as_deref()) {
+        (Some(a_place), Some(b_place)) => a_place == b_place,
+        _ => selector == element.selector,
+    }
+}
+
 /// Start the pending type event for `element`, or carry the one already
 /// pending for it forward to `value`.
 ///
@@ -3023,9 +3048,8 @@ fn buffer_type_value(
 ) {
     // The pending type is this element's when it names the same selector in the
     // same window; a type pending for any other element is flushed first.
-    let same_element = |pt: &PendingTypeEvent| {
-        pt.context_id == context_id && pt.element.selector == element.selector
-    };
+    let same_element =
+        |pt: &PendingTypeEvent| pt.context_id == context_id && same_field(&pt.element, &element);
     if buffers
         .pending_type
         .as_ref()
@@ -3263,10 +3287,11 @@ fn handle_keyboard<B: AccessibilityBackend>(
     };
     // The gap to the moment this worker settled the key's element.
     stamp_described_after(&mut element, raw.timestamp);
-    let key_selector = element.selector.clone();
+    let key_element = element.clone();
     state.last_key = Some(LastKey {
         context_id,
-        selector: key_selector.clone(),
+        selector: element.selector.clone(),
+        place: element.place_in_window.clone(),
         mark,
         control,
     });
@@ -3340,7 +3365,7 @@ fn handle_keyboard<B: AccessibilityBackend>(
         if buffers
             .pending_type
             .as_ref()
-            .is_some_and(|pt| pt.context_id != context_id || pt.element.selector != key_selector)
+            .is_some_and(|pt| pt.context_id != context_id || !same_field(&pt.element, &key_element))
         {
             buffers.flush_pending_type_only(action_sender);
         }
@@ -3350,7 +3375,7 @@ fn handle_keyboard<B: AccessibilityBackend>(
         if buffers.pending_keys.iter().any(|pending_key| {
             pending_key.context_id != context_id
                 || !matches!(&pending_key.payload,
-                    ActionPayload::Key { element, .. } if element.selector == key_selector)
+                    ActionPayload::Key { element, .. } if same_field(element, &key_element))
         }) {
             flush_pending_keys(&mut buffers.pending_keys, action_sender);
         }
