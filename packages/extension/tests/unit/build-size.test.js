@@ -139,6 +139,24 @@
  *     action type; the recorder keeps the written keys that are down and
  *     writes both fields; the rest landed earlier inside the previous budget;
  *     no new dependency.
+ *   - Raised to 809KB for every key press that is not text (docent#702):
+ *     measured 803,721 B (`node_modules` inside the checkout); margin
+ *     24,695 B; growth since 759,127 B (the header's recorded size):
+ *     `content/recorder.js` +25,733 B (+21,504 B in this change, +4,229 B
+ *     before it), `background/service-worker.js` +6,619 B (+348 B in this
+ *     change, +6,271 B before it), `lib/redaction-logic.js` +5,076 B,
+ *     `content/recorder-logic.js` +4,652 B, `lib/capture-timing.js` +759 B
+ *     (before this change), `shared/lib/field-sensitivity.js` +329 B,
+ *     `lib/frame-trust.js` +66 B (before this change), others +1,360 B
+ *     (before this change). Deliberate: the recorder holds a character key
+ *     pressed in a field back until it is known whether it became text, with
+ *     the map of what settles a waiting press stated beside it, and tests
+ *     the element a key is pressed on with its own copy of the sensitive
+ *     patterns, so that it never writes a character typed on a sensitive
+ *     element under its own name; the storage chokepoint keeps the same rule
+ *     as a second test; the growth before this change is the end of typing
+ *     the worker asks the frames for, which landed inside the previous
+ *     budget; no new dependency.
  *
  * Requires `npm run sync-shared` to have been run first.
  */
@@ -189,7 +207,7 @@ function formatSize(bytes) {
 
 const extensionExcludes = ['node_modules', 'tests', '.git', 'coverage'];
 
-const JS_BUDGET_KB = 764;
+const JS_BUDGET_KB = 809;
 
 /** The headroom rule's figures for a measured size: the next budget and its margin. */
 function nextBudget(bytes) {

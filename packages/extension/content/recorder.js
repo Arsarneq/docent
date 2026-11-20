@@ -26,9 +26,10 @@
  *
  * Captures:
  *   - clicks (interactive elements + fallback to any clicked element)
- *   - keyboard: Enter/Escape/Tab/arrow keys (CAPTURE_KEYS) on the focused
- *     element, whatever it is (Tab also with nothing focused), and Space where
- *     it is not typed text; the click the browser derives from one is its effect
+ *   - keyboard: every key press that is not text, on the focused element or
+ *     on the body when nothing is focused (a modifier alone and a key that
+ *     became a field's text excepted); the click the browser derives from one
+ *     is its effect
  *   - text input (value on change)
  *   - file uploads
  *   - select changes
@@ -77,8 +78,12 @@
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area === 'local' && changes.recording) {
       active = changes.recording.newValue === true;
-      // Typing a stopped recording left unwritten is no part of the next one.
-      if (!active) editableTypedInto = null;
+      // Typing a stopped recording left unwritten is no part of the next one,
+      // and neither is a key press still waiting.
+      if (!active) {
+        editableTypedInto = null;
+        forgetPendingKeys();
+      }
     }
   });
 
@@ -119,6 +124,31 @@
   // for waits on it. It never rejects (the worker can be gone at a teardown).
 
   function appendAction(action) {
+    if (pendingKeys.length > 0 && !writingPendingKeys) {
+      if (keyEventInTask) {
+        // The browser is still handling the waiting press, so this action is
+        // an effect of it (a page that moves the focus from its key handler,
+        // for example). An entry is complete before the press and goes out
+        // ahead of it; anything else waits behind it.
+        // (Nothing waits on a held action's answer: the entries, which the
+        // end of typing waits on, go straight out.)
+        if (action.type === 'type') return sendAction(action);
+        heldBehindPendingKeys.push(action);
+        return Promise.resolve();
+      }
+      // A later action: no text followed the waiting press, so it was a key
+      // and is written first.
+      resolvePendingKeys();
+    }
+    return sendAction(action);
+  }
+
+  // The answer to the action sent last. The worker stores one frame's actions
+  // in the order sent, so once it has answered this one, every action this
+  // document sent is stored.
+  let lastSent = Promise.resolve();
+
+  function sendAction(action) {
     const stamped = {
       ...action,
       context_id: tabId,
@@ -126,12 +156,13 @@
       frame_src: frameSrc,
     };
     try {
-      return chrome.runtime
+      lastSent = chrome.runtime
         .sendMessage({ type: 'APPEND_ACTION', action: stamped })
         .catch(() => undefined);
     } catch {
-      return Promise.resolve();
+      lastSent = Promise.resolve();
     }
+    return lastSent;
   }
 
   // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -500,7 +531,7 @@
       role: el.getAttribute?.('role') || null,
       type: el.getAttribute?.('type') || null,
       // Captured so the service worker can flag sensitive payment fields via the
-      // shared field-sensitivity util; the content script stays pattern-free.
+      // shared field-sensitivity util, on the description it stores.
       autocomplete: el.getAttribute?.('autocomplete') || null,
       text: isPassword ? null : (el.innerText ?? el.value ?? '').trim().slice(0, 100) || null,
       selector,
@@ -511,74 +542,181 @@
   }
 
   /**
-   * The keys written as a `key` action on whatever element has focus.
+   * The modifier keys that do nothing pressed alone. One pressed alone is no key
+   * press to write: an action states the modifiers held at it. The Meta key is
+   * not among them: the system acts on its press by itself, so it is written.
    */
-  const CAPTURE_KEYS = [
-    'Enter',
-    'Escape',
-    'Tab',
-    'ArrowUp',
-    'ArrowDown',
-    'ArrowLeft',
-    'ArrowRight',
-  ];
+  const MODIFIER_KEYS = ['Shift', 'Control', 'Alt', 'AltGraph'];
 
-  /**
-   * The `input` types whose value is not free text: a Space pressed on one is a
-   * key press on the control (it opens a date field's picker, for example),
-   * never a character of its value.
-   */
-  const NON_TEXT_INPUT_TYPES = [
+  /** The `input` types that hold no entry: controls recorded by what is done to them. */
+  const NON_ENTRY_INPUT_TYPES = [
+    // each recorded by its click, its key or its dialog
     'button',
     'checkbox',
-    'color',
-    'date',
-    'datetime-local',
     'file',
     'image',
-    'month',
-    'number',
     'radio',
-    'range',
     'reset',
     'submit',
-    'time',
-    'week',
   ];
 
   /**
-   * Whether a Space pressed on the element is typed text: a `textarea`, an
-   * `input` whose value is free text, or editable content. The text such a field
-   * holds is recorded by its `type` action.
+   * Whether typing can become the element's text: a `textarea`, an `input` that
+   * holds an entry, or editable content. Only there can a typing key turn out
+   * to be text, which the field's `type` records.
    *
-   * @param {object} el — DOM-like element
+   * @param {object|null} el — DOM-like element
    * @returns {boolean}
    */
-  function takesTypedText(el) {
+  function mayTakeText(el) {
+    if (!el) return false;
     if (el.isContentEditable === true) return true;
     if (el.tagName === 'TEXTAREA') return true;
-    return el.tagName === 'INPUT' && !NON_TEXT_INPUT_TYPES.includes(el.type);
+    return el.tagName === 'INPUT' && !NON_ENTRY_INPUT_TYPES.includes(el.type);
+  }
+
+  /** The `input` types the person fills part by part: the date and time fields. */
+  const PART_ENTRY_INPUT_TYPES = ['date', 'datetime-local', 'month', 'time', 'week'];
+
+  /**
+   * Whether the element takes its text part by part and holds no value until
+   * the parts make one: the browser reports no text for a key typed into it
+   * before that, so the keys of a whole run are known to be text only together.
+   *
+   * @param {object|null} el — DOM-like element
+   * @returns {boolean}
+   */
+  function takesTextByParts(el) {
+    return !!el && el.tagName === 'INPUT' && PART_ENTRY_INPUT_TYPES.includes(el.type);
   }
 
   /**
-   * The name a key press is written under, or null when the press is not
-   * captured. The fixed set is captured on any element; Space is captured where
-   * it is not typed text (#695), and named `Space` as the schema names it.
+   * What a key press is, by its key value (#702):
+   *
+   *   - `modifier`: Shift, Ctrl, Alt or AltGr. Pressed alone it is no press to
+   *     write: an action states the modifiers held at it;
+   *   - `composed`: a key the input method takes (`Process`, an empty key
+   *     value, or any key pressed while a composition is open), whose text
+   *     arrives as the composition;
+   *   - `character`: a key whose value is one character, or a dead key. It is
+   *     text where a field takes it, which is known only after the press (the
+   *     recorder's waiting presses), and a `key` everywhere else;
+   *   - `named`: every other key (Enter, Backspace, F2, Meta).
    *
    * @param {string} key — the event's key value
-   * @param {object|null} el — the element the press lands on, when one has focus
-   * @returns {string|null}
+   * @param {boolean} isComposing — whether a composition is open at the press,
+   *   or the input method took the key (the browser reports key code 229)
+   * @returns {'modifier'|'composed'|'character'|'named'}
    */
-  function capturedKeyName(key, el) {
-    if (CAPTURE_KEYS.includes(key)) return key;
-    if (key === ' ' && el && !takesTypedText(el)) return 'Space';
-    return null;
+  function keyPressKind(key, isComposing) {
+    if (MODIFIER_KEYS.includes(key)) return 'modifier';
+    if (isComposing || key === '' || key === 'Process') return 'composed';
+    return key === 'Dead' || [...key].length === 1 ? 'character' : 'named';
+  }
+
+  /**
+   * Whether the modifiers held make a character key a shortcut that enters no
+   * character: Meta, Ctrl without Alt, or Alt without Ctrl. Ctrl and Alt
+   * together is AltGr, which enters characters of the layout. Alt alone reaches
+   * for a menu, except on a Mac, where it is the Option key and enters
+   * characters: `altEntersCharacters` says which.
+   *
+   * @param {{ctrl: boolean, alt: boolean, meta: boolean}} modifiers
+   * @param {boolean} altEntersCharacters — whether Alt alone enters characters
+   * @returns {boolean}
+   */
+  function isShortcut(modifiers, altEntersCharacters) {
+    if (modifiers.meta) return true;
+    if (modifiers.ctrl) return !modifiers.alt;
+    return modifiers.alt && !altEntersCharacters;
+  }
+
+  /**
+   * The `autocomplete` tokens and the name pattern of a sensitive element: a
+   * copy of the shared rule's (`shared/lib/field-sensitivity.js`), which a
+   * content script cannot import. A test holds the two equal.
+   */
+  const SENSITIVE_AUTOCOMPLETE = [
+    // the payment fields
+    'cc-number',
+    'cc-csc',
+    'cc-exp',
+    'cc-exp-month',
+    'cc-exp-year',
+  ];
+  const SENSITIVE_NAME_RE =
+    /card.?number|cardnum|ccnum|credit.?card|cvv|cvc|csc|ssn|social.?security|routing|iban|sort.?code|account.?number|api.?key|secret|passw|pwd|\botp\b|tax.?id/i;
+
+  /**
+   * Whether what is typed on the element is sensitive, by the shared rule the
+   * service worker applies to the element's description. The recorder applies
+   * it to the element itself, before it writes a key press: a character key
+   * pressed on such an element is never written under its own name, as a `key`
+   * or among the keys held at a later action.
+   *
+   * @param {object|null} el — DOM-like element
+   * @returns {boolean}
+   */
+  function isSensitiveElement(el) {
+    if (!el) return false;
+    const attribute = (name) => el.getAttribute?.(name) || '';
+    if (el.type === 'password' || attribute('type').toLowerCase() === 'password') return true;
+    const autocomplete = attribute('autocomplete').trim().toLowerCase();
+    if (SENSITIVE_AUTOCOMPLETE.includes(autocomplete)) return true;
+    return SENSITIVE_NAME_RE.test(attribute('name')) || SENSITIVE_NAME_RE.test(el.id || '');
+  }
+
+  /** The tags and roles of the controls a key presses or toggles, whatever they are named. */
+  const NON_TEXT_TAGS = ['A', 'BUTTON', 'SUMMARY'];
+  const NON_TEXT_ROLES = [
+    'button',
+    'checkbox',
+    'link',
+    'menuitem',
+    'menuitemcheckbox',
+    'menuitemradio',
+    'radio',
+    'switch',
+    'tab',
+  ];
+
+  /**
+   * Whether a key pressed on the element presses or toggles it and enters no
+   * text: the rule the service worker applies to the element's description
+   * (`lib/redaction-logic.js`). A test holds the two equal.
+   *
+   * @param {object|null} el — DOM-like element
+   * @returns {boolean}
+   */
+  function takesNoTypedText(el) {
+    if (!el) return false;
+    const tag = String(el.tagName || '').toUpperCase();
+    if (NON_TEXT_TAGS.includes(tag)) return true;
+    const type = String(el.getAttribute?.('type') || '').toLowerCase();
+    if (tag === 'INPUT' && NON_ENTRY_INPUT_TYPES.includes(type)) return true;
+    return NON_TEXT_ROLES.includes(String(el.getAttribute?.('role') || '').toLowerCase());
+  }
+
+  /**
+   * The name a key press is written under: the browser's key value, a space as
+   * `Space`, as the schema names it (#695).
+   *
+   * @param {string} key — the event's key value
+   * @returns {string}
+   */
+  function keyActionName(key) {
+    return key === ' ' ? 'Space' : key;
   }
 
   // -- END MIRRORED CAPTURE LOGIC --
 
-  /** The `input` types that hold no entry: controls recorded by what is done to them. */
-  const NON_ENTRY_INPUT_TYPES = ['button', 'checkbox', 'file', 'image', 'radio', 'reset', 'submit'];
+  /** The mask a sensitive entry is written as. */
+  const SENSITIVE_MASK = '••••••••';
+
+  // Whether Alt held alone with a character key enters a character: on a Mac
+  // it is the Option key, which enters characters of the layout. Everywhere
+  // else Alt with a character key reaches for a menu and enters none.
+  const ALT_ENTERS_CHARACTERS = /mac/i.test(window.navigator.platform || '');
 
   /**
    * Whether the element holds an entry a `type` records: a `textarea`, or an
@@ -594,23 +732,45 @@
   }
 
   /**
-   * Write the entry a field holds as a `type`, a password's masked.
+   * Write the entry a field holds as a `type`, a sensitive field's masked.
    *
    * @param {Element} el
+   * @param {number} [timestamp] — the time of the key press the entry was
+   *   complete at, when a key press writes it
+   * @param {string} [value] — the entry as it stood at that key press
    * @returns {Promise<void>} settled once the worker has answered
    */
-  function writeEntry(el) {
-    const isPassword = el.type === 'password';
+  function writeEntry(el, timestamp = Date.now(), value = el.value) {
     const sent = appendAction({
       type: 'type',
-      timestamp: Date.now(),
+      timestamp,
       element: describeElement(el),
-      value: isPassword ? '••••••••' : el.value,
+      value: isSensitiveElement(el) ? SENSITIVE_MASK : value,
     });
     markUserAction();
-    fieldValueAtFocus.set(el, el.value);
+    fieldValueAtFocus.set(el, value);
     fieldsEditedByKey.delete(el);
-    entryLastWritten.set(el, el.value);
+    entryLastWritten.set(el, value);
+    return sent;
+  }
+
+  /**
+   * Write a masked `type` for a sensitive element that holds no entry of its
+   * own (a widget that is no field): what a character key pressed on it is
+   * recorded as.
+   *
+   * @param {Element} el
+   * @param {number} timestamp — the time of the key press
+   * @returns {Promise<void>} settled once the worker has answered
+   */
+  function writeMaskedEntry(el, timestamp) {
+    const sent = appendAction({
+      type: 'type',
+      timestamp,
+      element: describeElement(el),
+      value: SENSITIVE_MASK,
+    });
+    markUserAction();
     return sent;
   }
 
@@ -625,16 +785,18 @@
    * `key` was pressed, or the pointer was pressed. A pause between two keys
    * ends nothing: how fast a person types is no part of what they typed.
    *
+   * @param {number} [timestamp] — the time of the key press that ended the
+   *   typing, when a key press writes the entry
    * @returns {Promise<void>} settled once the worker has answered
    */
-  function writeEditableEntry() {
+  function writeEditableEntry(timestamp = Date.now()) {
     const el = editableTypedInto;
     if (!el) return Promise.resolve();
     editableTypedInto = null;
     if (!active) return Promise.resolve();
     const sent = appendAction({
       type: 'type',
-      timestamp: Date.now(),
+      timestamp,
       element: describeElement(el),
       value: el.innerText.trim().slice(0, 500),
     });
@@ -650,10 +812,13 @@
    * @returns {Promise<void>} settled once the worker has stored what was written
    */
   function endTyping() {
-    const sent = [writeEditableEntry()];
+    // A key press still waiting to be known as text or as a key had no text
+    // follow it: it is the key it was, and is written first.
+    resolvePendingKeys();
+    writeEditableEntry();
     const field = document.activeElement;
-    if (field && hasUnwrittenEntry(field)) sent.push(writeEntry(field));
-    return Promise.all(sent).then(() => undefined);
+    if (field && hasUnwrittenEntry(field)) writeEntry(field);
+    return lastSent.then(() => undefined);
   }
 
   /**
@@ -701,6 +866,190 @@
     endTyping();
   }
 
+  /** The keys that change a field's text without entering a character. */
+  const EDITING_KEYS = ['Backspace', 'Delete', 'Insert', 'Clear', 'Cut', 'Paste', 'Undo', 'Redo'];
+
+  // ─── Key presses waiting to be known as text or as a key (#702) ───────────────
+  //
+  // A character key pressed in a field that takes text, with no shortcut
+  // modifier held, is text only if it is entered, and that is known after the
+  // keydown. Until then the press waits here, in the order pressed. A shortcut
+  // and every other key are written at once.
+  //
+  //   Made text (dropped; the field's `type` records it) by:
+  //     - `input` with inputType `insertText`, anywhere in the document (a
+  //       page can move the focus from its key handler, so the text can land
+  //       in another field);
+  //     - for a run in a date or time field, any `input` on that field;
+  //     - the field holding other text when the press is resolved than it
+  //       held at the press (a page that cancels the key and enters the
+  //       character itself).
+  //   Made the `key` it was (written with the time of the press) by whichever
+  //   of these comes first:
+  //     - the timer task after the press's `keypress` (the browser enters a
+  //       key's text while it handles that event);
+  //     - the key's release, or the release of any key;
+  //     - the next key press;
+  //     - a pointer action, or any other action written in a later task;
+  //     - the window losing the focus, or the page being left.
+  //   A stop and a step commit write them first, as the keys they were (the
+  //   end of typing the worker asks for); forgotten, unwritten, when capture
+  //   goes off by another route with them still waiting.
+  //
+  // Two kinds of press wait for more than themselves. A date or time field
+  // has a value, and sends `input`, only once its parts make one: the
+  // character keys typed into one wait together as a run (`byParts`). A dead
+  // key enters nothing until the next character key is pressed: it waits for
+  // that press and is text or a key together with it (`dead`). The timer and
+  // a release leave both kinds waiting, and a press that does not belong with
+  // them ends the wait.
+  let pendingKeys = [];
+  // The actions the browser caused while it handled a waiting press, other
+  // than entries: written behind the press once it is known what it was.
+  let heldBehindPendingKeys = [];
+  // Set while waiting presses are being written, so that what they write goes
+  // straight out.
+  let writingPendingKeys = false;
+
+  /**
+   * The text an element that takes text holds: a field's value, or the text
+   * of editable content. Null for any other element.
+   *
+   * @param {Element|null} el
+   * @returns {string|null}
+   */
+  function textHeld(el) {
+    if (!el) return null;
+    if (takesEntry(el)) return el.value;
+    return el.isContentEditable === true ? el.textContent : null;
+  }
+
+  /**
+   * A waiting press turned out to be text of its field with no `input` saying
+   * so: what the field holds is an entry the person made.
+   *
+   * @param {Element} field
+   */
+  function noteTextEntered(field) {
+    if (takesEntry(field)) {
+      fieldsEditedByKey.add(field);
+      entryLastWritten.delete(field);
+      return;
+    }
+    // Editable content inside a shadow root is not taken for a host, as at
+    // its `input` (which reaches this document as the shadow host's).
+    if (field.getRootNode?.() !== document) return;
+    const host = field.closest?.('[contenteditable=""], [contenteditable="true"]') ?? field;
+    if (editableTypedInto !== host) writeEditableEntry();
+    editableTypedInto = host;
+  }
+
+  /**
+   * Write a key press: the entry its field held at the press first (#703),
+   * then the `key`. A character key pressed on a sensitive element, other
+   * than a shortcut, is never a `key`, which would name the character: the
+   * element's masked `type` is written in its place (the service worker
+   * stores a run of them once).
+   */
+  function writeKeyPress(press) {
+    const { el, entry } = press;
+    const time = press.action.timestamp;
+    let entryWritten = false;
+    if (entry && entryLastWritten.get(el) !== entry.value) {
+      writeEntry(el, time, entry.value);
+      entryWritten = true;
+    }
+    if (press.secret) {
+      const sensitive = press.secret;
+      if (!takesEntry(sensitive)) writeMaskedEntry(sensitive, time);
+      else if (!(entryWritten && el === sensitive)) writeEntry(sensitive, time);
+      return;
+    }
+    // The key ends the typing in editable content too: its entry stands ahead
+    // of the key.
+    writeEditableEntry(time);
+    sendAction(press.action);
+    markUserAction();
+    // What the field holds after a key that can change it is an entry the
+    // person made.
+    if (press.edits && takesEntry(el)) fieldsEditedByKey.add(el);
+    // The key is down by a written keydown from here on, and named as held.
+    // The Meta key is never named: it is a modifier while it is held, which
+    // `modifiers` states. (A character key pressed on a sensitive element is
+    // never written as a `key`, so it does not get here.)
+    const named = press.downByThis && press.key !== 'Meta';
+    if (named && keysDown.get(press.code) === null) keysDown.set(press.code, press.key);
+  }
+
+  /** Send what waited behind the presses, once none is waiting. */
+  function releaseHeldBehindPendingKeys() {
+    if (pendingKeys.length > 0 || heldBehindPendingKeys.length === 0) return;
+    const held = heldBehindPendingKeys;
+    heldBehindPendingKeys = [];
+    for (const action of held) sendAction(action);
+  }
+
+  /**
+   * The waiting presses have had their chance to be entered by the browser.
+   * Each is the key it was, unless its field holds other text than at the
+   * press: then the page entered it, and it is text. `keep` names the presses
+   * that go on waiting.
+   */
+  function resolvePendingKeys(keep = () => false) {
+    if (pendingKeys.length === 0) return;
+    const pending = pendingKeys;
+    pendingKeys = pending.filter(keep);
+    const resolved = pending.filter((press) => !pendingKeys.includes(press));
+    writingPendingKeys = true;
+    try {
+      for (const press of resolved) {
+        if (press.textAtPress !== null && textHeld(press.field) !== press.textAtPress) {
+          noteTextEntered(press.field);
+        } else {
+          writeKeyPress(press);
+        }
+      }
+    } finally {
+      writingPendingKeys = false;
+    }
+    releaseHeldBehindPendingKeys();
+  }
+
+  /**
+   * A press in a run waits for the rest of the run, and a dead key for the
+   * character key after it.
+   */
+  const waitsForMore = (press, at, all) =>
+    press.byParts || (press.dead && all.slice(at).every((later) => later.dead));
+
+  /** The browser entered text: the waiting presses it stands for were text. */
+  function pendingKeysBecameText(e) {
+    if (pendingKeys.length === 0) return;
+    const target = e.composedPath?.()[0] ?? e.target;
+    const typed = e.inputType === 'insertText';
+    // A dead key's character can come as a composition's text.
+    const composed = e.inputType === 'insertCompositionText';
+    const waiting = pendingKeys.length;
+    pendingKeys = pendingKeys.filter((press) => {
+      if (press.byParts) return press.field !== target && press.el !== e.target;
+      return press.dead ? !typed && !composed : !typed;
+    });
+    // The text can land in another field than the one the key was pressed in
+    // (the page moved the focus): what that field holds is an entry the
+    // person made.
+    if (pendingKeys.length < waiting && takesEntry(e.target)) {
+      fieldsEditedByKey.add(e.target);
+      entryLastWritten.delete(e.target);
+    }
+    releaseHeldBehindPendingKeys();
+  }
+
+  /** Capture went off: nothing that waited is written. */
+  function forgetPendingKeys() {
+    pendingKeys = [];
+    heldBehindPendingKeys = [];
+  }
+
   // ─── Click capture ────────────────────────────────────────────────────────────
   // Tries to find a known interactive ancestor first. Falls back to the
   // clicked element itself so custom components and web components are captured.
@@ -731,19 +1080,22 @@
 
   let lastClickedEl = null;
   let lastClickTime = 0;
-  // A captured key's keydown, keypress or keyup is being dispatched. The
-  // browser derives a key's click while it handles one of them (#695); the
-  // flag stays up until the next timer task.
-  let capturedKeyEventInTask = false;
-  // The physical keys whose latest keydown was written, by `code`.
-  const capturedKeysDown = new Set();
+  // The keydown, keypress or keyup of a key press that is written, or waits to
+  // be, is being dispatched. The browser derives a key's click while it
+  // handles one of them (#695), and a page's own handlers run then; the flag
+  // stays up until the next timer task.
+  let keyEventInTask = false;
+  // The physical keys whose latest keydown is written or waits to be, by `code`.
+  const pressedKeysDown = new Set();
   // The physical keys that are down, by `code`, in the order they went down:
   // each with the name its `key` action carries when the keydown it is down by
-  // was written, and null when that keydown was not (text typed into a field,
-  // a key outside the captured set). The keydown a key is down by is its
+  // was written, and null when that keydown was not (text typed into a field).
+  // The keydown a key is down by is its
   // press, or the first of its repeats this document saw when it did not see
   // the press; later repeats change nothing.
   const keysDown = new Map();
+  // The physical keys that went down while the Meta key was held, by `code`.
+  const downUnderMeta = new Set();
   /**
    * The names of the keys that are down by a written keydown, other than the
    * key `code` itself: what an action's `held_keys` states (#706).
@@ -798,9 +1150,37 @@
       } catch {
         // Worker unavailable (a teardown): nothing to tell.
       }
+      // A right-click is the press of the right button, as on the desktop
+      // (#715): the browser's menu request comes at the press or at the
+      // release as the system has it, and a page can keep it from arriving.
+      if (e.button === 2) writeRightClick(e);
     },
     { capture: true, passive: true },
   );
+
+  /**
+   * Write a `right_click` with the position, the modifiers and the held keys
+   * of the event: the press of the right button, or a menu request that no
+   * such press came before. A press picked on the body or the document
+   * element is not written.
+   *
+   * @param {MouseEvent} e
+   */
+  function writeRightClick(e) {
+    const el = e.target.closest(INTERACTIVE) ?? e.target;
+    if (el === document.body || el === document.documentElement) return;
+    resolvePendingKeys();
+    appendAction({
+      type: 'right_click',
+      timestamp: Date.now(),
+      x: e.clientX,
+      y: e.clientY,
+      modifiers: modifiersOf(e),
+      held_keys: heldKeys(),
+      element: describeElement(el),
+    });
+    markUserAction();
+  }
 
   /**
    * Remember a trusted click on a file input: the `file_upload` its dialog
@@ -820,12 +1200,12 @@
     (e) => {
       if (!active) return;
       if (!e.isTrusted) return;
-      // A click with no pointer, sent while the browser handles a captured key
+      // A click with no pointer, sent while the browser handles a written key
       // (Enter or Space on a button, an arrow key in a radio group, Enter's
       // implicit submission), is that key's effect: the key is the record
       // (#695). It still opens a file input's dialog, and it is the moment the
       // activation happens, which a Space press reaches only at its release.
-      if (e.pointerType === '' && capturedKeyEventInTask) {
+      if (e.pointerType === '' && keyEventInTask) {
         noteFileInputClick(e.target);
         markUserAction();
         return;
@@ -866,6 +1246,9 @@
           if (labelForwardedTo === control) labelForwardedTo = null;
         }, 0);
       }
+      // A key press still waiting was no text: it is written, and named as
+      // held, ahead of this action.
+      resolvePendingKeys();
       appendAction({
         type: 'click',
         timestamp: Date.now(),
@@ -880,51 +1263,54 @@
     { capture: true, passive: true },
   );
 
-  // ─── Right-click / context menu ───────────────────────────────────────────────
+  // ─── Context menu request ─────────────────────────────────────────────────────
 
   document.addEventListener(
     'contextmenu',
     (e) => {
       if (!active) return;
       if (!e.isTrusted) return;
-      const el = e.target.closest(INTERACTIVE) ?? e.target;
-      if (el === document.body || el === document.documentElement) return;
-      appendAction({
-        type: 'right_click',
-        timestamp: Date.now(),
-        x: e.clientX,
-        y: e.clientY,
-        modifiers: modifiersOf(e),
-        held_keys: heldKeys(),
-        element: describeElement(el),
-      });
-      markUserAction();
+      // A menu asked for with a key (the Menu key, Shift+F10) is that key's
+      // effect, sent while the browser handles the key: the key is the record.
+      if (e.button !== 2 && keyEventInTask) {
+        markUserAction();
+        return;
+      }
+      // A request that carries the right button follows a press of that
+      // button, which is the record, wherever and whenever it was made:
+      // another button pressed in between, or a release over another
+      // document, changes nothing about that. A request that carries no
+      // right button (a long press on a touch screen) has no press, and is
+      // written here.
+      if (e.button === 2) return;
+      writeRightClick(e);
     },
     { capture: true, passive: true },
   );
 
   // ─── Keyboard capture ─────────────────────────────────────────────────────────
-  // Captures these key presses on the focused element, whatever it is (Tab also
-  // with nothing focused):
-  //   Enter  — form submission, button activation
-  //   Escape — modal/dialog/dropdown dismiss
-  //   Tab    — focus navigation
-  //   Arrow keys — list/menu/slider navigation
-  //   Space  — button/checkbox activation, where it is not typed text
-  // Each press is written with the browser's own repeat flag, so a held key's
-  // generated presses are told from the physical one.
+  // Writes every key press that is not text as a `key`, on the focused element
+  // or on the body when nothing is focused: named keys (Enter, Backspace, F2),
+  // shortcuts, and character keys that entered no text. Shift, Ctrl, Alt and
+  // AltGr pressed alone, and keys the input method takes, are no press to
+  // write. Each press is written with the browser's own repeat flag, so a held
+  // key's generated presses are told from the physical one.
 
   /**
-   * The element focus rests on, followed through shadow roots: the document's
-   * active element is the host of a shadow tree that holds the focus. A closed
-   * root is read through the extension's own accessor, so a Space typed into a
-   * field inside one is still seen as typed text.
+   * The elements the focus passes through, outermost first: the document's
+   * active element (the host of a shadow tree that holds the focus), then the
+   * active element of each shadow root on the way to the element the focus
+   * rests on, which is the last. A closed root is read through the
+   * extension's own accessor, so a Space typed into a field inside one is
+   * still seen as typed text.
    *
-   * @returns {Element|null}
+   * @returns {Element[]}
    */
-  function focusedElement() {
+  function focusPath() {
+    const path = [];
     let el = document.activeElement;
     while (el) {
+      path.push(el);
       let root = el.shadowRoot;
       if (!root) {
         try {
@@ -933,24 +1319,22 @@
           root = null; // not an element that can host a shadow tree
         }
       }
-      const inner = root?.activeElement;
-      if (!inner) break;
-      el = inner;
+      el = root?.activeElement ?? null;
     }
-    return el;
+    return path;
   }
 
   /**
-   * Mark that a captured key's event is being dispatched. The browser sends a
+   * Mark that a written key's event is being dispatched. The browser sends a
    * derived click from inside that dispatch, as the event's default action, so
    * the mark must outlive this listener and is dropped by the next timer task.
    * A microtask would drop it too early: it runs as the listener returns,
    * ahead of the default action.
    */
-  function markCapturedKeyEvent() {
-    capturedKeyEventInTask = true;
+  function markKeyEvent() {
+    keyEventInTask = true;
     setTimeout(() => {
-      capturedKeyEventInTask = false;
+      keyEventInTask = false;
     }, 0);
   }
 
@@ -960,7 +1344,7 @@
       if (!active) return;
       if (!e.isTrusted) return;
       // Every keydown restates whether this physical key's press is a written one.
-      capturedKeysDown.delete(e.code);
+      pressedKeysDown.delete(e.code);
       // This keydown is the one the key is down by when it is the press, or the
       // first keydown of the key this document sees.
       const downByThis = !e.repeat || !keysDown.has(e.code);
@@ -974,55 +1358,136 @@
       if (fieldInFocus && takesEntry(fieldInFocus) && !fieldValueAtFocus.has(fieldInFocus)) {
         fieldValueAtFocus.set(fieldInFocus, fieldInFocus.value);
       }
-      const key = capturedKeyName(e.key, focusedElement());
-      if (key === null) {
-        if (fieldInFocus && takesEntry(fieldInFocus)) {
-          fieldsEditedByKey.add(fieldInFocus);
-          entryLastWritten.delete(fieldInFocus);
-        }
-        return;
+      const modifiers = modifiersOf(e);
+      // A key the input method takes is reported with key code 229, also where
+      // the browser names it as the key it would be without the input method.
+      const kind = keyPressKind(e.key, e.isComposing || e.keyCode === 229);
+      const shortcut = isShortcut(modifiers, ALT_ENTERS_CHARACTERS);
+      const focused = focusPath();
+      const field = focused.at(-1) ?? null;
+      const byParts = takesTextByParts(field);
+      // A press that enters a character where anything takes it.
+      const character = kind === 'character' && !shortcut;
+      // Whether the press can turn out to be text of the field, which is known
+      // only after it. A space in a date or time field opens its picker and is
+      // no text of the field.
+      const mayBeText = character && mayTakeText(field) && !(byParts && e.key === ' ');
+      // The character keys typed into a date or time field wait together.
+      const inRun = mayBeText && byParts;
+      // A dead key waits for the character key after it.
+      const dead = mayBeText && !byParts && e.key === 'Dead';
+      // A character pressed on a sensitive element is never written under its
+      // own name, whether or not the element takes text.
+      // The sensitive element can be the one in focus or a shadow host it
+      // sits in (a widget named as a one-time code, its cells unnamed). A
+      // key is written on the outermost element, so under a sensitive host
+      // every character key is the host's masked entry; the element in
+      // focus is exempt as a control that takes no typed text only where no
+      // host above it is sensitive. A key of the numeric keypad pressed
+      // with Alt alone counts as a character key here: a run of them enters
+      // the character with that code, with Num Lock on or off.
+      const altCode =
+        modifiers.alt && !modifiers.ctrl && !modifiers.meta && /^Numpad\d$/.test(e.code);
+      const sensitiveHost = focused.slice(0, -1).findLast(isSensitiveElement) ?? null;
+      const sensitiveField = isSensitiveElement(field) && !takesNoTypedText(field) ? field : null;
+      const secret = character || altCode ? (sensitiveField ?? sensitiveHost) : null;
+      // A press before this one that still waits has had its chance: the
+      // browser enters a key's text before the next key. A run goes on with
+      // a press that belongs to it, and a dead key waits for a character key
+      // through the modifiers and the input method's keys pressed on the way.
+      const goesOn = inRun
+        ? (press) => press.byParts && press.field === field
+        : mayBeText || kind === 'modifier' || kind === 'composed'
+          ? (press) => press.dead && press.field === field
+          : undefined;
+      resolvePendingKeys(goesOn);
+      // The entry the person made in the field is complete before this press,
+      // and the browser's `change` for it comes only while it handles the
+      // press (Enter's submission, the blur Tab causes), or later. Noted here
+      // as it stands, it is written ahead of the key (#703).
+      const entry =
+        fieldInFocus &&
+        takesEntry(fieldInFocus) &&
+        fieldsEditedByKey.has(fieldInFocus) &&
+        fieldInFocus.value !== fieldValueAtFocus.get(fieldInFocus) &&
+        entryLastWritten.get(fieldInFocus) !== fieldInFocus.value
+          ? { value: fieldInFocus.value }
+          : null;
+      // A key that can become the field's text (a character key that is no
+      // shortcut, or a key the input method takes) makes what the field holds
+      // an entry the person made, and a new one even where it ends up equal to
+      // the one written last.
+      const entersText = mayBeText || kind === 'composed';
+      if (entersText && fieldInFocus && takesEntry(fieldInFocus)) {
+        fieldsEditedByKey.add(fieldInFocus);
+        entryLastWritten.delete(fieldInFocus);
       }
-      // Set Tab timestamp BEFORE the body check — focus after Tab on body
+      // No press to write: a modifier alone, and a key the input method takes.
+      if (kind === 'modifier' || kind === 'composed') return;
+      // A key pressed while the Meta key is held may never be seen released.
+      if (e.metaKey && e.key !== 'Meta') downUnderMeta.add(e.code);
+      const key = keyActionName(e.key);
+      // Set Tab timestamp BEFORE the element is read — focus after Tab on body
       // still needs to be captured (it tells us where focus went).
       if (key === 'Tab') lastTabKeyTimestamp = Date.now();
+      // With nothing focused the body is the active element, and the key is
+      // written on it. A document with no body has no element to write it on.
       const el = document.activeElement;
-      // Allow Tab even when body is focused — the user pressed Tab to navigate.
-      if (!el || (el === document.body && key !== 'Tab')) return;
-      const held = heldKeys(e.code);
-      capturedKeysDown.add(e.code);
-      if (downByThis) keysDown.set(e.code, key);
-      markCapturedKeyEvent();
-      // The entry the person made in the field is complete before this press, and
-      // the browser's `change` for it comes only while it handles the press
-      // (Enter's submission, the blur Tab causes): written here, the entry
-      // stands ahead of the key it precedes (#703).
-      if (hasUnwrittenEntry(el)) writeEntry(el);
-      // The same for editable content: the key ends the typing in it.
-      writeEditableEntry();
-      appendAction({
-        type: 'key',
-        timestamp: Date.now(),
+      if (!el) return;
+      const press = {
+        el,
+        field,
+        entry,
+        code: e.code,
         key,
-        modifiers: modifiersOf(e),
-        repeat: e.repeat,
-        held_keys: held,
-        element: describeElement(el),
-      });
-      markUserAction();
+        downByThis,
+        byParts: inRun,
+        dead,
+        secret,
+        // What the field held at the press, for a press that waits.
+        textAtPress: mayBeText ? textHeld(field) : null,
+        // A key other than a plain character can change the field it is
+        // pressed in (an editing key, a shortcut that pastes or cuts).
+        edits: EDITING_KEYS.includes(key) || shortcut || modifiers.alt,
+        action: {
+          type: 'key',
+          timestamp: Date.now(),
+          key,
+          modifiers,
+          repeat: e.repeat,
+          held_keys: heldKeys(e.code),
+          element: describeElement(el),
+        },
+      };
+      // The browser derives a click from a key press while it handles one of
+      // the press's events; a press that waits is marked like one written.
+      pressedKeysDown.add(e.code);
+      markKeyEvent();
+      if (mayBeText) pendingKeys.push(press);
+      else writeKeyPress(press);
     },
     { capture: true, passive: true },
   );
 
-  // The later events of a captured press write nothing. Each marks its task,
-  // because the browser derives a key's click from whichever of the three it
-  // acts on: an arrow key's and a link's Enter from keydown, a button's Enter
-  // from keypress, a Space press from keyup.
+  // The later events of a press. Each marks its task, because the browser
+  // derives a key's click from whichever of the three it acts on: an arrow
+  // key's and a link's Enter from keydown, a button's Enter from keypress, a
+  // Space press from keyup. Each also settles presses that wait (see the map
+  // at `pendingKeys`).
   document.addEventListener(
     'keypress',
     (e) => {
       if (!active) return;
       if (!e.isTrusted) return;
-      if (capturedKeysDown.has(e.code)) markCapturedKeyEvent();
+      if (pressedKeysDown.has(e.code)) markKeyEvent();
+      // The browser enters a key's text while it handles this event. A press
+      // still waiting once that is over entered none: the next timer task
+      // comes after it, whether or not the key is released.
+      if (pendingKeys.some((press) => !press.byParts)) {
+        setTimeout(() => {
+          if (active) resolvePendingKeys(waitsForMore);
+        }, 0);
+      }
     },
     { capture: true, passive: true },
   );
@@ -1031,11 +1496,24 @@
     'keyup',
     (e) => {
       if (!e.isTrusted) return;
+      // A press released with no text entered was a key.
+      if (active) resolvePendingKeys(waitsForMore);
       // A release ends the key's time among the held keys whether or not the
       // recording is on: a key released while it is off is not down after it.
       keysDown.delete(e.code);
-      const captured = capturedKeysDown.delete(e.code);
-      if (active && captured) markCapturedKeyEvent();
+      downUnderMeta.delete(e.code);
+      // Some systems send the page no release for a key let go while the Meta
+      // key is held: once the Meta key is released, no key pressed under it
+      // is known to be down. One still held is down again by its next repeat.
+      if (e.key === 'Meta') {
+        for (const code of downUnderMeta) {
+          keysDown.delete(code);
+          pressedKeysDown.delete(code);
+        }
+        downUnderMeta.clear();
+      }
+      const pressed = pressedKeysDown.delete(e.code);
+      if (active && pressed) markKeyEvent();
     },
     { capture: true, passive: true },
   );
@@ -1047,8 +1525,22 @@
     'blur',
     (e) => {
       if (!e.isTrusted || e.target !== window) return;
-      capturedKeysDown.clear();
+      // No text comes for a press still waiting once the window is left.
+      if (active) resolvePendingKeys();
+      pressedKeysDown.clear();
       keysDown.clear();
+      downUnderMeta.clear();
+    },
+    { capture: true, passive: true },
+  );
+
+  // A page that is left takes its waiting presses with it: no text comes for
+  // them, so they are written as the keys they were while the page still can.
+  window.addEventListener(
+    'pagehide',
+    (e) => {
+      if (!e.isTrusted) return;
+      if (active) resolvePendingKeys();
     },
     { capture: true, passive: true },
   );
@@ -1106,7 +1598,7 @@
       if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') {
         fieldValueAtFocus.set(el, el.value);
         fieldsEditedByKey.delete(el);
-        // An entry already written, ahead of the captured key that followed it,
+        // An entry already written, ahead of the key that followed it,
         // is not written again.
         if (entryLastWritten.get(el) === el.value) return;
         // Suppress change events caused by blur from clicking a submit button within the same form.
@@ -1179,6 +1671,7 @@
     'dragstart',
     (e) => {
       if (!e.isTrusted) return;
+      if (active) resolvePendingKeys();
       const held = heldKeys();
       // The browser sends the page no key events during a drag, so a key
       // released in that time is never seen to go up: from the start of the
@@ -1221,6 +1714,7 @@
       // No key is known to be down at the end of a drag, wherever it started:
       // the page was sent no key events while it lasted.
       keysDown.clear();
+      resolvePendingKeys();
       appendAction({
         type: 'drop',
         timestamp: Date.now(),
@@ -1301,6 +1795,7 @@
     (e) => {
       if (!active) return;
       if (!e.isTrusted) return;
+      pendingKeysBecameText(e);
       if (document.visibilityState === 'hidden') return;
       const el = e.target;
       if (

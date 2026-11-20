@@ -2,10 +2,9 @@
  * Keyboard Capture Tests
  *
  * Verifies that keyboard interactions are captured correctly:
- * - Captured keys (Enter, Escape, Tab, Arrows, and Space where it is not typed
- *   text) produce key actions
- * - Non-captured keys (typed characters, Ctrl+shortcuts) do NOT produce key actions
- * - The click the browser derives from a captured key is not written
+ * - Every key press that is not text typed into a field produces a key action
+ * - A key that becomes text in a field produces none: the field's type records it
+ * - The click the browser derives from a written key is not written
  * - Synthetic keyboard events (programmatic dispatch) are NOT captured
  */
 
@@ -93,26 +92,30 @@ test.describe('Keyboard Capture', () => {
     expect(clicks.length).toBe(0);
   });
 
-  test('Ctrl+A does NOT produce a key action', async ({ testPage, serviceWorker }) => {
+  test('regression_702_ctrl_a_in_a_text_field_is_a_key_with_its_modifier', async ({
+    testPage,
+    serviceWorker,
+  }) => {
     await testPage.click('#input-ctrl-a');
     await clearPendingActions(serviceWorker);
     await testPage.press('#input-ctrl-a', 'Control+a');
     await waitForActionsToSettle(serviceWorker, testPage);
 
     const actions = await getPendingActions(serviceWorker);
-    const keyActions = actions.filter((a) => a.type === 'key');
-    expect(keyActions.length).toBe(0);
+    expect(actions.map((a) => [a.type, a.key, a.modifiers.ctrl])).toEqual([['key', 'a', true]]);
   });
 
-  test('Ctrl+C does NOT produce a key action', async ({ testPage, serviceWorker }) => {
+  test('regression_702_ctrl_c_in_a_text_field_is_a_key_with_its_modifier', async ({
+    testPage,
+    serviceWorker,
+  }) => {
     await testPage.click('#input-ctrl-a');
     await clearPendingActions(serviceWorker);
     await testPage.press('#input-ctrl-a', 'Control+c');
     await waitForActionsToSettle(serviceWorker, testPage);
 
     const actions = await getPendingActions(serviceWorker);
-    const keyActions = actions.filter((a) => a.type === 'key');
-    expect(keyActions.length).toBe(0);
+    expect(actions.map((a) => [a.type, a.key, a.modifiers.ctrl])).toEqual([['key', 'c', true]]);
   });
 
   test('normal typing produces type action, not key actions', async ({
@@ -176,7 +179,10 @@ test.describe('Keyboard Capture', () => {
     expect(actions[0].key).toBe('Escape');
   });
 
-  test('Ctrl+V paste does NOT produce a key action', async ({ testPage, serviceWorker }) => {
+  test('regression_702_ctrl_v_is_a_key_and_the_pasted_text_the_field_s_type', async ({
+    testPage,
+    serviceWorker,
+  }) => {
     await testPage.click('#input1');
     await testPage.fill('#input1', 'copy me');
     await testPage.press('#input1', 'Control+a');
@@ -188,12 +194,15 @@ test.describe('Keyboard Capture', () => {
     await waitForActionsToSettle(serviceWorker, testPage);
 
     const actions = await getPendingActions(serviceWorker);
-    const keyActions = actions.filter((a) => a.type === 'key');
-    // Ctrl+V is not in the captured key set — no key action.
-    expect(keyActions.length).toBe(0);
+    // The shortcut is the key the person pressed; what it pasted is the field's entry.
+    expect(actions.map((a) => [a.type, a.key ?? a.value])).toEqual([
+      ['key', 'v'],
+      ['type', 'copy me'],
+      ['click', undefined],
+    ]);
   });
 
-  test('Ctrl+Z does NOT produce a key action', async ({ testPage, serviceWorker }) => {
+  test('regression_702_ctrl_z_is_a_key', async ({ testPage, serviceWorker }) => {
     await testPage.click('#input1');
     await testPage.fill('#input1', 'hello');
     await clearPendingActions(serviceWorker);
@@ -201,8 +210,7 @@ test.describe('Keyboard Capture', () => {
     await waitForActionsToSettle(serviceWorker, testPage);
 
     const actions = await getPendingActions(serviceWorker);
-    const keyActions = actions.filter((a) => a.type === 'key');
-    expect(keyActions.length).toBe(0);
+    expect(actions.filter((a) => a.type === 'key').map((a) => a.key)).toEqual(['z']);
   });
 
   test('Enter on link produces key(Enter) only — navigate is a side-effect', async ({
@@ -221,24 +229,932 @@ test.describe('Keyboard Capture', () => {
     expect(actions[0].key).toBe('Enter');
   });
 
-  test('F12 does NOT produce any action', async ({ testPage, serviceWorker }) => {
+  test('regression_702_f12_is_a_key', async ({ testPage, serviceWorker }) => {
     await testPage.click('#input1');
     await clearPendingActions(serviceWorker);
     await testPage.press('#input1', 'F12');
     await waitForActionsToSettle(serviceWorker, testPage);
 
     const actions = await getPendingActions(serviceWorker);
-    expect(actions.length).toBe(0);
+    expect(actions.map((a) => [a.type, a.key])).toEqual([['key', 'F12']]);
   });
 
-  test('F11 does NOT produce any action', async ({ testPage, serviceWorker }) => {
+  test('regression_702_f11_is_a_key', async ({ testPage, serviceWorker }) => {
     await testPage.click('#input1');
     await clearPendingActions(serviceWorker);
     await testPage.press('#input1', 'F11');
     await waitForActionsToSettle(serviceWorker, testPage);
 
     const actions = await getPendingActions(serviceWorker);
-    expect(actions.length).toBe(0);
+    expect(actions.map((a) => [a.type, a.key])).toEqual([['key', 'F11']]);
+  });
+});
+
+// Regression: #702 — the extension wrote a `key` only for Enter, Escape, Tab,
+// the arrow keys and Space; every other press that is not text typed into a
+// field left no record, where the desktop writes it.
+// https://github.com/Arsarneq/docent/issues/702
+test.describe('Every key press that is not text', () => {
+  const KEYS_HTML = /* html */ `<!DOCTYPE html>
+<html><body>
+  <button id="btn">Button</button>
+  <input id="text" type="text">
+  <input id="readonly" type="text" readonly value="fixed">
+  <input id="blocked" type="text">
+  <input id="number" type="number">
+  <input id="date" type="date">
+  <input id="color" type="color">
+  <input id="a1" type="text" maxlength="1">
+  <input id="a2" type="text" maxlength="1">
+  <input id="pw" type="password">
+  <input id="pw-short" type="password" maxlength="2">
+  <input id="pw-readonly" type="password" readonly value="secret">
+  <input id="card" type="text" name="card-number" readonly value="4111">
+  <textarea id="area"></textarea>
+  <div id="editable" contenteditable="true"></div>
+  <select id="sel"><option>Alpha</option><option>Beta</option></select>
+  <input id="mask" type="text">
+  <div id="otp" tabindex="0">code</div>
+  <div id="shadow-host"></div>
+  <div id="otp-cells"></div>
+  <div id="rich" contenteditable="true">hi</div>
+  <script>
+    document.getElementById('blocked').addEventListener('keydown', (e) => {
+      if (e.key.length === 1) e.preventDefault();
+    });
+    // An input mask: the page cancels each digit and enters it itself.
+    document.getElementById('mask').addEventListener('keydown', (e) => {
+      if (/^[0-9]$/.test(e.key)) {
+        e.preventDefault();
+        e.target.value += e.key;
+      }
+    });
+    // A field inside a shadow root, whose page cancels the character keys.
+    const root = document.getElementById('shadow-host').attachShadow({ mode: 'open' });
+    root.innerHTML = '<input id="inner" type="text" name="card_number">';
+    root.getElementById('inner').addEventListener('keydown', (e) => {
+      if (e.key.length === 1) e.preventDefault();
+    });
+    // A widget named as a one-time code whose cells, inside its shadow root,
+    // are no fields and carry no name of their own.
+    const cells = document.getElementById('otp-cells').attachShadow({ mode: 'open' });
+    cells.innerHTML =
+      '<div id="cell" tabindex="0">_</div><div id="edit" contenteditable="true"></div><button id="reveal">Show</button>';
+    // An editable cell whose page cancels each digit and enters it itself.
+    cells.getElementById('edit').addEventListener('keydown', (e) => {
+      if (/^[0-9]$/.test(e.key)) {
+        e.preventDefault();
+        e.target.textContent += e.key;
+      }
+    });
+    // A field that hands the focus on once it is full, from its key handler.
+    document.getElementById('a1').addEventListener('keydown', (e) => {
+      if (e.target.value.length === 1 && e.key.length === 1) {
+        document.getElementById('a2').focus();
+      }
+    });
+  </script>
+</body></html>`;
+
+  test.beforeEach(async ({ testPage, serviceWorker }) => {
+    await setTestContent(testPage, KEYS_HTML);
+    await testPage.waitForTimeout(200);
+    await clearPendingActions(serviceWorker);
+  });
+
+  const written = async (serviceWorker, testPage) => {
+    await waitForActionsToSettle(serviceWorker, testPage);
+    // The focus a Tab moves is its effect, recorded beside it; these cases are about the keys.
+    return (await getPendingActions(serviceWorker))
+      .filter((a) => a.type !== 'focus')
+      .map((a) => [a.type, a.key ?? a.value]);
+  };
+
+  test('regression_702_a_letter_on_a_button_is_a_key', async ({ testPage, serviceWorker }) => {
+    await testPage.focus('#btn');
+    await testPage.keyboard.press('a');
+    await testPage.keyboard.press('Shift+B');
+    await testPage.keyboard.press('7');
+    expect(await written(serviceWorker, testPage)).toEqual([
+      ['key', 'a'],
+      ['key', 'B'],
+      ['key', '7'],
+    ]);
+    const actions = await getPendingActions(serviceWorker);
+    expect(actions.every((a) => a.element.id === 'btn')).toBe(true);
+  });
+
+  test('regression_702_a_letter_typed_into_a_field_is_text_and_no_key', async ({
+    testPage,
+    serviceWorker,
+  }) => {
+    await testPage.focus('#text');
+    await testPage.keyboard.type('ab c');
+    await testPage.keyboard.press('Tab');
+    expect(await written(serviceWorker, testPage)).toEqual([
+      ['type', 'ab c'],
+      ['key', 'Tab'],
+    ]);
+  });
+
+  test('regression_702_an_editing_key_in_a_field_is_a_key_between_the_entries_it_parts', async ({
+    testPage,
+    serviceWorker,
+  }) => {
+    await testPage.focus('#text');
+    await testPage.keyboard.type('abc');
+    await testPage.keyboard.press('Backspace');
+    await testPage.keyboard.press('Home');
+    await testPage.keyboard.press('Delete');
+    await testPage.keyboard.press('Tab');
+    expect(await written(serviceWorker, testPage)).toEqual([
+      ['type', 'abc'],
+      ['key', 'Backspace'],
+      ['type', 'ab'],
+      ['key', 'Home'],
+      ['key', 'Delete'],
+      ['type', 'b'],
+      ['key', 'Tab'],
+    ]);
+  });
+
+  test('regression_702_a_letter_in_a_field_that_takes_no_text_is_a_key', async ({
+    testPage,
+    serviceWorker,
+  }) => {
+    // A read-only field and a field whose page cancels the key: no text follows.
+    await testPage.focus('#readonly');
+    await testPage.keyboard.press('x');
+    await testPage.focus('#blocked');
+    await testPage.keyboard.press('y');
+    await testPage.keyboard.press('z');
+    // A number field takes the digit as text and refuses the letter.
+    await testPage.focus('#number');
+    await testPage.keyboard.press('4');
+    await testPage.keyboard.press('q');
+    await testPage.keyboard.press('Tab');
+    expect(await written(serviceWorker, testPage)).toEqual([
+      ['key', 'x'],
+      ['key', 'y'],
+      ['key', 'z'],
+      ['type', '4'],
+      ['key', 'q'],
+      ['key', 'Tab'],
+    ]);
+    const actions = await getPendingActions(serviceWorker);
+    expect(actions.filter((a) => a.type === 'key').map((a) => a.element.id)).toEqual([
+      'readonly',
+      'blocked',
+      'blocked',
+      'number',
+      'number',
+    ]);
+  });
+
+  test('regression_702_digits_typed_into_a_date_field_are_its_text_and_no_key', async ({
+    testPage,
+    serviceWorker,
+  }) => {
+    // A date field takes its text part by part and holds no value until the
+    // parts make a date: the keys of the whole run are its text.
+    await testPage.focus('#date');
+    await testPage.keyboard.type('12032026');
+    await testPage.keyboard.press('Tab');
+    // The browser commits the field at each digit of the year, so the last
+    // `type` holds the date.
+    const actions = await written(serviceWorker, testPage);
+    expect(actions.filter(([type]) => type === 'key')).toEqual([['key', 'Tab']]);
+    const entries = actions.filter(([type]) => type === 'type');
+    expect(entries.at(-1)).toEqual(['type', '2026-12-03']);
+    expect(actions.at(-1)).toEqual(['key', 'Tab']);
+  });
+
+  test('regression_702_digits_that_gave_a_date_field_no_value_are_keys', async ({
+    testPage,
+    serviceWorker,
+  }) => {
+    await testPage.focus('#date');
+    await testPage.keyboard.type('12');
+    await testPage.keyboard.press('Tab');
+    expect(await written(serviceWorker, testPage)).toEqual([
+      ['key', '1'],
+      ['key', '2'],
+      ['key', 'Tab'],
+    ]);
+  });
+
+  test('regression_702_a_key_that_took_no_text_is_written_while_it_is_still_down', async ({
+    testPage,
+    serviceWorker,
+  }) => {
+    // Nothing follows the press here: no release, no other action.
+    await testPage.focus('#readonly');
+    await testPage.keyboard.down('x');
+    expect(await written(serviceWorker, testPage)).toEqual([['key', 'x']]);
+    await testPage.keyboard.up('x');
+  });
+
+  test('regression_702_a_shortcut_that_changes_nothing_writes_the_entry_once', async ({
+    testPage,
+    serviceWorker,
+  }) => {
+    await testPage.focus('#text');
+    await testPage.keyboard.type('ab');
+    await testPage.keyboard.press('Control+a');
+    await testPage.keyboard.press('Control+c');
+    await testPage.keyboard.press('Tab');
+    expect(await written(serviceWorker, testPage)).toEqual([
+      ['type', 'ab'],
+      ['key', 'a'],
+      ['key', 'c'],
+      ['key', 'Tab'],
+    ]);
+  });
+
+  test('regression_702_a_key_with_nothing_focused_is_written_on_the_body', async ({
+    testPage,
+    serviceWorker,
+  }) => {
+    await testPage.evaluate(() => document.activeElement?.blur());
+    await testPage.keyboard.press('j');
+    await testPage.keyboard.press('Escape');
+    await testPage.keyboard.press('Control+k');
+    await waitForActionsToSettle(serviceWorker, testPage);
+    const actions = await getPendingActions(serviceWorker);
+    expect(actions.map((a) => [a.type, a.key, a.element.tag])).toEqual([
+      ['key', 'j', 'BODY'],
+      ['key', 'Escape', 'BODY'],
+      ['key', 'k', 'BODY'],
+    ]);
+    expect(actions[0].element.locators.length).toBeGreaterThan(0);
+  });
+
+  test('regression_702_a_modifier_pressed_alone_writes_nothing', async ({
+    testPage,
+    serviceWorker,
+  }) => {
+    await testPage.focus('#btn');
+    for (const key of ['Shift', 'Control', 'Alt']) await testPage.keyboard.press(key);
+    expect(await written(serviceWorker, testPage)).toEqual([]);
+  });
+
+  test('regression_702_the_meta_key_is_a_key_and_never_a_held_key', async ({
+    testPage,
+    serviceWorker,
+  }) => {
+    // The system acts on the key by itself, so its press is written, as on the
+    // desktop; held, it is a modifier, which `modifiers` states.
+    await testPage.focus('#btn');
+    await testPage.keyboard.down('Meta');
+    await testPage.keyboard.press('F2');
+    await testPage.keyboard.up('Meta');
+    await waitForActionsToSettle(serviceWorker, testPage);
+    const actions = await getPendingActions(serviceWorker);
+    expect(actions.map((a) => [a.key, a.modifiers.meta, a.held_keys])).toEqual([
+      ['Meta', true, []],
+      ['F2', true, []],
+    ]);
+  });
+
+  test('regression_702_a_key_typed_into_a_password_field_is_never_a_key', async ({
+    testPage,
+    serviceWorker,
+  }) => {
+    await testPage.focus('#pw');
+    await testPage.keyboard.type('s3');
+    await testPage.keyboard.press('Tab');
+    // A password field that takes no text: the press is still no key that names its character.
+    await testPage.focus('#pw-readonly');
+    await testPage.keyboard.press('x');
+    await testPage.keyboard.press('y');
+    await testPage.keyboard.press('Escape');
+    expect(await written(serviceWorker, testPage)).toEqual([
+      ['type', '••••••••'],
+      ['key', 'Tab'],
+      ['type', '••••••••'],
+      ['key', 'Escape'],
+    ]);
+  });
+
+  test('regression_702_a_character_key_on_a_sensitive_field_that_takes_no_text_is_a_masked_type', async ({
+    testPage,
+    serviceWorker,
+  }) => {
+    await testPage.focus('#card');
+    await testPage.keyboard.press('4');
+    await testPage.keyboard.press('2');
+    await testPage.keyboard.press('Escape');
+    expect(await written(serviceWorker, testPage)).toEqual([
+      ['type', '••••••••'],
+      ['key', 'Escape'],
+    ]);
+  });
+
+  test('regression_702_a_held_character_key_on_a_button_writes_each_press_and_is_a_held_key', async ({
+    testPage,
+    serviceWorker,
+  }) => {
+    await testPage.focus('#btn');
+    await testPage.keyboard.down('g');
+    await testPage.keyboard.down('g');
+    await testPage.keyboard.press('Enter');
+    await testPage.keyboard.up('g');
+    await waitForActionsToSettle(serviceWorker, testPage);
+    const actions = await getPendingActions(serviceWorker);
+    expect(actions.map((a) => [a.key, a.repeat, a.held_keys])).toEqual([
+      ['g', false, []],
+      ['g', true, []],
+      ['Enter', false, ['g']],
+    ]);
+  });
+
+  test('regression_702_a_key_that_took_no_text_is_written_ahead_of_the_action_after_it', async ({
+    testPage,
+    serviceWorker,
+  }) => {
+    // The key is still down when the click is made: it is known to be no text
+    // by then and written first, and it is named as held like any key that
+    // was written.
+    await testPage.focus('#readonly');
+    await testPage.keyboard.down('x');
+    await testPage.click('#btn');
+    await testPage.keyboard.up('x');
+    await waitForActionsToSettle(serviceWorker, testPage);
+    const actions = await getPendingActions(serviceWorker);
+    expect(actions.map((a) => [a.type, a.key, a.held_keys])).toEqual([
+      ['key', 'x', []],
+      ['click', undefined, ['x']],
+    ]);
+  });
+
+  test('regression_702_a_character_key_in_a_sensitive_field_inside_a_shadow_root_is_never_a_key', async ({
+    testPage,
+    serviceWorker,
+  }) => {
+    await testPage.locator('#shadow-host input').focus();
+    await testPage.keyboard.press('4');
+    await testPage.keyboard.press('1');
+    await testPage.keyboard.press('Escape');
+    expect(await written(serviceWorker, testPage)).toEqual([
+      ['type', '••••••••'],
+      ['key', 'Escape'],
+    ]);
+  });
+
+  test('regression_702_a_character_key_on_a_sensitive_element_that_is_no_field_is_never_named', async ({
+    testPage,
+    serviceWorker,
+  }) => {
+    // Two digits down at once on a widget named as a one-time code: neither
+    // is a `key`, and neither is named among the keys held at the Enter.
+    await testPage.focus('#otp');
+    await testPage.keyboard.down('7');
+    await testPage.keyboard.down('3');
+    await testPage.keyboard.up('7');
+    await testPage.keyboard.press('Enter');
+    await testPage.keyboard.up('3');
+    await waitForActionsToSettle(serviceWorker, testPage);
+    const actions = await getPendingActions(serviceWorker);
+    expect(actions.map((a) => [a.type, a.key ?? a.value, a.held_keys])).toEqual([
+      ['type', '••••••••', undefined],
+      ['key', 'Enter', []],
+    ]);
+  });
+
+  test('regression_702_a_character_key_inside_a_sensitive_shadow_host_is_never_named', async ({
+    testPage,
+    serviceWorker,
+  }) => {
+    // The element in focus is a cell with no name; the host it sits in is
+    // the one named as a one-time code.
+    await testPage.locator('#otp-cells #cell').focus();
+    await testPage.keyboard.down('7');
+    await testPage.keyboard.down('3');
+    await testPage.keyboard.up('7');
+    await testPage.keyboard.press('Enter');
+    await testPage.keyboard.up('3');
+    await waitForActionsToSettle(serviceWorker, testPage);
+    const actions = await getPendingActions(serviceWorker);
+    expect(actions.map((a) => [a.type, a.key ?? a.value, a.held_keys])).toEqual([
+      ['type', '••••••••', undefined],
+      ['key', 'Enter', []],
+    ]);
+  });
+
+  test('regression_702_text_a_page_enters_in_an_editable_cell_of_a_sensitive_shadow_host_is_not_written', async ({
+    testPage,
+    serviceWorker,
+  }) => {
+    await testPage.locator('#otp-cells #edit').focus();
+    await testPage.keyboard.type('73');
+    await testPage.keyboard.press('Escape');
+    await testPage.locator('#btn').click();
+    expect(await written(serviceWorker, testPage)).toEqual([
+      ['key', 'Escape'],
+      ['click', undefined],
+    ]);
+  });
+
+  test('regression_702_a_key_on_a_control_inside_a_sensitive_shadow_host_is_never_named', async ({
+    testPage,
+    serviceWorker,
+  }) => {
+    // The key is recorded on the host, which is the sensitive element: a
+    // character key there is the host's masked entry, whatever it was
+    // pressed on inside.
+    await testPage.locator('#otp-cells #reveal').focus();
+    await testPage.keyboard.down('x');
+    await testPage.keyboard.press('Tab');
+    await testPage.keyboard.up('x');
+    await waitForActionsToSettle(serviceWorker, testPage);
+    const actions = (await getPendingActions(serviceWorker)).filter((a) => a.type !== 'focus');
+    expect(actions.map((a) => [a.type, a.key ?? a.value, a.held_keys])).toEqual([
+      ['type', '••••••••', undefined],
+      ['key', 'Tab', []],
+    ]);
+  });
+
+  test('regression_702_a_character_code_entered_with_alt_and_the_keypad_in_a_password_field_is_never_a_key', async ({
+    testPage,
+    serviceWorker,
+    context,
+  }) => {
+    // Alt held with digits of the numeric keypad enters the character with
+    // that code: the digits would spell a character of the password.
+    const session = await context.newCDPSession(testPage);
+    await testPage.focus('#pw');
+    await testPage.keyboard.down('Alt');
+    for (const digit of ['0', '2', '3', '3']) {
+      for (const type of ['rawKeyDown', 'keyUp']) {
+        await session.send('Input.dispatchKeyEvent', {
+          type,
+          key: digit,
+          code: `Numpad${digit}`,
+          windowsVirtualKeyCode: 96 + Number(digit),
+          modifiers: 1,
+          location: 3,
+        });
+      }
+    }
+    // With Num Lock off the keypad's keys carry their navigation names.
+    for (const type of ['rawKeyDown', 'keyUp']) {
+      await session.send('Input.dispatchKeyEvent', {
+        type,
+        key: 'End',
+        code: 'Numpad1',
+        windowsVirtualKeyCode: 35,
+        modifiers: 1,
+        location: 3,
+      });
+    }
+    await testPage.keyboard.up('Alt');
+    await testPage.keyboard.press('Escape');
+    expect(await written(serviceWorker, testPage)).toEqual([
+      ['type', '••••••••'],
+      ['key', 'Escape'],
+    ]);
+  });
+
+  test('regression_702_digits_a_page_cancels_and_enters_itself_are_the_field_s_text', async ({
+    testPage,
+    serviceWorker,
+  }) => {
+    // An input mask: no key press is text by the browser's account, and the
+    // field holds what was typed all the same.
+    await testPage.focus('#mask');
+    await testPage.keyboard.type('5678');
+    await testPage.keyboard.press('Tab');
+    expect(await written(serviceWorker, testPage)).toEqual([
+      ['type', '5678'],
+      ['key', 'Tab'],
+    ]);
+  });
+
+  test('regression_702_a_shortcut_in_a_field_is_written_while_its_key_is_still_down', async ({
+    testPage,
+    serviceWorker,
+  }) => {
+    await testPage.focus('#text');
+    await testPage.keyboard.type('ab');
+    await testPage.keyboard.down('Control');
+    await testPage.keyboard.down('a');
+    await testPage.waitForTimeout(100);
+    const whileDown = await written(serviceWorker, testPage);
+    await testPage.keyboard.up('a');
+    await testPage.keyboard.up('Control');
+    expect(whileDown).toEqual([
+      ['type', 'ab'],
+      ['key', 'a'],
+    ]);
+  });
+
+  test('regression_702_a_paste_into_editable_content_is_written_behind_its_shortcut', async ({
+    testPage,
+    serviceWorker,
+  }) => {
+    await testPage.fill('#text', 'CLIP');
+    await testPage.press('#text', 'Control+a');
+    await testPage.press('#text', 'Control+c');
+    await testPage.click('#rich');
+    await testPage.keyboard.press('End');
+    await clearPendingActions(serviceWorker);
+    await testPage.keyboard.press('Control+v');
+    await testPage.click('#btn');
+    expect(await written(serviceWorker, testPage)).toEqual([
+      ['key', 'v'],
+      ['type', 'hiCLIP'],
+      ['click', undefined],
+    ]);
+  });
+
+  test('regression_702_a_context_menu_asked_for_with_a_key_is_the_key_alone', async ({
+    testPage,
+    serviceWorker,
+  }) => {
+    await testPage.focus('#btn');
+    await testPage.keyboard.press('ContextMenu');
+    await testPage.keyboard.press('Escape');
+    await testPage.focus('#btn');
+    await testPage.keyboard.press('Shift+F10');
+    expect((await written(serviceWorker, testPage)).filter(([, key]) => key !== 'Escape')).toEqual([
+      ['key', 'ContextMenu'],
+      ['key', 'F10'],
+    ]);
+  });
+
+  test('regression_702_a_key_still_waiting_is_written_when_the_page_is_left', async ({
+    testPage,
+    serviceWorker,
+  }) => {
+    // Digits that gave the date field no value wait for the rest of their run.
+    await testPage.focus('#date');
+    await testPage.keyboard.type('12');
+    await testPage.evaluate(() => window.location.reload());
+    await testPage.waitForTimeout(500);
+    const keys = (await getPendingActions(serviceWorker)).filter((a) => a.type === 'key');
+    expect(keys.map((a) => a.key)).toEqual(['1', '2']);
+  });
+
+  test('regression_702_a_key_pressed_while_the_meta_key_was_held_is_not_held_after_its_release', async ({
+    testPage,
+    serviceWorker,
+  }) => {
+    // Some systems send the page no release for a key let go while the Meta
+    // key is held, so nothing pressed under it is known to be down once the
+    // Meta key is released.
+    await testPage.focus('#btn');
+    await testPage.keyboard.down('Meta');
+    await testPage.keyboard.down('c');
+    await testPage.keyboard.up('Meta');
+    await testPage.keyboard.press('Enter');
+    await testPage.keyboard.up('c');
+    await waitForActionsToSettle(serviceWorker, testPage);
+    const actions = (await getPendingActions(serviceWorker)).filter((a) => a.type === 'key');
+    expect(actions.map((a) => [a.key, a.held_keys])).toEqual([
+      ['Meta', []],
+      ['c', []],
+      ['Enter', []],
+    ]);
+  });
+
+  test('regression_702_a_character_key_on_a_sensitive_field_is_never_a_held_key', async ({
+    testPage,
+    serviceWorker,
+  }) => {
+    // The key is stored as the field's masked `type`; the key pressed while
+    // it is down does not name it either.
+    await testPage.focus('#card');
+    await testPage.keyboard.down('4');
+    await testPage.keyboard.press('Tab');
+    await testPage.keyboard.up('4');
+    await waitForActionsToSettle(serviceWorker, testPage);
+    const actions = (await getPendingActions(serviceWorker)).filter((a) => a.type !== 'focus');
+    expect(actions.map((a) => [a.type, a.key ?? a.value, a.held_keys])).toEqual([
+      ['type', '••••••••', undefined],
+      ['key', 'Tab', []],
+    ]);
+  });
+
+  test('regression_702_a_character_key_with_alt_alone_is_a_shortcut', async ({
+    testPage,
+    serviceWorker,
+  }) => {
+    // Alt with a character key enters no character (it reaches for a menu),
+    // so the press is a `key` also in a password field, as on the desktop.
+    await testPage.focus('#text');
+    await testPage.keyboard.press('Alt+a');
+    await testPage.focus('#pw');
+    await testPage.keyboard.press('Alt+a');
+    await waitForActionsToSettle(serviceWorker, testPage);
+    const actions = (await getPendingActions(serviceWorker)).filter((a) => a.type !== 'focus');
+    expect(actions.map((a) => [a.type, a.key, a.modifiers?.alt])).toEqual([
+      ['key', 'a', true],
+      ['key', 'a', true],
+    ]);
+  });
+
+  test('regression_702_a_character_the_option_key_of_a_mac_gives_is_text_and_no_key', async ({
+    testPage,
+    serviceWorker,
+    context,
+  }) => {
+    // On a Mac the Option key, which the browser reports as Alt, enters
+    // characters of the layout.
+    const session = await context.newCDPSession(testPage);
+    await session.send('Emulation.setUserAgentOverride', {
+      userAgent: await testPage.evaluate(() => window.navigator.userAgent),
+      platform: 'MacIntel',
+    });
+    await setTestContent(testPage, KEYS_HTML);
+    await testPage.waitForTimeout(200);
+    await clearPendingActions(serviceWorker);
+    const option = async (type) =>
+      session.send('Input.dispatchKeyEvent', {
+        type,
+        key: 'å',
+        code: 'KeyA',
+        text: type === 'keyDown' ? 'å' : undefined,
+        modifiers: 1,
+        windowsVirtualKeyCode: 65,
+      });
+    await testPage.focus('#text');
+    await option('keyDown');
+    await option('keyUp');
+    await testPage.focus('#pw');
+    await option('keyDown');
+    await option('keyUp');
+    await testPage.focus('#pw-readonly');
+    await option('keyDown');
+    await option('keyUp');
+    await testPage.focus('#btn');
+    expect(await written(serviceWorker, testPage)).toEqual([
+      ['type', 'å'],
+      ['type', '••••••••'],
+      ['type', '••••••••'],
+    ]);
+  });
+
+  test('regression_702_space_on_a_color_field_is_the_key_alone', async ({
+    testPage,
+    serviceWorker,
+  }) => {
+    // The browser derives a click from the Space at its release: the key's
+    // effect, which writes nothing.
+    await testPage.focus('#color');
+    await testPage.keyboard.press('Space');
+    expect(await written(serviceWorker, testPage)).toEqual([['key', 'Space']]);
+  });
+
+  test('regression_702_text_that_lands_in_the_field_the_page_moved_the_focus_to_is_no_key', async ({
+    testPage,
+    serviceWorker,
+  }) => {
+    // The page moves the focus while the second key is on its way down, so
+    // its text lands in the next field: text all the same, and the first
+    // field's entry is written before it.
+    await testPage.focus('#a1');
+    await testPage.keyboard.type('12');
+    await testPage.keyboard.press('Tab');
+    await waitForActionsToSettle(serviceWorker, testPage);
+    const actions = (await getPendingActions(serviceWorker)).filter((a) => a.type !== 'focus');
+    expect(actions.map((a) => [a.type, a.key ?? a.value, a.element.id])).toEqual([
+      ['type', '1', 'a1'],
+      ['type', '2', 'a2'],
+      ['key', 'Tab', 'a2'],
+    ]);
+  });
+
+  test('regression_702_a_password_field_that_refuses_a_character_writes_one_masked_type', async ({
+    testPage,
+    serviceWorker,
+  }) => {
+    await testPage.focus('#pw-short');
+    await testPage.keyboard.type('abc');
+    await testPage.keyboard.press('Tab');
+    expect(await written(serviceWorker, testPage)).toEqual([
+      ['type', '••••••••'],
+      ['key', 'Tab'],
+    ]);
+  });
+
+  test('regression_702_a_dead_key_is_a_key_unless_a_character_follows_it_into_the_field', async ({
+    testPage,
+    serviceWorker,
+    context,
+  }) => {
+    const session = await context.newCDPSession(testPage);
+    const dead = async () => {
+      for (const type of ['rawKeyDown', 'keyUp']) {
+        await session.send('Input.dispatchKeyEvent', {
+          type,
+          key: 'Dead',
+          code: 'BracketRight',
+          windowsVirtualKeyCode: 221,
+        });
+      }
+    };
+    // On a button it is a key like any other.
+    await testPage.focus('#btn');
+    await dead();
+    // In a field, followed by the letter it combines with: the text of the field.
+    await testPage.focus('#text');
+    await dead();
+    for (const type of ['keyDown', 'keyUp']) {
+      await session.send('Input.dispatchKeyEvent', {
+        type,
+        key: 'é',
+        code: 'KeyE',
+        text: type === 'keyDown' ? 'é' : undefined,
+        windowsVirtualKeyCode: 69,
+      });
+    }
+    await testPage.keyboard.press('Tab');
+    // In a field, with no character after it: the key it was.
+    await testPage.focus('#area');
+    await dead();
+    await testPage.keyboard.press('Escape');
+    expect(await written(serviceWorker, testPage)).toEqual([
+      ['key', 'Dead'],
+      ['type', 'é'],
+      ['key', 'Tab'],
+      ['key', 'Dead'],
+      ['key', 'Escape'],
+    ]);
+  });
+
+  test('regression_702_keys_that_wait_when_capture_goes_off_are_not_carried_into_the_next', async ({
+    testPage,
+    serviceWorker,
+  }) => {
+    const setRecording = async (recording) => {
+      await serviceWorker.evaluate(
+        (value) => chrome.storage.local.set({ recording: value }),
+        recording,
+      );
+      await testPage.waitForTimeout(200);
+    };
+    // The digits gave the date field no value and wait for the rest of their run.
+    await testPage.focus('#date');
+    await testPage.keyboard.type('12');
+    await setRecording(false);
+    await setRecording(true);
+    await testPage.click('#btn');
+    expect(await written(serviceWorker, testPage)).toEqual([['click', undefined]]);
+  });
+
+  test('regression_702_keys_that_wait_are_written_when_the_window_loses_the_focus', async ({
+    testPage,
+    serviceWorker,
+    context,
+  }) => {
+    // The harness makes every page believe it is focused; switched off here,
+    // another tab coming to the front takes the focus as it does for a person.
+    const session = await context.newCDPSession(testPage);
+    await session.send('Emulation.setFocusEmulationEnabled', { enabled: false });
+    await testPage.bringToFront();
+    await testPage.waitForTimeout(200);
+    await testPage.focus('#date');
+    await testPage.keyboard.type('12');
+    const other = await context.newPage();
+    await other.bringToFront();
+    await other.waitForTimeout(300);
+    await waitForActionsToSettle(serviceWorker, testPage);
+    const keys = (await getPendingActions(serviceWorker)).filter((a) => a.type === 'key');
+    await other.close();
+    expect(keys.map((a) => a.key)).toEqual(['1', '2']);
+  });
+
+  test('regression_702_text_typed_into_a_textarea_and_into_editable_content_is_no_key', async ({
+    testPage,
+    serviceWorker,
+  }) => {
+    await testPage.focus('#area');
+    await testPage.keyboard.type('hi');
+    await testPage.focus('#editable');
+    await testPage.keyboard.type('yo');
+    await testPage.focus('#btn');
+    await waitForActionsToSettle(serviceWorker, testPage);
+    const actions = await getPendingActions(serviceWorker);
+    expect(actions.filter((a) => a.type === 'key')).toEqual([]);
+    expect(actions.filter((a) => a.type === 'type').map((a) => a.value)).toEqual(['hi', 'yo']);
+  });
+
+  test('regression_702_text_a_composition_enters_writes_no_key', async ({
+    testPage,
+    serviceWorker,
+    context,
+  }) => {
+    await testPage.focus('#text');
+    const session = await context.newCDPSession(testPage);
+    await session.send('Input.imeSetComposition', {
+      text: 'に',
+      selectionStart: 1,
+      selectionEnd: 1,
+    });
+    await session.send('Input.insertText', { text: '日' });
+    await testPage.keyboard.press('Tab');
+    // The composition is driven without key presses here, so the entry is
+    // written when the browser commits it, behind the Tab (ECP-12).
+    expect(await written(serviceWorker, testPage)).toEqual([
+      ['key', 'Tab'],
+      ['type', '日'],
+    ]);
+  });
+
+  test('regression_702_a_key_pressed_while_a_composition_is_open_writes_no_key', async ({
+    testPage,
+    serviceWorker,
+    context,
+  }) => {
+    await testPage.focus('#text');
+    const session = await context.newCDPSession(testPage);
+    await session.send('Input.imeSetComposition', {
+      text: 'に',
+      selectionStart: 1,
+      selectionEnd: 1,
+    });
+    // The keys the input method is handed while it composes: the browser
+    // reports each with the key code of an input-method key, whatever name
+    // the key carries.
+    for (const type of ['rawKeyDown', 'keyUp']) {
+      await session.send('Input.dispatchKeyEvent', {
+        type,
+        key: 'n',
+        code: 'KeyN',
+        windowsVirtualKeyCode: 229,
+      });
+    }
+    await session.send('Input.insertText', { text: '日' });
+    await testPage.keyboard.press('Enter');
+    expect(await written(serviceWorker, testPage)).toEqual([
+      ['type', '日'],
+      ['key', 'Enter'],
+    ]);
+  });
+
+  test('regression_702_a_key_the_input_method_takes_writes_no_key', async ({
+    testPage,
+    serviceWorker,
+    context,
+  }) => {
+    // An input method takes the key press itself: the browser reports it as
+    // `Process`, and the text arrives as a composition.
+    await testPage.focus('#text');
+    const session = await context.newCDPSession(testPage);
+    await session.send('Input.dispatchKeyEvent', {
+      type: 'rawKeyDown',
+      key: 'Process',
+      code: 'KeyN',
+      windowsVirtualKeyCode: 229,
+    });
+    await session.send('Input.imeSetComposition', {
+      text: 'に',
+      selectionStart: 1,
+      selectionEnd: 1,
+    });
+    await session.send('Input.insertText', { text: '日' });
+    await session.send('Input.dispatchKeyEvent', {
+      type: 'keyUp',
+      key: 'Process',
+      code: 'KeyN',
+      windowsVirtualKeyCode: 229,
+    });
+    await testPage.keyboard.press('Enter');
+    expect(await written(serviceWorker, testPage)).toEqual([
+      ['type', '日'],
+      ['key', 'Enter'],
+    ]);
+  });
+
+  test('regression_702_text_entered_with_no_key_press_writes_no_key', async ({
+    testPage,
+    serviceWorker,
+    context,
+  }) => {
+    // An autofill, a paste from the menu and a drop enter text the same way:
+    // the field's value changes and no key was pressed for it.
+    await testPage.focus('#text');
+    const session = await context.newCDPSession(testPage);
+    await session.send('Input.insertText', { text: 'filled' });
+    await testPage.focus('#btn');
+    await testPage.keyboard.press('x');
+    // The entry is written when the browser commits it, at the blur.
+    expect(await written(serviceWorker, testPage)).toEqual([
+      ['type', 'filled'],
+      ['key', 'x'],
+    ]);
+  });
+
+  test('regression_702_a_letter_on_a_select_is_a_key_and_its_choice_a_select', async ({
+    testPage,
+    serviceWorker,
+  }) => {
+    await testPage.focus('#sel');
+    await testPage.keyboard.press('b');
+    expect(await written(serviceWorker, testPage)).toEqual([
+      ['key', 'b'],
+      ['select', 'Beta'],
+    ]);
   });
 });
 
@@ -791,11 +1707,17 @@ test.describe('Keyboard activation', () => {
       testPage,
       serviceWorker,
     }) => {
+      // Listening for the chooser turns Playwright's interception of it on
+      // with a request nothing waits for, and Enter opens the chooser at the
+      // keydown: a press sent in the same breath can reach the page first, and
+      // the chooser then opens unintercepted (docent#724). Space opens it at
+      // the release, one round trip later. The listener goes first, and the
+      // focus is a round trip to the page behind it, so the interception is on
+      // before either key is pressed.
+      const chooser = testPage.waitForEvent('filechooser');
       await testPage.focus('#file');
-      const [fileChooser] = await Promise.all([
-        testPage.waitForEvent('filechooser'),
-        testPage.keyboard.press(key),
-      ]);
+      await testPage.keyboard.press(key);
+      const fileChooser = await chooser;
       await fileChooser.setFiles({
         name: 'test.txt',
         mimeType: 'text/plain',
@@ -812,9 +1734,9 @@ test.describe('Keyboard activation', () => {
   }
 });
 
-// A captured key whose press also scrolls is written as the key and, past the
-// scroll floor, as the scroll too: the departure ECP-12 lists (#695 brought
-// Space into the captured set, on a link for example).
+// A key whose press also scrolls is written as the key and, past the scroll
+// floor, as the scroll too: the departure ECP-12 lists (Space on a link, for
+// example).
 test.describe('Keys that scroll', () => {
   test('Space on a link writes the key and the scroll it causes', async ({
     testPage,
@@ -954,6 +1876,7 @@ test.describe('The entry a key ends', () => {
     const actions = await getPendingActions(serviceWorker);
     expect(summary(actions)).toEqual([
       ['click', '#prefilled'],
+      ['key', 'End', '#prefilled'],
       ['type', 'started', '#prefilled'],
       ['key', 'Enter', '#prefilled'],
     ]);

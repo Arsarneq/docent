@@ -564,7 +564,7 @@ half of the extension is documented in
 | `navigation-logic.test.js` | The navigation and tab-creation capture decisions across transition types and timing states, and a static-source guard that the worker's listeners decide through the module. |
 | `panel.test.js` | The send gate in the panel, run against the shipped send-gate module: button state, recording selection and the confirmation summary; the cancel path is simulated. |
 | `project-export.test.js` | The panel's export build, run against the shipped module: the project open in the panel asked for by its id, the stamped document, and failures answered in-band. |
-| `recorder-logic.test.js` | The extracted content-script logic (selector derivation, locator measurement, element description, the captured-key decision, the scroll decision) and the recorder's scroll literals. |
+| `recorder-logic.test.js` | The extracted content-script logic (selectors, locators, element description, the key-press decision with its shortcut modifiers, the sensitive-element and no-typed-text rules held equal to the worker's, part-by-part fields, the scroll decision) and the recorder's scroll literals. |
 | `recorder-mirror-parity.test.js` | The recorder's two copies of the capture logic stay textually identical under the mechanical transformation. |
 | `recording-mode.test.js` | Recording-mode persistence through the Chrome adapter. |
 | `regression-294-window-rect.test.js` | A static-source guard that the extension emits no desktop-only window rectangle field. |
@@ -573,7 +573,7 @@ half of the extension is documented in
 | `service-worker-mirror-parity.test.js` | The append chokepoint's and the active-unit helpers' second copies stay textually identical to the shipped functions, the chokepoint under indentation only. |
 | `service-worker-navigation.test.js` | The worker's navigation proxy through its registered listeners: the duplicate check, the last-URL marker and its self-clear, and the new-tab link path. |
 | `service-worker-static-import.test.js` | A static-source guard that the background path uses the statically imported validator, never a dynamic import. |
-| `service-worker.test.js` | The worker's message handlers: the panel protocol, import and export, the trusted-sender gate, redaction, and storage-failure recovery. [Detail](#service-workertestjs) |
+| `service-worker.test.js` | The worker's message handlers: the panel protocol, import and export, the trusted-sender gate, redaction (a character key on a sensitive field stored as its one masked `type`), and storage-failure recovery. [Detail](#service-workertestjs) |
 | `storage-quota.test.js` | The storage-pressure classifier: the warn band's threshold and the resume hysteresis. |
 
 ### `control-commands.test.js`

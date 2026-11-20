@@ -11,9 +11,11 @@
  * It is imported by the JS module that each platform routes captured actions
  * through BEFORE they are stored — the extension service worker's
  * `appendSwAction` and the desktop adapter's action stream — so a sensitive value
- * is masked before it ever reaches storage. (The extension content script and the
- * desktop Rust capture layer cannot import modules, but they do not need to: they
- * only keep the native, signal-based password masking.)
+ * is masked before it ever reaches storage. (The desktop Rust capture layer
+ * cannot import modules and keeps the native, signal-based password masking.
+ * The extension content script cannot import either: it holds a copy of the
+ * patterns, which a test holds equal to these, so that a key pressed on a
+ * sensitive element is never written under its own name.)
  *
  * Detection is intentionally CONSERVATIVE. Over-masking a legitimate field
  * (a username, an email, a search box) discards data the user really entered
@@ -32,9 +34,11 @@ export const SENSITIVE_MASK = '••••••••';
 
 /**
  * `autocomplete` tokens (HTML spec) that designate payment fields we always mask.
- * Matched case-insensitively against the full token value.
+ * Matched case-insensitively against the full token value. Exported because
+ * the extension's recorder holds its own copy of this set and of the name
+ * pattern below (a content script cannot import), and a test holds them equal.
  */
-const SENSITIVE_AUTOCOMPLETE = new Set([
+export const SENSITIVE_AUTOCOMPLETE = new Set([
   'cc-number',
   'cc-csc',
   'cc-exp',
@@ -47,7 +51,7 @@ const SENSITIVE_AUTOCOMPLETE = new Set([
  * broad terms (`account`, `id`, `code`, `name`, `email`) are EXCLUDED so we never
  * mask a legitimate workflow field.
  */
-const SENSITIVE_NAME_RE =
+export const SENSITIVE_NAME_RE =
   /card.?number|cardnum|ccnum|credit.?card|cvv|cvc|csc|ssn|social.?security|routing|iban|sort.?code|account.?number|api.?key|secret|passw|pwd|\botp\b|tax.?id/i;
 
 /**
