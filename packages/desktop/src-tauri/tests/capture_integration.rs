@@ -1220,13 +1220,15 @@ mod user_actions_advanced {
         let switch_events = context_switches(&events);
         assert!(
             !click_events.is_empty(),
-            "Expected click when switching windows, got {}",
-            click_events.len()
+            "Expected click when switching windows, got {}; written: {:#?}",
+            click_events.len(),
+            events
         );
         assert!(
             !switch_events.is_empty(),
-            "Expected context_switch when clicking different window, got {}",
-            switch_events.len()
+            "Expected context_switch when clicking different window, got {}; written: {:#?}",
+            switch_events.len(),
+            events
         );
     }
 
@@ -2965,8 +2967,9 @@ mod completeness {
         assert_eq!(
             click_events.len(),
             5,
-            "Expected 5 rapid clicks captured, got {}",
-            click_events.len()
+            "Expected 5 rapid clicks captured, got {}; written: {:#?}",
+            click_events.len(),
+            events
         );
     }
 

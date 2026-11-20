@@ -22,6 +22,9 @@ export default defineConfig({
   workers: 1, // sessions share chrome.storage.local — never parallel
   reporter: process.env.CI ? 'dot' : 'list',
   use: { trace: 'on-first-retry' },
+  // A folder of its own under the suite's: a corpus run clears only this one,
+  // so the traces the suite's run left in `test-results/` stay for the upload.
+  outputDir: './test-results/corpus',
   webServer: {
     command: `node ${path.join(repoRoot, 'corpus', 'serve.js')}`,
     url: 'http://127.0.0.1:41730/health',
