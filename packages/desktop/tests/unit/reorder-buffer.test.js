@@ -310,6 +310,22 @@ describe('_insertOrdered redacts sensitive field values', () => {
     assert.equal('repeat' in adapter.getPendingActions()[0], false);
   });
 
+  it('regression_717_a_key_recorded_as_the_masked_type_carries_no_code', () => {
+    // `code` names the physical key, which on a sensitive field says as much
+    // as the character does: the masked `type` does not carry it.
+    insertOrdered({ ...keyOn(cardField(), '4', 1), code: 'Digit4' });
+
+    assert.deepEqual(shape(), [`type ${SENSITIVE_MASK}`]);
+    assert.equal('code' in adapter.getPendingActions()[0], false);
+  });
+
+  it('regression_717_a_key_that_stays_a_key_on_a_sensitive_field_keeps_its_code', () => {
+    insertOrdered({ ...keyOn(cardField(), 'Enter', 1), code: 'NumpadEnter' });
+
+    stripSeqFields();
+    assert.equal(adapter.getPendingActions()[0].code, 'NumpadEnter');
+  });
+
   it('regression_696_a_key_on_a_sensitive_named_control_that_takes_no_text_stays_a_key', () => {
     // Space on a "Remember password" checkbox ticks it; no text is typed into
     // a checkbox, so the key is the record, on every such control type.

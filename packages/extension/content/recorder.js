@@ -1476,6 +1476,8 @@
           key,
           modifiers,
           repeat: e.repeat,
+          // The physical key, where the browser names one.
+          ...(e.code ? { code: e.code } : {}),
           held_keys: heldKeys(e.code),
           element: describeElement(el),
         },

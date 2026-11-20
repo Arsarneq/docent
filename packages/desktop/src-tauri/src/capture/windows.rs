@@ -2461,7 +2461,8 @@ unsafe extern "system" fn input_keyboard_ll_proc(
                     // above it whether the key was already down at this
                     // key-down: a press key repeat generated (docent#696).
                     // Above the scan code sits the hook's extended mark,
-                    // which tells apart two keys that share a key code.
+                    // which tells apart two keys that share a key code;
+                    // the two together name the physical key (docent#717).
                     callback_params: [
                         i64::from(kb_struct.scanCode)
                             | if kb_struct.flags & LLKHF_EXTENDED as u32 != 0 {
@@ -4608,6 +4609,7 @@ mod tests {
                     meta: false,
                 },
                 repeat: false,
+                code: None,
                 held: crate::capture::HeldKeysAtAction::default(),
                 element: ElementDescription {
                     tag: "Edit".to_string(),
