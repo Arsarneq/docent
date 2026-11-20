@@ -313,10 +313,11 @@ and the key itself, each a key whose own key-down is a `key` action, by the
 name that action carries, in the order they went down. The hook's record
 supplies them: it notes, for each key that is down, the key-down that was
 dispatched for recording (the press, or the first repeat dispatched when the
-press was not, in an excluded window or before the capture started), and
-stamps each keystroke with the keys so noted. The panel keeps a name only
-where that key-down is a `key` action of the step, once the step's actions are
-complete: a key-down that became text (part of a `type`, masked or not) names
+press was not, in an excluded window or before the capture started), with
+the layout character that key-down carried, so a held punctuation key is named
+by it as its own `key` is, and stamps each keystroke with the keys so noted.
+The panel keeps a name only where that key-down is a `key` action of the
+step, once the step's actions are complete: a key-down that became text (part of a `type`, masked or not) names
 no held key, and a typing key that was written as a `key` (one no value change
 superseded) is named as any key is. No key is
 known to be down when a capture starts, which each step's capture does anew;

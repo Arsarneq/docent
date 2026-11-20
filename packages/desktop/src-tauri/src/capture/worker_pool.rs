@@ -1422,7 +1422,12 @@ fn held_at(raw: &RawEvent) -> HeldKeysAtAction {
     let (held_keys, held_presses) = raw
         .held
         .iter()
-        .map(|k| (key_name_of(k.key_code, i64::from(k.scan_code), 0), k.press))
+        .map(|k| {
+            (
+                key_name_of(k.key_code, i64::from(k.scan_code), k.layout_char),
+                k.press,
+            )
+        })
         .unzip();
     HeldKeysAtAction {
         held_keys,

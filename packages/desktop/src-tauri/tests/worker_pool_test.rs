@@ -5734,6 +5734,7 @@ fn held_presses(keys: &[(u32, u32, u64)]) -> Vec<HeldPress> {
             key_code,
             scan_code,
             press,
+            layout_char: 0,
         })
         .collect()
 }
