@@ -11,16 +11,16 @@
  * - a tap is a `click` at the point tapped (ECP-6, `click`; session format,
  *   `click`): it carries a pointer, so it is not taken for a key's effect
  * - a pen's click is a `click` at its point, the same way
- *
- * The page notes the pointer type of each click it receives, so the test shows
- * that the input reached it as a touch and a pen, and each point is off the
- * element's centre, so the point written is the one tapped and not the
- * element's.
  * - a press on a range moves its value at the press, and the browser commits
  *   it with `change` ahead of the `click`: a `type` with the new value, then
  *   the `click` (ECP-6, `change` and `click`), and a later click elsewhere
  *   writes no second `type`; a drag commits once, at the release: a `type`
  *   with the value it ends on, then the `click`
+ *
+ * In the tap and pen test, the page notes the pointer type of each click it
+ * receives, so the test shows that the input reached it as a touch and a pen,
+ * and each point is off the element's centre, so the point written is the one
+ * tapped and not the element's.
  *
  * A long press is not here: the browser the suite runs gives a held touch no
  * context menu (it ends as a tap), so the `right_click` ECP-12 states for it
