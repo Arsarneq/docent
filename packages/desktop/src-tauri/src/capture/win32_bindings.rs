@@ -450,6 +450,33 @@ pub unsafe fn Process32Next(hsnapshot: HANDLE, lppe: *mut PROCESSENTRY32) -> win
     unsafe { Process32Next(hsnapshot, lppe as _) }
 }
 #[inline]
+pub unsafe fn RegGetValueW<P1, P2>(
+    hkey: HKEY,
+    lpsubkey: P1,
+    lpvalue: P2,
+    dwflags: u32,
+    pdwtype: Option<*mut u32>,
+    pvdata: Option<*mut core::ffi::c_void>,
+    pcbdata: Option<*mut u32>,
+) -> LSTATUS
+where
+    P1: windows_core::Param<windows_core::PCWSTR>,
+    P2: windows_core::Param<windows_core::PCWSTR>,
+{
+    windows_core::link!("advapi32.dll" "system" fn RegGetValueW(hkey : HKEY, lpsubkey : windows_core::PCWSTR, lpvalue : windows_core::PCWSTR, dwflags : u32, pdwtype : *mut u32, pvdata : *mut core::ffi::c_void, pcbdata : *mut u32) -> LSTATUS);
+    unsafe {
+        RegGetValueW(
+            hkey,
+            lpsubkey.param().abi(),
+            lpvalue.param().abi(),
+            dwflags,
+            pdwtype.unwrap_or(core::mem::zeroed()) as _,
+            pvdata.unwrap_or(core::mem::zeroed()) as _,
+            pcbdata.unwrap_or(core::mem::zeroed()) as _,
+        )
+    }
+}
+#[inline]
 pub unsafe fn RegisterClassW(lpwndclass: *const WNDCLASSW) -> ATOM {
     windows_core::link!("user32.dll" "system" fn RegisterClassW(lpwndclass : *const WNDCLASSW) -> ATOM);
     unsafe { RegisterClassW(lpwndclass) }
@@ -733,6 +760,10 @@ pub struct HICON(pub *mut core::ffi::c_void);
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub struct HINSTANCE(pub *mut core::ffi::c_void);
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub struct HKEY(pub *mut core::ffi::c_void);
+pub const HKEY_CURRENT_USER: HKEY = HKEY(-2147483647 as _);
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub struct HKL(pub *mut core::ffi::c_void);
@@ -4422,6 +4453,9 @@ pub type LPOFNHOOKPROC = Option<
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub struct LRESULT(pub isize);
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub struct LSTATUS(pub i32);
 pub const MAPVK_VK_TO_CHAR: i32 = 2;
 pub const MAPVK_VSC_TO_VK: i32 = 1;
 #[repr(C)]
@@ -4568,6 +4602,8 @@ pub struct RECT {
     pub right: i32,
     pub bottom: i32,
 }
+pub const RRF_RT_REG_DWORD: i32 = 16;
+pub const RRF_RT_REG_SZ: i32 = 2;
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct SAFEARRAY {
