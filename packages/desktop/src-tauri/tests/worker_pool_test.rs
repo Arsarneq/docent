@@ -3743,6 +3743,8 @@ struct MovingFocusBackend {
     marked: Mutex<Option<String>>,
     /// The focused-element query fails.
     fails: bool,
+    /// The backend cannot say whether the focused element is the marked one.
+    no_marks: bool,
     controls: Arc<Mutex<Controls>>,
 }
 
@@ -3795,6 +3797,7 @@ impl MovingFocusBackend {
                 queries: Arc::clone(&queries),
                 marked: Mutex::new(None),
                 fails: false,
+                no_marks: false,
                 controls: Arc::default(),
             },
             scene,
@@ -3843,6 +3846,9 @@ impl AccessibilityBackend for MovingFocusBackend {
     }
 
     fn focused_is_marked(&self) -> Option<bool> {
+        if self.no_marks {
+            return None;
+        }
         let focused = self.scene.lock().unwrap().element.id.clone();
         Some(focused.is_some() && focused == *self.marked.lock().unwrap())
     }
@@ -4332,6 +4338,119 @@ fn regression_734_typing_across_a_change_of_the_window_title_is_one_type() {
         typed_actions_of(&events),
         vec!["type hi! on Window:Untitled - Editor > Edit:Text"],
         "got {events:?}"
+    );
+}
+
+/// Where the backend cannot say whether the focused element is still the
+/// marked one, the description decides whether a value change is the key's:
+/// by the field's place under the window, across a title change too.
+#[test]
+fn regression_734_a_value_change_under_another_title_is_the_key_s_where_no_mark_tells() {
+    let mut field = file_name_field("");
+    field.element.selector = "Window:Untitled - Editor > Edit:Text".to_string();
+    field.element.place_in_window = Some("Edit:Text".to_string());
+    let (mut backend, scene, _) = MovingFocusBackend::new(field);
+    backend.no_marks = true;
+    let harness = WorkerTestHarness::new(backend);
+
+    harness.send_event(in_dialog(packet_key(1, now_ms(), u16::from(b'h'))));
+    thread::sleep(Duration::from_millis(150));
+    {
+        let mut scene = scene.lock().unwrap();
+        scene.element.selector = "Window:*Untitled - Editor > Edit:Text".to_string();
+        scene.element.text = Some("h".to_string());
+        scene.element.value = Some("h".to_string());
+    }
+    harness.send_event(in_dialog(value_change(2, now_ms(), DIALOG)));
+
+    thread::sleep(Duration::from_millis(900));
+    let events = harness.shutdown();
+
+    assert_eq!(
+        typed_actions_of(&events),
+        vec!["type h on Window:*Untitled - Editor > Edit:Text"],
+        "got {events:?}"
+    );
+}
+
+/// The key's element was described before its place under the window could
+/// be read, and the value change that followed read it. A later value change
+/// of the field under another title is still the field's: the place the
+/// first value change read is remembered for the key.
+#[test]
+fn regression_734_the_place_a_value_change_read_is_remembered_for_the_key() {
+    let mut field = file_name_field("");
+    field.element.selector = "Window:Untitled - Editor > Edit:Text".to_string();
+    let (mut backend, scene, _) = MovingFocusBackend::new(field);
+    backend.no_marks = true;
+    let harness = WorkerTestHarness::new(backend);
+
+    harness.send_event(in_dialog(packet_key(1, now_ms(), u16::from(b'h'))));
+    thread::sleep(Duration::from_millis(150));
+    {
+        let mut scene = scene.lock().unwrap();
+        scene.element.place_in_window = Some("Edit:Text".to_string());
+        scene.element.text = Some("h".to_string());
+        scene.element.value = Some("h".to_string());
+    }
+    harness.send_event(in_dialog(value_change(2, now_ms(), DIALOG)));
+    thread::sleep(Duration::from_millis(150));
+    {
+        let mut scene = scene.lock().unwrap();
+        scene.element.selector = "Window:*Untitled - Editor > Edit:Text".to_string();
+        scene.element.text = Some("hello".to_string());
+        scene.element.value = Some("hello".to_string());
+    }
+    // The field completes the word itself: a value change with no key.
+    harness.send_event(in_dialog(value_change(3, now_ms(), DIALOG)));
+
+    thread::sleep(Duration::from_millis(900));
+    let events = harness.shutdown();
+
+    assert_eq!(type_values_of(&events), vec!["hello"], "got {events:?}");
+}
+
+/// The field remembered for the typing is described again at a value change
+/// that came with a change of the title and a focus change the program made.
+/// It is the remembered field still, so its mark is the fresh one, and a key
+/// pressed after the focus has really gone elsewhere is found out: it is
+/// recorded on the element that has the focus, not on the remembered field.
+#[test]
+fn regression_734_the_remembered_field_is_known_again_under_another_title() {
+    let mut field = file_name_field("");
+    field.element.selector = "Window:Untitled - Editor > Edit:Text".to_string();
+    field.element.place_in_window = Some("Edit:Text".to_string());
+    let (backend, scene, _) = MovingFocusBackend::new(field);
+    let harness = WorkerTestHarness::new(backend);
+
+    harness.send_event(in_dialog(packet_key(1, now_ms(), u16::from(b'h'))));
+    thread::sleep(Duration::from_millis(150));
+    {
+        let mut scene = scene.lock().unwrap();
+        // A focus change the program made, counted since the key.
+        scene.epoch = 2;
+        scene.element.selector = "Window:*Untitled - Editor > Edit:Text".to_string();
+        scene.element.text = Some("h".to_string());
+        scene.element.value = Some("h".to_string());
+    }
+    harness.send_event(in_dialog(value_change(2, now_ms(), DIALOG)));
+    thread::sleep(Duration::from_millis(150));
+    {
+        let mut scene = scene.lock().unwrap();
+        scene.epoch = 1;
+        let mut other = scene_element("Edit", "Window:*Untitled - Editor > Edit:Other", None);
+        other.place_in_window = Some("Edit:Other".to_string());
+        scene.element = other;
+    }
+    harness.send_event(in_dialog(packet_key(3, now_ms(), u16::from(b'x'))));
+
+    thread::sleep(Duration::from_millis(900));
+    let events = harness.shutdown();
+
+    let actions = typed_actions_of(&events);
+    assert!(
+        actions.contains(&"key x on Window:*Untitled - Editor > Edit:Other".to_string()),
+        "got {actions:?}"
     );
 }
 

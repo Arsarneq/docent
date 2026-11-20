@@ -325,16 +325,7 @@ another element, the pointer is pressed (a click, a right-click or a drag),
 another window comes to the front, the step is committed or the recording
 stops. A focus event ends nothing: the key that moved the focus has ended
 the typing already, and a program that reports the focus again on the field
-being typed into leaves its text the one `type`. A change of the window's
-title ends nothing either: a field is the same field whatever title its
-window shows (an editor that adds or drops its unsaved mark while the person
-types). The selector holds the title, so whether two descriptions read in
-one window are of the same element is told by the element's path under the
-window's root, the root itself left out, and by the selector only where that
-path is not known. The value last recorded for an element is still kept under
-its selector, title and all: one window that shows one record after another
-under a title naming the record has the same value typed into the same field
-of the next record written. A pause between two keys ends nothing: how
+being typed into leaves its text the one `type`. A change of the top-level window's title ends nothing either: a field is the same field whatever title its window shows (an editor that adds or drops its unsaved mark while the person types). The selector holds the title, so whether two descriptions read in one window are of the same element is told by the element's path under the window's root, the root itself left out, and by the selector only where that path is not known. A title held by an element under the root (a document's own window inside an application's frame) is part of that path and still tells two fields apart, so a change of such a title does end the typing; a departure (core CP-18). The panel joins the masked typing of a sensitive field by the same path, read from the `tree_path` locator, where a root title that itself holds the path separator leaves the fields apart. The value last recorded for an element is still kept under its selector, title and all: one window that shows one record after another under a title naming the record has the same value typed into the same field of the next record written. A pause between two keys ends nothing: how
 fast a person types is no part of what they typed, so text typed with pauses
 is the one `type`, as on the extension. The `type` is written with the
 sequence id of its last value change, ahead of the action that ended the
