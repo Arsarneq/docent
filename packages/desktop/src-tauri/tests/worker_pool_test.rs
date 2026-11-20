@@ -4292,6 +4292,47 @@ fn a_value_change_on_the_same_element_under_a_changed_selector_is_its_type() {
     );
 }
 
+/// The window's title changes while the person types on (an editor adds or
+/// drops its "modified" mark), and the selector of the field with it. The
+/// typing is one `type` still: the field is the same, under another title.
+#[test]
+fn regression_734_typing_across_a_change_of_the_window_title_is_one_type() {
+    let mut field = file_name_field("");
+    field.element.selector = "Window:Untitled - Editor > Edit:Text".to_string();
+    let (backend, scene, _) = MovingFocusBackend::new(field);
+    let harness = WorkerTestHarness::new(backend);
+
+    let mut seq = 0;
+    for (text, selector) in [
+        ("h", "Window:Untitled - Editor > Edit:Text"),
+        ("hi", "Window:*Untitled - Editor > Edit:Text"),
+        ("hi!", "Window:*Untitled - Editor > Edit:Text"),
+    ] {
+        seq += 1;
+        let unit = u16::from(*text.as_bytes().last().unwrap());
+        harness.send_event(in_dialog(packet_key(seq, now_ms(), unit)));
+        thread::sleep(Duration::from_millis(150));
+        {
+            let mut scene = scene.lock().unwrap();
+            scene.element.selector = selector.to_string();
+            scene.element.text = Some(text.to_string());
+            scene.element.value = Some(text.to_string());
+        }
+        seq += 1;
+        harness.send_event(in_dialog(value_change(seq, now_ms(), DIALOG)));
+        thread::sleep(Duration::from_millis(150));
+    }
+
+    thread::sleep(Duration::from_millis(900));
+    let events = harness.shutdown();
+
+    assert_eq!(
+        typed_actions_of(&events),
+        vec!["type hi! on Window:Untitled - Editor > Edit:Text"],
+        "got {events:?}"
+    );
+}
+
 /// The person typed one character and clicked elsewhere in the same window
 /// before the character could be described. The focused element is then not
 /// the character's, and nothing shows what its field was: no element is

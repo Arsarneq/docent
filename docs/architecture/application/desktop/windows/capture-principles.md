@@ -325,7 +325,11 @@ another element, the pointer is pressed (a click, a right-click or a drag),
 another window comes to the front, the step is committed or the recording
 stops. A focus event ends nothing: the key that moved the focus has ended
 the typing already, and a program that reports the focus again on the field
-being typed into leaves its text the one `type`. A pause between two keys ends nothing: how
+being typed into leaves its text the one `type`. A change of the window's
+title ends nothing either: a field is the same field whatever title its
+window shows (an editor that adds or drops its unsaved mark while the person
+types), so the selector's window segment is compared without the title, the
+window itself being told by the context. A pause between two keys ends nothing: how
 fast a person types is no part of what they typed, so text typed with pauses
 is the one `type`, as on the extension. The `type` is written with the
 sequence id of its last value change, ahead of the action that ended the

@@ -2871,7 +2871,7 @@ fn handle_value_change<B: AccessibilityBackend>(
         keep_keys_of_dropped_value_change(pending, action_sender);
         return false;
     };
-    if same_as_key.is_none() && key_selector.is_some_and(|s| s != element.selector) {
+    if same_as_key.is_none() && key_selector.is_some_and(|s| !same_field(&s, &element.selector)) {
         if let Some(k) = state.last_key.as_mut() {
             k.mark = None;
         }
@@ -2899,7 +2899,7 @@ fn handle_value_change<B: AccessibilityBackend>(
         // The remembered element, described again.
         if f.context_id == context_id
             && f.epoch == raw.focus_epoch
-            && f.element.selector == element.selector
+            && same_field(&f.element.selector, &element.selector)
         {
             f.mark = state.mark_seq;
         }
@@ -3000,7 +3000,38 @@ fn keep_keys_of_dropped_value_change(
 /// its window. Two windows can hold elements with equal selectors (two
 /// documents of one application), and each has its own last value.
 fn last_value_key(context_id: Option<i64>, selector: &str) -> String {
-    format!("{}\u{1f}{selector}", context_id.unwrap_or(0))
+    format!(
+        "{}\u{1f}{}",
+        context_id.unwrap_or(0),
+        selector_without_window_titles(selector)
+    )
+}
+
+/// A selector with the name taken out of each `Window` segment.
+///
+/// A selector is the element's path from its window, and the window's segment
+/// holds the title. A title changes while the element stays (an editor adds or
+/// drops its "modified" mark, a program shows the document's state), so two
+/// descriptions of one field can differ in it. Which window it is, the context
+/// id says.
+fn selector_without_window_titles(selector: &str) -> String {
+    selector
+        .split(" > ")
+        .map(|segment| {
+            if segment.starts_with("Window:") {
+                "Window"
+            } else {
+                segment
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" > ")
+}
+
+/// Whether two selectors of one window name the same element, whatever the
+/// window's title was when each was read.
+fn same_field(a: &str, b: &str) -> bool {
+    a == b || selector_without_window_titles(a) == selector_without_window_titles(b)
 }
 
 /// Start the pending type event for `element`, or carry the one already
@@ -3024,7 +3055,7 @@ fn buffer_type_value(
     // The pending type is this element's when it names the same selector in the
     // same window; a type pending for any other element is flushed first.
     let same_element = |pt: &PendingTypeEvent| {
-        pt.context_id == context_id && pt.element.selector == element.selector
+        pt.context_id == context_id && same_field(&pt.element.selector, &element.selector)
     };
     if buffers
         .pending_type
@@ -3337,11 +3368,9 @@ fn handle_keyboard<B: AccessibilityBackend>(
         // A `type` pending for another element is not this key's: it is
         // written now, so that it cannot count this key superseded when it is
         // written later.
-        if buffers
-            .pending_type
-            .as_ref()
-            .is_some_and(|pt| pt.context_id != context_id || pt.element.selector != key_selector)
-        {
+        if buffers.pending_type.as_ref().is_some_and(|pt| {
+            pt.context_id != context_id || !same_field(&pt.element.selector, &key_selector)
+        }) {
             buffers.flush_pending_type_only(action_sender);
         }
         // Keys buffered on another element are not this element's typing
@@ -3350,7 +3379,7 @@ fn handle_keyboard<B: AccessibilityBackend>(
         if buffers.pending_keys.iter().any(|pending_key| {
             pending_key.context_id != context_id
                 || !matches!(&pending_key.payload,
-                    ActionPayload::Key { element, .. } if element.selector == key_selector)
+                    ActionPayload::Key { element, .. } if same_field(&element.selector, &key_selector))
         }) {
             flush_pending_keys(&mut buffers.pending_keys, action_sender);
         }
@@ -4385,6 +4414,41 @@ mod tests {
         assert_eq!(name_with_layout_char(0xDD, 'Å' as i64), "Å");
         // A letter whose upper case is more than one character keeps its own.
         assert_eq!(name_with_layout_char(0xDB, 'ß' as i64), "ß");
+    }
+
+    #[test]
+    fn a_window_s_title_is_no_part_of_which_field_it_is() {
+        assert!(same_field(
+            "Window:Untitled - Editor > Edit:Text",
+            "Window:*Untitled - Editor > Edit:Text"
+        ));
+        // A dialog inside the window is a `Window` segment of its own.
+        assert!(same_field(
+            "Window:a.txt - Editor > Window:Save As > Edit:File name",
+            "Window:b.txt - Editor > Window:Save as > Edit:File name"
+        ));
+        // Another element of the window, and another kind of element.
+        assert!(!same_field(
+            "Window:Editor > Edit:Text",
+            "Window:Editor > Edit:Other"
+        ));
+        assert!(!same_field(
+            "Window:Editor > Edit:Text",
+            "Pane:Editor > Edit:Text"
+        ));
+        // Only a window's own name is left out: an element named like one stays.
+        assert!(!same_field(
+            "Window:Editor > Edit:Window:a",
+            "Window:Editor > Edit:Window:b"
+        ));
+        assert_eq!(
+            last_value_key(Some(7), "Window:*Untitled > Edit"),
+            last_value_key(Some(7), "Window:Untitled > Edit")
+        );
+        assert_ne!(
+            last_value_key(Some(7), "Window:Untitled > Edit"),
+            last_value_key(Some(8), "Window:Untitled > Edit")
+        );
     }
 
     #[test]
