@@ -1,14 +1,12 @@
 # Runtime Architecture — Chrome Extension
 
-The Manifest V3 runtime the extension's capture and UI surfaces run on: the
-service-worker lifecycle and the persisted-state model that survives it, the
-message protocol connecting the side panel, the recorder, and the service
-worker, and the `chrome.storage` key inventory with its write-ownership
-contract. Companion to
-[Capture Principles — Chrome Extension](capture-principles.md), which governs
-what may enter a recording; this document governs how the runtime that does
-the capturing is wired. The permission surface all of it runs on is
-enumerated in [Permissions](permissions.md).
+The Manifest V3 runtime that the extension's capture and UI surfaces run on:
+
+- the service-worker lifecycle and the persisted-state model that survives it;
+- the message protocol between the side panel, the recorder and the service worker;
+- the `chrome.storage` key inventory and its write-ownership contract.
+
+Its companion, [Capture Principles — Chrome Extension](capture-principles.md), governs what may enter a recording. This document governs how the capturing runtime is wired. [Permissions](permissions.md) lists the permission surface it all runs on.
 
 Each rule carries a stable identifier (**ERT-n**) so other documents, reviews,
 and checks can cite it precisely. Identifiers are never renumbered; a retired
@@ -34,18 +32,9 @@ The extension is three runtime surfaces:
 | Recorder       | `content/recorder.js`                         | In the content-script isolated world of recorded frames; presence and the idle surface are governed by [ECP-2](capture-principles.md#architecture). |
 | Side panel     | `sidepanel/index.html` + `sidepanel/panel.js` | The UI. Talks to the worker through the platform adapter (`sidepanel/adapter-chrome.js`): request/response messages plus watched storage keys.      |
 
-The toolbar button opens the panel (`chrome.action.onClicked` →
-`chrome.sidePanel.open`). The panel never operates on the recording model
-directly: every model mutation flows as a message to the service worker,
-which owns the model keys in storage (the
-[write-ownership contract](#storage-keys-and-write-ownership) below).
+The toolbar button opens the panel (`chrome.action.onClicked` → `chrome.sidePanel.open`). The panel never operates on the recording model directly. Every model mutation goes as a message to the service worker, which owns the model keys in storage (the [write-ownership contract](#storage-keys-and-write-ownership) below).
 
-The side panel also hosts the opt-in
-[local control channel](../../../api/control-channel.md): one outward
-WebSocket to the loopback address, through which a paired local process
-triggers the panel's own structuring actions and, when a person allows it at
-turn-on, the build behind the panel's Export button. It adds nothing to the
-surfaces this document specifies:
+The side panel also hosts the opt-in [local control channel](../../../api/control-channel.md): one outward WebSocket to the loopback address. Through it a paired local process triggers the panel's own structuring actions and, if a person allows it at turn-on, the build behind the panel's Export button. The channel adds nothing to the surfaces this document specifies:
 
 | Runtime surface      | What the channel adds                                             |
 | -------------------- | ----------------------------------------------------------------- |
@@ -58,10 +47,7 @@ surfaces this document specifies:
 
 ## Lifecycle and the persisted-state model
 
-An MV3 service worker is event-driven: the browser starts it to deliver an
-event and suspends it again after an idle period. The extension is built so
-that a suspension is invisible to the user — capture, the pending buffer, and
-background sync all survive it.
+An MV3 service worker is event-driven: the browser starts it to deliver an event and suspends it again after an idle period. The extension makes a suspension invisible to the user: capture, the pending buffer and background sync all survive it.
 
 **ERT-1.** Every fact the user's work depends on across a worker suspension
 MUST be held in `chrome.storage`, never only in worker memory. The worker's
@@ -160,82 +146,35 @@ names a binding that scope has never held, and is a defect rather than a use.
 
 The worker's startup surface is exactly two blocks:
 
-- **`chrome.runtime.onInstalled`** — on first install (`reason: "install"`),
-  seeds the empty model keys (`projects`, `pendingActions`, `pendingCount`).
-- **The module-scope restore block**, run at every worker start (first start
-  or wake from suspension): restores the model working copy from storage,
-  seeds the in-memory `recording` mirror, rehydrates the storage-pressure
-  gate from its published key, reconciles the background Auto-Sync trigger
-  with the persisted setting, and re-evaluates storage pressure against
-  actual usage.
+- **`chrome.runtime.onInstalled`.** On first install (`reason: "install"`), it seeds the empty model keys (`projects`, `pendingActions`, `pendingCount`).
+- **The module-scope restore block** runs at every worker start (first start or wake from suspension). It:
+  - restores the model working copy from storage;
+  - seeds the in-memory `recording` mirror;
+  - rehydrates the storage-pressure gate from its published key;
+  - reconciles the background Auto-Sync trigger with the persisted setting;
+  - re-evaluates storage pressure against actual usage.
 
-The worker never writes the `recording` flag at startup — the user controls
-capture, so a recording in progress continues across a suspension or a
-browser restart. The Auto-Sync backstop alarm (`chrome.alarms`, ~60 s) is
-persisted by the browser and re-wakes the worker, so background sync also
-continues with the panel closed
-([Sync Protocol — Automatic sync](../../../api/sync-protocol.md#automatic-sync-auto-sync)).
+The worker never writes the `recording` flag at startup. The user controls capture, so a recording in progress continues across a suspension or a browser restart. The browser persists the Auto-Sync backstop alarm (`chrome.alarms`, ~60 s), which re-wakes the worker. So background sync also continues with the panel closed ([Sync Protocol — Automatic sync](../../../api/sync-protocol.md#automatic-sync-auto-sync)).
 
-The worker's module imports are governed by
-[ECP-1](capture-principles.md#architecture) — the MV3 constraint and its
-guards.
+[ECP-1](capture-principles.md#architecture) governs the worker's module imports: the MV3 constraint and its guards.
 
 ---
 
 ## Injection
 
-How the recorder reaches pages. The governing rules — injection only while
-recording, frame trust and readiness, the readiness latency bound, and the
-`<all_urls>` decision — are
-[ECP-2 through ECP-5](capture-principles.md#architecture); this section is
-the event wiring that implements them:
+How the recorder reaches pages. [ECP-2 through ECP-5](capture-principles.md#architecture) are the governing rules: injection only while recording, frame trust and readiness, the readiness latency bound, and the `<all_urls>` decision. This section is the event wiring that implements them:
 
-- **Record-start** — the worker clears the frame registry, injects
-  `content/recorder.js` into every frame of every open http/https tab that the
-  browser lets the extension reach (`chrome.scripting.executeScript` with
-  `injectImmediately`), and seeds the registry from the browser's frame table.
-  The record-start message handlers run this sequence, and the recording-flag
-  watch runs the same sequence whenever the flag becomes true, so the
-  injection behaves identically however the flag changes — the worker's own
-  write path or a writer outside the extension (a test harness driving the
-  browser); the recorder's
-  `__docentLoaded` guard makes the overlap idempotent per document.
-- **During the recording** — `webNavigation.onCompleted` injects the
-  recorder into each frame as it finishes loading (main frames, srcdoc
-  iframes, dynamically created subframes), whenever the browser lets the
-  extension reach it, and registers each injected frame as trusted;
-  `webNavigation.onBeforeNavigate` drops a navigating subframe's
-  registration, since its recorder unloads with the old document and the
-  following `onCompleted` re-injects.
-- **Record-stop** — every stop path clears the frame registry synchronously,
-  ahead of clearing the `recording` flag in storage, and the recording-flag
-  watch clears it whenever the flag becomes false, on the same mirrors
-  reading as the record-start half above
-  ([ERT-1](#lifecycle-and-the-persisted-state-model)); which clears run on
-  which flag change is stated at
-  [ECP-3](capture-principles.md#frame-trust-and-readiness).
-  Already-injected recorders go inactive through their own `recording` watch.
-  The resulting idle surface is governed by
-  [ECP-2](capture-principles.md#architecture).
+- **Record-start.** The worker clears the frame registry, injects `content/recorder.js` into every frame of every open http/https tab that the browser lets the extension reach (`chrome.scripting.executeScript` with `injectImmediately`), and seeds the registry from the browser's frame table. The record-start message handlers run this sequence. The recording-flag watch runs the same sequence whenever the flag becomes true. So injection behaves identically however the flag changes: through the worker's own write path or through a writer outside the extension (a test harness driving the browser). The recorder's `__docentLoaded` guard makes the overlap idempotent per document.
+- **During the recording.** `webNavigation.onCompleted` injects the recorder into each frame as it finishes loading (main frames, srcdoc iframes, dynamically created subframes), whenever the browser lets the extension reach it. It registers each injected frame as trusted. `webNavigation.onBeforeNavigate` drops a navigating subframe's registration, since its recorder unloads with the old document and the following `onCompleted` re-injects.
+- **Record-stop.** Every stop path clears the frame registry synchronously, before it clears the `recording` flag in storage. The recording-flag watch also clears the registry whenever the flag becomes false, on the same mirrors reading as the record-start half above ([ERT-1](#lifecycle-and-the-persisted-state-model)). [ECP-3](capture-principles.md#frame-trust-and-readiness) states which clears run on which flag change. Already-injected recorders go inactive through their own `recording` watch. [ECP-2](capture-principles.md#architecture) governs the resulting idle surface.
 
-Once all its listeners are wired, each injected recorder sends the worker a
-`FRAME_READY` message — the readiness beacon
-[ECP-3](capture-principles.md#frame-trust-and-readiness) states; the
-e2e harness keys its waits on it
-([e2e — readiness](../../../test/e2e.md#readiness--frame_ready-never-a-page-flag)).
+Once all its listeners are wired, each injected recorder sends the worker a `FRAME_READY` message. This is the readiness beacon [ECP-3](capture-principles.md#frame-trust-and-readiness) states. The e2e harness keys its waits on it ([e2e — readiness](../../../test/e2e.md#readiness--frame_ready-never-a-page-flag)).
 
 ---
 
 ## Message protocol
 
-Transport is `chrome.runtime.sendMessage` into the worker's single
-`onMessage` dispatcher, with one request going the other way: `END_TYPING`,
-which the worker sends by `chrome.tabs.sendMessage` to one frame at a time and
-the recorder's own `onMessage` listener answers
-([capture path](#capture-path)); message types are `UPPER_SNAKE_CASE` string constants
-declared at their call sites. The panel↔worker surface has exactly two
-channels: the request/response messages below, and the watched storage keys
-listed under [Storage keys](#storage-keys-and-write-ownership).
+Transport is `chrome.runtime.sendMessage` into the worker's single `onMessage` dispatcher. One request goes the other way: `END_TYPING`, which the worker sends by `chrome.tabs.sendMessage` to one frame at a time and the recorder's own `onMessage` listener answers ([capture path](#capture-path)). Message types are `UPPER_SNAKE_CASE` string constants declared at their call sites. The panel↔worker surface has exactly two channels: the request/response messages below, and the watched storage keys listed under [Storage keys](#storage-keys-and-write-ownership).
 
 **ERT-4.** The dispatcher's serviced surface is exactly the two enumerations
 this section states — the capture-path table's message types, serviced by the
@@ -274,15 +213,12 @@ Sent by the recorder to the worker:
 | `APPEND_ACTION`   | `{ action }`       | The [response envelope](#response-contract) below.                                                                                             |
 | `POINTER_PRESSED` | `—`                | None. A one-way signal that the pointer was pressed in the sender's frame; the worker asks the tab's other frames to end their typing (below). |
 
-`APPEND_ACTION` is the single path a captured action takes into storage: the
-worker validates the sender against the frame registry
-([ECP-3](capture-principles.md#frame-trust-and-readiness)), stamps
-`context_id` from the trusted sender
-([ECP-4](capture-principles.md#frame-trust-and-readiness)), applies the
-storage chokepoint
-([ECP-9](capture-principles.md#sensitive-value-redaction)), and appends to
-the pending buffer through a serialized write queue gated by storage
-pressure ([ECP-11](capture-principles.md#storage-pressure)).
+`APPEND_ACTION` is the single path a captured action takes into storage. The worker:
+
+- validates the sender against the frame registry ([ECP-3](capture-principles.md#frame-trust-and-readiness));
+- stamps `context_id` from the trusted sender ([ECP-4](capture-principles.md#frame-trust-and-readiness));
+- applies the storage chokepoint ([ECP-9](capture-principles.md#sensitive-value-redaction));
+- appends to the pending buffer through a serialized write queue gated by storage pressure ([ECP-11](capture-principles.md#storage-pressure)).
 
 Sent by the worker to a recorder, one frame at a time, is the single request
 `END_TYPING`: the frame writes the entry typed into the field in focus and
@@ -310,65 +246,23 @@ The closed set of request types the panel sends, by group:
 | Steps             | `STEP_COMMIT`, `STEP_DELETE`, `STEPS_REORDER`                                                                                                                    |
 | Import / export   | `PROJECT_IMPORT`, `PROJECT_EXPORT`                                                                                                                               |
 
-Each open panel shows a project of its own and, in the recording view, a
-recording, while capture is one per browser: the worker's active project and
-recording (`activeProjectId`, `activeRecordingId`) are the ones captured
-actions go to, and they follow whichever panel last opened or created a
-project or a recording — `PROJECT_CREATE`, `PROJECT_OPEN`, `RECORDING_CREATE`
-and `RECORDING_OPEN` make the project or recording they create or open the
-active one. Capture runs only while there is an active recording:
-`PROJECT_CREATE` and `PROJECT_OPEN` stop it, and so do `PROJECT_DELETE` of
-the active project, `RECORDING_DELETE` of the active recording and a
-`PROJECTS_SET` that leaves the active recording out; none of them changes the
-pending buffer. Every other message about one project or recording names it by
-ids: the `project_id` of the project the sending panel shows
-(`PROJECT_DELETE` that of the project it deletes) and, for a recording or its
-steps, the `recording_id` of the recording the action is for — the one the
-recording view shows, or a row of the project view's recording list. The
-worker reads its target from those ids alone:
+Each open panel shows a project of its own and, in the recording view, a recording. Capture, by contrast, is one per browser. Captured actions go to the worker's active project and recording (`activeProjectId`, `activeRecordingId`). These follow whichever panel last opened or created a project or a recording: `PROJECT_CREATE`, `PROJECT_OPEN`, `RECORDING_CREATE` and `RECORDING_OPEN` make the project or recording they create or open the active one.
 
-- **Resolved by the ids it carries** — `PROJECT_GET`, `PROJECT_RENAME`,
-  `PROJECT_SET_METADATA`, `RECORDING_CREATE`, `RECORDING_OPEN`,
-  `RECORDING_DELETE`, `RECORDING_RENAME`, `RECORDING_SET_METADATA`,
-  `STEP_DELETE`, `STEPS_REORDER` and `PROJECT_EXPORT` act on the stored project
-  and recording they name, or answer `{ ok: false, error: 'Project not found' }`
-  or `{ ok: false, error: 'Recording not found' }` and change nothing.
-- **Refused unless they name the active ones** — `RECORDING_START`,
-  `RECORDING_STOP`, `RECORDING_CLEAR` and `STEP_COMMIT` act on the capture
-  state and the pending buffer, which belong to the active recording. Each is
-  carried out only when its `project_id` and `recording_id` are the active
-  project and recording, a missing `recording_id` matching only when no
-  recording is active; otherwise it is answered
-  `{ ok: false, error: 'Not the active recording' }` and changes nothing. A
-  `RECORDING_STOP` while capture is off has no capture to protect and is
-  carried out whatever it names, changing nothing. A
-  panel whose recording has stopped being the active one learns it from that
-  answer: it drops its own capture state and ends a re-record under way, and
-  opening the recording again makes it the active one.
+Capture runs only while there is an active recording. `PROJECT_CREATE` and `PROJECT_OPEN` stop it. So do `PROJECT_DELETE` of the active project, `RECORDING_DELETE` of the active recording, and a `PROJECTS_SET` that leaves the active recording out. None of them changes the pending buffer.
 
-The panel reads `ok` on every answer before it uses the answer's fields. When
-the worker does not accept a message, the action it belongs to changes nothing
-in the panel and a click tells the person `<Action> failed: <error>` (the
-sync and resolution flows report it in their own `Sync failed` and
-`Could not resolve` wording); after a not-found answer the panel shows the
-open project, or the projects list when the project is gone, as the worker
-now holds it. Two things stand apart from that rule: the drop of the panel's
-capture state on `Not the active recording`, stated above, and the stop the
-panel sends when the person leaves, which reports no failure, since a refused
-stop there means capture belongs to another panel: after leaving a recording
-through a breadcrumb the panel shows no capture whatever the answer, and
-cancelling a re-record ends the re-record whatever the answer. A stop that an action sends
-first, as creating a recording does, stands when the action then fails.
+Every other message about one project or recording names it by ids. The `project_id` is that of the project the sending panel shows (for `PROJECT_DELETE`, the project it deletes). For a recording or its steps, the `recording_id` is that of the recording the action is for: the one the recording view shows, or a row of the project view's recording list. The worker reads its target from those ids alone:
 
-A successful response to one of the messages in the worker's data-event set —
-`STEP_COMMIT`, `RECORDING_STOP`, `PROJECT_CREATE`, `PROJECT_DELETE`,
-`RECORDING_CREATE`, `RECORDING_DELETE` — additionally fires a background
-Auto-Sync trigger, and a `RECORDING_STOP` fires it refused or not: a refused
-stop comes only while capture runs, when the scheduler drops the trigger. The
-set stands in for the six events
-[SP-21](../../../api/sync-protocol.md#automatic-sync-auto-sync) enumerates;
-`RECORDING_STOP` is sent more widely than the clause's recording close, the
-departure SP-21 records.
+- **Resolved by the ids it carries.** `PROJECT_GET`, `PROJECT_RENAME`, `PROJECT_SET_METADATA`, `RECORDING_CREATE`, `RECORDING_OPEN`, `RECORDING_DELETE`, `RECORDING_RENAME`, `RECORDING_SET_METADATA`, `STEP_DELETE`, `STEPS_REORDER` and `PROJECT_EXPORT` act on the stored project and recording they name, or answer `{ ok: false, error: 'Project not found' }` or `{ ok: false, error: 'Recording not found' }` and change nothing.
+- **Refused unless they name the active ones.** `RECORDING_START`, `RECORDING_STOP`, `RECORDING_CLEAR` and `STEP_COMMIT` act on the capture state and the pending buffer, which belong to the active recording. Each is carried out only when its `project_id` and `recording_id` are the active project and recording. A missing `recording_id` matches only when no recording is active. Otherwise the message is answered `{ ok: false, error: 'Not the active recording' }` and changes nothing. A `RECORDING_STOP` while capture is off has no capture to protect, so it is carried out whatever it names, and changes nothing. A panel whose recording is no longer the active one learns it from that answer. The panel drops its own capture state and ends a re-record under way. Opening the recording again makes it the active one.
+
+The panel reads `ok` on every answer before it uses the answer's fields. When the worker does not accept a message, the action it belongs to changes nothing in the panel. A click tells the person `<Action> failed: <error>` (the sync and resolution flows use their own `Sync failed` and `Could not resolve` wording). After a not-found answer, the panel shows the open project as the worker now holds it, or the projects list when the project is gone. Two things stand apart from that rule:
+
+- The panel drops its capture state on `Not the active recording`, as stated above.
+- The stop the panel sends when the person leaves reports no failure, since a refused stop there means capture belongs to another panel. After the person leaves a recording through a breadcrumb, the panel shows no capture whatever the answer. Cancelling a re-record ends the re-record whatever the answer.
+
+A stop that an action sends first, as creating a recording does, stands when the action then fails.
+
+A successful response to a message in the worker's data-event set (`STEP_COMMIT`, `RECORDING_STOP`, `PROJECT_CREATE`, `PROJECT_DELETE`, `RECORDING_CREATE`, `RECORDING_DELETE`) also fires a background Auto-Sync trigger. A `RECORDING_STOP` fires it whether refused or not: a refused stop comes only while capture runs, when the scheduler drops the trigger. The set stands in for the six events [SP-21](../../../api/sync-protocol.md#automatic-sync-auto-sync) enumerates. `RECORDING_STOP` is sent more widely than the clause's recording close; SP-21 records that departure.
 
 ### Response contract
 
@@ -431,10 +325,14 @@ together, so they read as a consistent pair.
 
 ### Change signals
 
-Five keys double as change signals watched via `chrome.storage.onChanged`:
-the panel watches `pendingActions` (the live captured-actions list),
-`pendingCount` (commit-button state), `docentStorageQuota` (the pressure
-banner), and `docentSyncState` (sync attention indicators and settings
-state); the worker watches `recording` (injection, the frame-registry clear,
-and the capture mirror) and `docentSyncState` (the Auto-Sync trigger); each
-injected recorder watches `recording` to activate and deactivate in place.
+Five keys double as change signals, watched through `chrome.storage.onChanged`:
+
+| Watcher                | Key                  | Drives                                                      |
+| ---------------------- | -------------------- | ----------------------------------------------------------- |
+| Panel                  | `pendingActions`     | The live captured-actions list                              |
+| Panel                  | `pendingCount`       | Commit-button state                                         |
+| Panel                  | `docentStorageQuota` | The pressure banner                                         |
+| Panel                  | `docentSyncState`    | Sync attention indicators and settings state                |
+| Worker                 | `recording`          | Injection, the frame-registry clear, and the capture mirror |
+| Worker                 | `docentSyncState`    | The Auto-Sync trigger                                       |
+| Each injected recorder | `recording`          | Activating and deactivating the recorder in place           |
