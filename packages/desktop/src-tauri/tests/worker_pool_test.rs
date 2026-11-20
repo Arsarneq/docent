@@ -3891,6 +3891,7 @@ fn only_plain_typing_keys_keep_the_focus_epoch() {
 
 use docent_desktop_lib::capture::worker_pool::{
     ClickPress, DoubleClickBounds, DoubleClickTracker, CLICK_COMPLETES_DOUBLE_CLICK,
+    CLICK_IS_MIDDLE_BUTTON,
 };
 
 /// The windows of a Notepad Open dialog, as the mouse hook names them: the
@@ -4381,4 +4382,85 @@ fn a_click_completing_a_double_click_routes_to_the_previous_clicks_worker() {
     assert_eq!(at(1), vec![3, 4]);
     assert!(at(2).is_empty());
     pool.shutdown();
+}
+
+/// A middle-button press, which the mouse hook dispatches as a click marked
+/// as the middle button's, confirms no dialog: a middle press on the Open
+/// button writes no file_dialog, and one on an item reads no dialog.
+#[test]
+fn regression_692_a_middle_press_on_the_open_button_records_no_file_dialog() {
+    let (backend, reads) = FileDialogBackend::showing("C:\\Users\\u\\Downloads", "license.txt");
+    let harness = WorkerTestHarness::new(backend);
+
+    let open_button = ElementDescription {
+        tag: "Button".to_string(),
+        name: Some("Open".to_string()),
+        selector: "Pane:Desktop 1 > Window:license.txt - Notepad > Window:Open > Button:Open"
+            .to_string(),
+        ..Default::default()
+    };
+    let middle = |seq: u64, element: ElementDescription| RawEvent {
+        callback_params: [CLICK_IS_MIDDLE_BUTTON, 0, 0, 0],
+        ..left_click(seq, 1000 + seq, ITEMS_VIEW, element, false)
+    };
+    harness.send_event(middle(1, open_button));
+    harness.send_event(middle(2, item_name_cell("license.txt")));
+
+    thread::sleep(Duration::from_millis(200));
+    let events = harness.shutdown();
+
+    assert_eq!(
+        click_count(&events),
+        2,
+        "both presses are recorded as clicks"
+    );
+    assert!(
+        file_dialogs(&events).is_empty(),
+        "a middle press confirms nothing"
+    );
+    assert_eq!(
+        reads.load(Ordering::SeqCst),
+        0,
+        "a middle press reads no dialog"
+    );
+}
+
+/// The File name test cannot tell a folder from a file of the same name: a
+/// double-click on a folder whose name the File name already holds (typed
+/// there earlier, for example) writes a file_dialog naming that folder, as
+/// the desktop capture document's exception list states (DCP-13).
+#[test]
+fn a_double_click_on_a_folder_the_file_name_already_names_writes_a_file_dialog() {
+    let (backend, _reads) = FileDialogBackend::showing("C:\\Users\\u\\Documents", "Invoices");
+    let harness = WorkerTestHarness::new(backend);
+
+    harness.send_event(left_click(
+        1,
+        1000,
+        ITEMS_VIEW,
+        item_name_cell("Invoices"),
+        false,
+    ));
+    harness.send_event(left_click(
+        2,
+        1160,
+        ITEMS_VIEW,
+        item_name_cell("Invoices"),
+        true,
+    ));
+
+    thread::sleep(Duration::from_millis(200));
+    let events = harness.shutdown();
+
+    assert_eq!(click_count(&events), 2);
+    assert_eq!(
+        file_dialogs(&events),
+        vec![(
+            "open".to_string(),
+            "C:\\Users\\u\\Documents\\Invoices".to_string(),
+            "notepad.exe".to_string(),
+            Some(OPEN_DIALOG),
+            2,
+        )]
+    );
 }

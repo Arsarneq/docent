@@ -70,7 +70,7 @@ use super::timing;
 use super::worker_pool::{
     fallback_drain_and_seal, worker_loop, AccessibilityBackend, ClickPress, DoubleClickBounds,
     DoubleClickTracker, PendingDirectory, RawEvent, RawEventType, WorkerPool,
-    CLICK_COMPLETES_DOUBLE_CLICK, FLUSH_BARRIER_TIMEOUT,
+    CLICK_COMPLETES_DOUBLE_CLICK, CLICK_IS_MIDDLE_BUTTON, FLUSH_BARRIER_TIMEOUT,
 };
 use super::{
     ActionEvent, BarrierCompletion, BarrierReport, CaptureError, CaptureLayer, ElementDescription,
@@ -358,6 +358,20 @@ fn down_dispatch_event_type(msg: u32) -> Option<RawEventType> {
         WM_MBUTTONDOWN => Some(RawEventType::Click),
         WM_RBUTTONDOWN => Some(RawEventType::RightClick),
         _ => None,
+    }
+}
+
+/// The `callback_params[0]` a button-down's raw event carries: the middle
+/// button's click is marked as the middle button's, so the click arm tells it
+/// from a left click (it confirms no file dialog); the right-click needs no
+/// mark.
+///
+/// Pure logic the button-down arm consumes, so the mark is unit-testable
+/// without synthesizing real mouse input.
+fn down_dispatch_click_mark(msg: u32) -> i64 {
+    match msg as i32 {
+        WM_MBUTTONDOWN => CLICK_IS_MIDDLE_BUTTON,
+        _ => 0,
     }
 }
 
@@ -2168,7 +2182,7 @@ unsafe extern "system" fn input_mouse_ll_proc(
                             key_code: 0,
                             modifiers: (false, false, false, false),
                             scroll_delta: 0.0,
-                            callback_params: [0, 0, 0, 0],
+                            callback_params: [down_dispatch_click_mark(msg), 0, 0, 0],
                             pre_captured_element: pre_element,
                             focus_epoch: 0,
                         });
@@ -3475,10 +3489,10 @@ mod tests {
     // different answer.
 
     use super::{
-        classify_left_release, down_dispatch_event_type, input_should_keep_event_cached, is_drag,
-        scope_filter_decision, AtomicU32, LeftRelease, RawEventType, DRAG_THRESHOLD_PX, HWND,
-        INPUT_INCLUDED_PID, INPUT_PID_CACHE, POINT, WM_LBUTTONDOWN, WM_MBUTTONDOWN, WM_MOUSEWHEEL,
-        WM_RBUTTONDOWN,
+        classify_left_release, down_dispatch_click_mark, down_dispatch_event_type,
+        input_should_keep_event_cached, is_drag, scope_filter_decision, AtomicU32, LeftRelease,
+        RawEventType, CLICK_IS_MIDDLE_BUTTON, DRAG_THRESHOLD_PX, HWND, INPUT_INCLUDED_PID,
+        INPUT_PID_CACHE, POINT, WM_LBUTTONDOWN, WM_MBUTTONDOWN, WM_MOUSEWHEEL, WM_RBUTTONDOWN,
     };
     use std::cell::{Cell, RefCell};
     use std::collections::HashMap;
@@ -3995,6 +4009,17 @@ mod tests {
         // reaches this mapping.
         assert!(down_dispatch_event_type(WM_LBUTTONDOWN as u32).is_none());
         assert!(down_dispatch_event_type(WM_MOUSEWHEEL as u32).is_none());
+    }
+
+    #[test]
+    fn regression_692_the_middle_buttons_click_is_marked_as_the_middle_buttons() {
+        // https://github.com/Arsarneq/docent/issues/692 — a middle press on a
+        // file dialog's Open button recorded a file_dialog.
+        assert_eq!(
+            down_dispatch_click_mark(WM_MBUTTONDOWN as u32),
+            CLICK_IS_MIDDLE_BUTTON
+        );
+        assert_eq!(down_dispatch_click_mark(WM_RBUTTONDOWN as u32), 0);
     }
 
     // -- flush-barrier fallback drain (truthful completion) ----------------
