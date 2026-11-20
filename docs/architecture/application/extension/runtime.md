@@ -285,8 +285,9 @@ the pending buffer through a serialized write queue gated by storage
 pressure ([ECP-11](capture-principles.md#storage-pressure)).
 
 Sent by the worker to a recorder, one frame at a time, is the single request
-`END_TYPING`: the frame writes the entry typed into the field in focus and
-into editable content, through `APPEND_ACTION` as any action, and answers
+`END_TYPING`: the frame writes a key press it still holds back to learn
+whether it was text, as the `key` it was, and then the entry typed into the
+field in focus and into editable content, through `APPEND_ACTION` as any action, and answers
 `{ ok: true }` once the worker has answered those appends. The worker sends
 it to every registered frame ahead of a step commit and ahead of a stop, and
 waits for the answers up to a bound, so the step and the recording hold the
