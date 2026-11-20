@@ -11,7 +11,11 @@
  * person's grant, the indicator's trace of it, a step recorded on a real page
  * and its export file taken back by the panel's Import, two panels with a
  * server each, a large project in one frame, a server that accepts another
- * extension, and pairing again after Turn off.
+ * extension, and pairing again after Turn off. On a served page, recorded
+ * through the tools: a commit while paused and the clicks a pause leaves out,
+ * a validation step's `expect`, the export file through the sufficiency lint,
+ * and a password typed with spaces that enters neither the file nor the
+ * server's output.
  */
 
 import { test as base, expect, chromium } from '@playwright/test';
@@ -21,6 +25,7 @@ import os from 'os';
 import http from 'http';
 import { fileURLToPath } from 'url';
 import { freePort, startMcpServer } from '../helpers/mcp-stdio.js';
+import { installReadyProbe, waitForFrameReady } from '../helpers/frame-ready.js';
 import { validatePayload } from '../../../../shared/lib/validate-import.js';
 import { lintFile } from '../../../../../scripts/sufficiency-lint.js';
 import validateExtension from '../../../../shared/generated/validate-extension.js';
@@ -507,42 +512,40 @@ test.describe('A recording made through the tools on a served page', () => {
   const SECRET = 'Qz7vw Kx9pd Wv4mt';
   const SECRET_PARTS = ['Qz7vw', 'Kx9pd', 'Wv4mt', 'Qz7vw Kx9pd', 'Kx9pd Wv4mt'];
 
-  /** Serve one page: a button, a password field and a text field. */
-  async function servePage() {
-    const web = http.createServer((request, response) => {
-      response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-      response.end(
-        `<html><body><button id="add">${SITE_BUTTON}</button>` +
-          '<label for="pw">Password</label><input id="pw" type="password">' +
-          '<button id="sign-in">Sign in</button></body></html>',
-      );
-    });
-    await new Promise((resolve) => web.listen(0, '127.0.0.1', resolve));
-    return {
-      url: `http://127.0.0.1:${web.address().port}/`,
-      close: async () => {
-        web.closeAllConnections();
-        await new Promise((resolve) => web.close(resolve));
-      },
-    };
-  }
+  /** The served page's markup: a button, a password field and a second button. */
+  const PAGE =
+    `<html><body><button id="add">${SITE_BUTTON}</button>` +
+    '<label for="pw">Password</label><input id="pw" type="password">' +
+    '<button id="sign-in">Sign in</button></body></html>';
+
+  /** Serve PAGE on a port of this test's own, closed when the test ends. */
+  const served = test.extend({
+    servedUrl: async ({}, use) => {
+      const web = http.createServer((request, response) => {
+        response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+        response.end(PAGE);
+      });
+      await new Promise((resolve) => web.listen(0, '127.0.0.1', resolve));
+      await use(`http://127.0.0.1:${web.address().port}/`);
+      web.closeAllConnections();
+      await new Promise((resolve) => web.close(resolve));
+    },
+  });
 
   /**
-   * Open the page, then create a project and a recording through the tools,
-   * and click the button until the recorder, injected when the recording
-   * starts, has reported the click.
+   * Open the page, create a project and a recording through the tools, wait
+   * for the recorder the recording injects to report itself ready, and click
+   * the button once, so exactly one action is pending when this returns.
    */
-  async function startRecording(context, server, url) {
+  async function startRecording({ context, serviceWorker, server, url }) {
+    await installReadyProbe(serviceWorker);
     const page = await context.newPage();
     await page.goto(url);
     expect((await call(server, 'project_create', { name: 'Through the tools' })).ok).toBe(true);
     expect((await call(server, 'recording_create', { name: 'Flow' })).ok).toBe(true);
-    await expect
-      .poll(async () => {
-        await page.click('#add');
-        return (await call(server, 'status')).pending_actions;
-      })
-      .toBeGreaterThan(0);
+    await waitForFrameReady(serviceWorker, url);
+    await page.click('#add');
+    await expect.poll(async () => (await call(server, 'status')).pending_actions).toBe(1);
     return page;
   }
 
@@ -553,135 +556,128 @@ test.describe('A recording made through the tools on a served page', () => {
     return { path: exported.path, text: fs.readFileSync(exported.path, 'utf-8') };
   }
 
-  test('a commit while paused takes what was captured before, and a click while paused leaves nothing pending', async ({
-    context,
-    panelPage,
-    server,
-  }) => {
-    const served = await servePage();
-    await pair(panelPage, server, { allowExport: true });
-    const page = await startRecording(context, server, served.url);
-    const before = (await call(server, 'status')).pending_actions;
+  served(
+    'a commit while paused takes what was captured before, and a click while paused leaves nothing pending',
+    async ({ context, serviceWorker, panelPage, server, servedUrl }) => {
+      await pair(panelPage, server, { allowExport: true });
+      const page = await startRecording({ context, serviceWorker, server, url: servedUrl });
+      // A commit is refused only with no recording open or nothing captured
+      // since the last step (control channel LC-8): while paused it commits the
+      // actions captured before the pause, and leaves nothing pending.
+      expect(await call(server, 'recording_pause')).toEqual({ ok: true, capturing: false });
+      const committed = await call(server, 'step_commit', { narration: 'Add it' });
+      expect(committed.ok).toBe(true);
+      expect(committed.steps).toBe(1);
+      const after = await call(server, 'status');
+      expect([after.pending_actions, after.capturing]).toEqual([0, false]);
 
-    // A commit is refused only with no recording open or nothing captured
-    // since the last step (control channel LC-8): while paused it commits the
-    // actions captured before the pause, and leaves nothing pending.
-    expect(await call(server, 'recording_pause')).toEqual({ ok: true, capturing: false });
-    const committed = await call(server, 'step_commit', { narration: 'Add it' });
-    expect(committed.ok).toBe(true);
-    expect(committed.steps).toBe(1);
-    expect((await call(server, 'status')).pending_actions).toBe(0);
+      // A pause stops capture (LC-7, `recording.pause`): the clicks made while
+      // paused are not captured, so a commit has nothing to take and is refused.
+      // After the resume a click on the other button is the only action pending
+      // once it arrives, and the step it makes holds that click alone, so no
+      // paused click arrived late either.
+      await page.click('#add');
+      await page.click('#add');
+      expect((await call(server, 'step_commit', { narration: 'Paused' })).ok).toBe(false);
+      expect(await call(server, 'recording_resume')).toEqual({ ok: true, capturing: true });
+      await page.click('#sign-in');
+      await expect.poll(async () => (await call(server, 'status')).pending_actions).toBe(1);
+      expect((await call(server, 'step_commit', { narration: 'Again' })).ok).toBe(true);
 
-    // A pause stops capture (LC-7, `recording.pause`): the clicks made while
-    // paused are not captured, so a commit has nothing to take and is refused.
-    // One click after the resume is the only action pending once it arrives,
-    // which shows the earlier clicks did not arrive late either.
-    await page.click('#add');
-    await page.click('#add');
-    expect((await call(server, 'step_commit', { narration: 'Paused' })).ok).toBe(false);
-    expect(await call(server, 'recording_resume')).toEqual({ ok: true, capturing: true });
-    await page.click('#add');
-    await expect.poll(async () => (await call(server, 'status')).pending_actions).toBe(1);
-    expect((await call(server, 'step_commit', { narration: 'Again' })).ok).toBe(true);
+      const steps = JSON.parse((await exportFile(server)).text).recordings[0].steps;
+      expect(steps.map((s) => s.actions.map((a) => [a.type, a.element.text]))).toEqual([
+        [['click', SITE_BUTTON]],
+        [['click', 'Sign in']],
+      ]);
+      await page.close();
+    },
+  );
 
-    const steps = JSON.parse((await exportFile(server)).text).recordings[0].steps;
-    expect(steps.map((s) => s.actions.length)).toEqual([before, 1]);
-    for (const step of steps) {
-      expect(step.actions.every((a) => a.type === 'click' && a.element.text === SITE_BUTTON)).toBe(
-        true,
-      );
-    }
-    await page.close();
-    await served.close();
-  });
+  served(
+    'a validation step commits with the expect it is given, present when none is',
+    async ({ context, serviceWorker, panelPage, server, servedUrl }) => {
+      await pair(panelPage, server, { allowExport: true });
+      const page = await startRecording({ context, serviceWorker, server, url: servedUrl });
 
-  test('a validation step commits with the expect it is given, present when none is', async ({
-    context,
-    panelPage,
-    server,
-  }) => {
-    const served = await servePage();
-    await pair(panelPage, server, { allowExport: true });
-    const page = await startRecording(context, server, served.url);
+      // LC-7, `step.commit`: a `validation` takes `expect`, `present` when omitted.
+      const absent = await call(server, 'step_commit', {
+        step_type: 'validation',
+        expect: 'absent',
+      });
+      expect(absent.ok).toBe(true);
+      await page.click('#add');
+      await expect.poll(async () => (await call(server, 'status')).pending_actions).toBe(1);
+      expect((await call(server, 'step_commit', { step_type: 'validation' })).ok).toBe(true);
+      await page.click('#add');
+      await expect.poll(async () => (await call(server, 'status')).pending_actions).toBe(1);
+      expect((await call(server, 'step_commit', { step_type: 'action' })).ok).toBe(true);
 
-    // LC-7, `step.commit`: a `validation` takes `expect`, `present` when omitted.
-    const absent = await call(server, 'step_commit', { step_type: 'validation', expect: 'absent' });
-    expect(absent.ok).toBe(true);
-    await page.click('#add');
-    await expect.poll(async () => (await call(server, 'status')).pending_actions).toBe(1);
-    expect((await call(server, 'step_commit', { step_type: 'validation' })).ok).toBe(true);
-    await page.click('#add');
-    await expect.poll(async () => (await call(server, 'status')).pending_actions).toBe(1);
-    expect((await call(server, 'step_commit', { step_type: 'action' })).ok).toBe(true);
+      // Session format, step fields: `step_type`, and `expect` for a validation.
+      const { path: file, text } = await exportFile(server);
+      const steps = JSON.parse(text).recordings[0].steps;
+      expect(steps.map((s) => [s.step_number, s.step_type, s.expect])).toEqual([
+        [1, 'validation', 'absent'],
+        [2, 'validation', 'present'],
+        [3, 'action', undefined],
+      ]);
+      expect(steps.every((s) => s.narration === undefined)).toBe(true);
+      expect(lintFile(file).findings.filter((f) => f.class === 'fail')).toEqual([]);
+      await page.close();
+    },
+  );
 
-    // Session format, step fields: `step_type`, and `expect` for a validation.
-    const steps = JSON.parse((await exportFile(server)).text).recordings[0].steps;
-    expect(steps.map((s) => [s.step_number, s.step_type, s.expect])).toEqual([
-      [1, 'validation', 'absent'],
-      [2, 'validation', 'present'],
-      [3, 'action', undefined],
-    ]);
-    expect(steps.every((s) => s.narration === undefined)).toBe(true);
-    await page.close();
-    await served.close();
-  });
+  served(
+    'the export file the server writes passes the sufficiency lint with no fail',
+    async ({ context, serviceWorker, panelPage, server, servedUrl }) => {
+      await pair(panelPage, server, { allowExport: true });
+      const page = await startRecording({ context, serviceWorker, server, url: servedUrl });
+      expect((await call(server, 'step_commit', { narration: 'Add it' })).ok).toBe(true);
 
-  test('the export file the server writes passes the sufficiency lint with no fail', async ({
-    context,
-    panelPage,
-    server,
-  }) => {
-    const served = await servePage();
-    await pair(panelPage, server, { allowExport: true });
-    const page = await startRecording(context, server, served.url);
-    expect((await call(server, 'step_commit', { narration: 'Add it' })).ok).toBe(true);
+      // The file is validated and linted as the lint's own command reads a file.
+      const { path: file } = await exportFile(server);
+      const { platform, findings } = lintFile(file);
+      expect(platform).toBe('extension');
+      expect(findings.filter((f) => f.class === 'fail')).toEqual([]);
+      await page.close();
+    },
+  );
 
-    // The file is validated and linted as the lint's own command reads a file.
-    const { path: file } = await exportFile(server);
-    const { platform, findings } = lintFile(file);
-    expect(platform).toBe('extension');
-    expect(findings.filter((f) => f.class === 'fail')).toEqual([]);
-    await page.close();
-    await served.close();
-  });
+  served(
+    'a password typed with spaces is nowhere in the export file, in whole or in part',
+    async ({ context, serviceWorker, panelPage, server, servedUrl }) => {
+      await pair(panelPage, server, { allowExport: true });
+      const page = await startRecording({ context, serviceWorker, server, url: servedUrl });
+      expect((await call(server, 'step_commit', { narration: 'Add it' })).ok).toBe(true);
 
-  test('a password typed with spaces is nowhere in the export file, in whole or in part', async ({
-    context,
-    panelPage,
-    server,
-  }) => {
-    const served = await servePage();
-    await pair(panelPage, server, { allowExport: true });
-    const page = await startRecording(context, server, served.url);
-    expect((await call(server, 'step_commit', { narration: 'Add it' })).ok).toBe(true);
+      // Typed with the keys, spaces included, then a click elsewhere ends it.
+      await page.click('#pw');
+      await page.keyboard.type(SECRET);
+      await page.click('#sign-in');
+      await expect.poll(async () => (await call(server, 'status')).pending_actions).toBe(3);
+      expect((await call(server, 'step_commit', { narration: 'Sign in' })).ok).toBe(true);
 
-    // Typed with the keys, spaces included, then a click elsewhere ends it.
-    await page.click('#pw');
-    await page.keyboard.type(SECRET);
-    await page.click('#sign-in');
-    await expect.poll(async () => (await call(server, 'status')).pending_actions).toBe(3);
-    expect((await call(server, 'step_commit', { narration: 'Sign in' })).ok).toBe(true);
-
-    const { text } = await exportFile(server);
-    // Core CP-11: the action stays, the value is masked at capture time, and
-    // the secret enters the file nowhere: not whole, not one of its words, not
-    // two of them together. A key typed into a sensitive field is never a
-    // `key` (ECP-6, `keydown`; ECP-9), so no space or letter of it is either.
-    for (const part of [SECRET, ...SECRET_PARTS]) expect(text.includes(part)).toBe(false);
-    const step = JSON.parse(text).recordings[0].steps[1];
-    expect(step.actions.map((a) => [a.type, a.element?.id ?? null])).toEqual([
-      ['click', 'pw'],
-      ['type', 'pw'],
-      ['click', 'sign-in'],
-    ]);
-    expect(step.actions[1].value).toBe('••••••••');
-    expect(step.actions[1].element.redacted).toBe(true);
-    // Nor did it pass through the server's own output.
-    for (const part of [SECRET, ...SECRET_PARTS]) {
-      expect(server.stdout().includes(part)).toBe(false);
-      expect(server.stderr().includes(part)).toBe(false);
-    }
-    await page.close();
-    await served.close();
-  });
+      const { path: file, text } = await exportFile(server);
+      // Core CP-11: the action stays, the value is masked at capture time, and
+      // the secret enters the file nowhere: not whole, not one of its words, not
+      // two of them together. A key typed into a sensitive field is never a
+      // `key` (ECP-6, `keydown`; ECP-9), so no space or letter of it is either.
+      for (const part of [SECRET, ...SECRET_PARTS]) expect(text.includes(part)).toBe(false);
+      const step = JSON.parse(text).recordings[0].steps[1];
+      expect(step.actions.map((a) => [a.type, a.element?.id ?? null])).toEqual([
+        ['click', 'pw'],
+        ['type', 'pw'],
+        ['click', 'sign-in'],
+      ]);
+      expect(step.actions[1].value).toBe('••••••••');
+      expect(step.actions[1].element.redacted).toBe(true);
+      expect(step.actions[1].element.text).toBeNull();
+      expect(lintFile(file).findings.filter((f) => f.class === 'fail')).toEqual([]);
+      // Nor did it pass through the server's own output.
+      for (const part of [SECRET, ...SECRET_PARTS]) {
+        expect(server.stdout().includes(part)).toBe(false);
+        expect(server.stderr().includes(part)).toBe(false);
+      }
+      await page.close();
+    },
+  );
 });
