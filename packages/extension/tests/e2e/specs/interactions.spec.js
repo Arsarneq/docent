@@ -235,8 +235,8 @@ test.describe('Contenteditable', () => {
 
 // Regression: #654 — a checkbox or radio click was recorded twice: the click,
 // then a `type` whose value was the control's `value` attribute ("on"), not
-// its checked state. Every way a person toggles one fires a click on the
-// control, so the click is the record.
+// its checked state. The toggle is recorded by what the person did: the click,
+// or the key whose press toggled it (#695).
 // https://github.com/Arsarneq/docent/issues/654
 test.describe('Checkbox and Radio', () => {
   const PAGE_HTML = /* html */ `<!DOCTYPE html>
@@ -252,7 +252,7 @@ test.describe('Checkbox and Radio', () => {
     await clearPendingActions(serviceWorker);
   });
 
-  test('regression_654_checkbox_and_radio_toggles_record_the_click_only', async ({
+  test('regression_654_checkbox_and_radio_toggles_record_the_click_or_key_only', async ({
     testPage,
     serviceWorker,
   }) => {
@@ -267,10 +267,9 @@ test.describe('Checkbox and Radio', () => {
     expect(actions.map((a) => [a.type, a.element?.selector])).toEqual([
       ['click', '#box'],
       ['click', '#box'],
-      ['click', '#box'],
+      ['key', '#box'], // Space, with no click beside it (#695)
       ['click', '#r1'],
-      ['key', '#r1'], // the arrow key is captured as a key of its own
-      ['click', '#r2'],
+      ['key', '#r1'], // the arrow key, with no click on r2 beside it (#695)
     ]);
   });
 });

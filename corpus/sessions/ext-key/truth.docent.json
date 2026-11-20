@@ -126,6 +126,7 @@
                 "meta": false,
                 "shift": false
               },
+              "repeat": false,
               "timestamp": 1783348332823,
               "type": "key"
             },
@@ -183,6 +184,7 @@
                 "meta": false,
                 "shift": false
               },
+              "repeat": false,
               "timestamp": 1783348332827,
               "type": "key"
             }

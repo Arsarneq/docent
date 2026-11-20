@@ -45,9 +45,6 @@ export const INJECT_TO_READY_BOUND = DELIBERATE_ACTION_FLOOR / 2;
 
 // ─── Content Script Timing ──────────────────────────────────────────────────
 
-/** Suppress synthetic clicks from Enter key activation (detail=0). */
-export const ENTER_SYNTHETIC_CLICK_WINDOW = 50;
-
 /** Suppress synthetic clicks from native select confirmation. */
 export const SELECT_SYNTHETIC_CLICK_WINDOW = 50;
 

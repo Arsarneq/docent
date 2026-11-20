@@ -242,6 +242,10 @@
         "modifiers": {
           "$ref": "#/$defs/modifiers"
         },
+        "repeat": {
+          "type": "boolean",
+          "description": "Whether key repeat generated this press: true for a press generated while the key was held down, false for the press itself. Absent where the capture layer does not record it; the session-format document states which do."
+        },
         "element": {
           "$ref": "#/$defs/element"
         },

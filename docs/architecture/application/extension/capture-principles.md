@@ -130,12 +130,31 @@ the capture phase, for exactly these DOM events:
 - `click` — activation of the clicked element or its nearest interactive
   ancestor (the set the recorder tests is stated in the session-format
   document's action table; core CP-18); a click on a `label` is the label's,
-  and the click the browser sends on to the labelled control is part of it
+  and the click the browser sends on to the labelled control is part of it; a
+  click the browser derives from a captured key press (Enter or Space on a
+  button, an arrow key in a radio group, for example) is that key's effect
+  (core CP-6) and writes nothing: it carries no pointer, and the browser sends
+  it while it handles one of that key's events
 - `contextmenu` — the right-click, its element picked as for `click`
-- `keydown` — the keys in the captured keyboard set
+- `keydown` — the keys in the captured keyboard set: Enter, Escape, Tab and
+  the four arrow keys on the focused element, and Space on a focused element
+  that takes no typed text (in an `input` whose value is free text, a
+  `textarea` or editable content the space is text, which the field's `type`
+  records; on any other `input`, a date or number field included, it is a
+  key press);
+  each press is written with whether the browser's key repeat generated it:
+  holding a key down is the person's input (core CP-5), and each repeated
+  press is that hold as the browser reports it, written and marked so that it
+  is told from a separate physical press
+- `keypress` — the character event of a captured key press, which writes
+  nothing: with `keydown` and `keyup` it marks the task in which the browser
+  derives a click from the key
+- `keyup` — the release of a captured key, which writes nothing; the browser
+  derives the click of a Space press from it
 - `change` — a committed value: a `select` choice, an `input`/`textarea` entry,
   and a file chosen through the OS dialog; a checkbox or radio toggle is
-  recorded by its `click`, so its `change` writes nothing
+  recorded by the `click` or the `key` that made it, so its `change` writes
+  nothing
 - `focusin` — a focus move, recorded only when it follows a Tab key press
 - `dragstart` — the start of a drag, which names the drag source
 - `dragover` — the target tracking the browser requires before a drop can fire
@@ -278,8 +297,9 @@ interactions that would appear to be inside the
 [capture surface](#capture-surface) above but are not captured (or are captured
 with a caveat):
 
-- Keyboard shortcuts not in `CAPTURE_KEYS` are not captured as key events —
-  the keyboard surface is the whitelist, not all keys
+- Keys and keyboard shortcuts outside the captured keyboard set ECP-6 states
+  (`CAPTURE_KEYS`, and Space where it is not typed text) are not captured as
+  key events — the keyboard surface is that set, not all keys
 - Arrow keys in native `<select>` are swallowed by the browser before the
   recorder's listeners see them
 - Back/forward between same-document entries (an SPA's history) — a
@@ -319,6 +339,15 @@ with a caveat):
   a departure (core CP-18)
 - A captured key other than Tab while nothing is focused — not written; a
   departure (core CP-18)
+- A click that carries no pointer and reaches the page outside a captured
+  key's events (an activation an assistive technology sends, or one a key
+  outside the captured set causes, an `accesskey` shortcut for example) —
+  written as a `click` with the coordinates its event carries, though no
+  pointer was at that point; a departure (core CP-18)
+- A captured key whose press also scrolls (an arrow key, or Space on a focused
+  element it does not activate, a link for example) — written as the `key`
+  and, where the scroll clears the floor (core CP-16), as a `scroll` too: one
+  press, two actions; a departure (core CP-18)
 - A `type` on an input or textarea when a button or input marked
   `type="submit"` in the same form was pressed, with any mouse button, within
   100 ms of the change — not written (a `<button>` with no `type` attribute
@@ -358,9 +387,10 @@ with a caveat):
 - Closing a whole browser window — the tab-removal listener skips tabs removed
   by a window close, so no `context_close` is recorded
 - A file chosen without a trusted click on the input within the 10 s before
-  the change — a chooser opened from the keyboard (Enter on the control, whose
-  detail-0 click is suppressed), a click the page scripted on the input, or a
-  choice made later — no `file_upload` is recorded; a departure (core CP-18)
+  the change — a click the page scripted on the input, or a choice made
+  later — no `file_upload` is recorded; a departure (core CP-18). The click
+  the browser derives from Enter or Space on the input counts as that trusted
+  click, so a chooser opened from the keyboard records its `file_upload`
 - Input in a page between its navigation and the completion of its load — the
   recorder is injected as the frame finishes loading (ECP-2), so an action
   taken while the page is still loading is not captured; ECP-5's readiness
