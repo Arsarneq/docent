@@ -70,7 +70,7 @@ use super::element_mapping::{
     NativeElementProperties,
 };
 use super::hook_diagnostics;
-use super::pre_capture::PreCapture;
+use super::pre_capture::{pre_capture_click, PreCapture};
 use super::scroll::KeyAttribution;
 use super::timing;
 use super::worker_pool::{
@@ -473,7 +473,7 @@ thread_local! {
 
     /// The click pre-capture the mouse hook asks (DCP-1): `ElementFromPoint`
     /// at left mouse-up on a non-drag click and at right/middle button-down,
-    /// run on the pre-capture thread and waited on for at most
+    /// run on a pre-capture describer thread and waited on for at most
     /// `timing::PRE_CAPTURE_BUDGET_MS`, so the element is described while the
     /// target window is still alive and no application holds the hook.
     static INPUT_PRE_CAPTURE: std::cell::RefCell<Option<ClickPreCapture>> =
@@ -1293,7 +1293,7 @@ fn input_thread_main(
         INPUT_INCLUDED_PID.with(|p| *p.borrow_mut() = None);
         INPUT_FLUSH_REQUESTS.with(|q| *q.borrow_mut() = None);
         INPUT_PID_CACHE.with(|c| c.borrow_mut().clear());
-        INPUT_PRE_CAPTURE.with(|p| *p.borrow_mut() = None);
+        end_click_pre_capture();
         INPUT_LAST_INPUT_TIMESTAMP.with(|t| t.set(0));
         INPUT_LAST_INPUT_WINDOW.with(|w| w.set(0));
         INPUT_LAST_KEYBOARD_TIMESTAMP.with(|t| t.set(0));
@@ -1348,7 +1348,7 @@ fn input_thread_main(
     INPUT_MOUSE_DOWN_POS.with(|p| p.set(None));
     INPUT_OPENED_WINDOWS.with(|s| s.borrow_mut().clear());
     INPUT_PID_CACHE.with(|c| c.borrow_mut().clear());
-    INPUT_PRE_CAPTURE.with(|p| *p.borrow_mut() = None);
+    end_click_pre_capture();
     INPUT_LAST_INPUT_TIMESTAMP.with(|t| t.set(0));
     INPUT_LAST_INPUT_WINDOW.with(|w| w.set(0));
     INPUT_LAST_KEYBOARD_TIMESTAMP.with(|t| t.set(0));
@@ -1494,8 +1494,15 @@ impl Drop for ComApartment {
     }
 }
 
-/// Start the click pre-capture's thread (DCP-1). `None`, logged, when the
-/// thread cannot be started.
+/// How long start waits for the first pre-capture describer to build its
+/// accessibility client before going on without waiting further.
+const PRE_CAPTURE_READY_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Start the click pre-capture's describers (DCP-1) and wait, for at most
+/// `PRE_CAPTURE_READY_TIMEOUT`, for the first to build its accessibility
+/// client, so the first click is pre-captured. `None`, logged, when no
+/// describer thread can be started; a warning when the wait runs out (the
+/// clicks before the client is built are described by their workers).
 fn start_click_pre_capture() -> Option<ClickPreCapture> {
     let started = PreCapture::spawn(
         "docent-pre-capture",
@@ -1524,10 +1531,19 @@ fn start_click_pre_capture() -> Option<ClickPreCapture> {
         },
     );
     match started {
-        Ok(pre_capture) => Some(pre_capture),
+        Ok(pre_capture) => {
+            if !pre_capture.wait_ready(PRE_CAPTURE_READY_TIMEOUT) {
+                eprintln!(
+                    "[WindowsCapture] Warning: the click pre-capture was not ready within \
+                     {PRE_CAPTURE_READY_TIMEOUT:?}; clicks before it is are described by \
+                     the workers"
+                );
+            }
+            Some(pre_capture)
+        }
         Err(e) => {
             eprintln!(
-                "[WindowsCapture] Warning: the click pre-capture thread did not start ({e}); \
+                "[WindowsCapture] Warning: the click pre-capture did not start ({e}); \
                  clicks are described by the workers"
             );
             None
@@ -1535,19 +1551,26 @@ fn start_click_pre_capture() -> Option<ClickPreCapture> {
     }
 }
 
-/// Pre-capture the element at the given screen coordinates (DCP-1): ask the
-/// pre-capture thread and wait for at most the budget. `None` when the
-/// answer did not come in time, when an earlier pre-capture is still
-/// unanswered, or when nothing could be described; the click is dispatched
-/// either way, and its worker describes it when this gave no element. Called
-/// at left mouse-up on a non-drag click and at right/middle button-down, so
-/// an answer describes the element while the target window is still alive.
-/// The wait dispatches no message, so no hook call runs inside it.
-fn input_pre_capture_element(x: i32, y: i32) -> Option<super::ElementDescription> {
-    let started = Instant::now();
-    let element = INPUT_PRE_CAPTURE.with(|p| p.borrow().as_ref()?.ask((x, y)).flatten());
-    hook_diagnostics::pre_capture(started.elapsed(), element.is_some());
-    element
+/// End the click pre-capture as the input thread ends: store its outcome
+/// counts for the stop report, then drop it. Its describers are never
+/// joined; each ends once its last call returns.
+fn end_click_pre_capture() {
+    if let Some(pre_capture) = INPUT_PRE_CAPTURE.with(|p| p.borrow_mut().take()) {
+        hook_diagnostics::pre_capture_outcomes(pre_capture.counts());
+    }
+}
+
+/// Pre-capture the element at the given screen coordinates, in the process
+/// `pid` (DCP-1): ask a pre-capture describer and wait for at most the
+/// budget. `None` when the answer did not come in time, when that process
+/// still holds a describer, when no describer is free, or when nothing could
+/// be described; the click is dispatched either way, and its worker describes
+/// it when this gave no element. Called at left mouse-up on a non-drag click
+/// and at right/middle button-down, so an answer describes the element while
+/// the target window is still alive. The wait dispatches no message, so no
+/// hook call runs inside it.
+fn input_pre_capture_element(pid: u32, x: i32, y: i32) -> Option<super::ElementDescription> {
+    INPUT_PRE_CAPTURE.with(|p| pre_capture_click(p.borrow().as_ref(), u64::from(pid), (x, y)))
 }
 
 /// Check if the Input_Thread is active.
@@ -2316,7 +2339,7 @@ unsafe fn input_mouse_ll_handle(n_code: i32, w_param: WPARAM, l_param: LPARAM) {
                     } else {
                         // Click detected — pre-capture the element while
                         // the window is still alive, within the budget.
-                        let pre_element = input_pre_capture_element(pt.x, pt.y);
+                        let pre_element = input_pre_capture_element(pid, pt.x, pt.y);
                         let double = left_press.is_some_and(double_click_completed_by);
                         input_dispatch_raw_event(RawEvent {
                             event_type: RawEventType::Click,
@@ -2403,7 +2426,7 @@ unsafe fn input_mouse_ll_handle(n_code: i32, w_param: WPARAM, l_param: LPARAM) {
                         // The press activates the window it lands in: its
                         // switch goes before the press, as a left press's.
                         input_press_switch(point_hwnd, fg_hwnd, timestamp);
-                        let pre_element = input_pre_capture_element(pt.x, pt.y);
+                        let pre_element = input_pre_capture_element(pid, pt.x, pt.y);
                         input_dispatch_raw_event(RawEvent {
                             event_type,
                             sequence_id: 0,

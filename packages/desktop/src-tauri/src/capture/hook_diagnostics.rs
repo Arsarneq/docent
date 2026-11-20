@@ -12,6 +12,11 @@
 // same thread, so their longest call is counted too: a slow callback delays
 // the hook calls queued behind it.
 //
+// The pre-capture's own outcome counts (answered, overran, skipped, describers
+// left to an application) are stored here as the input thread ends, so the
+// line logged at stop tells the designed late path (a click whose element its
+// worker describes) from a hook slow enough to have cost input.
+//
 // Process-wide atomics, reset when a capture session starts and kept after it
 // stops, so a test can read them once `stop()` has returned. Relaxed atomics:
 // counts for a person or a test to read, never a synchronisation point.
@@ -21,9 +26,24 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
-/// A hook call or callback this long is reported at stop: well under the
-/// system's hook timeout, so a report comes before input is lost.
-pub const SLOW_HOOK_CALL: Duration = Duration::from_millis(100);
+use super::pre_capture::PreCaptureCounts;
+use super::timing::PRE_CAPTURE_BUDGET_MS;
+
+/// What a hook call may take beyond the pre-capture budget for its own work
+/// and for scheduling on a loaded machine.
+pub const SLOW_HOOK_SLACK: Duration = Duration::from_millis(150);
+
+/// A hook call or callback this long is reported at stop as one that may
+/// have cost input: past the pre-capture budget plus [`SLOW_HOOK_SLACK`], so
+/// a click that waited out the whole budget (the designed late path) is not
+/// reported as one, yet still under the system's hook timeout, so a report
+/// comes before input is lost.
+pub const SLOW_HOOK_CALL: Duration =
+    Duration::from_millis(PRE_CAPTURE_BUDGET_MS + SLOW_HOOK_SLACK.as_millis() as u64);
+
+/// Serialises the tests that touch the process-wide counters.
+#[cfg(test)]
+pub(crate) static TEST_COUNTERS: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 static MOUSE_CALLS: AtomicU64 = AtomicU64::new(0);
 static LEFT_DOWNS: AtomicU64 = AtomicU64::new(0);
@@ -36,6 +56,11 @@ static LONGEST_PRE_CAPTURE_US: AtomicU64 = AtomicU64::new(0);
 static PRE_CAPTURES_WITHOUT_ELEMENT: AtomicU64 = AtomicU64::new(0);
 static DEEPEST_MOUSE_NESTING: AtomicU64 = AtomicU64::new(0);
 static LONGEST_WIN_EVENT_US: AtomicU64 = AtomicU64::new(0);
+static PRE_CAPTURES_ANSWERED: AtomicU64 = AtomicU64::new(0);
+static PRE_CAPTURES_OVERRAN: AtomicU64 = AtomicU64::new(0);
+static PRE_CAPTURES_SKIPPED_HELD: AtomicU64 = AtomicU64::new(0);
+static PRE_CAPTURES_SKIPPED_BUSY: AtomicU64 = AtomicU64::new(0);
+static DESCRIBERS_ABANDONED: AtomicU64 = AtomicU64::new(0);
 
 /// A snapshot of the counters.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -63,6 +88,17 @@ pub struct HookDiagnostics {
     /// The longest single WinEvent callback on the input thread, in
     /// microseconds.
     pub longest_win_event_us: u64,
+    /// Pre-captures answered within the budget.
+    pub pre_captures_answered: u64,
+    /// Pre-captures whose answer did not come within the budget.
+    pub pre_captures_overran: u64,
+    /// Pre-captures not asked because the clicked application still held a
+    /// describer.
+    pub pre_captures_skipped_held: u64,
+    /// Pre-captures not asked because no describer was free.
+    pub pre_captures_skipped_busy: u64,
+    /// Describers left to an application that did not answer.
+    pub describers_abandoned: u64,
 }
 
 fn micros(elapsed: Duration) -> u64 {
@@ -83,6 +119,11 @@ pub fn reset() {
         &PRE_CAPTURES_WITHOUT_ELEMENT,
         &DEEPEST_MOUSE_NESTING,
         &LONGEST_WIN_EVENT_US,
+        &PRE_CAPTURES_ANSWERED,
+        &PRE_CAPTURES_OVERRAN,
+        &PRE_CAPTURES_SKIPPED_HELD,
+        &PRE_CAPTURES_SKIPPED_BUSY,
+        &DESCRIBERS_ABANDONED,
     ] {
         counter.store(0, Ordering::Relaxed);
     }
@@ -102,7 +143,21 @@ pub fn snapshot() -> HookDiagnostics {
         pre_captures_without_element: PRE_CAPTURES_WITHOUT_ELEMENT.load(Ordering::Relaxed),
         deepest_mouse_nesting: DEEPEST_MOUSE_NESTING.load(Ordering::Relaxed),
         longest_win_event_us: LONGEST_WIN_EVENT_US.load(Ordering::Relaxed),
+        pre_captures_answered: PRE_CAPTURES_ANSWERED.load(Ordering::Relaxed),
+        pre_captures_overran: PRE_CAPTURES_OVERRAN.load(Ordering::Relaxed),
+        pre_captures_skipped_held: PRE_CAPTURES_SKIPPED_HELD.load(Ordering::Relaxed),
+        pre_captures_skipped_busy: PRE_CAPTURES_SKIPPED_BUSY.load(Ordering::Relaxed),
+        describers_abandoned: DESCRIBERS_ABANDONED.load(Ordering::Relaxed),
     }
+}
+
+/// Store the pre-capture's outcome counts: its input thread ends.
+pub fn pre_capture_outcomes(counts: PreCaptureCounts) {
+    PRE_CAPTURES_ANSWERED.store(counts.answered, Ordering::Relaxed);
+    PRE_CAPTURES_OVERRAN.store(counts.overran, Ordering::Relaxed);
+    PRE_CAPTURES_SKIPPED_HELD.store(counts.skipped_held, Ordering::Relaxed);
+    PRE_CAPTURES_SKIPPED_BUSY.store(counts.skipped_busy, Ordering::Relaxed);
+    DESCRIBERS_ABANDONED.store(counts.abandoned, Ordering::Relaxed);
 }
 
 /// A mouse hook call is entered at nesting `depth` (1 for a call that runs
@@ -160,18 +215,23 @@ impl HookDiagnostics {
             || self.deepest_mouse_nesting > 1
     }
 
-    /// The one line logged at stop when the session [is
-    /// anomalous](Self::is_anomalous); `None` otherwise.
+    /// Clicks the pre-capture gave no element through the late path: an
+    /// overrun or a skipped ask. Their workers describe them (DCP-1).
+    pub fn late_path_clicks(&self) -> u64 {
+        self.pre_captures_overran + self.pre_captures_skipped_held + self.pre_captures_skipped_busy
+    }
+
+    /// The one line logged at stop: a warning when the session [is
+    /// anomalous](Self::is_anomalous), a note when it is not but clicks took
+    /// the late path, `None` otherwise.
     pub fn report(&self) -> Option<String> {
-        if !self.is_anomalous() {
-            return None;
-        }
-        Some(format!(
-            "[WindowsCapture] Warning: the mouse hook was slow this session \
-             (input may have been passed on without it): left presses {}, left \
-             releases {}, left clicks dispatched {}, hook calls {} ({} slow, \
-             longest {} ms, deepest nesting {}), pre-captures {} ({} without an \
-             element, longest {} ms), longest WinEvent callback {} ms",
+        let counts = format!(
+            "left presses {}, left releases {}, left clicks dispatched {}, hook \
+             calls {} ({} slow, longest {} ms, deepest nesting {}), pre-captures \
+             {} ({} answered, {} overran, {} skipped for a held application, {} \
+             skipped with no describer free, {} without an element, longest {} \
+             ms; {} describers left to an application), longest WinEvent \
+             callback {} ms",
             self.left_downs,
             self.left_ups,
             self.left_clicks_dispatched,
@@ -180,10 +240,29 @@ impl HookDiagnostics {
             self.longest_mouse_call_us / 1000,
             self.deepest_mouse_nesting,
             self.pre_captures,
+            self.pre_captures_answered,
+            self.pre_captures_overran,
+            self.pre_captures_skipped_held,
+            self.pre_captures_skipped_busy,
             self.pre_captures_without_element,
             self.longest_pre_capture_us / 1000,
+            self.describers_abandoned,
             self.longest_win_event_us / 1000,
-        ))
+        );
+        if self.is_anomalous() {
+            Some(format!(
+                "[WindowsCapture] Warning: the mouse hook was slow this session \
+                 (input may have been passed on without it): {counts}"
+            ))
+        } else if self.late_path_clicks() > 0 {
+            Some(format!(
+                "[WindowsCapture] {} click(s) got no pre-captured element and were \
+                 described by their workers after the click: {counts}",
+                self.late_path_clicks()
+            ))
+        } else {
+            None
+        }
     }
 }
 
@@ -204,6 +283,8 @@ mod tests {
             pre_captures_without_element: 0,
             deepest_mouse_nesting: 1,
             longest_win_event_us: 2_000,
+            pre_captures_answered: 5,
+            ..HookDiagnostics::default()
         }
     }
 
@@ -222,12 +303,44 @@ mod tests {
         };
         let line = diagnostics.report().expect("a slow hook call is reported");
         assert!(line.contains("left releases 1"), "{line}");
-        assert!(line.contains("1 slow, longest 100 ms"), "{line}");
+        assert!(line.contains("1 slow, longest 250 ms"), "{line}");
+        assert!(line.contains("Warning"), "{line}");
         let just_under = HookDiagnostics {
             longest_mouse_call_us: micros(SLOW_HOOK_CALL) - 1,
             ..quiet()
         };
         assert_eq!(just_under.report(), None);
+    }
+
+    // Regression: #741 review — a click that waited out the whole pre-capture
+    // budget is the designed late path, not a hook that may have cost input.
+    // https://github.com/Arsarneq/docent/issues/741
+    #[test]
+    fn regression_741_a_hook_call_that_waited_out_the_budget_is_a_late_path_note_not_a_warning() {
+        assert!(
+            SLOW_HOOK_CALL >= Duration::from_millis(PRE_CAPTURE_BUDGET_MS) + SLOW_HOOK_SLACK,
+            "the slow bound leaves no room past the budget"
+        );
+        let late = HookDiagnostics {
+            longest_mouse_call_us: (PRE_CAPTURE_BUDGET_MS + 20) * 1000,
+            longest_pre_capture_us: PRE_CAPTURE_BUDGET_MS * 1000,
+            pre_captures_answered: 3,
+            pre_captures_overran: 1,
+            pre_captures_skipped_held: 1,
+            pre_captures_without_element: 2,
+            ..quiet()
+        };
+        assert!(!late.is_anomalous());
+        let line = late.report().expect("late-path clicks are noted");
+        assert!(!line.contains("Warning"), "{line}");
+        assert!(
+            line.contains("2 click(s) got no pre-captured element"),
+            "{line}"
+        );
+        assert!(
+            line.contains("3 answered, 1 overran, 1 skipped for a held application"),
+            "{line}"
+        );
     }
 
     #[test]
@@ -246,16 +359,24 @@ mod tests {
 
     #[test]
     fn the_recorders_feed_the_snapshot_and_reset_zeroes_it() {
-        // The only test that touches the process-wide counters.
+        let _counters = TEST_COUNTERS.lock().unwrap_or_else(|e| e.into_inner());
         reset();
         mouse_call_entered(1);
         mouse_call_entered(2);
-        mouse_call_returned(Duration::from_millis(150));
+        mouse_call_returned(Duration::from_millis(300));
         left_down();
         left_up();
         left_click_dispatched();
         pre_capture(Duration::from_millis(120), false);
         win_event_returned(Duration::from_millis(7));
+        pre_capture_outcomes(PreCaptureCounts {
+            answered: 4,
+            overran: 1,
+            skipped_held: 2,
+            skipped_busy: 3,
+            abandoned: 1,
+            longest_wait_us: 0,
+        });
         let seen = snapshot();
         assert_eq!(
             seen,
@@ -264,13 +385,18 @@ mod tests {
                 left_downs: 1,
                 left_ups: 1,
                 left_clicks_dispatched: 1,
-                longest_mouse_call_us: 150_000,
+                longest_mouse_call_us: 300_000,
                 slow_mouse_calls: 1,
                 pre_captures: 1,
                 longest_pre_capture_us: 120_000,
                 pre_captures_without_element: 1,
                 deepest_mouse_nesting: 2,
                 longest_win_event_us: 7_000,
+                pre_captures_answered: 4,
+                pre_captures_overran: 1,
+                pre_captures_skipped_held: 2,
+                pre_captures_skipped_busy: 3,
+                describers_abandoned: 1,
             }
         );
         reset();

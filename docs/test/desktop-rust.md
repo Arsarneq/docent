@@ -12,8 +12,9 @@ Tests live in two places:
 
 - **In-module unit tests** — `#[cfg(test)]` modules beside the code they pin,
   in `src/` (the capture modules — `action_mapping`, `coordinate`,
-  `element_mapping`, `held_keys`, `scroll`, `timing`, `uia_core_api`, `variant`, `windows`,
-  `worker_pool`, `stub` — plus `commands`, `secret_store`, and `sync_http`).
+  `element_mapping`, `held_keys`, `hook_diagnostics`, `pre_capture`, `scroll`,
+  `timing`, `uia_core_api`, `variant`, `windows`, `worker_pool`, `stub` — plus
+  `commands`, `secret_store`, and `sync_http`).
   These run under
   `cargo test --lib`.
 - **Test binaries** — the `packages/desktop/src-tauri/tests/` directory (Cargo

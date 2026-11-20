@@ -17,17 +17,23 @@ hooks / WinEvents        bridge            worker pool               frontend
 (Input_Thread)  ──►  (Bridge_Thread) ──► (3 describe workers) ──► ordered insertion
    raw event             dispatch           accessibility             pending list
    + sequence id         routing            queries → action          spliced by id
-                                                  │
-                                          one action channel
-                                          (emitted in order sent)
+      │  ▲                                        │
+ click│  │element, or none            one action channel
+      ▼  │(within the budget)         (emitted in order sent)
+pre-capture describers
+(asked + spare, ≤ 5 threads)
 ```
 
 1. **Input_Thread** — the low-level hooks and WinEvent callbacks classify each
    OS event into a raw event, stamp it with a monotonic sequence id, and send
    it to the bridge. This thread performs no accessibility queries: the click
-   pre-capture runs on the pre-capture thread, which the mouse hook waits on
-   for a bounded time only (DCP-1), so hooks stay inside their latency budget
-   whatever the clicked application does. It also
+   pre-capture runs on a pre-capture describer, which the mouse hook waits on
+   for at most `PRE_CAPTURE_BUDGET_MS` (DCP-1), so hooks stay inside their
+   latency budget whatever the clicked application does. A describer an
+   application leaves unanswered is left to that application and a ready
+   spare takes its place; a click whose element came from no describer is
+   dispatched with none, in order, and its worker describes it (DCP-13). It
+   also
    counts focus changes and stamps every raw event with the count, so a
    worker can tell whether focus still is where a keystroke or value change
    happened, and stamps each keystroke with the window handle of the control
@@ -196,6 +202,16 @@ the barrier already emptied:
   respawn retries only the event whose send detected the death — and the
   rescues cover completed-but-held actions, which are the only ones that
   exist as actions yet.
+- The pre-capture describers are never joined. Stop drops the pre-capture as
+  the Input_Thread ends: a free describer ends at once, and one an
+  application still holds (left to it during the session, or still on the
+  last click's pre-capture) ends when the application answers, its answer
+  discarded, or at process exit. Neither kind holds a raw event or an action:
+  every click was dispatched when its pre-capture answered or gave up, so
+  stop waits on none of them. Before dropping the pre-capture, the
+  Input_Thread stores its outcome counts (answered, overran, skipped,
+  describers left to an application) in the hook diagnostics, which stop
+  logs in one line when clicks took the late path or a hook call was slow.
 - Capture start blocks (bounded, 30 s per worker) until every worker reports its
   possibly-cold accessibility-API initialization finished — otherwise an event
   dispatched into a still-initializing worker could sit unconsumed and be
@@ -205,7 +221,11 @@ the barrier already emptied:
   reports its id (its message queue already forced into existence), start
   posts a benign probe message to runtime-check that queue and then waits
   (bounded, 30 s) for the thread's hooks-registered report, proceeding with a
-  warning when that bound expires. A COM-init or
+  warning when that bound expires. Before it registers its hooks, the
+  Input_Thread starts the pre-capture describers and waits (bounded, 10 s) for
+  the first to report its accessibility client built, so the first click is
+  pre-captured; when that bound expires it proceeds with a warning, and the
+  clicks before the client is built are described by their workers. A COM-init or
   hook-registration failure fails start loudly with the real error — and
   tears down what was already spawned — instead of returning a session whose
   input thread is dead on arrival and whose every barrier could only complete

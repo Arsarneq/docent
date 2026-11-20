@@ -127,9 +127,22 @@ pub fn debounce_elapsed(now_ms: u64, last_ms: u64, window_ms: u64) -> bool {
 // ─── Click pre-capture ─────────────────────────────────────────────────────
 
 /// The longest the low-level mouse hook waits for the click pre-capture's
-/// answer (DCP-1). Well under the system's low-level hook timeout, past which
-/// Windows passes input on without the hook and can remove it; long enough
-/// for a responsive application to answer `ElementFromPoint`.
+/// answer (DCP-1). The answer is the whole description a describer builds:
+/// `ElementFromPoint`, then the element's property reads, its `LabeledBy`
+/// label, and its ancestor walk (up to `MAX_TREE_PATH_ANCESTORS`, 20, parents), every
+/// call a cross-process request to the clicked application.
+///
+/// The value is chosen, not measured: no distribution of description times is
+/// recorded. The measurement is the hook diagnostics' longest pre-capture and
+/// overrun count, logged at stop when clicks took the late path. The hook
+/// holds the click from the application while it waits, so the budget is
+/// also a delay a person can feel: 100 ms keeps it near the edge of a
+/// perceptible lag, and keeps the whole hook call (the budget plus the hook's
+/// own work) well below the system's low-level hook timeout
+/// (`LowLevelHooksTimeout`, which Windows caps at 1000 ms from Windows 10
+/// version 1709), past which Windows passes the input on without the hook and
+/// can remove it. A click whose description takes longer is described by its
+/// worker (DCP-1, DCP-13).
 pub const PRE_CAPTURE_BUDGET_MS: u64 = 100;
 
 #[cfg(test)]

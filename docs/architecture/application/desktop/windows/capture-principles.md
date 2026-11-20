@@ -27,19 +27,29 @@ numeric sequence.
    the clicked element and waits for the answer for at most a fixed budget
    (`PRE_CAPTURE_BUDGET_MS`), so the element is described while the target
    window is still alive (locator match statistics deliberately unmeasured
-   there). The hook dispatches every click whether or not an answer came:
-   a click whose answer does not come within the budget, or that arrives
-   while an earlier pre-capture is still unanswered, is dispatched at once
-   with no element, and its worker describes it as it describes any click the
-   pre-capture did not describe. The wait dispatches no message, so no other
-   hook call runs inside it. Windows passes input on without a low-level hook
-   that does not return within the system's hook timeout, and can remove the
-   hook after that, after which nothing the mouse does would be recorded; the
-   budget keeps a slow or unresponsive application from holding the hook that
-   long. Every other accessibility query runs on the workers
-2. **Pre-capture Thread** (1 thread) — the `ElementFromPoint` pre-capture,
-   one at a time, with its own accessibility client; a call an application
-   leaves unanswered holds this thread only, and its late answer is discarded
+   there). The hook dispatches every click, in order, whether or not an
+   answer came: a click whose answer does not come within the budget, a click
+   in an application that still holds a describer with an earlier click's
+   pre-capture, and a click that finds no describer free are each dispatched
+   at once with no element, and its worker describes it as it describes any
+   click the pre-capture did not describe (DCP-13 states what that costs).
+   The wait dispatches no message, so no other hook call runs inside it.
+   Windows passes input on without a low-level hook that does not return
+   within the system's hook timeout, and can remove the hook after that,
+   after which nothing the mouse does would be recorded; the budget keeps a
+   slow or unresponsive application from holding the hook that long. Every
+   other accessibility query runs on the workers
+2. **Pre-capture Describers** (at most `MAX_DESCRIBERS`, 5, threads) — the
+   pre-capture's `ElementFromPoint` and the description built from it, each
+   describer with its own accessibility client and one click at a time. One
+   describer is asked and a second is kept ready as a spare. When the
+   describer asked is still on an earlier click, a click in another
+   application goes to the spare, the held describer is left to the
+   application holding it (its answer discarded, its thread ending when the
+   application answers) and a new spare is started; a click in the
+   application that holds a describer goes to none, since it would hold a
+   fresh one too. So an application that does not answer costs the
+   pre-capture of its own clicks only, until held describers reach the cap
 3. **Worker Pool** (3 threads) — accessibility queries, produces ActionEvents
 4. **Bridge Thread** — dispatches raw events from input thread to workers
 
@@ -640,6 +650,22 @@ with a caveat):
   as a .docx), so the extension the dialog adds for the chosen file type is
   not recorded; a departure (core CP-18). A dialog whose File name box is
   empty records no `file_dialog`
+- A click whose element the pre-capture did not describe (DCP-1) — a left
+  click (at its mouse-up), a right or middle press, and either click of a
+  double-click, whose pre-capture's answer did not come within
+  `PRE_CAPTURE_BUDGET_MS` (`src/capture/timing.rs`), that came while its
+  application still held a describer with an earlier click's pre-capture, or
+  that found no describer free — is described by its worker after the click
+  has taken effect, from the element then at the click's point: a different
+  element, or none, where the click changed what is there (a dialog's Save,
+  OK or Open button that closes the dialog, a menu item that closes its
+  menu). A left click on a file dialog's Save or Open button described so
+  records no `file_dialog`, since the proxy tests the clicked element (DCP-6),
+  and a double-click on a file in its item view records none when the
+  dialog has closed before its first click is described. An application that
+  does not answer takes its own clicks down this path; once held describers
+  reach the cap, clicks in every application take it until one is released;
+  a departure (core CP-18)
 - A `type` whose value equals the typing worker's last for the same element
   (its selector within its window) — not written, the keys buffered for it
   discarded with it, and for a password field, whose value is the mask, every
