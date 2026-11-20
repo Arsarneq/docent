@@ -1220,8 +1220,9 @@ mod user_actions_advanced {
         let switch_events = context_switches(&events);
         assert!(
             !click_events.is_empty(),
-            "Expected click when switching windows, got {}",
-            click_events.len()
+            "Expected click when switching windows, got {}; written: {:#?}",
+            click_events.len(),
+            events
         );
         assert!(
             !switch_events.is_empty(),
