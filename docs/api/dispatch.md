@@ -1,13 +1,6 @@
 # Docent Dispatch Protocol
 
-Dispatch sends recordings from a Docent client to a user-configured HTTP
-endpoint as a single POST — no terminal or intermediary required. This document
-is the formal specification of that transport: the request, the payload
-wrapper, the endpoint URL policy, and the client's delivery behaviour
-(retries, size bounds, and send gating). The `.docent.json` data inside the
-payload is defined by the per-platform [JSON Schemas](../../schemas/) and
-oriented in the [Session Format](../technical/session-format.md); the wrapper
-around it is defined here.
+Dispatch sends recordings from a Docent client to a user-configured HTTP endpoint as a single POST (no terminal or intermediary required). This document is the formal specification of that transport: the request, the payload wrapper, the endpoint URL policy, and the client's delivery behavior (retries, size bounds, and send gating). The `.docent.json` data inside the payload is defined by the per-platform [JSON Schemas](../../schemas/) and oriented in the [Session Format](../technical/session-format.md); the wrapper around it is defined here.
 
 Each rule carries a stable identifier (**DI-n**) so other documents, reviews,
 and checks can cite it precisely. Identifiers are never renumbered; a retired
@@ -33,32 +26,17 @@ carries the endpoint's one deployment obligation (DI-15).
 
 ## Overview
 
-Dispatch is user-triggered and one-way. The user selects one or more of a
-project's recordings and confirms the send; the client builds one payload and
-delivers it with one HTTP POST. There is no read-back, no listing, and no
-server-side state the client depends on — the response body is not consumed
-(see [Response handling](#response-handling)).
+Dispatch is user-triggered and one-way. The user selects one or more of a project's recordings and confirms the send. The client builds one payload and delivers it with one HTTP POST. There is no read-back, no listing, and no server-side state the client depends on: the response body is not consumed (see [Response handling](#response-handling)).
 
-Dispatch is a separate contract from the [Sync Protocol](sync-protocol.md):
-sync is bidirectional reconciliation against a server holding state, while
-dispatch is fire-and-forget delivery to an ingestion endpoint. The two share
-the client's transport machinery (the [transport seam](#transport-seam) and
-the [endpoint URL policy](#endpoint-url-policy)) but nothing on the wire.
+Dispatch is a separate contract from the [Sync Protocol](sync-protocol.md). Sync is bidirectional reconciliation against a server holding state; dispatch is fire-and-forget delivery to an ingestion endpoint. The two share the client's transport machinery (the [transport seam](#transport-seam) and the [endpoint URL policy](#endpoint-url-policy)) but nothing on the wire.
 
 ---
 
 ## Endpoint scope and CORS
 
-A dispatch endpoint is an ingestion target for Docent clients: it receives
-complete payloads and stores or forwards them, and Docent assumes nothing
-about what happens after acceptance. A system that consumes recordings reads
-them from wherever the endpoint put them — the protocol defines delivery
-only.
+A dispatch endpoint is an ingestion target for Docent clients. It receives complete payloads and stores or forwards them, and Docent assumes nothing about what happens after acceptance. A system that consumes recordings reads them from wherever the endpoint put them: the protocol defines delivery only.
 
-A compliant endpoint does **not** need to emit CORS headers: the Chrome
-extension sends through its `<all_urls>` host permissions and the desktop app
-sends natively below the webview, so neither request is subject to the
-browser's cross-origin rules.
+A compliant endpoint does **not** need to emit CORS headers. The Chrome extension sends through its `<all_urls>` host permissions and the desktop app sends natively below the webview, so neither request is subject to the browser's cross-origin rules.
 
 **DI-15.** The
 [Sync Protocol's server-scope reasoning](sync-protocol.md#server-scope-and-cors)
@@ -146,10 +124,7 @@ actions captured but not yet committed into a step are stored outside
 
 ## Reading guidance
 
-The `reading_guidance` prose is shipped as an asset with each platform
-(`packages/shared/assets/reading-guidance.md`, a consumer-facing product
-asset packaged into the extension and the desktop app by the shared-code
-sync) and loaded at send time.
+Each platform ships the `reading_guidance` prose as an asset, `packages/shared/assets/reading-guidance.md`, and loads it at send time. The shared-code sync packages this consumer-facing product asset into the extension and the desktop app.
 
 **DI-5.** The shipped `reading_guidance` prose paraphrases schema-governed
 semantics for a reader with no prior Docent knowledge. It MUST track the
@@ -295,7 +270,7 @@ cache ignores, as the desktop's ignores `signal`.
 
 ## Send eligibility and the post-send cooldown
 
-These are client behaviours, not endpoint obligations.
+These are client behaviors, not endpoint obligations.
 
 **DI-13.** Send is available only when an endpoint URL is configured and the
 open project has at least one recording whose resolved active view (the

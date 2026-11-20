@@ -1,37 +1,27 @@
 # Shared Interaction Model — Design Record
 
-Why the two platforms feel like one product: the panel structure, the
-workflow, and its vocabulary are a single design, implemented once and
-rendered on both platforms. The [desktop guide](../../user/desktop-windows.md#record-a-workflow) states
-the claim in one line — "the same workflow as the Chrome extension" — and
-this record says what that means concretely, then names the deliberate platform
-differences with the documents that own each. The mechanism holding the
-parity is architecture territory:
-[Shared Core §SC-1](../../architecture/system/shared-core.md#the-parity-rule)
-— behaviour-defining logic implemented once, consumed through each
-platform's adapter.
+Why the two platforms feel like one product: the panel structure, the workflow, and its vocabulary are a single design, implemented once and rendered on both platforms. The [desktop guide](../../user/desktop-windows.md#record-a-workflow) states the claim in one line: "the same workflow as the Chrome extension". This record says what that means concretely, then names the deliberate platform differences with the documents that own each. The mechanism holding the parity is architecture territory: [Shared Core §SC-1](../../architecture/system/shared-core.md#the-parity-rule), behavior-defining logic implemented once, consumed through each platform's adapter.
 
 ## One panel structure
 
-Both platforms render the same panel markup: the single shared fragment
-([`views.html`](../../../packages/shared/views/views.html)) is injected into
-each platform's document shell at build time
-([one fragment, two shells](../../architecture/system/shared-core.md#shared-views--one-fragment-two-shells)),
-styled by the shared stylesheet and populated by the shared rendering
-functions. The views are: the projects list, the new-project and
-new-recording forms, the project view (recordings, export, send), the
-recording view (step context input, captured actions, step list), step
-history, step detail, the dispatch confirmation and result views, the
-recording selector, the sync resolution view, and Settings. The desktop
-assembly applies one deliberate text transform — the theme option "Follow
-browser" becomes "Follow system"
-([Shared Core](../../architecture/system/shared-core.md#shared-views--one-fragment-two-shells)
-owns it).
+Both platforms render the same panel markup. The single shared fragment ([`views.html`](../../../packages/shared/views/views.html)) is injected into each platform's document shell at build time ([one fragment, two shells](../../architecture/system/shared-core.md#shared-views--one-fragment-two-shells)), styled by the shared stylesheet and populated by the shared rendering functions. The views are:
+
+- the projects list;
+- the new-project and new-recording forms;
+- the project view (recordings, export, send);
+- the recording view (step context input, captured actions, step list);
+- step history;
+- step detail;
+- the dispatch confirmation and result views;
+- the recording selector;
+- the sync resolution view;
+- Settings.
+
+The desktop assembly applies one deliberate text transform: the theme option "Follow browser" becomes "Follow system" ([Shared Core](../../architecture/system/shared-core.md#shared-views--one-fragment-two-shells) owns it).
 
 ## The same workflow verbs
 
-The authoring workflow is one design; the user guides document it once, and
-the desktop guide defers to the extension guide for the shared flows:
+The authoring workflow is one design. The user guides document it once, and the desktop guide defers to the extension guide for the shared flows:
 
 | Verb       | What it is                                                                                 | Owned by                                                                                                                  |
 | ---------- | ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------- |
@@ -42,60 +32,18 @@ the desktop guide defers to the extension guide for the shared flows:
 | **send**   | Dispatch recordings to a configured endpoint.                                              | [Extension guide](../../user/extension.md#send); [Dispatch Protocol](../../api/dispatch.md)                               |
 | **sync**   | Keep projects in step with a sync server.                                                  | [Extension guide](../../user/extension.md#sync); [Sync Protocol](../../api/sync-protocol.md)                              |
 
-The behaviour behind every verb — the session model, import acceptance,
-dispatch delivery, the sync cycle, and the step/action rendering — is the
-shared layer's
-([what the shared layer contains](../../architecture/system/shared-core.md#what-the-shared-layer-contains)).
+The behavior behind every verb is the shared layer's: the session model, import acceptance, dispatch delivery, the sync cycle, and the step/action rendering ([what the shared layer contains](../../architecture/system/shared-core.md#what-the-shared-layer-contains)).
 
 ## The deliberate platform differences
 
-Each difference is deliberate, and each is owned by a document:
+Each difference is owned by a document:
 
-- **Capture source and target selection** — the extension captures the
-  browser; the desktop captures native Windows applications and adds one
-  workflow step, selecting a target application
-  ([desktop guide](../../user/desktop-windows.md#record-a-workflow)). The
-  capture layers themselves are platform-native and governed by their own
-  documents
-  ([extension](../../architecture/application/extension/capture-principles.md),
-  [desktop](../../architecture/application/desktop/windows/capture-principles.md)).
-- **File dialogs** — the desktop opens native save/open dialogs from the
-  Rust shell
-  ([application shell — command surface](../../architecture/application/desktop/windows/application-shell.md#the-command-surface));
-  the extension uses the browser's download and file-picker flows. The
-  adapter's `hasNativeFileDialog` capability flag selects the flow
-  ([the adapter seam](../../architecture/system/shared-core.md#the-adapter-seam)).
-- **Tray keep-alive** — with Auto-sync on, closing the desktop window hides
-  it to the system tray so background cycles keep running
-  ([application shell — keep-alive](../../architecture/application/desktop/windows/application-shell.md#background-auto-sync-keep-alive);
-  [desktop guide — Sync](../../user/desktop-windows.md#sync)); the
-  extension's background context is its service worker
-  ([extension runtime](../../architecture/application/extension/runtime.md)).
-- **Pending-buffer persistence** — the extension persists the pending
-  capture buffer (it survives a worker suspension; across a browser restart it
-  is kept until a recording is opened or created, which discards it); the desktop
-  holds it in memory, and quitting discards uncommitted actions. Owned by
-  [Persistence](../../architecture/system/persistence.md#deliberately-ephemeral-state).
-- **Storage pressure** — the extension pauses capture and shows a banner
-  when `chrome.storage.local` nears its quota, with a resume control; the
-  desktop's session file has no quota and no such pause
-  ([Persistence — storage pressure](../../architecture/system/persistence.md#storage-pressure)).
-- **Local control** — the extension's panel carries a header control, a
-  setup group and an indicator for the opt-in channel through which a local
-  process runs the panel's structuring actions and, when the person ticks the
-  setup group's export checkbox, exports the open project, which the indicator
-  then shows; the desktop has no such channel ([Local Control Channel](../../api/control-channel.md)).
-- **Self-capture exclusion** — the desktop offers a setting that keeps its own
-  process (its window and the dialogs it opens) out of a recording, because its
-  hooks see every window; the
-  extension's recorder is never injected into its own panel
-  ([desktop guide](../../user/desktop-windows.md#record-a-workflow)).
-- **Where the data lives** — the extension keeps its model in
-  `chrome.storage`; the desktop keeps it in a session file, with the API keys
-  in the operating system's credential store
-  ([Persistence](../../architecture/system/persistence.md)).
-- **The API key across a restart** — the extension's stored API keys read as
-  "not configured" after a browser restart and are re-entered, with the
-  consequence for Auto-sync stated in Persistence; the desktop's keys persist
-  in the credential store
-  ([Persistence — deliberately ephemeral state](../../architecture/system/persistence.md#deliberately-ephemeral-state)).
+- **Capture source and target selection.** The extension captures the browser. The desktop captures native Windows applications and adds one workflow step, selecting a target application ([desktop guide](../../user/desktop-windows.md#record-a-workflow)). The capture layers themselves are platform-native and governed by their own documents ([extension](../../architecture/application/extension/capture-principles.md), [desktop](../../architecture/application/desktop/windows/capture-principles.md)).
+- **File dialogs.** The desktop opens native save/open dialogs from the Rust shell ([application shell — command surface](../../architecture/application/desktop/windows/application-shell.md#the-command-surface)). The extension uses the browser's download and file-picker flows. The adapter's `hasNativeFileDialog` capability flag selects the flow ([the adapter seam](../../architecture/system/shared-core.md#the-adapter-seam)).
+- **Tray keep-alive.** With Auto-sync on, closing the desktop window hides it to the system tray so background cycles keep running ([application shell — keep-alive](../../architecture/application/desktop/windows/application-shell.md#background-auto-sync-keep-alive); [desktop guide — Sync](../../user/desktop-windows.md#sync)). The extension's background context is its service worker ([extension runtime](../../architecture/application/extension/runtime.md)).
+- **Pending-buffer persistence.** The extension persists the pending capture buffer. It survives a worker suspension; across a browser restart it is kept until a recording is opened or created, which discards it. The desktop holds it in memory, and quitting discards uncommitted actions. Owned by [Persistence](../../architecture/system/persistence.md#deliberately-ephemeral-state).
+- **Storage pressure.** The extension pauses capture and shows a banner when `chrome.storage.local` nears its quota, with a resume control. The desktop's session file has no quota and no such pause ([Persistence — storage pressure](../../architecture/system/persistence.md#storage-pressure)).
+- **Local control.** The extension's panel carries a header control, a setup group and an indicator for the opt-in channel. Through it a local process runs the panel's structuring actions and, when the person ticks the setup group's export checkbox, exports the open project, which the indicator then shows. The desktop has no such channel ([Local Control Channel](../../api/control-channel.md)).
+- **Self-capture exclusion.** The desktop offers a setting that keeps its own process (its window and the dialogs it opens) out of a recording, because its hooks see every window. The extension's recorder is never injected into its own panel ([desktop guide](../../user/desktop-windows.md#record-a-workflow)).
+- **Where the data lives.** The extension keeps its model in `chrome.storage`. The desktop keeps it in a session file, with the API keys in the operating system's credential store ([Persistence](../../architecture/system/persistence.md)).
+- **The API key across a restart.** The extension's stored API keys read as "not configured" after a browser restart and are re-entered; Persistence states the consequence for Auto-sync. The desktop's keys persist in the credential store ([Persistence — deliberately ephemeral state](../../architecture/system/persistence.md#deliberately-ephemeral-state)).
