@@ -1,9 +1,6 @@
 # Test strategy — mutation testing
 
-Mutation testing is a **repo-health signal** that measures how well the unit suites
-would _catch_ a regression — not whether they pass. It seeds small faults
-("mutants") into the source and checks that some test then fails. A mutant that
-survives is a line the tests execute but do not actually pin.
+Mutation testing is a **repo-health signal**. It measures how well the unit suites would _catch_ a regression, not whether they pass. It seeds small faults ("mutants") into the source and checks that some test then fails. A mutant that survives is a line the tests execute but do not pin.
 
 Each rule carries a stable identifier (**MUT-n**) so other documents, reviews,
 and checks can cite it precisely. Identifiers are never renumbered; a retired

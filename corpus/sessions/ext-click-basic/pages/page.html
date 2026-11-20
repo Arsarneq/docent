@@ -16,6 +16,8 @@
     />
     <!-- Deliberately no id/data-testid: the derived css locator stays structural
          (page-authoring rule: the css checklist row must not collapse to #id). -->
-    <button>Plain</button>
+    <!-- Its own lang differs from the page's: the recorded language is the
+         nearest declaration, not the document's. -->
+    <button lang="da">Plain</button>
   </body>
 </html>

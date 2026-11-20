@@ -16,6 +16,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use super::action_mapping::PASSWORD_MASK;
 use super::coordinate;
+use super::language::preferred_languages;
 use super::scroll::{RawScrollEvent, ScrollAccumulator};
 use super::{
     ActionEvent, ActionPayload, CaptureError, CaptureMode, ElementDescription, HeldKeysAtAction,
@@ -321,6 +322,7 @@ fn emit_barrier_sentinel(action_sender: &mpsc::Sender<ActionEvent>, barrier_id: 
         capture_mode: CaptureMode::Accessibility,
         frame_src: None,
         window_rect: None,
+        preferred_languages: None,
         sequence_id: None,
         payload: ActionPayload::BarrierComplete { barrier_id },
     });
@@ -412,6 +414,7 @@ impl PendingBuffers {
                 capture_mode: CaptureMode::Accessibility,
                 frame_src: None,
                 window_rect: None,
+                preferred_languages: preferred_languages(),
                 sequence_id: None,
                 payload: ActionPayload::Scroll {
                     element: None,
@@ -1328,6 +1331,7 @@ fn strip_identity_claims(element: &mut ElementDescription) {
     element.size_of_set = None;
     element.level = None;
     element.framework_id = None;
+    element.language = None;
     element.described_after_ms = None;
 }
 
@@ -1827,6 +1831,7 @@ pub fn worker_loop<B: AccessibilityBackend>(
                         capture_mode: CaptureMode::Accessibility,
                         frame_src: None,
                         window_rect: None,
+                        preferred_languages: preferred_languages(),
                         sequence_id: None,
                         payload: ActionPayload::Scroll {
                             element: None,
@@ -2467,6 +2472,7 @@ fn process_raw_event<B: AccessibilityBackend>(
                 capture_mode: CaptureMode::Accessibility,
                 frame_src: None,
                 window_rect: window_rect.clone(),
+                preferred_languages: preferred_languages(),
                 sequence_id: Some(raw.sequence_id),
                 payload: ActionPayload::ContextOpen {
                     // The pipeline does not observe which window caused this
@@ -2487,6 +2493,7 @@ fn process_raw_event<B: AccessibilityBackend>(
                 capture_mode: CaptureMode::Accessibility,
                 frame_src: None,
                 window_rect: window_rect.clone(),
+                preferred_languages: preferred_languages(),
                 sequence_id: Some(raw.sequence_id),
                 payload: ActionPayload::ContextClose {
                     window_closing: true,
@@ -2510,6 +2517,7 @@ fn process_raw_event<B: AccessibilityBackend>(
                     capture_mode: CaptureMode::Accessibility,
                     frame_src: None,
                     window_rect: window_rect.clone(),
+                    preferred_languages: preferred_languages(),
                     sequence_id: Some(raw.sequence_id),
                     payload: ActionPayload::Scroll {
                         element: None,
@@ -2700,6 +2708,7 @@ fn handle_click<B: AccessibilityBackend>(
         capture_mode,
         frame_src: None,
         window_rect: window_rect.clone(),
+        preferred_languages: preferred_languages(),
         sequence_id: Some(raw.sequence_id),
         payload,
     });
@@ -2746,6 +2755,7 @@ fn handle_click<B: AccessibilityBackend>(
             capture_mode: CaptureMode::Accessibility,
             frame_src: None,
             window_rect: pick.window_rect,
+            preferred_languages: preferred_languages(),
             sequence_id: Some(raw.sequence_id),
             payload: ActionPayload::FileDialog {
                 dialog_type: pick.dialog_type,
@@ -2808,6 +2818,7 @@ fn handle_focus<B: AccessibilityBackend>(
         capture_mode: CaptureMode::Accessibility,
         frame_src: None,
         window_rect,
+        preferred_languages: preferred_languages(),
         sequence_id: Some(raw.sequence_id),
         payload: ActionPayload::Focus { element },
     });
@@ -3166,6 +3177,7 @@ fn handle_selection<B: AccessibilityBackend>(
         capture_mode: CaptureMode::Accessibility,
         frame_src: None,
         window_rect,
+        preferred_languages: preferred_languages(),
         sequence_id: Some(raw.sequence_id),
         payload: ActionPayload::Select {
             element: final_element,
@@ -3214,6 +3226,7 @@ fn handle_keyboard<B: AccessibilityBackend>(
             capture_mode: CaptureMode::Accessibility,
             frame_src: None,
             window_rect: None,
+            preferred_languages: preferred_languages(),
             sequence_id: Some(raw.sequence_id),
             payload: ActionPayload::Key {
                 key,
@@ -3357,6 +3370,7 @@ fn handle_keyboard<B: AccessibilityBackend>(
         capture_mode: CaptureMode::Accessibility,
         frame_src: None,
         window_rect,
+        preferred_languages: preferred_languages(),
         sequence_id: Some(raw.sequence_id),
         payload: ActionPayload::Key {
             key: key.clone(),
@@ -3421,6 +3435,7 @@ fn handle_foreground<B: AccessibilityBackend>(
         capture_mode: CaptureMode::Accessibility,
         frame_src: None,
         window_rect,
+        preferred_languages: preferred_languages(),
         sequence_id: Some(raw.sequence_id),
         payload: ActionPayload::ContextSwitch {
             source,
@@ -3457,6 +3472,7 @@ fn handle_drag_start<B: AccessibilityBackend>(
         capture_mode: CaptureMode::Accessibility,
         frame_src: None,
         window_rect,
+        preferred_languages: preferred_languages(),
         sequence_id: Some(raw.sequence_id),
         payload: ActionPayload::DragStart {
             modifiers: modifiers_of(raw),
@@ -3491,6 +3507,7 @@ fn handle_drop<B: AccessibilityBackend>(
         capture_mode: CaptureMode::Accessibility,
         frame_src: None,
         window_rect,
+        preferred_languages: preferred_languages(),
         sequence_id: Some(raw.sequence_id),
         payload: ActionPayload::Drop {
             x: raw.screen_x as f64,
@@ -3521,6 +3538,7 @@ fn flush_pending_type(
             capture_mode: CaptureMode::Accessibility,
             frame_src: None,
             window_rect: pt.window_rect,
+            preferred_languages: preferred_languages(),
             sequence_id: Some(pt.sequence_id),
             payload: ActionPayload::Type {
                 element: pt.element,
@@ -3626,6 +3644,7 @@ mod tests {
             capture_mode: CaptureMode::Accessibility,
             frame_src: None,
             window_rect: None,
+            preferred_languages: preferred_languages(),
             sequence_id: Some(1),
             payload: ActionPayload::Key {
                 key: key.to_string(),

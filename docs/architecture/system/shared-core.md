@@ -1,15 +1,11 @@
 # Shared Core — One Implementation on Both Platforms
 
-Docent's two platforms present the same recording model, panel behaviour,
-sync, and dispatch. That parity is held by construction, not by convention:
-the behaviour-defining logic is implemented once, in `packages/shared/`, and
-each platform consumes it through a thin platform adapter. This document
-covers the two halves of that arrangement — the **runtime architecture**
-(what the shared layer contains, and the adapter seam it is consumed
-through) and the **build-time mechanism** (`npm run sync-shared`, which
-places the shared source inside each platform package). Its companion,
-[Persistence](persistence.md), covers where each platform keeps the data
-this logic operates on.
+Docent's two platforms present the same recording model, panel behaviour, sync, and dispatch. That parity is held by construction, not by convention: the behaviour-defining logic is implemented once, in `packages/shared/`, and each platform consumes it through a thin platform adapter. This document covers the two halves of that arrangement:
+
+- the **runtime architecture**: what the shared layer contains, and the adapter seam it is consumed through;
+- the **build-time mechanism**: `npm run sync-shared`, which places the shared source inside each platform package.
+
+Its companion, [Persistence](persistence.md), covers where each platform keeps the data this logic operates on.
 
 Each rule carries a stable identifier (**SC-n**) so other documents, reviews,
 and checks can cite it precisely. Identifiers are never renumbered; a retired
@@ -56,47 +52,21 @@ this architecture is what supplies it.
 | Views                            | `views/views.html`, `views/panel.css`, `views/render.js`, `views/adapter.js`                                                                                                                                 | The panel's HTML structure and styles, the pure rendering functions, and the platform-adapter interface declaration                                                                                                                                                                     |
 | Bundled assets                   | `assets/` (`icons/icon.svg`, `reading-guidance.md`)                                                                                                                                                          | Product assets riding the copy: the dispatch payload's reading guidance ([dispatch §DI-5](../../api/dispatch.md#reading-guidance)) is loaded by both adapters from the synced tree; the icon set's consumers read the source path                                                       |
 
-The shared package also carries its own unit suites
-(`packages/shared/tests/`, run by `npm run test:shared` against the source in
-place); tests are excluded from the platform copies.
+The shared package also carries its own unit suites (`packages/shared/tests/`, run by `npm run test:shared` against the source in place). Tests are excluded from the platform copies.
 
 ---
 
 ## The adapter seam
 
-The adapter's core surface is declared as the `PlatformAdapter` typedef in
-[`packages/shared/views/adapter.js`](../../../packages/shared/views/adapter.js),
-which states every obligation below. Each platform implements the seam once:
-[`adapter-chrome.js`](../../../packages/extension/sidepanel/adapter-chrome.js)
-over Chrome extension APIs, and
-[`adapter-tauri.js`](../../../packages/desktop/src/adapter-tauri.js) over
-Tauri v2 `invoke`/`listen`. The shared modules themselves are
-platform-call-free: each platform's panel driver consumes the adapter to
-wire the shared views and modules to platform facilities, and where shared
-code itself must reach platform behaviour it does so through the
-injected seams below — the sync-state store it is handed, the live-state
-view and sync trigger each platform binds, and the rebindable HTTP
-transport. What the seam requires of an adapter:
+The `PlatformAdapter` typedef in [`packages/shared/views/adapter.js`](../../../packages/shared/views/adapter.js) declares the adapter's core surface and states every obligation below. Each platform implements the seam once: [`adapter-chrome.js`](../../../packages/extension/sidepanel/adapter-chrome.js) over Chrome extension APIs, and [`adapter-tauri.js`](../../../packages/desktop/src/adapter-tauri.js) over Tauri v2 `invoke`/`listen`.
 
-- **Backend messaging** — `send(message)` is the seam's backend-messaging
-  member: the extension panel's route to its service worker, and on the desktop
-  the route for the message types the Tauri adapter maps onto backend commands,
-  which that adapter file enumerates. What each platform answers is stated by
-  the typedef's own `send` entry. The desktop panel reaches the backend by
-  `invoke` directly as well, under the caller and direct-invoke closures the
-  [application shell](../application/desktop/windows/application-shell.md#the-command-surface)
-  states.
-- **Settings persistence** — load/save for dispatch settings, sync settings,
-  the theme, and the default step-context mode, each backed by the
-  platform's own storage ([Persistence](persistence.md)).
-- **Bundled assets** — the reading-guidance prose, the platform's composed
-  schema, and the platform's generated import validator, each loaded from
-  the synced `shared/` tree (below).
-- **The capture feed** — `onActionEvent` delivers each captured action to
-  the panel as it arrives, with `getPendingCount`/`onPendingCountChange`
-  beside it.
-- **Capability flags** — `hasNativeFileDialog` selects the export/import
-  file flow.
+The shared modules themselves are platform-call-free. Each platform's panel driver consumes the adapter to wire the shared views and modules to platform facilities. Where shared code itself must reach platform behavior, it does so through the injected seams below: the sync-state store it is handed, the live-state view and sync trigger each platform binds, and the rebindable HTTP transport. What the seam requires of an adapter:
+
+- **Backend messaging.** `send(message)` is the seam's backend-messaging member. It is the extension panel's route to its service worker. On the desktop it is the route for the message types the Tauri adapter maps onto backend commands, which that adapter file enumerates. The typedef's own `send` entry states what each platform answers. The desktop panel also reaches the backend by `invoke` directly, under the caller and direct-invoke closures the [application shell](../application/desktop/windows/application-shell.md#the-command-surface) states.
+- **Settings persistence.** Load/save for dispatch settings, sync settings, the theme, and the default step-context mode, each backed by the platform's own storage ([Persistence](persistence.md)).
+- **Bundled assets.** The reading-guidance prose, the platform's composed schema, and the platform's generated import validator, each loaded from the synced `shared/` tree (below).
+- **The capture feed.** `onActionEvent` delivers each captured action to the panel as it arrives, with `getPendingCount`/`onPendingCountChange` beside it.
+- **Capability flags.** `hasNativeFileDialog` selects the export/import file flow.
 
 **SC-3.** Each platform's concrete adapter MUST implement every member the
 `PlatformAdapter` typedef declares, and a member every concrete adapter
@@ -157,30 +127,15 @@ adapters above, the large pieces are:
 
 ## Shared views — one fragment, two shells
 
-[`scripts/inject-shared-views.js`](../../../scripts/inject-shared-views.js)
-assembles each platform's panel page from two committed sources: the
-platform's document shell (`index.shell.html`) and the single shared
-fragment `packages/shared/views/views.html`, which replaces the shell's
-`<!-- SHARED_VIEWS -->` marker. The desktop assembly applies one transform —
-the theme option label "Follow browser" becomes "Follow system". Both panels
-therefore render the same view markup, styled by the shared
-`views/panel.css` and populated by the rendering functions in
-`views/render.js` — pure HTML-string functions with no DOM manipulation and
-no platform calls, so how a step or action is rendered is defined once. The
-two shells differ in presentation — the document title ("Docent" and "Docent
-Desktop"), a header logo the desktop shell carries, and the column each
-platform's panel driver places a row's attention badges in — and in
-the controls each platform's
-deliberate differences add outside the fragment (the desktop's target-application
-selector and self-capture toggle, the extension's storage-pressure banner
-and local control),
-which the
-[index of deliberate differences](../../design/ui_ux/shared-interaction-model.md#the-deliberate-platform-differences)
-lists, and in the content-security policy each shell's head declares (the
-[application shell](../application/desktop/windows/application-shell.md#native-http-transport)
-states the desktop's). The
-assembled `index.html` files are committed build output (see
-[freshness](#the-outputs-and-their-freshness) below).
+[`scripts/inject-shared-views.js`](../../../scripts/inject-shared-views.js) assembles each platform's panel page from two committed sources: the platform's document shell (`index.shell.html`) and the single shared fragment `packages/shared/views/views.html`, which replaces the shell's `<!-- SHARED_VIEWS -->` marker. The desktop assembly applies one transform: the theme option label "Follow browser" becomes "Follow system". So both panels render the same view markup. The shared `views/panel.css` styles it, and the rendering functions in `views/render.js` populate it. The `views/render.js` functions are pure HTML-string functions with no DOM manipulation and no platform calls, so how a step or action is rendered is defined once.
+
+The two shells differ in:
+
+- presentation: the document title ("Docent" and "Docent Desktop"), a header logo the desktop shell carries, and the column each platform's panel driver places a row's attention badges in;
+- the controls each platform's deliberate differences add outside the fragment (the desktop's target-application selector and self-capture toggle, the extension's storage-pressure banner and local control), which the [index of deliberate differences](../../design/ui_ux/shared-interaction-model.md#the-deliberate-platform-differences) lists;
+- the content-security policy each shell's head declares (the [application shell](../application/desktop/windows/application-shell.md#native-http-transport) states the desktop's).
+
+The assembled `index.html` files are committed build output (see [freshness](#the-outputs-and-their-freshness) below).
 
 ---
 
@@ -188,32 +143,21 @@ assembled `index.html` files are committed build output (see
 
 ### Why a copy
 
-A Chrome extension — like other sandboxed runtimes — cannot import modules
-from outside its own root directory, so the platforms cannot import
-`packages/shared/` in place.
-[`scripts/sync-shared.js`](../../../scripts/sync-shared.js) copies it into
-each platform package instead, where relative imports like
-`../shared/lib/session.js` resolve at runtime.
+A Chrome extension, like other sandboxed runtimes, cannot import modules from outside its own root directory. So the platforms cannot import `packages/shared/` in place. [`scripts/sync-shared.js`](../../../scripts/sync-shared.js) copies it into each platform package instead, where relative imports like `../shared/lib/session.js` resolve at runtime.
 
 ### What a sync does
 
-Each run (steps 2–4 per target — `extension`, `desktop`; both by default;
-steps 1 and 5 once per invocation):
+Each run does steps 2–4 per target (`extension`, `desktop`; both by default) and steps 1 and 5 once per invocation:
 
 1. regenerates the per-platform import validators once up front
    (`scripts/build-validators.js` → `packages/shared/generated/`);
 2. deletes and re-copies `packages/shared/` → `packages/<target>/shared/`,
    excluding any path that contains `tests` or `generated` (today exactly the
    `tests/` and `generated/` directories);
-3. writes `packages/<target>/shared/session.schema.json`, composed in memory
-   from the schema source layers — never copied from `schemas/dist/`, which
-   is release output and can lag the source layers within a PR
-   ([session-format — JSON Schema files](../../technical/session-format.md#json-schema-files));
+3. writes `packages/<target>/shared/session.schema.json`, composed in memory from the schema source layers and never copied from `schemas/dist/`, which is release output and can lag the source layers within a PR ([session-format — JSON Schema files](../../technical/session-format.md#json-schema-files));
 4. copies only the target's own generated validator into
    `shared/generated/`;
-5. runs the [shared-views injection](#shared-views--one-fragment-two-shells)
-   after the target loop — it reassembles **both** platforms' `index.html`
-   regardless of which targets were requested.
+5. runs the [shared-views injection](#shared-views--one-fragment-two-shells) after the target loop; it reassembles **both** platforms' `index.html` regardless of which targets were requested.
 
 ### The outputs and their freshness
 

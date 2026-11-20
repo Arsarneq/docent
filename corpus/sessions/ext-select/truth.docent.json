@@ -33,6 +33,7 @@
               "element": {
                 "autocomplete": null,
                 "id": "color",
+                "language": "en",
                 "locators": [
                   {
                     "match_count": 1,
@@ -83,7 +84,8 @@
               "timestamp": 1783348330859,
               "type": "click",
               "x": 38,
-              "y": 17
+              "y": 17,
+              "preferred_languages": ["en-US"]
             },
             {
               "capture_mode": "dom",
@@ -91,6 +93,7 @@
               "element": {
                 "autocomplete": null,
                 "id": "color",
+                "language": "en",
                 "locators": [
                   {
                     "match_count": 1,
@@ -138,6 +141,7 @@
                 "type": null
               },
               "frame_src": null,
+              "preferred_languages": ["en-US"],
               "timestamp": 1783348330889,
               "type": "select",
               "value": "Blue"

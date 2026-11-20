@@ -33,6 +33,7 @@
               "element": {
                 "autocomplete": null,
                 "id": "thumb",
+                "language": "en",
                 "locators": [
                   {
                     "match_count": 1,
@@ -69,7 +70,8 @@
               },
               "context_id": 1311598376,
               "capture_mode": "dom",
-              "frame_src": null
+              "frame_src": null,
+              "preferred_languages": ["en-US"]
             },
             {
               "type": "drop",
@@ -86,6 +88,7 @@
               "element": {
                 "autocomplete": null,
                 "id": "thumb",
+                "language": "en",
                 "locators": [
                   {
                     "match_count": 1,
@@ -123,6 +126,7 @@
               "source_element": {
                 "autocomplete": null,
                 "id": "thumb",
+                "language": "en",
                 "locators": [
                   {
                     "match_count": 1,
@@ -159,7 +163,8 @@
               },
               "context_id": 1311598376,
               "capture_mode": "dom",
-              "frame_src": null
+              "frame_src": null,
+              "preferred_languages": ["en-US"]
             }
           ],
           "deleted": false,

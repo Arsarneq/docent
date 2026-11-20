@@ -33,6 +33,7 @@
               "element": {
                 "autocomplete": null,
                 "id": "password",
+                "language": "en",
                 "locators": [
                   {
                     "match_count": 1,
@@ -78,7 +79,8 @@
               "timestamp": 1783348350069,
               "type": "click",
               "x": 96,
-              "y": 18
+              "y": 18,
+              "preferred_languages": ["en-US"]
             },
             {
               "capture_mode": "dom",
@@ -86,6 +88,7 @@
               "element": {
                 "autocomplete": null,
                 "id": "password",
+                "language": "en",
                 "locators": [
                   {
                     "match_count": 1,
@@ -128,6 +131,7 @@
                 "type": "password"
               },
               "frame_src": null,
+              "preferred_languages": ["en-US"],
               "timestamp": 1783348350205,
               "type": "type",
               "value": "••••••••"
@@ -145,6 +149,7 @@
               "element": {
                 "autocomplete": "cc-number",
                 "id": "cc-number",
+                "language": "en",
                 "locators": [
                   {
                     "match_count": 1,
@@ -190,7 +195,8 @@
               "timestamp": 1783348350206,
               "type": "click",
               "x": 277,
-              "y": 18
+              "y": 18,
+              "preferred_languages": ["en-US"]
             },
             {
               "capture_mode": "dom",
@@ -198,6 +204,7 @@
               "element": {
                 "autocomplete": "cc-number",
                 "id": "cc-number",
+                "language": "en",
                 "locators": [
                   {
                     "match_count": 1,
@@ -240,6 +247,7 @@
                 "type": "text"
               },
               "frame_src": null,
+              "preferred_languages": ["en-US"],
               "timestamp": 1783348350266,
               "type": "type",
               "value": "••••••••"
@@ -257,6 +265,7 @@
               "element": {
                 "autocomplete": "cc-exp",
                 "id": "cc-exp",
+                "language": "en",
                 "locators": [
                   {
                     "match_count": 1,
@@ -309,7 +318,8 @@
               "timestamp": 1783348350273,
               "type": "click",
               "x": 409,
-              "y": 18
+              "y": 18,
+              "preferred_languages": ["en-US"]
             },
             {
               "capture_mode": "dom",
@@ -317,6 +327,7 @@
               "element": {
                 "autocomplete": "cc-exp",
                 "id": "cc-exp",
+                "language": "en",
                 "locators": [
                   {
                     "match_count": 1,
@@ -366,6 +377,7 @@
                 "type": null
               },
               "frame_src": null,
+              "preferred_languages": ["en-US"],
               "timestamp": 1783348350294,
               "type": "select",
               "value": "••••••••"

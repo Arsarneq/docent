@@ -9,6 +9,7 @@
   "element_facts": {
     "autocomplete": null,
     "id": null,
+    "language": "da",
     "name": null,
     "role": null,
     "selector": "button:nth-of-type(2)",
