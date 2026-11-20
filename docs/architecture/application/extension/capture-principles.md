@@ -140,7 +140,10 @@ phase, for exactly these DOM events, on `document` unless the item names
   the recorder reports it to the worker, which asks them to end their typing
   (extension runtime ERT-4) and stores what the pressing frame writes next
   behind their answers, for up to the bound stated below: their entry stands
-  ahead of the `click` of the press, however short the press was
+  ahead of the `click` of the press, however short the press was; the press
+  of the right button is the right-click itself, written here with the
+  position, the modifiers and the held keys of the press, as on the desktop,
+  its element picked as for `click`
 - `click` — activation of the clicked element or its nearest interactive
   ancestor (the set the recorder tests is stated in the session-format
   document's action table; core CP-18); a click on a `label` is the label's,
@@ -152,10 +155,15 @@ phase, for exactly these DOM events, on `document` unless the item names
   sends when its list closes from the keyboard is an effect of the same kind
   and writes nothing (the keys pressed inside the open list do not reach the
   page, so the closing leaves no other trace)
-- `contextmenu` — the right-click, its element picked as for `click`; a menu
-  asked for with a key (the Menu key, Shift+F10) is that key's effect (core
-  CP-6) and writes nothing, as on the desktop: it does not carry the right button, and
-  the browser sends it while it handles one of that key's events
+- `contextmenu` — the browser's request for a context menu. A request that
+  carries the right button follows a press of that button, at the press or
+  at the release as the system has it, and writes nothing: the press wrote
+  the right-click. A request that carries no right button and comes outside
+  a key's events (a long press on a touch screen) is written as the
+  right-click, with what its own event states. A menu asked for with a key
+  (the Menu key, Shift+F10) is that key's effect (core CP-6) and writes
+  nothing, as on the desktop: it does not carry the right button, and the
+  browser sends it while it handles one of that key's events
 - `keydown` — every key press that is not text, on the focused element, or on
   the body when nothing is focused. Two presses are never written: Shift,
   Ctrl, Alt or AltGr pressed alone (the actions made while it is held state
@@ -217,7 +225,7 @@ phase, for exactly these DOM events, on `document` unless the item names
   whose key-down was written as a `key` (the press, or the first repeat the
   document saw when it did not see the press; not yet released), by the names
   those `key` actions carry, in the order they went down, and a `click`, a
-  `contextmenu`, a `dragstart` and a `drop` write the same list beside the
+  right-click, a `dragstart` and a `drop` write the same list beside the
   modifier keys their event reports
 - `keypress` — the character event of a key press, during which the browser
   enters the key's text: a character key still held back once the browser is
@@ -544,6 +552,10 @@ with a caveat):
   page's `window.close()`; a departure (core CP-18)
 - A click or right-click whose picked element is the body or the document
   element — not written; a departure (core CP-18)
+- A context menu asked for with no press of the right button and no key (a
+  long press on a touch screen): written as a `right_click` at the browser's
+  request for the menu, with the modifiers and held keys of that moment; a
+  departure (core CP-18)
 - A click on a `label` inside a closed shadow root — written twice, both
   against the shadow host: the label's click and the click the browser sends
   on to its control, since the closed root hides the label from the recorder;
