@@ -308,10 +308,14 @@ machinery under `scripts/`.
 
 ### `check-doc-closure.test.js`
 
-- each closure leg of the guides, the job partition, the registered script-key citations held in
-  both directions, the runner cells read through each table's own grammar and the act verdicts
-  against the boundaries the workflow states, the anchor phrase held to its one home among the
-  checks with the routing predicate carrying the classification, and a real-tree lock.
+- each closure leg of the guides and the job partition
+- the registered script-key citations, held in both directions
+- the runner cells, read through each table's own grammar, and the act verdicts against the
+  boundaries the workflow states
+- the diagnosis for a workflow with no top-level `jobs:` key: its wording lives in this check alone,
+  and another check that acts on the condition asks `isJobAnchorProblem` instead of repeating the
+  words
+- a real-tree lock.
 
 ### `check-docs-disposition.test.js`
 
@@ -567,7 +571,10 @@ machinery under `scripts/`.
   different path lists, two family names nesting inside one exact path list and one name stated
   twice there over one hash input, each family's own prefix first in its restore keys with a
   fallback reaching an entry under a shared stem refused and one reaching a different stem left
-  alone, a split save stating no gate read as unconditional, the guide subsection those cells are
+  alone, a coverage job's cached `target` tree keyed on its own toolchain step's `cachekey` in the
+  family prefix and in every fallback, that step the toolchain action itself, unconditional and ahead of
+  the first cache step, with a job measuring nothing or caching no `target` tree left
+  alone (#700), a split save stating no gate read as unconditional, the guide subsection those cells are
   read from cut by the shared heading slice so a heading stated more than once yields its first run,
   and a key's version segment, install pin and guide version held to one another. And the shapes it
   refuses on its own exit code rather than passing vacuously, with
@@ -688,7 +695,7 @@ half of the extension is documented in
 | `navigation-logic.test.js` | The navigation and tab-creation capture decisions across transition types and timing states, and a static-source guard that the worker's listeners decide through the module. |
 | `panel.test.js` | The send gate in the panel, run against the shipped send-gate module: button state, recording selection and the confirmation summary; the cancel path is simulated. |
 | `project-export.test.js` | The panel's export build, run against the shipped module: the project open in the panel asked for by its id, the stamped document, and failures answered in-band. |
-| `recorder-logic.test.js` | The extracted content-script logic (selector derivation, locator measurement, element description, the scroll decision) and the recorder's scroll literals. |
+| `recorder-logic.test.js` | The extracted content-script logic (selector derivation, locator measurement, element description, the captured-key decision, the scroll decision) and the recorder's scroll literals. |
 | `recorder-mirror-parity.test.js` | The recorder's two copies of the capture logic stay textually identical under the mechanical transformation. |
 | `recording-mode.test.js` | Recording-mode persistence through the Chrome adapter. |
 | `regression-294-window-rect.test.js` | A static-source guard that the extension emits no desktop-only window rectangle field. |

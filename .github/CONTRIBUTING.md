@@ -43,7 +43,9 @@ the section that states it in full.
    npm run test:unit     # the shared, desktop and extension unit suites
    ```
 
-   Add the suite for the layer you touched; [Running Tests](#running-tests)
+   The checks in `npm run lint` that look for files (the area map and the test
+   inventory among them) see only the files git tracks, so `git add` a new file
+   before you run them. Add the suite for the layer you touched; [Running Tests](#running-tests)
    lists them, with the one-time install two of them need. CI picks further
    suites from the paths a diff touches: a schema change, for one, also runs
    the end-to-end, desktop integration, desktop Rust and reference-server jobs
@@ -56,13 +58,14 @@ the section that states it in full.
 4. **Check whether your change brings follow-on work.** These are the cases a
    first contribution most often meets:
 
-   | If you                            | Then also                                                                                                                                                                                                                                                                                                                                     |
-   | --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-   | change what a platform captures   | run that platform's corpus loop ([Run surface](../docs/verification/scripted-truth-corpus.md#run-surface)). The check stays red until the truth files or the baseline say what the recorder now records: [when a capture change turns the check red](../docs/verification/scripted-truth-corpus.md#when-a-capture-change-turns-the-check-red) |
-   | add a `.docent.json` field        | follow [Adding a field](../docs/technical/session-format.md#adding-a-field)                                                                                                                                                                                                                                                                   |
-   | add, rename or remove a test file | update its row in the suite's document under [`docs/test/`](../docs/test/README.md), which `npm run lint:test-inventory` holds to the tree                                                                                                                                                                                                    |
-   | rename or remove a test case      | update any `test-cases` entry in [`docs/clause-registry.json`](../docs/clause-registry.json) that names it, which `npm run lint:clause-registry` holds to the test files                                                                                                                                                                      |
-   | add a code file or a doc          | give it a home in the area map ([what each kind of change keeps green](../docs/guides/docs-governance.md#what-each-kind-of-change-keeps-green))                                                                                                                                                                                               |
+   | If you                                                                | Then also                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+   | --------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+   | change what a platform captures                                       | run that platform's corpus loop ([Run surface](../docs/verification/scripted-truth-corpus.md#run-surface)). The check stays red until the truth files or the baseline say what the recorder now records: [when a capture change turns the check red](../docs/verification/scripted-truth-corpus.md#when-a-capture-change-turns-the-check-red)                                                                                                                                                      |
+   | add a `.docent.json` field                                            | follow [Adding a field](../docs/technical/session-format.md#adding-a-field)                                                                                                                                                                                                                                                                                                                                                                                                                        |
+   | add, rename or remove a test file                                     | update its row in the suite's document under [`docs/test/`](../docs/test/README.md), which `npm run lint:test-inventory` holds to the tree. A new unit test file that reaches, through its imports, a module a Stryker configuration mutates also joins that configuration's `command` list, unless it is a property suite (`*.property.test.js`); `npm run lint:test-inventory` names the configuration ([MUT-7](../docs/test/strategy/mutation.md#what-is-mutated-and-what-is-deliberately-not)) |
+   | rename or remove a test case                                          | update any `test-cases` entry in [`docs/clause-registry.json`](../docs/clause-registry.json) that names it, which `npm run lint:clause-registry` holds to the test files                                                                                                                                                                                                                                                                                                                           |
+   | add the test or check a clause's registry row says does not exist yet | update that row in [`docs/clause-registry.json`](../docs/clause-registry.json): its `check-ref`, and its tag where the row was `checkable`. Each path a row cites must be governed by the clause's own doc in the area map, which `npm run lint:clause-governance` holds ([governed paths](../docs/guides/docs-governance.md#what-each-kind-of-change-keeps-green))                                                                                                                                |
+   | add a code file or a doc                                              | give it a home in the area map ([what each kind of change keeps green](../docs/guides/docs-governance.md#what-each-kind-of-change-keeps-green))                                                                                                                                                                                                                                                                                                                                                    |
 
 5. **Open the pull request.** The title goes in GitHub's title field, written
    as a Conventional Commit, and the body is the template GitHub loads
@@ -240,6 +243,17 @@ on a fresh clone the suite is red until it has run.
 `npm run test:integration` and `npm run test:e2e` need a one-time harness install
 first: [the integration suite's steps](../docs/test/integration/desktop.md#running-the-suite)
 and [the end-to-end suite's steps](../docs/test/e2e.md#running-the-suite).
+
+The reference implementations under `reference-implementations/` carry suites
+of their own, which CI runs when a diff touches what they read
+([Path-filtered test jobs](../docs/guides/ci.md#path-filtered-test-jobs)). From
+the repository root:
+
+| Suite          | Run                                                                                                                                                           |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Sync server    | `npm test --prefix reference-implementations/sync-server`, on the root install                                                                                |
+| Control client | `npm ci --prefix reference-implementations/control-client`, then `npm test --prefix reference-implementations/control-client`                                 |
+| MCP server     | install the control client as above, then `npm ci --prefix reference-implementations/mcp-server` and `npm test --prefix reference-implementations/mcp-server` |
 
 To opt a Rust test out of CI entirely (e.g. it depends on something unavailable on
 runners), add a `ci-skip` marker comment to the source of its test target under

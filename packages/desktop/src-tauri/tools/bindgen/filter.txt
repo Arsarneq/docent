@@ -40,6 +40,7 @@ Windows.Win32.GetCurrentThreadId
 Windows.Win32.GetDlgItem
 Windows.Win32.GetDoubleClickTime
 Windows.Win32.GetForegroundWindow
+Windows.Win32.GetGUIThreadInfo
 Windows.Win32.GetKeyboardLayout
 Windows.Win32.GetKeyboardLayoutList
 Windows.Win32.GetMessageW

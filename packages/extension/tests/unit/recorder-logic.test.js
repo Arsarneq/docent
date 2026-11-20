@@ -26,6 +26,10 @@ import {
   tagSelectorFor,
   normalizeText,
   shouldCaptureScroll,
+  takesTypedText,
+  capturedKeyName,
+  CAPTURE_KEYS,
+  NON_TEXT_INPUT_TYPES,
   TEST_ID_ATTRS,
   TEXT_MEASURE_MAX,
 } from '../../content/recorder-logic.js';
@@ -667,5 +671,91 @@ describe('shouldCaptureScroll', () => {
   it('does NOT capture when both axes are below threshold', () => {
     const result = shouldCaptureScroll(0, 0, 100, 100);
     assert.equal(result.capture, false);
+  });
+});
+
+// ─── Captured keys (#695) ─────────────────────────────────────────────────────
+
+describe('takesTypedText', () => {
+  it('is true for a textarea, a free-text input and editable content', () => {
+    assert.equal(takesTypedText({ tagName: 'TEXTAREA' }), true);
+    for (const type of ['text', 'password', 'search', 'email', 'url', 'tel']) {
+      assert.equal(takesTypedText({ tagName: 'INPUT', type }), true, type);
+    }
+    assert.equal(takesTypedText({ tagName: 'DIV', isContentEditable: true }), true);
+  });
+
+  it('is false for every input type whose value is not free text', () => {
+    assert.deepEqual(NON_TEXT_INPUT_TYPES, [
+      'button',
+      'checkbox',
+      'color',
+      'date',
+      'datetime-local',
+      'file',
+      'image',
+      'month',
+      'number',
+      'radio',
+      'range',
+      'reset',
+      'submit',
+      'time',
+      'week',
+    ]);
+    for (const type of NON_TEXT_INPUT_TYPES) {
+      assert.equal(takesTypedText({ tagName: 'INPUT', type }), false, type);
+    }
+  });
+
+  it('is false for a control that is no text field', () => {
+    for (const tagName of ['BUTTON', 'A', 'SELECT', 'SUMMARY', 'DIV']) {
+      assert.equal(takesTypedText({ tagName, isContentEditable: false }), false, tagName);
+    }
+  });
+});
+
+describe('capturedKeyName', () => {
+  const button = { tagName: 'BUTTON' };
+  const text = { tagName: 'INPUT', type: 'text' };
+
+  it('names each key of the fixed set as the browser does, on any element', () => {
+    assert.deepEqual(CAPTURE_KEYS, [
+      'Enter',
+      'Escape',
+      'Tab',
+      'ArrowUp',
+      'ArrowDown',
+      'ArrowLeft',
+      'ArrowRight',
+    ]);
+    for (const key of CAPTURE_KEYS) {
+      assert.equal(capturedKeyName(key, button), key);
+      assert.equal(capturedKeyName(key, text), key);
+      assert.equal(capturedKeyName(key, null), key);
+    }
+  });
+
+  // Regression: #695 — Space was outside the captured set, so a control
+  // activated with it was recorded only by the click the browser derives.
+  // https://github.com/Arsarneq/docent/issues/695
+  it('regression_695_space_is_named_Space_where_it_is_not_typed_text', () => {
+    assert.equal(capturedKeyName(' ', button), 'Space');
+    assert.equal(capturedKeyName(' ', { tagName: 'INPUT', type: 'checkbox' }), 'Space');
+    assert.equal(capturedKeyName(' ', { tagName: 'DIV', isContentEditable: false }), 'Space');
+  });
+
+  it('regression_695_space_is_not_captured_where_it_is_typed_text', () => {
+    assert.equal(capturedKeyName(' ', text), null);
+    assert.equal(capturedKeyName(' ', { tagName: 'INPUT', type: 'password' }), null);
+    assert.equal(capturedKeyName(' ', { tagName: 'TEXTAREA' }), null);
+    assert.equal(capturedKeyName(' ', { tagName: 'DIV', isContentEditable: true }), null);
+    assert.equal(capturedKeyName(' ', null), null);
+  });
+
+  it('captures no other key', () => {
+    for (const key of ['a', 'A', '1', 'F5', 'Backspace', 'Delete', 'Shift', 'Spacebar', '']) {
+      assert.equal(capturedKeyName(key, button), null, key);
+    }
   });
 });

@@ -94,6 +94,7 @@ import {
   readJobs,
   stepBounds,
   subsectionText,
+  toolchainKeyProblems,
   workflowPaths,
 } from '../../../../scripts/check-workflow-bounds.js';
 
@@ -979,6 +980,166 @@ describe('key families leg', () => {
       edit(files, CI_DOC_PATH, '| main ref + exact miss |', `| ${COMBINED_GATE} |`);
     });
     assert.deepEqual(agreed.problems, []);
+  });
+});
+
+/**
+ * A workflow whose one job measures coverage over a cargo tree it restores:
+ * a toolchain step, a restore/save split, and a `cargo llvm-cov` run. Each part
+ * a case varies is a parameter; the defaults are the keyed shape the leg admits.
+ */
+const TOOLCHAIN_SEGMENT = '${{ steps.toolchain.outputs.cachekey }}';
+const coverageWorkflow = ({
+  family = `\${{ runner.os }}-cargo-measure-${TOOLCHAIN_SEGMENT}-`,
+  restoreKeys = [family],
+  toolchainId = 'toolchain',
+  run = 'cargo llvm-cov --lcov --output-path coverage.lcov',
+  paths = ['~/.cargo/registry', '~/.cargo/git', 'crate/target'],
+  toolchainUses = 'dtolnay/rust-toolchain',
+  toolchainIf = null,
+  toolchainAfterRestore = false,
+} = {}) => {
+  const toolchain = [
+    '      - name: Install Rust toolchain',
+    ...(toolchainId === null ? [] : [`        id: ${toolchainId}`]),
+    ...(toolchainIf === null ? [] : [`        if: ${toolchainIf}`]),
+    `        uses: ${toolchainUses}${SHA}`,
+    '        with:',
+    '          toolchain: stable',
+  ];
+  return [
+    'name: Coverage',
+    '',
+    'jobs:',
+    '  measure:',
+    '    timeout-minutes: 30',
+    '    runs-on: windows-latest',
+    '    steps:',
+    ...(toolchainAfterRestore ? [] : toolchain),
+    '      - name: Restore',
+    '        id: measure-cache',
+    `        uses: actions/cache/restore${SHA}`,
+    '        with:',
+    '          path: |',
+    ...paths.map((path) => `            ${path}`),
+    `          key: ${family}\${{ hashFiles('crate/Cargo.lock') }}`,
+    ...(restoreKeys.length === 0
+      ? []
+      : ['          restore-keys: |', ...restoreKeys.map((key) => `            ${key}`)]),
+    ...(toolchainAfterRestore ? toolchain : []),
+    '      - name: Measure',
+    `        run: ${run}`,
+    '      - name: Save',
+    "        if: github.ref == 'refs/heads/main' && steps.measure-cache.outputs.cache-hit != 'true'",
+    `        uses: actions/cache/save${SHA}`,
+    '        with:',
+    '          path: |',
+    ...paths.map((path) => `            ${path}`),
+    `          key: ${family}\${{ hashFiles('crate/Cargo.lock') }}`,
+    '',
+  ].join('\n');
+};
+
+/** The toolchain leg over one coverage workflow, read the way a run reads it. */
+const toolchainAudit = (options) => {
+  const path = '.github/workflows/coverage.yml';
+  const files = { [path]: coverageWorkflow(options) };
+  const { families } = readCacheClasses(jobsReader(readerOver(files)), [path]);
+  return toolchainKeyProblems(families);
+};
+
+describe('toolchain-keyed coverage trees', () => {
+  // docent#700: the coverage job restored a target tree an older toolchain
+  // built, and cargo-llvm-cov reported that toolchain's leftover test binaries
+  // beside the new ones — never-hit lines from source that no longer exists.
+  it('regression_700_reds_a_coverage_job_whose_target_tree_is_not_keyed_on_the_toolchain', () => {
+    const problems = toolchainAudit({
+      family: '${{ runner.os }}-cargo-measure-',
+      restoreKeys: ['${{ runner.os }}-cargo-measure-'],
+    });
+    assert.equal(problems.length, 1);
+    assert.match(
+      problems[0],
+      /job `measure` runs `cargo llvm-cov` over the restored path `crate\/target`/,
+    );
+    assert.match(problems[0], /family `\$\{\{ runner\.os \}\}-cargo-measure-` names no toolchain/);
+    assert.match(problems[0], /with `\$\{\{ steps\.toolchain\.outputs\.cachekey \}\}`$/);
+  });
+
+  it('regression_700_reds_a_fallback_that_drops_the_toolchain_segment', () => {
+    // The bare stem is the shipped shape that carried the old tree forward: it
+    // matches this family's own older keys, whatever toolchain wrote them.
+    const family = `\${{ runner.os }}-cargo-measure-${TOOLCHAIN_SEGMENT}-`;
+    const problems = toolchainAudit({ family, restoreKeys: [family, '${{ runner.os }}-cargo-'] });
+    assert.equal(problems.length, 1);
+    assert.match(problems[0], /states the restore key `\$\{\{ runner\.os \}\}-cargo-`/);
+    assert.match(problems[0], /drops the toolchain segment/);
+  });
+
+  it('admits the keyed shape: the segment in the family and in every fallback', () => {
+    assert.deepEqual(toolchainAudit(), []);
+    assert.deepEqual(toolchainAudit({ restoreKeys: [] }), []);
+  });
+
+  it('reds a segment naming a step that is not the job’s toolchain step', () => {
+    const problems = toolchainAudit({ toolchainId: 'rust' });
+    assert.equal(problems.length, 1);
+    assert.match(problems[0], /keys on `steps\.toolchain\.outputs\.cachekey`/);
+    assert.match(problems[0], /no `dtolnay\/rust-toolchain` step with the id `toolchain`/);
+  });
+
+  it('reds a segment whose step is not the toolchain action, runs after the restore, or may be skipped', () => {
+    // Each leaves the output unwritten when the key is read, so the key would
+    // be `...-measure--<hash>` and its fallback would reach every toolchain.
+    for (const options of [
+      { toolchainUses: 'actions/checkout' },
+      { toolchainAfterRestore: true },
+      { toolchainIf: "runner.os == 'Windows'" },
+    ]) {
+      const problems = toolchainAudit(options);
+      assert.equal(problems.length, 1, JSON.stringify(options));
+      assert.match(problems[0], /that runs unconditionally before its first cache step/);
+    }
+  });
+
+  it('reads the coverage run in its other spellings, and not the tool install', () => {
+    const bare = { family: '${{ runner.os }}-cargo-measure-', restoreKeys: [] };
+    for (const run of [
+      'cargo +stable llvm-cov --lcov',
+      'cargo-llvm-cov llvm-cov --lcov',
+      'cd crate && cargo llvm-cov --lcov',
+    ]) {
+      assert.equal(toolchainAudit({ ...bare, run }).length, 1, run);
+    }
+    assert.deepEqual(toolchainAudit({ ...bare, run: 'cargo install cargo-llvm-cov --locked' }), []);
+  });
+
+  it('reads a cached path inside a target tree as that tree', () => {
+    const bare = { family: '${{ runner.os }}-cargo-measure-', restoreKeys: [] };
+    const problems = toolchainAudit({ ...bare, paths: ['crate/target/llvm-cov-target'] });
+    assert.equal(problems.length, 1);
+    assert.match(problems[0], /the restored path `crate\/target\/llvm-cov-target`/);
+  });
+
+  it('reds a coverage job with no toolchain step id to key on', () => {
+    const problems = toolchainAudit({
+      family: '${{ runner.os }}-cargo-measure-',
+      restoreKeys: [],
+      toolchainId: null,
+    });
+    assert.equal(problems.length, 1);
+    assert.match(problems[0], /names no toolchain/);
+    assert.match(problems[0], /give the job's `dtolnay\/rust-toolchain` step an id/);
+  });
+
+  it('leaves alone a job that measures nothing, and a coverage job caching no target tree', () => {
+    const bare = { family: '${{ runner.os }}-cargo-measure-', restoreKeys: [] };
+    assert.deepEqual(toolchainAudit({ ...bare, run: 'cargo build' }), []);
+    assert.deepEqual(toolchainAudit({ ...bare, paths: ['~/.cargo/registry', '~/.cargo/git'] }), []); // prettier-ignore
+    // And the shipped fixture's builder job, which runs no coverage, is clean.
+    const files = cacheFiles();
+    const { families } = readCacheClasses(jobsReader(readerOver(files)), [WORKFLOW]);
+    assert.deepEqual(toolchainKeyProblems(families), []);
   });
 });
 
