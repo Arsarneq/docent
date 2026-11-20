@@ -374,6 +374,12 @@ export const ADMITTED_REGISTRATIONS = [
     why: "The recorder's own `recording` watch: it arms capture when a recording starts and disarms it in place when one stops, which is what leaves a recorder a prior recording left in a still-open document inert (ECP-2).",
   },
   {
+    file: RECORDER_PATH,
+    api: 'chrome.runtime.onMessage',
+    occurrences: 1,
+    why: "The worker's request to end the typing: at a step commit, at a stop, and at a pointer press in another frame of the tab, the recorder writes the entry typed so far (ECP-6). It observes no user interaction of its own; what it writes was captured by the `document` listeners.",
+  },
+  {
     file: WORKER_PATH,
     api: 'chrome.runtime.onInstalled',
     occurrences: 1,

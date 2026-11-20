@@ -721,4 +721,8 @@ half of the extension is documented in
   recovery;
 - through the shipped worker's listener, each project- and recording-scoped message found by the
   ids it carries, or refused unless it names the active project and recording;
+- the end of typing the worker asks the frames for: every frame asked ahead of a step commit and a
+  stop, within the bound; a pointer press relayed to the tab's other frames, with what the pressing
+  frame writes next stored behind their answers; and a tab whose registration is gone reseeded
+  first;
 - and capture stopped once no recording is active.
