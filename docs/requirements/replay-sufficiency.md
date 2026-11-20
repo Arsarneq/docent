@@ -115,7 +115,7 @@ here, not from a failed replay:
   hotkeys, assistive technologies that drive accessibility APIs directly),
   one captured with a caveat (a gesture debounced and coalesced, with a
   sub-threshold discard), and one the surface declines within itself (a
-  keystroke outside the captured keyboard set, or a proxy that triggers on one
+  key the input method takes, or a proxy that triggers on one
   confirmation route): [extension](../architecture/application/extension/capture-principles.md),
   [desktop](../architecture/application/desktop/windows/capture-principles.md).
 
