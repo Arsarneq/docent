@@ -125,29 +125,136 @@ pub fn debounce_elapsed(now_ms: u64, last_ms: u64, window_ms: u64) -> bool {
 }
 
 // ─── Click pre-capture ─────────────────────────────────────────────────────
+//
+// The low-level mouse hook waits for the click pre-capture's answer (DCP-1)
+// for at most a budget set at start from the system's low-level hook
+// timeout: the time Windows gives a low-level hook to return before it passes
+// the input on without it (and, after enough of them, removes the hook). The
+// budget is that timeout less a margin for the hook's own work, so a click
+// takes the late path (DCP-13) only where its hook would otherwise have run
+// past the timeout and the click been passed on unrecorded.
 
-/// The longest the low-level mouse hook waits for the click pre-capture's
-/// answer (DCP-1). The answer is the whole description a describer builds:
-/// `ElementFromPoint`, then the element's property reads, its `LabeledBy`
-/// label, and its ancestor walk (up to `MAX_TREE_PATH_ANCESTORS`, 20, parents), every
-/// call a cross-process request to the clicked application.
+/// The user's low-level hook timeout setting as the registry holds it
+/// (`HKCU\Control Panel\Desktop\LowLevelHooksTimeout`), in milliseconds.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum HookTimeoutSetting {
+    /// No value, or one that could not be read.
+    Absent,
+    /// A `REG_DWORD` value.
+    Number(u32),
+    /// A `REG_SZ` value, decimal text.
+    Text(String),
+}
+
+/// The most Windows allows the low-level hook timeout to be, from Windows 10
+/// version 1709: a larger setting is treated as this.
+pub const HOOK_TIMEOUT_CAP_MS: u64 = 1000;
+
+/// The timeout assumed when the setting is absent, zero or not a number.
+/// Chosen, not read from Microsoft's documentation, which could not be
+/// checked when it was set; unverified. Too high a value lets a hook call run
+/// past the system's real timeout, where the click is passed on unrecorded and
+/// the hook can be removed; too low a value sends a click whose description
+/// would have come in time down the late path. Losing the hook costs every
+/// click after it, the late path one click's element, so the value errs low.
+pub const HOOK_TIMEOUT_DEFAULT_MS: u64 = 300;
+
+/// What the budget leaves of the hook timeout for the hook's own work around
+/// the wait (reading the window under the pointer and its process, the scope
+/// filter, dispatching the click) and for scheduling on a loaded machine.
+pub const HOOK_WORK_MARGIN_MS: u64 = 50;
+
+/// The low-level hook timeout, in milliseconds, that a setting gives: its
+/// value capped at [`HOOK_TIMEOUT_CAP_MS`], or [`HOOK_TIMEOUT_DEFAULT_MS`]
+/// when it is absent, zero or not a decimal number.
+pub fn hook_timeout_ms(setting: &HookTimeoutSetting) -> u64 {
+    let value = match setting {
+        HookTimeoutSetting::Absent => None,
+        HookTimeoutSetting::Number(n) => Some(u64::from(*n)),
+        HookTimeoutSetting::Text(text) => text.trim().parse::<u64>().ok(),
+    };
+    match value {
+        Some(ms) if ms > 0 => ms.min(HOOK_TIMEOUT_CAP_MS),
+        _ => HOOK_TIMEOUT_DEFAULT_MS,
+    }
+}
+
+/// The longest the mouse hook waits for a click's pre-capture, given the
+/// hook timeout: the timeout less [`HOOK_WORK_MARGIN_MS`], or half the
+/// timeout when it is too short to leave the margin and as much again.
 ///
-/// The value is chosen, not measured: no distribution of description times is
-/// recorded. The measurement is the hook diagnostics' longest pre-capture and
-/// overrun count, logged at stop when clicks took the late path. The hook
-/// holds the click from the application while it waits, so the budget is
-/// also a delay a person can feel: 100 ms keeps it near the edge of a
-/// perceptible lag, and keeps the whole hook call (the budget plus the hook's
-/// own work) well below the system's low-level hook timeout
-/// (`LowLevelHooksTimeout`, which Windows caps at 1000 ms from Windows 10
-/// version 1709), past which Windows passes the input on without the hook and
-/// can remove it. A click whose description takes longer is described by its
-/// worker (DCP-1, DCP-13).
-pub const PRE_CAPTURE_BUDGET_MS: u64 = 100;
+/// The answer is the whole description a describer builds: `ElementFromPoint`,
+/// then the element's property reads, its `LabeledBy` label and its ancestor
+/// walk (up to `MAX_TREE_PATH_ANCESTORS`, 20, parents), every call a request
+/// to the clicked application. No distribution of description times is
+/// recorded; the hook diagnostics' longest pre-capture and its outcome counts,
+/// logged at stop when a click took the late path, are the measurement.
+pub fn pre_capture_budget_ms(hook_timeout_ms: u64) -> u64 {
+    if hook_timeout_ms >= 2 * HOOK_WORK_MARGIN_MS {
+        hook_timeout_ms - HOOK_WORK_MARGIN_MS
+    } else {
+        hook_timeout_ms / 2
+    }
+}
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ─── the hook timeout and the pre-capture budget ────────────────────────
+
+    // Regression: #741 review — the budget follows the system's hook timeout,
+    // so a click whose description comes within it is described as at base.
+    // https://github.com/Arsarneq/docent/issues/741
+    #[test]
+    fn regression_741_the_hook_timeout_is_read_from_either_value_type_and_capped() {
+        assert_eq!(hook_timeout_ms(&HookTimeoutSetting::Number(600)), 600);
+        assert_eq!(
+            hook_timeout_ms(&HookTimeoutSetting::Text(" 750 ".into())),
+            750
+        );
+        assert_eq!(hook_timeout_ms(&HookTimeoutSetting::Number(5000)), 1000);
+        assert_eq!(
+            hook_timeout_ms(&HookTimeoutSetting::Text("5000".into())),
+            1000
+        );
+    }
+
+    #[test]
+    fn an_absent_zero_or_unreadable_hook_timeout_is_the_default() {
+        for setting in [
+            HookTimeoutSetting::Absent,
+            HookTimeoutSetting::Number(0),
+            HookTimeoutSetting::Text("0".into()),
+            HookTimeoutSetting::Text("".into()),
+            HookTimeoutSetting::Text("0x200".into()),
+            HookTimeoutSetting::Text("-5".into()),
+        ] {
+            assert_eq!(
+                hook_timeout_ms(&setting),
+                HOOK_TIMEOUT_DEFAULT_MS,
+                "{setting:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_budget_is_the_hook_timeout_less_the_margin_and_never_more_than_half_a_short_one() {
+        assert_eq!(pre_capture_budget_ms(1000), 1000 - HOOK_WORK_MARGIN_MS);
+        assert_eq!(
+            pre_capture_budget_ms(HOOK_TIMEOUT_DEFAULT_MS),
+            HOOK_TIMEOUT_DEFAULT_MS - HOOK_WORK_MARGIN_MS
+        );
+        assert_eq!(
+            pre_capture_budget_ms(2 * HOOK_WORK_MARGIN_MS),
+            HOOK_WORK_MARGIN_MS
+        );
+        assert_eq!(pre_capture_budget_ms(60), 30);
+        assert_eq!(pre_capture_budget_ms(1), 0);
+        for timeout in 1..=HOOK_TIMEOUT_CAP_MS {
+            assert!(pre_capture_budget_ms(timeout) < timeout, "{timeout}");
+        }
+    }
 
     // ─── is_correlated: correlated iff gap <= window ────────────────────────
 

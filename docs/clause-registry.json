@@ -546,7 +546,7 @@
       "doc": "docs/architecture/application/desktop/windows/capture-principles.md",
       "clause": "DCP-1",
       "tag": "judgment-only",
-      "justification": "Whether a capture change preserves the thread-role split (hooks stay latency-bounded, describes stay on workers) is a design judgment; the input-thread accessibility scope is comment-pinned at its sites."
+      "justification": "Whether a capture change preserves the thread-role split (the input thread makes no accessibility call; the mouse hook waits on the pre-capture describers for at most a budget below the system hook timeout; every other describe stays on workers) is a design judgment. The pre-capture bound, its budget from the hook timeout and the describers' cap are pinned by the in-module tests of packages/desktop/src-tauri/src/capture/pre_capture.rs and packages/desktop/src-tauri/src/capture/timing.rs (npm run test:desktop:rust); that the hook asks through that bound is comment-pinned at its sites."
     },
     {
       "doc": "docs/architecture/application/desktop/windows/capture-principles.md",

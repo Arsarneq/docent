@@ -9,28 +9,39 @@
 // wait on an application without a bound (desktop capture principles DCP-1).
 //
 // `PreCapture` runs the calls on describer threads of its own and lets the
-// asker wait for at most a fixed budget. An application that leaves a call
-// unanswered holds the one describer that call is on: the next ask about
-// another application goes to a fresh describer, kept ready as a spare, and
-// an ask about the application that holds one returns at once. At most
-// `MAX_DESCRIBERS` describer threads live at a time. Platform-agnostic: the
-// state the calls need and the call itself are injected, so the bound is
-// unit-tested without Windows.
+// asker wait for at most a budget, set from the system's hook timeout. An
+// application that leaves a call unanswered holds the one describer that call
+// is on: the next ask about another application goes to a spare kept ready,
+// and an ask about the application that holds one waits, within its own
+// budget, for that application to answer, as the hook waited for it when the
+// call was made inside the hook. At most `MAX_DESCRIBERS` describer threads
+// live at a time across the process, held ones included, whichever
+// `PreCapture` started them. Platform-agnostic: the state the calls need and
+// the call itself are injected, so the bound is unit-tested without Windows.
 
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender, SyncSender};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use super::hook_diagnostics;
+use super::hook_diagnostics::{self, PreCaptureOutcome};
 
-/// The most describer threads alive at a time: the one asked, the spare, and
-/// those still held by applications that have not answered. Past it, an ask
-/// that finds no describer free returns at once.
+/// The most describer threads alive at a time in the process: the one asked,
+/// the spare, and those still held by applications that have not answered,
+/// whether their `PreCapture` is still running or a capture session that
+/// started them has stopped.
 pub const MAX_DESCRIBERS: usize = 5;
+
+/// The describer threads alive in the process, counted against
+/// [`MAX_DESCRIBERS`]. Capture passes this one; a test passes its own.
+pub static PROCESS_DESCRIBERS: AtomicUsize = AtomicUsize::new(0);
 
 /// The key of a describer that holds no request.
 const NO_KEY: u64 = u64::MAX;
+
+/// How often a waiting asker looks again for its application to answer or a
+/// describer to come free.
+const WAIT_STEP: Duration = Duration::from_millis(1);
 
 /// One request and the channel its answer goes back on. The asker that gave
 /// up drops its receiver, so a late answer is sent nowhere.
@@ -39,22 +50,44 @@ type Job<Req, Resp> = (Req, SyncSender<Resp>);
 /// A claimed describer: where its request goes and its status.
 type Claimed<Req, Resp> = (Sender<Job<Req, Resp>>, Arc<Status>);
 
+/// What a describer's `init` built: the state its calls use, and whether the
+/// client the calls need was built (a describer whose client was not built
+/// answers every request without an element).
+pub struct Built<S> {
+    pub state: S,
+    pub client_built: bool,
+}
+
+/// Whether the describer asked first has built its state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Readiness {
+    /// Built, with its client.
+    Built,
+    /// Built, but its client could not be built.
+    ClientNotBuilt,
+    /// Not built within the wait, or its thread is gone.
+    NotReady,
+}
+
 /// What the pre-capture counted, for the diagnostics a test or a log reads.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct PreCaptureCounts {
-    /// Requests answered within the budget.
+    /// Requests answered within the budget, with or without an element.
     pub answered: u64,
     /// Requests whose answer did not come within the budget.
     pub overran: u64,
-    /// Asks that made no request because the application asked about still
-    /// held a describer.
+    /// Asks that made no request: the budget ran out while the application
+    /// asked about still held a describer with an earlier request.
     pub skipped_held: u64,
-    /// Asks that made no request because no describer was free and no more
-    /// could be started.
+    /// Asks that made no request: the budget ran out with no describer free
+    /// (each one on another request, or still building its client) and no
+    /// more could be started.
     pub skipped_busy: u64,
     /// Describers left to the application holding them, a spare taking
     /// their place.
     pub abandoned: u64,
+    /// Describers whose client could not be built.
+    pub clients_not_built: u64,
     /// The longest an asker waited, in microseconds.
     pub longest_wait_us: u64,
 }
@@ -78,6 +111,8 @@ struct Status {
     key: AtomicU64,
     /// Cleared as the describer thread ends.
     alive: AtomicBool,
+    /// Set once the describer has built its state, when its client was built.
+    client_built: AtomicBool,
 }
 
 impl Status {
@@ -120,18 +155,28 @@ struct Pool<Req, Resp> {
 /// Starts one describer thread; shared by every describer of a pre-capture.
 type Spawner<Req, Resp> = Box<dyn Fn() -> std::io::Result<Describer<Req, Resp>> + Send + Sync>;
 
+/// Why an ask has not claimed a describer yet.
+enum Waiting {
+    /// The application asked about holds a describer.
+    Held,
+    /// No describer is free and no more may be started.
+    Busy,
+}
+
 /// Describers on threads of their own, whose answers the asker waits on for
 /// at most `budget` (DCP-1). An ask names the application it is about by a
-/// key. While a describer is on an earlier request, an ask about another
-/// application goes to the spare, the held describer is left to finish (its
-/// answer discarded) and a new spare is started; an ask about the application
-/// that holds a describer returns `None` at once. No describer ever gathers a
-/// queue. The asker's wait is a plain channel wait: it dispatches no window
-/// message, so no hook call runs inside it.
+/// key. While the describer asked is on an earlier request, an ask about
+/// another application goes to the spare, the held describer is left to
+/// finish (its answer discarded) and a new spare is started; an ask about the
+/// application that holds a describer, or one that finds no describer free,
+/// waits for that to change within the same budget. No describer ever
+/// gathers a queue. The asker's waits are a plain channel wait and plain
+/// sleeps: they dispatch no window message, so no hook call runs inside them.
 pub struct PreCapture<Req, Resp> {
     pool: Mutex<Pool<Req, Resp>>,
     spawn: Spawner<Req, Resp>,
-    live: Arc<AtomicUsize>,
+    live: &'static AtomicUsize,
+    clients_not_built: Arc<AtomicU64>,
     budget: Duration,
     counters: Counters,
 }
@@ -144,38 +189,46 @@ impl<Req: Send + 'static, Resp: Send + 'static> PreCapture<Req, Resp> {
     /// describer is no longer asked (the `PreCapture` dropped, or the
     /// describer left to an application) and has returned from its last call.
     /// Describer threads are never joined: one held by an application ends
-    /// when the application answers. An error when the first describer's
-    /// thread cannot be started.
+    /// when the application answers. `live` counts the describer threads
+    /// alive against [`MAX_DESCRIBERS`]; capture passes
+    /// [`PROCESS_DESCRIBERS`], so describers a stopped session left held
+    /// still count. An error when the first describer cannot be started.
     pub fn spawn<S, I, F>(
         name: &str,
         budget: Duration,
+        live: &'static AtomicUsize,
         init: I,
         describe: F,
     ) -> std::io::Result<Self>
     where
         S: 'static,
-        I: Fn() -> S + Send + Sync + 'static,
+        I: Fn() -> Built<S> + Send + Sync + 'static,
         F: Fn(&S, Req) -> Resp + Send + Sync + 'static,
     {
         let init = Arc::new(init);
         let describe = Arc::new(describe);
-        let live = Arc::new(AtomicUsize::new(0));
-        let live_in = live.clone();
+        let clients_not_built = Arc::new(AtomicU64::new(0));
+        let not_built = clients_not_built.clone();
         let name = name.to_string();
         let spawn: Spawner<Req, Resp> = Box::new(move || {
+            if live.fetch_add(1, Ordering::SeqCst) >= MAX_DESCRIBERS {
+                live.fetch_sub(1, Ordering::SeqCst);
+                return Err(std::io::Error::other("the describer cap is reached"));
+            }
             let (jobs, inbox) = mpsc::channel::<Job<Req, Resp>>();
             let status = Arc::new(Status {
                 busy: AtomicBool::new(true),
                 key: AtomicU64::new(NO_KEY),
                 alive: AtomicBool::new(true),
+                client_built: AtomicBool::new(false),
             });
             let (init, describe) = (init.clone(), describe.clone());
-            let (status_in, live) = (status.clone(), live_in.clone());
-            live.fetch_add(1, Ordering::SeqCst);
-            let started = std::thread::Builder::new().name(name.clone()).spawn({
-                let live = live.clone();
-                move || describer_main(inbox, &status_in, &live, &*init, &*describe)
-            });
+            let (status_in, not_built) = (status.clone(), not_built.clone());
+            let started = std::thread::Builder::new()
+                .name(name.clone())
+                .spawn(move || {
+                    describer_main(inbox, &status_in, live, &not_built, &*init, &*describe)
+                });
             if let Err(e) = started {
                 live.fetch_sub(1, Ordering::SeqCst);
                 return Err(e);
@@ -192,69 +245,87 @@ impl<Req: Send + 'static, Resp: Send + 'static> PreCapture<Req, Resp> {
             }),
             spawn,
             live,
+            clients_not_built,
             budget,
             counters: Counters::default(),
         })
     }
 
     /// Wait for at most `timeout` for the describer asked first to have built
-    /// its state: `true` when it has.
-    pub fn wait_ready(&self, timeout: Duration) -> bool {
+    /// its state, and say whether its client was built.
+    pub fn wait_ready(&self, timeout: Duration) -> Readiness {
         let status = match self.lock().active.as_ref() {
             Some(active) => active.status.clone(),
-            None => return false,
+            None => return Readiness::NotReady,
         };
         let deadline = Instant::now() + timeout;
         loop {
             if !status.busy.load(Ordering::SeqCst) {
-                return status.alive.load(Ordering::SeqCst);
+                if !status.alive.load(Ordering::SeqCst) {
+                    return Readiness::NotReady;
+                }
+                return if status.client_built.load(Ordering::SeqCst) {
+                    Readiness::Built
+                } else {
+                    Readiness::ClientNotBuilt
+                };
             }
             if Instant::now() >= deadline {
-                return false;
+                return Readiness::NotReady;
             }
             std::thread::sleep(Duration::from_millis(2));
         }
     }
 
     /// Ask for one answer about the application `key` names and wait for it
-    /// for at most the budget. `None` when the answer did not come in time,
-    /// when that application still holds a describer, when no describer is
-    /// free and no more may be started (no request is made then), or when the
-    /// describers are gone.
+    /// for at most the budget, the wait for that application to release a
+    /// describer, or for a describer to come free, included. `None` when no
+    /// answer came within the budget or the describers are gone.
     pub fn ask(&self, key: u64, req: Req) -> Option<Resp> {
-        let (jobs, status) = {
-            let mut pool = self.lock();
-            pool.abandoned.retain(|s| s.in_use());
-            let held = pool.abandoned.iter().any(|s| s.holds(key))
-                || pool.active.as_ref().is_some_and(|a| a.status.holds(key));
-            if held {
-                self.counters.skipped_held.fetch_add(1, Ordering::Relaxed);
+        let started = Instant::now();
+        let deadline = started + self.budget;
+        let (jobs, status) = loop {
+            let waiting = {
+                let mut pool = self.lock();
+                pool.abandoned.retain(|s| s.in_use());
+                let held = pool.abandoned.iter().any(|s| s.holds(key))
+                    || pool.active.as_ref().is_some_and(|a| a.status.holds(key));
+                if held {
+                    Waiting::Held
+                } else {
+                    let claimed = self.claim(&mut pool);
+                    self.top_up(&mut pool);
+                    match claimed {
+                        Some(claimed) => break claimed,
+                        None => Waiting::Busy,
+                    }
+                }
+            };
+            let now = Instant::now();
+            if now >= deadline {
+                let counter = match waiting {
+                    Waiting::Held => &self.counters.skipped_held,
+                    Waiting::Busy => &self.counters.skipped_busy,
+                };
+                counter.fetch_add(1, Ordering::Relaxed);
+                self.note_wait(started);
                 return None;
             }
-            let claimed = self.claim(&mut pool);
-            self.top_up(&mut pool);
-            match claimed {
-                Some(claimed) => claimed,
-                None => {
-                    self.counters.skipped_busy.fetch_add(1, Ordering::Relaxed);
-                    return None;
-                }
-            }
+            std::thread::sleep(WAIT_STEP.min(deadline - now));
         };
         status.key.store(key, Ordering::SeqCst);
         let (answer_tx, answer_rx) = mpsc::sync_channel::<Resp>(1);
         if jobs.send((req, answer_tx)).is_err() {
             // The describer thread is gone; it is replaced at the next ask.
             status.alive.store(false, Ordering::SeqCst);
+            self.counters.overran.fetch_add(1, Ordering::Relaxed);
+            self.note_wait(started);
             return None;
         }
         drop(jobs);
-        let started = Instant::now();
-        let answer = answer_rx.recv_timeout(self.budget).ok();
-        let waited = u64::try_from(started.elapsed().as_micros()).unwrap_or(u64::MAX);
-        self.counters
-            .longest_wait_us
-            .fetch_max(waited, Ordering::Relaxed);
+        let left = deadline.saturating_duration_since(Instant::now());
+        let answer = answer_rx.recv_timeout(left).ok();
+        self.note_wait(started);
         let counter = if answer.is_some() {
             &self.counters.answered
         } else {
@@ -272,13 +343,22 @@ impl<Req: Send + 'static, Resp: Send + 'static> PreCapture<Req, Resp> {
             skipped_held: self.counters.skipped_held.load(Ordering::Relaxed),
             skipped_busy: self.counters.skipped_busy.load(Ordering::Relaxed),
             abandoned: self.counters.abandoned.load(Ordering::Relaxed),
+            clients_not_built: self.clients_not_built.load(Ordering::Relaxed),
             longest_wait_us: self.counters.longest_wait_us.load(Ordering::Relaxed),
         }
     }
 
-    /// The describer threads alive now, held ones included.
+    /// The describer threads alive now on this pre-capture's count, held
+    /// ones included.
     pub fn live_describers(&self) -> usize {
         self.live.load(Ordering::SeqCst)
+    }
+
+    fn note_wait(&self, started: Instant) {
+        let waited = u64::try_from(started.elapsed().as_micros()).unwrap_or(u64::MAX);
+        self.counters
+            .longest_wait_us
+            .fetch_max(waited, Ordering::Relaxed);
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, Pool<Req, Resp>> {
@@ -312,7 +392,7 @@ impl<Req: Send + 'static, Resp: Send + 'static> PreCapture<Req, Resp> {
 
     /// Start a new spare when there is none and the cap allows one.
     fn top_up(&self, pool: &mut Pool<Req, Resp>) {
-        if pool.spare.is_none() && self.live.load(Ordering::SeqCst) < MAX_DESCRIBERS {
+        if pool.spare.is_none() {
             pool.spare = (self.spawn)().ok();
         }
     }
@@ -339,12 +419,20 @@ fn describer_main<Req, Resp, S>(
     inbox: Receiver<Job<Req, Resp>>,
     status: &Status,
     live: &AtomicUsize,
-    init: &dyn Fn() -> S,
+    clients_not_built: &AtomicU64,
+    init: &dyn Fn() -> Built<S>,
     describe: &dyn Fn(&S, Req) -> Resp,
 ) {
     let _ending = Ending { status, live };
-    let state = init();
+    let built = init();
+    if !built.client_built {
+        clients_not_built.fetch_add(1, Ordering::Relaxed);
+    }
+    status
+        .client_built
+        .store(built.client_built, Ordering::SeqCst);
     status.busy.store(false, Ordering::SeqCst);
+    let state = built.state;
     while let Ok((req, answer_tx)) = inbox.recv() {
         let answer = describe(&state, req);
         // Free before answering, so an asker that has its answer never finds
@@ -359,8 +447,9 @@ fn describer_main<Req, Resp, S>(
 
 /// The click pre-capture as the mouse hook makes it (DCP-1): ask `pre` about
 /// the application `key` names, wait for at most its budget, and count the
-/// wait in the hook diagnostics. `None` (no element) when there is no
-/// pre-capture, when no answer came in time, or when nothing was described.
+/// wait and its outcome in the hook diagnostics. `None` (no element) when
+/// there is no pre-capture, when no answer came within the budget, or when
+/// the answer describes nothing.
 pub fn pre_capture_click<Req, T>(
     pre: Option<&PreCapture<Req, Option<T>>>,
     key: u64,
@@ -371,8 +460,13 @@ where
     T: Send + 'static,
 {
     let started = Instant::now();
-    let element = pre.and_then(|p| p.ask(key, req)).flatten();
-    hook_diagnostics::pre_capture(started.elapsed(), element.is_some());
+    let (element, outcome) = match pre.map(|p| p.ask(key, req)) {
+        None => (None, PreCaptureOutcome::NoPreCapture),
+        Some(None) => (None, PreCaptureOutcome::NoAnswer),
+        Some(Some(None)) => (None, PreCaptureOutcome::AnsweredWithoutElement),
+        Some(Some(Some(element))) => (Some(element), PreCaptureOutcome::Element),
+    };
+    hook_diagnostics::pre_capture(started.elapsed(), outcome);
     element
 }
 
@@ -390,10 +484,24 @@ mod tests {
     const APP_A: u64 = 1;
     const APP_B: u64 = 2;
 
+    /// A describer count of the test's own, so tests running at once never
+    /// share a cap.
+    fn own_count() -> &'static AtomicUsize {
+        Box::leak(Box::new(AtomicUsize::new(0)))
+    }
+
+    fn built<S>(state: S) -> Built<S> {
+        Built {
+            state,
+            client_built: true,
+        }
+    }
+
     /// A describer that answers `x * 10`, except that a request for which
     /// `blocks` holds waits, before answering, until the returned sender is
     /// sent to (or dropped). Each send releases one held request.
-    fn gated(
+    fn gated_on(
+        live: &'static AtomicUsize,
         blocks: impl Fn(i32) -> bool + Send + Sync + 'static,
     ) -> (PreCapture<i32, i32>, mpsc::Sender<()>) {
         let (release_tx, release_rx) = mpsc::channel::<()>();
@@ -401,7 +509,8 @@ mod tests {
         let pre = PreCapture::spawn(
             "test-pre-capture",
             BUDGET,
-            || (),
+            live,
+            || built(()),
             move |_: &(), x: i32| {
                 if blocks(x) {
                     let _ = release_rx.lock().unwrap().recv();
@@ -410,8 +519,14 @@ mod tests {
             },
         )
         .unwrap();
-        assert!(pre.wait_ready(Duration::from_secs(5)));
+        assert_eq!(pre.wait_ready(Duration::from_secs(5)), Readiness::Built);
         (pre, release_tx)
+    }
+
+    fn gated(
+        blocks: impl Fn(i32) -> bool + Send + Sync + 'static,
+    ) -> (PreCapture<i32, i32>, mpsc::Sender<()>) {
+        gated_on(own_count(), blocks)
     }
 
     /// Release a gated describer `times` times from another thread after
@@ -434,6 +549,15 @@ mod tests {
         }
     }
 
+    /// Assert that `ask` waited out the budget and no more.
+    fn waited_the_budget(what: &str, started: Instant) {
+        let waited = started.elapsed();
+        assert!(
+            waited >= BUDGET && waited < BUDGET + SLACK,
+            "{what} waited {waited:?}, not the {BUDGET:?} budget"
+        );
+    }
+
     #[test]
     fn an_answer_within_the_budget_is_the_describers_answer() {
         let (pre, _release) = gated(|_| false);
@@ -451,41 +575,54 @@ mod tests {
         let (pre, release) = gated(|x| x == 1);
         release_later(release, Duration::from_secs(2), 1);
         let started = Instant::now();
-        let answer = pre.ask(APP_A, 1);
-        let waited = started.elapsed();
-        assert_eq!(answer, None, "an answer past the budget is no answer");
-        assert!(
-            waited < BUDGET + SLACK,
-            "the asker waited {waited:?}, past the {BUDGET:?} budget"
-        );
+        assert_eq!(pre.ask(APP_A, 1), None, "an answer past the budget is none");
+        waited_the_budget("the ask", started);
     }
 
-    // Regression: #741 — while the application asked about still holds a
-    // describer, a new click in it must not wait at all, and must not take a
-    // fresh describer it would only hold too.
+    // Regression: #741 review — a click in the application that holds a
+    // describer is answered when that application answers within the click's
+    // own budget, as it was when the hook made the call itself; it takes no
+    // fresh describer meanwhile.
     // https://github.com/Arsarneq/docent/issues/741
     #[test]
-    fn regression_741_a_click_in_the_application_holding_a_describer_returns_at_once() {
+    fn regression_741_a_click_in_a_held_application_is_answered_once_it_answers_within_the_budget()
+    {
         let (pre, release) = gated(|x| x == 1);
-        release_later(release, Duration::from_secs(2), 1);
         assert_eq!(pre.ask(APP_A, 1), None);
-        let started = Instant::now();
-        assert_eq!(
-            pre.ask(APP_A, 2),
-            None,
-            "the held application answers nothing"
-        );
-        assert!(
-            started.elapsed() < BUDGET / 2,
-            "the ask about the held application waited {:?}",
-            started.elapsed()
-        );
+        let live = pre.live_describers();
+        release_later(release, BUDGET / 4, 1);
+        assert_eq!(pre.ask(APP_A, 2), Some(20));
         let counts = pre.counts();
         assert_eq!(
             (counts.skipped_held, counts.abandoned),
-            (1, 0),
+            (0, 0),
             "{counts:?}"
         );
+        assert_eq!(pre.live_describers(), live);
+    }
+
+    // Regression: #741 review — a click in the application still holding a
+    // describer left behind (another application's click took the spare)
+    // waits out its budget and makes no request: it never hands the held
+    // application a second describer.
+    // https://github.com/Arsarneq/docent/issues/741
+    #[test]
+    fn regression_741_a_click_in_the_application_holding_a_left_describer_takes_no_new_one() {
+        let (pre, release) = gated(|x| x == 1 || x == 3);
+        assert_eq!(pre.ask(APP_A, 1), None);
+        assert_eq!(pre.ask(APP_B, 2), Some(20));
+        let live = pre.live_describers();
+        let started = Instant::now();
+        assert_eq!(pre.ask(APP_A, 3), None);
+        waited_the_budget("the ask about the held application", started);
+        let counts = pre.counts();
+        assert_eq!(
+            (counts.overran, counts.skipped_held, counts.abandoned),
+            (1, 1, 1),
+            "{counts:?}"
+        );
+        assert_eq!(pre.live_describers(), live);
+        release_later(release, Duration::ZERO, 2);
     }
 
     // Regression: #741 review — one application that does not answer must
@@ -503,7 +640,7 @@ mod tests {
     }
 
     #[test]
-    fn describers_are_capped_and_an_ask_past_the_cap_returns_at_once() {
+    fn describers_are_capped_and_an_ask_past_the_cap_waits_out_its_budget() {
         let (pre, release) = gated(|_| true);
         for app in 0..(MAX_DESCRIBERS as u64 + 3) {
             let started = Instant::now();
@@ -519,12 +656,37 @@ mod tests {
         assert!(counts.skipped_busy >= 1, "{counts:?}");
         let started = Instant::now();
         assert_eq!(pre.ask(99, 1), None);
+        waited_the_budget("an ask past the cap", started);
+        release_later(release, Duration::ZERO, MAX_DESCRIBERS);
+    }
+
+    // Regression: #741 review — the cap holds across the process: describers
+    // a stopped session left held still count against the next session's.
+    // https://github.com/Arsarneq/docent/issues/741
+    #[test]
+    fn regression_741_held_describers_outlive_their_session_and_count_against_the_next() {
+        let live = own_count();
+        let (first, release) = gated_on(live, |_| true);
+        for app in 0..MAX_DESCRIBERS as u64 {
+            assert_eq!(first.ask(app, 1), None);
+        }
+        drop(first);
+        assert_eq!(live.load(Ordering::SeqCst), MAX_DESCRIBERS);
+        let second = PreCapture::spawn(
+            "test-pre-capture",
+            BUDGET,
+            live,
+            || built(()),
+            |_: &(), x: i32| x,
+        );
         assert!(
-            started.elapsed() < BUDGET / 2,
-            "an ask past the cap waited {:?}",
-            started.elapsed()
+            second.is_err(),
+            "a session started a describer past the cap"
         );
         release_later(release, Duration::ZERO, MAX_DESCRIBERS);
+        eventually("the held describers' end", || {
+            live.load(Ordering::SeqCst) == 0
+        });
     }
 
     #[test]
@@ -568,32 +730,66 @@ mod tests {
         assert_eq!(pre.ask(APP_A, 4), Some(40));
     }
 
+    // Regression: #741 review — start is told whether the describer's client
+    // was built, not only that it tried.
+    // https://github.com/Arsarneq/docent/issues/741
     #[test]
-    fn wait_ready_waits_for_the_first_describers_state_within_its_bound() {
+    fn regression_741_wait_ready_tells_a_built_client_from_one_not_built_and_from_none_yet() {
         let slow = PreCapture::spawn(
             "test-pre-capture",
             BUDGET,
-            || std::thread::sleep(Duration::from_millis(50)),
+            own_count(),
+            || {
+                std::thread::sleep(Duration::from_millis(50));
+                built(())
+            },
             |_: &(), x: i32| x,
         )
         .unwrap();
-        assert!(slow.wait_ready(Duration::from_secs(5)));
+        assert_eq!(slow.wait_ready(Duration::from_secs(5)), Readiness::Built);
         assert_eq!(slow.ask(APP_A, 1), Some(1));
+
+        let without_client = PreCapture::spawn(
+            "test-pre-capture",
+            BUDGET,
+            own_count(),
+            || Built {
+                state: (),
+                client_built: false,
+            },
+            |_: &(), x: i32| x,
+        )
+        .unwrap();
+        assert_eq!(
+            without_client.wait_ready(Duration::from_secs(5)),
+            Readiness::ClientNotBuilt
+        );
+        eventually("both describers' report", || {
+            without_client.counts().clients_not_built == 2
+        });
 
         let (hold_tx, hold_rx) = mpsc::channel::<()>();
         let hold_rx = Mutex::new(hold_rx);
         let stuck = PreCapture::spawn(
             "test-pre-capture",
             BUDGET,
+            own_count(),
             move || {
                 let _ = hold_rx.lock().unwrap().recv();
+                built(())
             },
             |_: &(), x: i32| x,
         )
         .unwrap();
         let started = Instant::now();
-        assert!(!stuck.wait_ready(BUDGET));
+        assert_eq!(stuck.wait_ready(BUDGET), Readiness::NotReady);
         assert!(started.elapsed() < BUDGET + SLACK);
+        // A click before the first describer is built waits for it within its
+        // budget, then goes without.
+        let started = Instant::now();
+        assert_eq!(stuck.ask(APP_A, 1), None);
+        waited_the_budget("an ask before any describer was built", started);
+        assert_eq!(stuck.counts().skipped_busy, 1);
         drop(hold_tx);
     }
 
@@ -612,9 +808,10 @@ mod tests {
         let pre = PreCapture::spawn(
             "test-pre-capture",
             BUDGET,
+            own_count(),
             move || {
                 built_in.lock().unwrap().push(std::thread::current().id());
-                Probe(seen_in.clone())
+                built(Probe(seen_in.clone()))
             },
             move |_: &Probe, x: i32| {
                 calls_in.fetch_add(1, Ordering::SeqCst);
@@ -622,7 +819,7 @@ mod tests {
             },
         )
         .unwrap();
-        assert!(pre.wait_ready(Duration::from_secs(5)));
+        assert_eq!(pre.wait_ready(Duration::from_secs(5)), Readiness::Built);
         assert_eq!(pre.ask(APP_A, 7), Some(7));
         drop(pre);
         eventually("every state's drop", || {
@@ -642,7 +839,8 @@ mod tests {
     }
 
     // Regression: #741 — the hook's pre-capture entry goes through the
-    // bounded ask, and the diagnostics count its wait.
+    // bounded ask, and the diagnostics count its wait and why a click got no
+    // element.
     // https://github.com/Arsarneq/docent/issues/741
     #[test]
     fn regression_741_the_hooks_pre_capture_returns_within_the_budget_and_is_counted() {
@@ -654,26 +852,33 @@ mod tests {
         let pre: PreCapture<i32, Option<i32>> = PreCapture::spawn(
             "test-pre-capture",
             BUDGET,
-            || (),
+            own_count(),
+            || built(()),
             move |_: &(), x: i32| {
                 if x == 1 {
                     let _ = release_rx.lock().unwrap().recv();
                 }
-                Some(x)
+                (x != 4).then_some(x)
             },
         )
         .unwrap();
-        assert!(pre.wait_ready(Duration::from_secs(5)));
+        assert_eq!(pre.wait_ready(Duration::from_secs(5)), Readiness::Built);
         hook_diagnostics::reset();
         assert_eq!(pre_capture_click(Some(&pre), APP_A, 2), Some(2));
+        assert_eq!(pre_capture_click(Some(&pre), APP_B, 4), None);
         let started = Instant::now();
         assert_eq!(pre_capture_click(Some(&pre), APP_A, 1), None);
         assert!(started.elapsed() < BUDGET + SLACK);
         assert_eq!(pre_capture_click::<i32, i32>(None, APP_A, 3), None);
         let seen = hook_diagnostics::snapshot();
         assert_eq!(
-            (seen.pre_captures, seen.pre_captures_without_element),
-            (3, 2)
+            (
+                seen.pre_captures,
+                seen.pre_captures_without_element,
+                seen.pre_captures_answered_without_element,
+                seen.pre_captures_without_pre_capture,
+            ),
+            (4, 3, 1, 1)
         );
         assert!(seen.longest_pre_capture_us >= BUDGET.as_micros() as u64);
         assert!(seen.longest_pre_capture_us < (BUDGET + SLACK).as_micros() as u64);

@@ -126,13 +126,15 @@ pub struct RawEvent {
     /// [`CLICK_IS_MIDDLE_BUTTON`] a middle-button press (read by the click
     /// arm). On other platforms: unused or platform-defined.
     pub callback_params: [i64; 4],
-    /// Pre-captured element description from the Input_Thread.
-    /// For mouse click/right-click events, the Input_Thread may perform a
-    /// quick `ElementFromPoint` query before dispatching. If the query
-    /// succeeds within the timeout, the result is attached here so the
-    /// worker can use it directly — guaranteeing the element is captured
-    /// while the window is still alive. If `None`, the worker performs
-    /// its own query.
+    /// Pre-captured element description, from the click pre-capture the
+    /// mouse hook waited on (DCP-1). For a click, right-click or middle
+    /// press, the hook asks a pre-capture describer for the element at the
+    /// point and waits for at most the budget before dispatching. An answer
+    /// that came in time is attached here, described at the click, before
+    /// the click takes effect, and the worker uses it directly. If `None` —
+    /// no answer in time, an answer that described nothing, or no
+    /// pre-capture running — the worker performs its own query, after the
+    /// click has taken effect (DCP-13).
     pub pre_captured_element: Option<super::ElementDescription>,
     /// The focus epoch when the Input_Thread dispatched this event: a count of
     /// the focus and foreground changes it had seen by then (see
@@ -2573,19 +2575,20 @@ fn handle_click<B: AccessibilityBackend>(
     let previous_pick = file_pick.take();
 
     // Priority chain for element resolution:
-    // 1. Pre-captured element from Input_Thread (window guaranteed alive)
+    // 1. Pre-captured element, described at the click within the hook's
+    //    budget (DCP-1), before the click took effect
     // 2. Worker's own ElementFromPoint query
     // 3. Option D: if the window closed between capture and query,
     //    use the window title from the original HWND
     let (capture_mode, mut element_desc) = if let Some(ref pre) = raw.pre_captured_element {
-        // Input_Thread already captured the element — use it directly.
+        // The pre-capture described the element at the click — use it.
         let mode = if pre.tag == "Window" || pre.tag == "Pane" {
             CaptureMode::Coordinate
         } else {
             CaptureMode::Accessibility
         };
         let mut el = pre.clone();
-        // Described inside the input hook, at the event itself.
+        // Described at the click, while the hook waited on it.
         el.described_after_ms = Some(0);
         (mode, el)
     } else {

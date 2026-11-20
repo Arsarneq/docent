@@ -23,32 +23,40 @@ numeric sequence.
 
 1. **Input Thread** — low-level hooks (WH_MOUSE_LL, WH_KEYBOARD_LL). It makes
    no accessibility call itself. At left mouse-up on a non-drag click, and at
-   right/middle button-down, the mouse hook asks the pre-capture thread for
-   the clicked element and waits for the answer for at most a fixed budget
-   (`PRE_CAPTURE_BUDGET_MS`), so the element is described while the target
-   window is still alive (locator match statistics deliberately unmeasured
-   there). The hook dispatches every click, in order, whether or not an
-   answer came: a click whose answer does not come within the budget, a click
-   in an application that still holds a describer with an earlier click's
-   pre-capture, and a click that finds no describer free are each dispatched
-   at once with no element, and its worker describes it as it describes any
-   click the pre-capture did not describe (DCP-13 states what that costs).
-   The wait dispatches no message, so no other hook call runs inside it.
-   Windows passes input on without a low-level hook that does not return
-   within the system's hook timeout, and can remove the hook after that,
-   after which nothing the mouse does would be recorded; the budget keeps a
-   slow or unresponsive application from holding the hook that long. Every
-   other accessibility query runs on the workers
-2. **Pre-capture Describers** (at most `MAX_DESCRIBERS`, 5, threads) — the
-   pre-capture's `ElementFromPoint` and the description built from it, each
-   describer with its own accessibility client and one click at a time. One
-   describer is asked and a second is kept ready as a spare. When the
+   right/middle button-down, the mouse hook asks a pre-capture describer for
+   the clicked element and waits for the answer for at most a budget set at
+   start from the system's low-level hook timeout: the user's
+   `LowLevelHooksTimeout` setting, capped at `HOOK_TIMEOUT_CAP_MS` (1000 ms,
+   the most Windows allows from Windows 10 version 1709), or
+   `HOOK_TIMEOUT_DEFAULT_MS` (300 ms) where the setting is absent, zero or
+   not a number, less `HOOK_WORK_MARGIN_MS` (50 ms) for the hook's own work
+   (`src/capture/timing.rs`). The element is described while the target
+   window is still alive, before the click takes effect (locator match
+   statistics deliberately unmeasured there). Within the same budget the hook
+   waits, where the clicked application still holds a describer with an
+   earlier click's pre-capture, for that application to answer, and, where no
+   describer is free, for one to come free: when the hook itself made the
+   call, a later click waited behind the earlier call in the same way. The
+   hook dispatches every click, in order, whether or not an element came; a
+   click that got none is described by its worker (DCP-13 lists every way a
+   click gets none, and what that costs). The waits dispatch no message, so
+   no other hook call runs inside them. Windows passes input on without a
+   low-level hook that does not return within the system's hook timeout, and
+   can remove the hook after that, after which nothing the mouse does would
+   be recorded; the budget keeps a slow or unresponsive application from
+   holding the hook that long. Every other accessibility query runs on the
+   workers
+2. **Pre-capture Describers** (at most `MAX_DESCRIBERS`, 5, threads alive in
+   the process at a time, those left by a stopped capture session included)
+   — the pre-capture's `ElementFromPoint` and the description built from it,
+   each describer with its own accessibility client and one click at a time.
+   One describer is asked and a second is kept ready as a spare. When the
    describer asked is still on an earlier click, a click in another
    application goes to the spare, the held describer is left to the
    application holding it (its answer discarded, its thread ending when the
-   application answers) and a new spare is started; a click in the
-   application that holds a describer goes to none, since it would hold a
-   fresh one too. So an application that does not answer costs the
+   application answers, never joined) and a new spare is started; a click in
+   the application that holds a describer is not given another, since it
+   would hold that one too. So an application that does not answer costs the
    pre-capture of its own clicks only, until held describers reach the cap
 3. **Worker Pool** (3 threads) — accessibility queries, produces ActionEvents
 4. **Bridge Thread** — dispatches raw events from input thread to workers
@@ -651,22 +659,44 @@ with a caveat):
   not recorded; a departure (core CP-18). A dialog whose File name box is
   empty records no `file_dialog`
 - A click whose element the pre-capture did not describe (DCP-1) — a left
-  click (at its mouse-up), a right or middle press, and either click of a
-  double-click, whose pre-capture's answer did not come within
-  `PRE_CAPTURE_BUDGET_MS` (`src/capture/timing.rs`), that came while its
-  application still held a describer with an earlier click's pre-capture, or
-  that found no describer free — is described by its worker after the click
-  has taken effect, from the element then at the click's point: a different
-  element, or none, where the click changed what is there (a dialog's Save,
-  OK or Open button that closes the dialog, a menu item that closes its
-  menu). A left click on a file dialog's Save or Open button described so
-  records no `file_dialog`, since the proxy tests the clicked element (DCP-6),
-  and a double-click on a file in its item view records none when the
-  dialog has closed before its first click is described. An application that
-  does not answer takes its own clicks down this path; once held describers
-  reach the cap, clicks in every application take it until one is released;
-  a departure (core CP-18;
+  click (at its mouse-up), a right or middle press, or either click of a
+  double-click, that got no element because:
+  - its pre-capture's answer did not come within the budget (the hook
+    timeout less `HOOK_WORK_MARGIN_MS`, DCP-1);
+  - its application held a describer with an earlier click's pre-capture
+    and did not answer within the budget;
+  - no describer came free within the budget (each one on another click,
+    held, or still building its accessibility client, the first one at
+    start among them);
+  - the answer described nothing (`ElementFromPoint` or the description
+    failed, or the describer's accessibility client could not be built,
+    which start reports); or
+  - no pre-capture was running (it could not be started, which start
+    reports)
+
+  Such a click is described by its worker after the click has taken effect, from the
+  element then at the click's point: a different element, or none, where the
+  click changed what is there (a dialog's Save, OK or Open button that closes
+  the dialog, a menu item that closes its menu). A left click on a file
+  dialog's Save or Open button described so records no `file_dialog`, since
+  the proxy tests the clicked element (DCP-6), and a double-click on a file in
+  its item view records none when the dialog has closed before its first
+  click is described. In the first three cases the hook has waited the whole
+  budget. When the hook made the call itself, the same click's hook call took
+  at least as long, which reaches the system's hook timeout or ends within
+  `HOOK_WORK_MARGIN_MS` of it: past the timeout Windows passed the click on
+  unrecorded, and a description that came within that last margin is the
+  one this path loses. A click that waits for the first describer at start
+  would not have reached a hook at all: the hooks were registered only once
+  the client was built. In the last two cases the call made inside the hook
+  could not describe the click either. An
+  application that does not answer takes its own clicks down this path; once
+  held describers reach the cap, clicks in every application wait for one to
+  come free. The extension records the element the click event names as its
+  target, whatever the page does after the click, so this is a departure
+  (core CP-18, CP-19;
   [docent#745](https://github.com/Arsarneq/docent/issues/745))
+
 - A `type` whose value equals the typing worker's last for the same element
   (its selector within its window) — not written, the keys buffered for it
   discarded with it, and for a password field, whose value is the mask, every
