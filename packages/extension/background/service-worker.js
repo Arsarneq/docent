@@ -45,7 +45,7 @@ import {
   resolveActiveSteps,
 } from '../shared/lib/session.js';
 import { uuidv7 } from '../shared/lib/uuid-v7.js';
-import { redactSensitive } from '../lib/redaction-logic.js';
+import { redactSensitive, repeatsMaskedEntry } from '../lib/redaction-logic.js';
 import {
   TAB_CREATED_USER_ACTION_WINDOW,
   TAB_CLOSED_USER_ACTION_WINDOW,
@@ -548,8 +548,14 @@ async function appendToPending(actions) {
   const { pendingActions } = await chrome.storage.local.get('pendingActions');
   const languages = globalThis.navigator?.languages;
   const preferred = Array.isArray(languages) ? [...languages] : null;
-  const stamped = actions.map((action) => ({ ...action, preferred_languages: preferred }));
-  const updated = [...(pendingActions ?? []), ...stamped];
+  // Typing into a sensitive field is one masked `type`: one that repeats the
+  // action stored just before it is not stored again (lib/redaction-logic.js).
+  const updated = [...(pendingActions ?? [])];
+  for (const action of actions) {
+    const stamped = { ...action, preferred_languages: preferred };
+    if (!repeatsMaskedEntry(updated.at(-1), stamped)) updated.push(stamped);
+  }
+  if (updated.length === (pendingActions ?? []).length) return true;
   try {
     await chrome.storage.local.set({ pendingActions: updated, pendingCount: updated.length });
   } catch (err) {

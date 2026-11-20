@@ -27,13 +27,35 @@ import {
   tagSelectorFor,
   normalizeText,
   shouldCaptureScroll,
-  takesTypedText,
-  capturedKeyName,
-  CAPTURE_KEYS,
-  NON_TEXT_INPUT_TYPES,
+  mayTakeText,
+  takesTextByParts,
+  PART_ENTRY_INPUT_TYPES,
+  keyPressKind,
+  isShortcut,
+  isSensitiveElement,
+  takesNoTypedText,
+  NON_TEXT_TAGS,
+  NON_TEXT_ROLES,
+  SENSITIVE_AUTOCOMPLETE,
+  SENSITIVE_NAME_RE,
+  keyActionName,
+  MODIFIER_KEYS,
+  NON_ENTRY_INPUT_TYPES,
   TEST_ID_ATTRS,
   TEXT_MEASURE_MAX,
 } from '../../content/recorder-logic.js';
+import {
+  isSensitiveField,
+  SENSITIVE_AUTOCOMPLETE as SHARED_AUTOCOMPLETE,
+  SENSITIVE_NAME_RE as SHARED_NAME_RE,
+} from '../../../shared/lib/field-sensitivity.js';
+import {
+  keyEntersText,
+  takesNoTypedText as workerTakesNoTypedText,
+  NON_TEXT_INPUT_TYPES as WORKER_NON_TEXT_INPUT_TYPES,
+  NON_TEXT_TAGS as WORKER_NON_TEXT_TAGS,
+  NON_TEXT_ROLES as WORKER_NON_TEXT_ROLES,
+} from '../../lib/redaction-logic.js';
 
 // ─── Mock DOM helpers ─────────────────────────────────────────────────────────
 
@@ -735,88 +757,259 @@ describe('shouldCaptureScroll', () => {
   });
 });
 
-// ─── Captured keys (#695) ─────────────────────────────────────────────────────
+// ─── Key presses (#695, #702) ────────────────────────────────────────────────
 
-describe('takesTypedText', () => {
-  it('is true for a textarea, a free-text input and editable content', () => {
-    assert.equal(takesTypedText({ tagName: 'TEXTAREA' }), true);
-    for (const type of ['text', 'password', 'search', 'email', 'url', 'tel']) {
-      assert.equal(takesTypedText({ tagName: 'INPUT', type }), true, type);
+describe('takesTextByParts', () => {
+  it('regression_702_is_true_for_the_date_and_time_inputs_and_for_nothing_else', () => {
+    assert.deepEqual(PART_ENTRY_INPUT_TYPES, ['date', 'datetime-local', 'month', 'time', 'week']);
+    for (const type of PART_ENTRY_INPUT_TYPES) {
+      assert.equal(takesTextByParts({ tagName: 'INPUT', type }), true, type);
     }
-    assert.equal(takesTypedText({ tagName: 'DIV', isContentEditable: true }), true);
-  });
-
-  it('is false for every input type whose value is not free text', () => {
-    assert.deepEqual(NON_TEXT_INPUT_TYPES, [
-      'button',
-      'checkbox',
-      'color',
-      'date',
-      'datetime-local',
-      'file',
-      'image',
-      'month',
-      'number',
-      'radio',
-      'range',
-      'reset',
-      'submit',
-      'time',
-      'week',
-    ]);
-    for (const type of NON_TEXT_INPUT_TYPES) {
-      assert.equal(takesTypedText({ tagName: 'INPUT', type }), false, type);
+    for (const type of ['text', 'number', 'password', 'range', 'checkbox']) {
+      assert.equal(takesTextByParts({ tagName: 'INPUT', type }), false, type);
     }
-  });
-
-  it('is false for a control that is no text field', () => {
-    for (const tagName of ['BUTTON', 'A', 'SELECT', 'SUMMARY', 'DIV']) {
-      assert.equal(takesTypedText({ tagName, isContentEditable: false }), false, tagName);
-    }
+    assert.equal(takesTextByParts({ tagName: 'TEXTAREA' }), false);
+    assert.equal(takesTextByParts({ tagName: 'DIV', isContentEditable: true }), false);
+    assert.equal(takesTextByParts(null), false);
   });
 });
 
-describe('capturedKeyName', () => {
-  const button = { tagName: 'BUTTON' };
-  const text = { tagName: 'INPUT', type: 'text' };
+describe('mayTakeText', () => {
+  it('is true for a textarea, an input that holds an entry and editable content', () => {
+    assert.equal(mayTakeText({ tagName: 'TEXTAREA' }), true);
+    for (const type of ['text', 'password', 'search', 'email', 'url', 'tel', 'number', 'date']) {
+      assert.equal(mayTakeText({ tagName: 'INPUT', type }), true, type);
+    }
+    assert.equal(mayTakeText({ tagName: 'DIV', isContentEditable: true }), true);
+  });
 
-  it('names each key of the fixed set as the browser does, on any element', () => {
-    assert.deepEqual(CAPTURE_KEYS, [
+  it('is false for every input type that holds no entry', () => {
+    assert.deepEqual(NON_ENTRY_INPUT_TYPES, [
+      'button',
+      'checkbox',
+      'file',
+      'image',
+      'radio',
+      'reset',
+      'submit',
+    ]);
+    for (const type of NON_ENTRY_INPUT_TYPES) {
+      assert.equal(mayTakeText({ tagName: 'INPUT', type }), false, type);
+    }
+  });
+
+  it('is false for a control that is no text field, and for no element', () => {
+    for (const tagName of ['BUTTON', 'A', 'SELECT', 'SUMMARY', 'DIV', 'BODY']) {
+      assert.equal(mayTakeText({ tagName, isContentEditable: false }), false, tagName);
+    }
+    assert.equal(mayTakeText(null), false);
+  });
+});
+
+describe('keyPressKind', () => {
+  // Regression: #702 — only a fixed set of keys was written, so a shortcut, an
+  // editing key or a letter a page acts on left no record.
+  // https://github.com/Arsarneq/docent/issues/702
+  it('regression_702_a_key_that_enters_no_character_is_a_named_key', () => {
+    for (const key of [
       'Enter',
       'Escape',
       'Tab',
       'ArrowUp',
-      'ArrowDown',
-      'ArrowLeft',
-      'ArrowRight',
-    ]);
-    for (const key of CAPTURE_KEYS) {
-      assert.equal(capturedKeyName(key, button), key);
-      assert.equal(capturedKeyName(key, text), key);
-      assert.equal(capturedKeyName(key, null), key);
+      'Backspace',
+      'Delete',
+      'Home',
+      'End',
+      'PageUp',
+      'PageDown',
+      'Insert',
+      'F1',
+      'F12',
+      'CapsLock',
+      'ContextMenu',
+      'Unidentified',
+    ]) {
+      assert.equal(keyPressKind(key, false), 'named', key);
     }
   });
 
-  // Regression: #695 — Space was outside the captured set, so a control
-  // activated with it was recorded only by the click the browser derives.
-  // https://github.com/Arsarneq/docent/issues/695
-  it('regression_695_space_is_named_Space_where_it_is_not_typed_text', () => {
-    assert.equal(capturedKeyName(' ', button), 'Space');
-    assert.equal(capturedKeyName(' ', { tagName: 'INPUT', type: 'checkbox' }), 'Space');
-    assert.equal(capturedKeyName(' ', { tagName: 'DIV', isContentEditable: false }), 'Space');
+  it('regression_702_a_key_whose_value_is_one_character_or_a_dead_key_is_a_character_key', () => {
+    for (const key of ['a', 'A', '1', ' ', '.', 'å', '€', '😀', 'Dead']) {
+      assert.equal(keyPressKind(key, false), 'character', key);
+    }
   });
 
-  it('regression_695_space_is_not_captured_where_it_is_typed_text', () => {
-    assert.equal(capturedKeyName(' ', text), null);
-    assert.equal(capturedKeyName(' ', { tagName: 'INPUT', type: 'password' }), null);
-    assert.equal(capturedKeyName(' ', { tagName: 'TEXTAREA' }), null);
-    assert.equal(capturedKeyName(' ', { tagName: 'DIV', isContentEditable: true }), null);
-    assert.equal(capturedKeyName(' ', null), null);
+  it('regression_702_the_meta_key_is_a_named_key_as_the_desktop_writes_it', () => {
+    // The system acts on this key by itself (it opens the Start menu), and the
+    // desktop writes its press.
+    assert.equal(keyPressKind('Meta', false), 'named');
   });
 
-  it('captures no other key', () => {
-    for (const key of ['a', 'A', '1', 'F5', 'Backspace', 'Delete', 'Shift', 'Spacebar', '']) {
-      assert.equal(capturedKeyName(key, button), null, key);
+  it('regression_702_shift_ctrl_alt_and_altgr_alone_are_modifiers', () => {
+    assert.deepEqual(MODIFIER_KEYS, ['Shift', 'Control', 'Alt', 'AltGraph']);
+    for (const key of MODIFIER_KEYS) assert.equal(keyPressKind(key, false), 'modifier', key);
+  });
+
+  it('regression_702_a_key_the_input_method_takes_is_composed', () => {
+    for (const key of ['Process', '']) assert.equal(keyPressKind(key, false), 'composed', key);
+    // Any key pressed while a composition is open belongs to it.
+    for (const key of ['a', 'Enter', 'Backspace', ' ']) {
+      assert.equal(keyPressKind(key, true), 'composed', key);
+    }
+    // A modifier stays a modifier.
+    assert.equal(keyPressKind('Shift', true), 'modifier');
+  });
+});
+
+describe('isShortcut', () => {
+  const held = (ctrl, alt, meta) => ({ ctrl, alt, meta, shift: false });
+
+  it('regression_702_ctrl_or_meta_held_is_a_shortcut', () => {
+    for (const altEntersCharacters of [false, true]) {
+      assert.equal(isShortcut(held(true, false, false), altEntersCharacters), true);
+      assert.equal(isShortcut(held(false, false, true), altEntersCharacters), true);
+      assert.equal(isShortcut(held(true, true, true), altEntersCharacters), true);
+      assert.equal(isShortcut(held(false, true, true), altEntersCharacters), true);
+    }
+  });
+
+  it('regression_702_no_modifier_and_ctrl_with_alt_can_enter_a_character', () => {
+    // Ctrl and Alt together is AltGr.
+    for (const altEntersCharacters of [false, true]) {
+      assert.equal(isShortcut(held(false, false, false), altEntersCharacters), false);
+      assert.equal(isShortcut(held(true, true, false), altEntersCharacters), false);
+    }
+  });
+
+  it('regression_702_alt_alone_is_a_shortcut_except_where_it_enters_characters', () => {
+    // Alt with a character key reaches for a menu; on a Mac it is the Option
+    // key, which enters characters of the layout.
+    assert.equal(isShortcut(held(false, true, false), false), true);
+    assert.equal(isShortcut(held(false, true, false), true), false);
+  });
+});
+
+describe('isSensitiveElement', () => {
+  const elements = [
+    createElement('input', { type: 'password' }),
+    createElement('input', { type: 'PASSWORD' }),
+    createElement('input', { type: 'text', autocomplete: 'cc-number' }),
+    createElement('input', { type: 'text', autocomplete: ' CC-CSC ' }),
+    createElement('input', { type: 'text', autocomplete: 'cc-exp' }),
+    createElement('input', { type: 'text', autocomplete: 'cc-exp-month' }),
+    createElement('input', { type: 'text', autocomplete: 'cc-exp-year' }),
+    createElement('input', { type: 'text', autocomplete: 'email' }),
+    createElement('input', { type: 'text', name: 'card_number' }),
+    createElement('input', { type: 'text', name: 'city' }),
+    createElement('input', { type: 'text', id: 'cvv' }),
+    createElement('input', { type: 'text', id: 'postcode' }),
+    createElement('div', { id: 'otp' }),
+    createElement('div', { id: 'footer' }),
+    createElement('div', { role: 'textbox', name: 'api-key' }),
+    createElement('textarea', { name: 'notes' }),
+    createElement('button', { name: 'show-password' }),
+  ];
+
+  it('regression_702_the_recorder_and_the_worker_find_the_same_elements_sensitive', () => {
+    // The worker tests the description the recorder sends; the recorder tests
+    // the element, before it writes anything about a key pressed on it.
+    for (const el of elements) {
+      const described = describeElement(el);
+      assert.equal(isSensitiveElement(el), isSensitiveField(described), JSON.stringify(described));
+    }
+    assert.equal(isSensitiveElement(elements[0]), true);
+    assert.equal(isSensitiveElement(elements[9]), false);
+    assert.equal(isSensitiveElement(elements[12]), true);
+  });
+
+  it('regression_702_the_recorder_holds_the_shared_rule_s_own_patterns', () => {
+    assert.deepEqual([...SENSITIVE_AUTOCOMPLETE].sort(), [...SHARED_AUTOCOMPLETE].sort());
+    assert.equal(String(SENSITIVE_NAME_RE), String(SHARED_NAME_RE));
+  });
+
+  it('regression_702_no_element_is_not_sensitive', () => {
+    assert.equal(isSensitiveElement(null), false);
+  });
+});
+
+describe('takesNoTypedText', () => {
+  const elements = [
+    createElement('button'),
+    createElement('a'),
+    createElement('summary'),
+    createElement('div'),
+    createElement('select'),
+    createElement('textarea'),
+    createElement('input', { type: 'text' }),
+    createElement('input', { type: 'password' }),
+    ...NON_ENTRY_INPUT_TYPES.map((type) => createElement('input', { type })),
+    ...[
+      'button',
+      'checkbox',
+      'link',
+      'menuitem',
+      'menuitemcheckbox',
+      'menuitemradio',
+      'radio',
+      'switch',
+      'tab',
+      'TAB',
+      'option',
+      'textbox',
+      'listbox',
+    ].map((role) => createElement('div', { role })),
+  ];
+
+  it('regression_702_the_recorder_and_the_worker_agree_on_the_controls_that_take_no_typed_text', () => {
+    for (const el of elements) {
+      const described = describeElement(el);
+      assert.equal(
+        takesNoTypedText(el),
+        workerTakesNoTypedText(described),
+        JSON.stringify(described),
+      );
+    }
+    assert.equal(takesNoTypedText(elements[0]), true);
+    assert.equal(takesNoTypedText(elements[3]), false);
+    assert.equal(takesNoTypedText(elements[4]), false);
+  });
+
+  it('regression_702_the_recorder_and_the_worker_hold_the_same_lists', () => {
+    // A tag, role or input type added to one copy only fails here.
+    assert.deepEqual([...NON_ENTRY_INPUT_TYPES].sort(), [...WORKER_NON_TEXT_INPUT_TYPES].sort());
+    assert.deepEqual([...NON_TEXT_TAGS].sort(), [...WORKER_NON_TEXT_TAGS].sort());
+    assert.deepEqual([...NON_TEXT_ROLES].sort(), [...WORKER_NON_TEXT_ROLES].sort());
+  });
+
+  it('regression_702_the_worker_s_shortcut_test_is_the_recorder_s', () => {
+    const either = [false, true];
+    for (const ctrl of either) {
+      for (const alt of either) {
+        for (const meta of either) {
+          for (const altEntersCharacters of either) {
+            const modifiers = { ctrl, alt, meta, shift: false };
+            assert.equal(
+              keyEntersText({ type: 'key', key: 'a', modifiers }, altEntersCharacters),
+              !isShortcut(modifiers, altEntersCharacters),
+              JSON.stringify({ modifiers, altEntersCharacters }),
+            );
+          }
+        }
+      }
+    }
+  });
+
+  it('regression_702_no_element_takes_typed_text_for_all_the_rule_knows', () => {
+    assert.equal(takesNoTypedText(null), false);
+  });
+});
+
+describe('keyActionName', () => {
+  // Regression: #695 — https://github.com/Arsarneq/docent/issues/695
+  it('regression_695_a_space_is_named_Space_and_every_other_key_as_the_browser_names_it', () => {
+    assert.equal(keyActionName(' '), 'Space');
+    for (const key of ['Enter', 'a', 'A', 'F5', 'Backspace', 'Dead']) {
+      assert.equal(keyActionName(key), key);
     }
   });
 });

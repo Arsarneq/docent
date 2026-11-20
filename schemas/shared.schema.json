@@ -160,7 +160,7 @@
           "items": {
             "type": "string"
           },
-          "description": "The keys that were down when this action happened, other than the modifiers and other than this action's own key: each a key whose own key-down is a `key` action of this recording (its press, or the first key-down of it that was recorded when the press was not), named as that action names it, in the order they went down. Empty when none was. Absent in a recording made before the field existed."
+          "description": "The keys that were down when this action happened, other than the modifiers and other than this action's own key: each a key whose own key-down is a `key` action of this recording (its press, or the first key-down of it that was recorded when the press was not), named as that action names it, in the order they went down. Empty when no such key was known to be down, which is not the same as no key being down: a key whose key-down was not recorded is not named. Absent in a recording made before the field existed."
         },
         "element": {
           "$ref": "#/$defs/element"
@@ -199,7 +199,7 @@
           "items": {
             "type": "string"
           },
-          "description": "The keys that were down when this action happened, other than the modifiers and other than this action's own key: each a key whose own key-down is a `key` action of this recording (its press, or the first key-down of it that was recorded when the press was not), named as that action names it, in the order they went down. Empty when none was. Absent in a recording made before the field existed."
+          "description": "The keys that were down when this action happened, other than the modifiers and other than this action's own key: each a key whose own key-down is a `key` action of this recording (its press, or the first key-down of it that was recorded when the press was not), named as that action names it, in the order they went down. Empty when no such key was known to be down, which is not the same as no key being down: a key whose key-down was not recorded is not named. Absent in a recording made before the field existed."
         },
         "element": {
           "$ref": "#/$defs/element"
@@ -285,7 +285,7 @@
           "items": {
             "type": "string"
           },
-          "description": "The keys that were down when this action happened, other than the modifiers and other than this action's own key: each a key whose own key-down is a `key` action of this recording (its press, or the first key-down of it that was recorded when the press was not), named as that action names it, in the order they went down. Empty when none was. Absent in a recording made before the field existed."
+          "description": "The keys that were down when this action happened, other than the modifiers and other than this action's own key: each a key whose own key-down is a `key` action of this recording (its press, or the first key-down of it that was recorded when the press was not), named as that action names it, in the order they went down. Empty when no such key was known to be down, which is not the same as no key being down: a key whose key-down was not recorded is not named. Absent in a recording made before the field existed."
         },
         "element": {
           "$ref": "#/$defs/element"
@@ -336,7 +336,7 @@
           "items": {
             "type": "string"
           },
-          "description": "The keys that were down when this action happened, other than the modifiers and other than this action's own key: each a key whose own key-down is a `key` action of this recording (its press, or the first key-down of it that was recorded when the press was not), named as that action names it, in the order they went down. Empty when none was. Absent in a recording made before the field existed."
+          "description": "The keys that were down when this action happened, other than the modifiers and other than this action's own key: each a key whose own key-down is a `key` action of this recording (its press, or the first key-down of it that was recorded when the press was not), named as that action names it, in the order they went down. Empty when no such key was known to be down, which is not the same as no key being down: a key whose key-down was not recorded is not named. Absent in a recording made before the field existed."
         },
         "element": {
           "$ref": "#/$defs/element"
@@ -375,7 +375,7 @@
           "items": {
             "type": "string"
           },
-          "description": "The keys that were down when this action happened, other than the modifiers and other than this action's own key: each a key whose own key-down is a `key` action of this recording (its press, or the first key-down of it that was recorded when the press was not), named as that action names it, in the order they went down. Empty when none was. Absent in a recording made before the field existed."
+          "description": "The keys that were down when this action happened, other than the modifiers and other than this action's own key: each a key whose own key-down is a `key` action of this recording (its press, or the first key-down of it that was recorded when the press was not), named as that action names it, in the order they went down. Empty when no such key was known to be down, which is not the same as no key being down: a key whose key-down was not recorded is not named. Absent in a recording made before the field existed."
         },
         "element": {
           "$ref": "#/$defs/element"

@@ -82,7 +82,10 @@
         Press <span class="key">Ctrl+L</span> to focus the address bar, then press
         <span class="key">Escape</span> to cancel.
       </p>
-      <p class="expected">Expected: Nothing captured.</p>
+      <p class="expected">
+        Expected: one key action for Ctrl+L (the page is sent that press before the browser acts on
+        it) and nothing for the Escape pressed in the address bar, which the page is not sent.
+      </p>
     </div>
 
     <!-- TEST 4 -->
@@ -164,8 +167,9 @@
         <span class="key">Ctrl+X</span> to cut. Click elsewhere to blur.
       </p>
       <p class="expected">
-        Expected: 1 click + 1 type (with empty value after cut). Ctrl+X is not a captured key, but
-        the value change from cutting IS the user's action.
+        Expected: 1 click, a key action for each shortcut (Ctrl+A, Ctrl+X), and 1 type with the
+        empty value the cut left, written when the field is left. Every key press that is not text
+        is written, and the value change from cutting is the user's action too.
       </p>
       <p class="limitation">
         Cannot be automated — Playwright's clipboard operations don't trigger real value changes.

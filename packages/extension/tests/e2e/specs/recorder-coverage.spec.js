@@ -846,7 +846,12 @@ test.describe('Edge Cases', () => {
     expect(keyActions[0].element.tag).toBe('BODY');
   });
 
-  test('non-Tab key on body is NOT captured', async ({ testPage, serviceWorker }) => {
+  // Regression: #702 — only Tab was written with nothing focused.
+  // https://github.com/Arsarneq/docent/issues/702
+  test('regression_702_a_key_other_than_Tab_on_the_body_is_written', async ({
+    testPage,
+    serviceWorker,
+  }) => {
     await setTestContent(
       testPage,
       /* html */ `<!DOCTYPE html>
@@ -857,13 +862,13 @@ test.describe('Edge Cases', () => {
     await testPage.waitForTimeout(200);
     await clearPendingActions(serviceWorker);
 
-    // Press Escape when body is focused — should NOT be captured
+    // Nothing is focused: the key is the page's, written on the body.
     await testPage.press('body', 'Escape');
     await waitForActionsToSettle(serviceWorker, testPage);
 
     const actions = await getPendingActions(serviceWorker);
     const keyActions = actions.filter((a) => a.type === 'key');
-    expect(keyActions.length).toBe(0);
+    expect(keyActions.map((a) => [a.key, a.element.tag])).toEqual([['Escape', 'BODY']]);
   });
 
   test('actions include context_id and capture_mode', async ({ testPage, serviceWorker }) => {

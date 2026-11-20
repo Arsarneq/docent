@@ -28,6 +28,7 @@ const FIELDS_HTML = /* html */ `<!DOCTYPE html>
 <html><body>
   <input id="field" type="text">
   <input id="secret" type="password">
+  <input id="date" type="date">
   <div id="editable" contenteditable="true" style="border:1px solid #ccc;min-height:2rem;"></div>
   <button id="other">Other</button>
 </body></html>`;
@@ -167,6 +168,40 @@ test.describe('The end of typing at a step commit and at a stop', () => {
 
     expect(result.ok).toBe(true);
     expect(written(result.step.actions)).toEqual([['type', 'keep']]);
+  });
+
+  // Digits that gave a date field no value wait for the rest of their run,
+  // to be known as its text or as keys. The stop ends the wait: no text
+  // followed them, so they are the keys they were.
+  test('keys_still_waiting_to_be_known_as_text_are_written_at_the_stop', async ({
+    testPage,
+    serviceWorker,
+  }) => {
+    await testPage.focus('#date');
+    await testPage.keyboard.type('12');
+
+    expect((await send({ type: 'RECORDING_STOP' })).ok).toBe(true);
+
+    expect(written(await getPendingActions(serviceWorker))).toEqual([
+      ['key', undefined],
+      ['key', undefined],
+    ]);
+    expect((await getPendingActions(serviceWorker)).map((a) => a.key)).toEqual(['1', '2']);
+  });
+
+  test('keys_still_waiting_to_be_known_as_text_are_written_into_the_step_committed', async ({
+    testPage,
+  }) => {
+    await testPage.focus('#date');
+    await testPage.keyboard.type('12');
+
+    const result = await send({ type: 'STEP_COMMIT', narration: 'n', narration_source: 'typed' });
+
+    expect(result.ok).toBe(true);
+    expect(result.step.actions.map((a) => [a.type, a.key])).toEqual([
+      ['key', '1'],
+      ['key', '2'],
+    ]);
   });
 
   test('an_entry_still_in_focus_is_written_at_the_stop', async ({ testPage, serviceWorker }) => {
