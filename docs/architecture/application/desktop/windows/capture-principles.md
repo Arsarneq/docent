@@ -665,7 +665,8 @@ with a caveat):
   dialog has closed before its first click is described. An application that
   does not answer takes its own clicks down this path; once held describers
   reach the cap, clicks in every application take it until one is released;
-  a departure (core CP-18)
+  a departure (core CP-18;
+  [docent#745](https://github.com/Arsarneq/docent/issues/745))
 - A `type` whose value equals the typing worker's last for the same element
   (its selector within its window) — not written, the keys buffered for it
   discarded with it, and for a password field, whose value is the mask, every
