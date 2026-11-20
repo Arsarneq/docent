@@ -171,8 +171,9 @@ jobs:
         timeout-minutes: 15
         run: cargo install cargo-mutants --version 27.1.0 --locked
 
-      # The `mutation` family. Its key shape, its split, and its save's gate are
-      # the desktop-rust-tests cargo block's in test.yml, which carries the
+      # The `mutation` family. Its key shape (less the toolchain segment that
+      # block alone carries, for its coverage steps), its split, and its save's
+      # gate are the desktop-rust-tests cargo block's in test.yml, which carries the
       # reasoning the cargo families share (`rust-tests`, `vectors` and this one
       # beside it); what this family stores, and how far its restore reaches,
       # are its own.
