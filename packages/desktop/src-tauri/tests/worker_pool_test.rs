@@ -4169,12 +4169,16 @@ fn a_focus_change_that_names_no_part_of_the_control_asks_for_no_second_look() {
 }
 
 /// The Input_Thread's note of the focus changes that named a part of a
-/// window: each has a number of its own, a window that had none answers 0,
-/// and a window pushed out of the note answers 0 again, never an old number.
+/// window: each has a number of its own, and a window that never had one
+/// answers 0. A window pushed out of the note must not answer what a worker
+/// may have kept from before its latest change (0 from a first look before
+/// any change, or an older number): it answers the number of the latest
+/// change pushed out, which is its own latest or a later one.
 #[test]
-fn the_part_focus_note_numbers_each_change_and_forgets_to_zero() {
+fn the_part_focus_note_never_answers_a_number_from_before_a_windows_latest_change() {
     let mut note = PartFocusNote::default();
     assert_eq!(note.of(77), 0);
+    let before_any_change = note.of(77);
 
     note.add(77);
     let first = note.of(77);
@@ -4183,15 +4187,22 @@ fn the_part_focus_note_numbers_each_change_and_forgets_to_zero() {
 
     note.add(88);
     note.add(77);
-    assert!(note.of(77) > note.of(88));
+    let latest = note.of(77);
+    assert!(latest > note.of(88));
     assert!(note.of(88) > first);
 
     for window in 100..100 + PartFocusNote::WINDOWS as i64 {
         note.add(window);
     }
-    assert_eq!(note.of(77), 0);
-    assert_eq!(note.of(88), 0);
-    assert_ne!(note.of(100 + PartFocusNote::WINDOWS as i64 - 1), 0);
+    // 77 and 88 are pushed out. Neither answers a number it had before its
+    // latest change, and 77 does not answer the 0 of before any change.
+    assert!(note.of(77) >= latest);
+    assert_ne!(note.of(77), before_any_change);
+    assert_ne!(note.of(77), first);
+    assert_ne!(note.of(88), 0);
+    // A window still in the note answers its own number.
+    let last = 100 + PartFocusNote::WINDOWS as i64 - 1;
+    assert!(note.of(last) > note.of(77));
 }
 
 /// A focus change names a window as a whole by the window's own object or
@@ -4642,9 +4653,9 @@ fn a_key_on_another_element_is_not_superseded_by_the_pending_type() {
 }
 
 /// A program can change what a control is with the person doing nothing: a
-/// page finishes loading and puts the focus into its password input. The
-/// program's focus change is counted, so the control is looked at again at
-/// the next key, and a control that now holds a focused password field is
+/// page finishes loading and puts the focus into its password input. That
+/// focus change names a part of the control and the next key carries its
+/// number, so the control is looked at again at that key, and a control that now holds a focused password field is
 /// described from the focused element: its characters are the masked `type`.
 #[test]
 fn a_control_is_looked_at_again_after_a_focus_change_the_program_made() {

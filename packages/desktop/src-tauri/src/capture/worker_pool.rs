@@ -1642,12 +1642,18 @@ pub fn focus_names_a_part(id_object: i64, id_child: i64) -> bool {
 /// window (see [`focus_names_a_part`]), by window handle. Every such change
 /// gets the next number, so a keystroke stamped with its control's number
 /// tells a worker whether one happened since the worker last looked at the
-/// control. A window that had none, or was pushed out by newer ones, answers
-/// `0`, never a number it had before. Kept and read on the Input_Thread only:
-/// a short fixed scan, no allocation after the first few changes.
+/// control. A window that never had one answers `0`. A window pushed out by
+/// newer ones answers the number of the latest change pushed out: its own
+/// latest or a later one, so never a number a worker can have kept from
+/// before the window's latest change (a kept `0` included). Kept and read on
+/// the Input_Thread only: a short fixed scan, no allocation after the first
+/// few changes.
 #[derive(Debug, Default)]
 pub struct PartFocusNote {
     last: i64,
+    /// The number of the latest change pushed out of `windows`.
+    pushed_out: i64,
+    /// Oldest first.
     windows: Vec<(i64, i64)>,
 }
 
@@ -1660,18 +1666,20 @@ impl PartFocusNote {
         self.last += 1;
         self.windows.retain(|(w, _)| *w != window);
         if self.windows.len() >= Self::WINDOWS {
-            self.windows.remove(0);
+            // The oldest entry, and numbers only grow: the latest pushed out.
+            self.pushed_out = self.windows.remove(0).1;
         }
         self.windows.push((window, self.last));
     }
 
-    /// The number of the latest such change in `window`, `0` when none is
-    /// remembered.
+    /// The number of the latest such change in `window`; for a window not
+    /// remembered, the number of the latest change pushed out (`0` while
+    /// none was).
     pub fn of(&self, window: i64) -> i64 {
         self.windows
             .iter()
             .find(|(w, _)| *w == window)
-            .map_or(0, |(_, number)| *number)
+            .map_or(self.pushed_out, |(_, number)| *number)
     }
 }
 
