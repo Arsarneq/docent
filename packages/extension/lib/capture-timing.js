@@ -96,3 +96,16 @@ export const TAB_REMOVED_SWITCH_SUPPRESSION = 100;
 
 /** Suppress cascading navigations after tab creation (e.g. Ctrl+Shift+T reload). */
 export const TAB_CREATED_NAVIGATION_SUPPRESSION = 100;
+
+// ─── Waits ───────────────────────────────────────────────────────────────────
+// Not a causality window: a bound on how long the worker waits for an answer.
+
+/**
+ * How long the worker waits for the frames it asked to end their typing: at a
+ * step commit, at a stop, and at a pointer press (where what the pressing
+ * frame writes next is held for it). A frame answers within a message round
+ * trip; one that cannot answer in time (its page is busy with a long task) is
+ * not waited on past this, so a commit is never held by it for longer than a
+ * person would notice.
+ */
+export const END_TYPING_BOUND = 500;

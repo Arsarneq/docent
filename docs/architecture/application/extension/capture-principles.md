@@ -78,10 +78,13 @@ each injected recorder's readiness beacon. Neither is bounded by the set that
 seed targets — each writes the (tab, frame) pair its own event carries — so a
 tab that joins the recording after the seed ran is registered like any other.
 Because it is in-memory and the service worker can be suspended, it is also
-lazily reseeded from the same frame table when an append arrives from a tab
-with no registry entry at all (the missing-entry signature: a suspension is
-one cause, a clear whose seed does not re-cover that tab another), rather than
-false-rejecting a legitimate frame whose registration is gone. An entry
+lazily reseeded from the same frame table when an append or a pointer-press
+report arrives from a tab with no registry entry at all (the missing-entry
+signature: a suspension is one cause, a clear whose seed does not re-cover
+that tab another), rather than false-rejecting a legitimate frame whose
+registration is gone; ahead of a step commit and of a stop, every tab the seed
+targets that has no registry entry is reseeded the same way, so the frames
+asked to end their typing include the tab typed into. An entry
 departs along exactly three routes, the registry's own: a subframe is dropped
 as it navigates
 away (a main frame is left in place — its registration follows on the load), a
@@ -128,13 +131,16 @@ phase, for exactly these DOM events, on `document` unless the item names
 
 - `mousedown` — the press ahead of a click, held so a blur-caused `change` can
   be attributed to the element the user moved to; the press also ends the
-  typing done so far in its own document, as it does on the desktop, wherever
-  in that document it is: the entry of
+  typing done so far, as it does on the desktop, wherever it is: the entry of
   a `contenteditable` host typed into is written ahead of it, and so is the
   entry made with the keys in the `input` or `textarea` in focus, whether the
   press takes the focus from the field or leaves it there; the press on a
   submit control of the field's own form is the one exception, listed among
-  the departures below
+  the departures below; the tab's other frames see nothing of the press, so
+  the recorder reports it to the worker, which asks them to end their typing
+  (extension runtime ERT-4) and stores what the pressing frame writes next
+  behind their answers, for up to the bound stated below: their entry stands
+  ahead of the `click` of the press, however short the press was
 - `click` — activation of the clicked element or its nearest interactive
   ancestor (the set the recorder tests is stated in the session-format
   document's action table; core CP-18); a click on a `label` is the label's,
@@ -199,6 +205,17 @@ phase, for exactly these DOM events, on `document` unless the item names
 - `blur` on `window` — the window lost the focus, which writes nothing: a key
   released while another window has the focus sends its release there, so no
   key is known to be down from then on (the `held_keys` of later actions)
+
+A step commit and a stop end the typing too, as on the desktop: the entry
+typed into a field or a `contenteditable` host that still has the focus is the
+person's input of that step and of that recording, whether or not the focus
+left the page first (a press in the panel takes it; a commit sent through the
+control channel does not). The page is sent no event for either, so the
+worker asks every registered frame to end its typing ahead of the commit and
+ahead of the stop, and waits for the answers up to a bound of 500 ms
+(extension runtime ERT-4). What happens to the entry of a frame that does not
+answer in that time (its page is busy with a long task) is listed among the
+departures below.
 
 The service worker captures the browser-chrome proxies in the table below, each
 row naming the worker event it is captured from.
@@ -418,24 +435,6 @@ with a caveat):
   [docent#223](https://github.com/Arsarneq/docent/issues/223)), and one from
   the desktop, which writes the `type` ahead of the click (core CP-19;
   [docent#710](https://github.com/Arsarneq/docent/issues/710))
-- A pointer press in another frame than the one being typed into, where the
-  press leaves the focus in that frame (a toolbar in the parent page of an
-  editor in an iframe, whose buttons keep the focus from moving) — the press
-  does not end the typing: the `type` is written when the typing ends later,
-  behind the `click`; a departure (core CP-18), and one from the desktop,
-  which writes the `type` ahead of the click (core CP-19;
-  [docent#710](https://github.com/Arsarneq/docent/issues/710))
-- An entry typed into an `input`, a `textarea` or a `contenteditable` host
-  that still has the focus when the step is committed or the recording is
-  stopped with no focus taken from the page (through the control channel,
-  for example; a press in the panel takes the focus, and the entry is
-  written) — not written at the commit: it is written when its typing ends
-  later, in the next step; after a stop a host's entry is not written at
-  all, and a field's is written into the next recording when its typing ends
-  there; a departure (core
-  CP-18), and one from the desktop, which writes the `type` at the commit and
-  at the stop (core CP-19;
-  [docent#710](https://github.com/Arsarneq/docent/issues/710))
 - The first activation of a tab opened in the background, when no tab was
   created after it — not written; a departure (core CP-18)
 - The activation of a tab with no address — not written; a departure
@@ -500,6 +499,22 @@ with a caveat):
   listener, so no `type` or `select` is written; the desktop records a
   field's `type` wherever the field sits, so this is a departure (core CP-19;
   [docent#710](https://github.com/Arsarneq/docent/issues/710))
+- Typing in a frame that does not answer the worker's request to end it within
+  500 ms (its page is busy). At a pointer press in another frame, its entry is
+  stored behind the `click` of that press. At a step commit and at a stop, its
+  entry is no part of the step committed or the recording stopped: the frame
+  writes it when it gets to the request, and it is stored where capture is on
+  again by then (in the next step, after the panel's commit or a pause and a
+  resume) and dropped where capture is still off. The worker logs a warning
+  naming the frames. The desktop writes the `type` in place in each of these
+  cases; a departure (core CP-18; core CP-19,
+  [docent#710](https://github.com/Arsarneq/docent/issues/710))
+- Typing not yet written when capture is turned off by another route than a
+  stop (a project created or opened, a recording opened, the active project
+  or recording deleted) — no frame is asked. The entry of a `contenteditable`
+  host is not written; the entry of a field is written into the next capture
+  if the field is still being typed into when its typing ends there; a
+  departure (core CP-18)
 - Actions in a tab after a service-worker suspension, once one frame of that
   tab has registered again and the frame acted in has not — the tab's registry
   entry exists, so no lazy reseed runs (ECP-3), and the frame-trust gate drops

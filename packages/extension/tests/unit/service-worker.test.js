@@ -18,7 +18,7 @@
  * Uses Node.js built-in test runner.
  */
 
-import { describe, it, before, beforeEach } from 'node:test';
+import { describe, it, before, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   createProject,
@@ -32,6 +32,7 @@ import {
 } from '../../shared/lib/session.js';
 import { isTrustedActionSender } from '../../lib/frame-trust.js';
 import { redactSensitive } from '../../lib/redaction-logic.js';
+import { END_TYPING_BOUND } from '../../lib/capture-timing.js';
 import { SENSITIVE_MASK } from '../../shared/lib/field-sensitivity.js';
 import { composePlatform, locatorStrategyDefs } from '../../../../scripts/build-schemas.js';
 import { valueDerivedStrategies } from '../../../../scripts/sufficiency-lint.js';
@@ -927,7 +928,7 @@ describe('SERVICE WORKER: APPEND_ACTION sender validation', () => {
 
   // The seams the worker's module scope supplies, bound here so the copy below
   // can be the worker's text and nothing else: the runtime id the trust
-  // predicate reads, the warning sink, the reseed the worker runs before
+  // predicate reads, the warning sink, what the worker brings back before
   // validating (inert here — a real reseed needs webNavigation, and every case
   // registers the frames it means to be trusted), and the append chokepoint,
   // whose storage and redaction behaviour is pinned by their own suites.
@@ -937,7 +938,10 @@ describe('SERVICE WORKER: APPEND_ACTION sender validation', () => {
       warnings++;
     },
   };
-  async function seedFramesForTab() {}
+  async function restoreWhatSuspensionLost() {}
+  // No press is reported in these cases, so no append is held.
+  const pressHolds = new Map();
+  const pressHoldKey = () => null;
   async function appendSwAction(action) {
     storageData.pendingActions = [...storageData.pendingActions, action];
     storageData.pendingCount = storageData.pendingActions.length;
@@ -945,16 +949,16 @@ describe('SERVICE WORKER: APPEND_ACTION sender validation', () => {
 
   // -- BEGIN MIRRORED APPEND CHOKEPOINT (two-copy: background/service-worker.js <-> this suite; parity-tested) --
   async function validateAndAppend(action, sender) {
-    // Lazy reseed: if a recording is live but this tab has no registry entry, its
-    // registration is missing — a suspension lost the registry, or a clear took a
-    // key the following seed does not re-cover. Rebuild this tab's frames from
-    // webNavigation BEFORE validating, rather than false-rejecting a legitimate
-    // frame.
-    const tabId = sender?.tab?.id;
-    if (liveRecording && tabId != null && !activeFrames.has(tabId)) {
-      await seedFramesForTab(tabId);
-    }
+    // What a frame sends behind its pointer press is stored behind what the
+    // press made the tab's other frames write. The hold is read before anything
+    // is awaited, so the frame's messages keep their order, and waited on only
+    // after the sender test: the sender is judged as its message arrives, while
+    // the frame that sent it is still registered (the click that navigates its
+    // own frame away, or closes its tab).
+    const hold = pressHolds.get(pressHoldKey(sender));
 
+    await restoreWhatSuspensionLost(sender);
+    const tabId = sender?.tab?.id;
     const trusted = isTrustedActionSender({
       sender,
       runtimeId: chrome.runtime.id,
@@ -976,6 +980,7 @@ describe('SERVICE WORKER: APPEND_ACTION sender validation', () => {
     if (action && typeof action === 'object') {
       action.context_id = sender.tab.id;
     }
+    if (hold) await hold;
     await appendSwAction(action);
   }
   // -- END MIRRORED APPEND CHOKEPOINT --
@@ -1068,6 +1073,7 @@ describe('SERVICE WORKER: messages from a panel that is not the last to open a p
   const workerStorage = {};
   let workerOnMessage = null;
 
+  let workerOnTabRemoved;
   const send = (message) => new Promise((resolve) => workerOnMessage(message, {}, resolve));
   const stored = (projectId) => workerStorage.projects.find((p) => p.project_id === projectId);
   const storedRecording = (projectId, recordingId) =>
@@ -1140,7 +1146,7 @@ describe('SERVICE WORKER: messages from a panel that is not the last to open a p
       tabs: {
         onActivated: noListener,
         onCreated: noListener,
-        onRemoved: noListener,
+        onRemoved: { addListener: (fn) => (workerOnTabRemoved = fn) },
         query: async () => [],
         get: async () => ({}),
       },
@@ -1427,5 +1433,307 @@ describe('SERVICE WORKER: messages from a panel that is not the last to open a p
     assert.equal(workerStorage.recording, true);
     assert.equal((await send({ type: 'RECORDING_CLEAR', ...other })).ok, true);
     assert.equal(workerStorage.pendingActions.length, 0);
+  });
+
+  // ── The end of typing the worker asks the frames for ──
+  //
+  // A step commit and a stop ask every registered frame to end its typing and
+  // wait for the answers, up to a bound; a pointer press reported by one frame
+  // asks the tab's other frames, with no wait.
+
+  describe('the end of typing', () => {
+    const fromFrame = (tabId, frameId) => ({ id: 'test-extension', tab: { id: tabId }, frameId });
+    const register = (tabId, frameId) =>
+      workerOnMessage({ type: 'FRAME_READY' }, fromFrame(tabId, frameId), () => {});
+    let asked;
+
+    beforeEach(() => {
+      asked = [];
+      register(7, 0);
+      register(7, 3);
+      register(9, 0);
+      globalThis.chrome.tabs.sendMessage = async (tabId, message, options) => {
+        asked.push([tabId, options.frameId, message.type]);
+        return { ok: true };
+      };
+    });
+
+    afterEach(() => {
+      delete globalThis.chrome.tabs.sendMessage;
+    });
+
+    it('a step commit asks every registered frame once and holds what a frame wrote', async () => {
+      globalThis.chrome.tabs.sendMessage = async (tabId, message, options) => {
+        asked.push([tabId, options.frameId, message.type]);
+        // The frame in focus writes its entry before it answers.
+        if (tabId === 7 && options.frameId === 3) {
+          workerStorage.pendingActions.push({ type: 'type', value: 'keep' });
+        }
+        return { ok: true };
+      };
+
+      const response = await send({ type: 'STEP_COMMIT', ...other, narration: 'third' });
+
+      assert.deepEqual(asked.sort(), [
+        [7, 0, 'END_TYPING'],
+        [7, 3, 'END_TYPING'],
+        [9, 0, 'END_TYPING'],
+      ]);
+      assert.deepEqual(
+        response.step.actions.map((a) => a.type),
+        ['click', 'type'],
+      );
+    });
+
+    it('a step commit does not wait past the bound for a frame that never answers', async () => {
+      globalThis.chrome.tabs.sendMessage = () => new Promise(() => {});
+      const started = Date.now();
+
+      const response = await send({ type: 'STEP_COMMIT', ...other, narration: 'third' });
+
+      const waited = Date.now() - started;
+      assert.equal(response.ok, true);
+      assert.ok(waited >= END_TYPING_BOUND - 20, `answered after ${waited} ms`);
+      assert.ok(waited < END_TYPING_BOUND + 1000, `answered after ${waited} ms`);
+    });
+
+    it('a step commit goes on when a frame has no recorder to answer', async () => {
+      globalThis.chrome.tabs.sendMessage = async () => {
+        throw new Error('Could not establish connection. Receiving end does not exist.');
+      };
+
+      const response = await send({ type: 'STEP_COMMIT', ...other, narration: 'third' });
+
+      assert.equal(response.ok, true);
+    });
+
+    it('a stop asks every registered frame before capture goes off', async () => {
+      let capturingWhenAsked = null;
+      globalThis.chrome.tabs.sendMessage = async (tabId, message, options) => {
+        asked.push([tabId, options.frameId, message.type]);
+        capturingWhenAsked = workerStorage.recording;
+        return { ok: true };
+      };
+
+      assert.equal((await send({ type: 'RECORDING_STOP', ...other })).ok, true);
+
+      assert.equal(asked.length, 3);
+      assert.equal(capturingWhenAsked, true);
+      assert.equal(workerStorage.recording, false);
+    });
+
+    it('a stop with capture already off asks no frame', async () => {
+      await send({ type: 'RECORDING_STOP', ...other });
+      register(7, 0);
+      asked = [];
+
+      await send({ type: 'RECORDING_STOP', ...other });
+
+      assert.deepEqual(asked, []);
+    });
+
+    it('a commit with capture off asks no frame', async () => {
+      await send({ type: 'RECORDING_STOP', ...other });
+      register(7, 0);
+      asked = [];
+
+      await send({ type: 'STEP_COMMIT', ...other, narration: 'third' });
+
+      assert.deepEqual(asked, []);
+    });
+
+    it("a pointer press a frame reports asks that tab's other frames, and not the frame itself", async () => {
+      workerOnMessage({ type: 'POINTER_PRESSED' }, fromFrame(7, 0), () => {});
+      await tick();
+
+      assert.deepEqual(asked, [[7, 3, 'END_TYPING']]);
+    });
+
+    it('a pointer press reported by a frame that is not registered asks no frame', async () => {
+      workerOnMessage({ type: 'POINTER_PRESSED' }, fromFrame(7, 5), () => {});
+      workerOnMessage({ type: 'POINTER_PRESSED' }, fromFrame(8, 0), () => {});
+      workerOnMessage(
+        { type: 'POINTER_PRESSED' },
+        { ...fromFrame(7, 0), id: 'another-extension' },
+        () => {},
+      );
+      await tick();
+
+      assert.deepEqual(asked, []);
+    });
+
+    // The press's own frame writes its click at the release, which can come
+    // sooner than the other frame's entry does: the worker holds what the
+    // pressing frame sends behind the answers of the frames it asked.
+    it('what the pressing frame writes next is stored behind what the press made another frame write', async () => {
+      const append = (frame, action) =>
+        new Promise((resolve) =>
+          workerOnMessage({ type: 'APPEND_ACTION', action }, frame, resolve),
+        );
+      globalThis.chrome.tabs.sendMessage = async (tabId, message, options) => {
+        await tick();
+        await append(fromFrame(tabId, options.frameId), { type: 'type', value: 'keep' });
+        return { ok: true };
+      };
+      workerStorage.pendingActions = [];
+
+      workerOnMessage({ type: 'POINTER_PRESSED' }, fromFrame(7, 0), () => {});
+      await append(fromFrame(7, 0), { type: 'click' });
+
+      assert.deepEqual(
+        workerStorage.pendingActions.map((a) => a.type),
+        ['type', 'click'],
+      );
+    });
+
+    it('what the pressing frame writes next waits no longer than the bound for a frame that never answers', async () => {
+      globalThis.chrome.tabs.sendMessage = () => new Promise(() => {});
+      workerStorage.pendingActions = [];
+      const started = Date.now();
+
+      workerOnMessage({ type: 'POINTER_PRESSED' }, fromFrame(7, 0), () => {});
+      await new Promise((resolve) =>
+        workerOnMessage(
+          { type: 'APPEND_ACTION', action: { type: 'click' } },
+          fromFrame(7, 0),
+          resolve,
+        ),
+      );
+
+      const waited = Date.now() - started;
+      assert.deepEqual(
+        workerStorage.pendingActions.map((a) => a.type),
+        ['click'],
+      );
+      assert.ok(waited >= END_TYPING_BOUND - 20, `stored after ${waited} ms`);
+      assert.ok(waited < END_TYPING_BOUND + 1000, `stored after ${waited} ms`);
+    });
+
+    // The sender is tested as its message arrives, not when the hold ends: a
+    // click that closes its own tab was sent by a registered frame.
+    it('what the pressing frame wrote is stored although its tab closed while it was held', async () => {
+      let answer;
+      globalThis.chrome.tabs.sendMessage = () => new Promise((resolve) => (answer = resolve));
+      workerStorage.pendingActions = [];
+
+      workerOnMessage({ type: 'POINTER_PRESSED' }, fromFrame(7, 0), () => {});
+      const stored = new Promise((resolve) =>
+        workerOnMessage(
+          { type: 'APPEND_ACTION', action: { type: 'click' } },
+          fromFrame(7, 0),
+          resolve,
+        ),
+      );
+      await tick();
+      workerOnTabRemoved(7, { isWindowClosing: true });
+      answer({ ok: true });
+      await stored;
+
+      assert.deepEqual(
+        workerStorage.pendingActions.map((a) => a.type),
+        ['click'],
+      );
+    });
+
+    it('a press in a tab with no other frame holds nothing back', async () => {
+      workerStorage.pendingActions = [];
+      const started = Date.now();
+
+      workerOnMessage({ type: 'POINTER_PRESSED' }, fromFrame(9, 0), () => {});
+      await new Promise((resolve) =>
+        workerOnMessage(
+          { type: 'APPEND_ACTION', action: { type: 'click' } },
+          fromFrame(9, 0),
+          resolve,
+        ),
+      );
+
+      assert.equal(workerStorage.pendingActions.length, 1);
+      assert.ok(Date.now() - started < END_TYPING_BOUND / 2);
+    });
+
+    // A worker that was suspended comes back with an empty registry; typing
+    // sends it nothing, so the press or the commit can be the first it hears.
+    describe('with a tab whose registration is gone', () => {
+      let framesOf;
+      let queryTabs;
+
+      beforeEach(() => {
+        framesOf = globalThis.chrome.webNavigation.getAllFrames;
+        queryTabs = globalThis.chrome.tabs.query;
+        globalThis.chrome.webNavigation.getAllFrames = async ({ tabId }) =>
+          tabId === 11 ? [{ frameId: 0 }, { frameId: 4 }] : [];
+        globalThis.chrome.tabs.query = async () => [{ id: 7 }, { id: 11 }];
+      });
+
+      afterEach(() => {
+        globalThis.chrome.webNavigation.getAllFrames = framesOf;
+        globalThis.chrome.tabs.query = queryTabs;
+      });
+
+      it("a pointer press from the tab asks the tab's other frames", async () => {
+        workerOnMessage({ type: 'POINTER_PRESSED' }, fromFrame(11, 0), () => {});
+        await tick();
+
+        assert.deepEqual(asked, [[11, 4, 'END_TYPING']]);
+      });
+
+      it('a step commit asks the frames of the tab too', async () => {
+        await send({ type: 'STEP_COMMIT', ...other, narration: 'third' });
+
+        assert.deepEqual(asked.sort(), [
+          [11, 0, 'END_TYPING'],
+          [11, 4, 'END_TYPING'],
+          [7, 0, 'END_TYPING'],
+          [7, 3, 'END_TYPING'],
+          [9, 0, 'END_TYPING'],
+        ]);
+      });
+
+      // The message that wakes a suspended worker is read before the worker
+      // has read the stored recording flag back.
+      it('a press that wakes the worker is held to the stored recording flag', async () => {
+        const live = workerOnMessage;
+        const get = globalThis.chrome.storage.local.get;
+        globalThis.chrome.storage.local.get = async (keys) => {
+          await tick();
+          return get(keys);
+        };
+        try {
+          // A second instance of the worker module: one that starts as a
+          // suspended worker does, with nothing in memory.
+          const worker = new URL('../../background/service-worker.js', import.meta.url);
+          worker.search = 'woken';
+          await import(worker.href);
+          workerOnMessage({ type: 'POINTER_PRESSED' }, fromFrame(11, 0), () => {});
+          await tick();
+          await tick();
+          await tick();
+
+          assert.deepEqual(asked, [[11, 4, 'END_TYPING']]);
+        } finally {
+          workerOnMessage = live;
+          globalThis.chrome.storage.local.get = get;
+        }
+      });
+
+      it('a stop asks the frames of the tab too', async () => {
+        await send({ type: 'RECORDING_STOP', ...other });
+
+        assert.equal(asked.filter(([tabId]) => tabId === 11).length, 2);
+      });
+    });
+
+    it('a pointer press reported with capture off asks no frame', async () => {
+      await send({ type: 'RECORDING_STOP', ...other });
+      register(7, 0);
+      register(7, 3);
+      asked = [];
+
+      workerOnMessage({ type: 'POINTER_PRESSED' }, fromFrame(7, 0), () => {});
+      await tick();
+
+      assert.deepEqual(asked, []);
+    });
   });
 });

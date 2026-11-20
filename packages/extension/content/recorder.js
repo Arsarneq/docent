@@ -113,6 +113,10 @@
   // serialized with action appends, preventing race conditions. The context_id
   // stamped here is provisional — the worker re-stamps it from the trusted
   // sender (extension capture-principles ECP-4).
+  //
+  // Returns a promise that settles once the worker has answered, which it does
+  // after the action is stored or dropped: the end of typing the worker asks
+  // for waits on it. It never rejects (the worker can be gone at a teardown).
 
   function appendAction(action) {
     const stamped = {
@@ -121,7 +125,13 @@
       capture_mode: 'dom',
       frame_src: frameSrc,
     };
-    chrome.runtime.sendMessage({ type: 'APPEND_ACTION', action: stamped });
+    try {
+      return chrome.runtime
+        .sendMessage({ type: 'APPEND_ACTION', action: stamped })
+        .catch(() => undefined);
+    } catch {
+      return Promise.resolve();
+    }
   }
 
   // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -587,10 +597,11 @@
    * Write the entry a field holds as a `type`, a password's masked.
    *
    * @param {Element} el
+   * @returns {Promise<void>} settled once the worker has answered
    */
   function writeEntry(el) {
     const isPassword = el.type === 'password';
-    appendAction({
+    const sent = appendAction({
       type: 'type',
       timestamp: Date.now(),
       element: describeElement(el),
@@ -600,6 +611,7 @@
     fieldValueAtFocus.set(el, el.value);
     fieldsEditedByKey.delete(el);
     entryLastWritten.set(el, el.value);
+    return sent;
   }
 
   // The editable content being typed into: its entry is one `type`, written
@@ -612,19 +624,36 @@
    * typing in it has ended: it lost the focus, a key that is written as a
    * `key` was pressed, or the pointer was pressed. A pause between two keys
    * ends nothing: how fast a person types is no part of what they typed.
+   *
+   * @returns {Promise<void>} settled once the worker has answered
    */
   function writeEditableEntry() {
     const el = editableTypedInto;
-    if (!el) return;
+    if (!el) return Promise.resolve();
     editableTypedInto = null;
-    if (!active) return;
-    appendAction({
+    if (!active) return Promise.resolve();
+    const sent = appendAction({
       type: 'type',
       timestamp: Date.now(),
       element: describeElement(el),
       value: el.innerText.trim().slice(0, 500),
     });
     markUserAction();
+    return sent;
+  }
+
+  /**
+   * End the typing in this document where nothing in the document says it has
+   * ended: write the editable content typed into, and the entry made with the
+   * keys in the field in focus.
+   *
+   * @returns {Promise<void>} settled once the worker has stored what was written
+   */
+  function endTyping() {
+    const sent = [writeEditableEntry()];
+    const field = document.activeElement;
+    if (field && hasUnwrittenEntry(field)) sent.push(writeEntry(field));
+    return Promise.all(sent).then(() => undefined);
   }
 
   /**
@@ -664,11 +693,12 @@
    * @param {Element} pressed — the element the pointer went down on
    */
   function writeEntryEndedByPointer(pressed) {
-    writeEditableEntry();
     const field = document.activeElement;
-    if (!field || !hasUnwrittenEntry(field)) return;
-    if (field !== pressed && pressesSubmitOfItsForm(field, pressed)) return;
-    writeEntry(field);
+    if (field && field !== pressed && pressesSubmitOfItsForm(field, pressed)) {
+      writeEditableEntry();
+      return;
+    }
+    endTyping();
   }
 
   // ─── Click capture ────────────────────────────────────────────────────────────
@@ -758,6 +788,16 @@
       lastMousedownTime = Date.now();
       lastMousedownEl = e.target;
       writeEntryEndedByPointer(e.target);
+      // The press ends the typing in the tab's other documents too, which see
+      // nothing of it: the worker tells them, and stores what this document
+      // writes next (the click of this press) behind what they write.
+      // (Sent as its own literal send, as every capture-path message is: the
+      // message table in the runtime doc is checked against these sites.)
+      try {
+        chrome.runtime.sendMessage({ type: 'POINTER_PRESSED' }).catch(() => undefined);
+      } catch {
+        // Worker unavailable (a teardown): nothing to tell.
+      }
     },
     { capture: true, passive: true },
   );
@@ -1283,6 +1323,23 @@
     },
     { capture: true, passive: true },
   );
+
+  // ─── The end of typing the worker asks for ───────────────────────────────────
+  // Two ends of typing are not this document's to see: a step commit or a stop
+  // (the entry belongs to that step and that recording, whether or not the
+  // focus left the page first), and a pointer press in another frame of the
+  // tab. The worker asks, and is answered once what was written is stored, so
+  // a commit that waited on the answer holds the entry.
+
+  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (sender.id !== chrome.runtime.id || message?.type !== 'END_TYPING') return false;
+    if (!active) {
+      sendResponse({ ok: true });
+      return false;
+    }
+    endTyping().then(() => sendResponse({ ok: true }));
+    return true;
+  });
 
   // Readiness signal — reported only AFTER every listener above is attached, so a
   // reader knows the frame is actually ready to capture (unlike __docentLoaded,
