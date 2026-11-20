@@ -11,6 +11,7 @@ pub mod action_mapping;
 pub mod coordinate;
 pub mod element_mapping;
 pub mod held_keys;
+pub mod hook_diagnostics;
 pub mod scroll;
 pub mod timing;
 pub mod worker_pool;

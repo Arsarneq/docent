@@ -67,6 +67,7 @@ use super::element_mapping::{
     map_element, truncate_text, LocatorMeasurements, MeasuredIndex, MeasuredPair,
     NativeElementProperties,
 };
+use super::hook_diagnostics;
 use super::scroll::KeyAttribution;
 use super::timing;
 use super::worker_pool::{
@@ -386,6 +387,10 @@ fn down_dispatch_click_mark(msg: u32) -> i64 {
 // to the dispatch channel, sequence counter, and other per-session state.
 
 thread_local! {
+    /// How many mouse hook calls are running on the Input_Thread, one inside
+    /// another: a call dispatched while the thread waits inside an earlier
+    /// one (`hook_diagnostics`).
+    static INPUT_MOUSE_HOOK_DEPTH: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
     /// Channel sender for dispatching messages to the bridge thread.
     static INPUT_RAW_SENDER: std::cell::RefCell<Option<std::sync::mpsc::Sender<BridgeMessage>>> =
         const { std::cell::RefCell::new(None) };
@@ -834,6 +839,7 @@ impl CaptureLayer for WindowsCapture {
         }
 
         self.active.store(true, Ordering::SeqCst);
+        hook_diagnostics::reset();
         let excluded_pid = self.excluded_pid.clone();
 
         // Each worker signals here once it has finished its (possibly cold)
@@ -1080,6 +1086,13 @@ impl CaptureLayer for WindowsCapture {
         self.flush_requests = None;
         self.pending_directory = None;
         self.action_sender = None;
+
+        // What the mouse hook saw, when it was slow enough to have cost input
+        // (docent#741); the counts stay readable through
+        // `hook_diagnostics::snapshot` until the next start.
+        if let Some(line) = hook_diagnostics::snapshot().report() {
+            eprintln!("{line}");
+        }
 
         Ok(report)
     }
@@ -1464,6 +1477,14 @@ fn input_forward_flush() {
 /// right/middle button-down, so the element is captured while the target
 /// window is guaranteed to still be alive.
 unsafe fn input_pre_capture_element(x: i32, y: i32) -> Option<super::ElementDescription> {
+    let started = Instant::now();
+    let element = input_pre_capture_element_now(x, y);
+    hook_diagnostics::pre_capture(started.elapsed(), element.is_some());
+    element
+}
+
+/// The `ElementFromPoint` call [`input_pre_capture_element`] times.
+unsafe fn input_pre_capture_element_now(x: i32, y: i32) -> Option<super::ElementDescription> {
     INPUT_UIA.with(|u| {
         let uia = u.borrow();
         let uia = uia.as_ref()?;
@@ -1620,9 +1641,34 @@ fn input_should_keep_event_cached(event_pid: u32, excluded_pid: Option<u32>, hwn
 // Input_Thread WinEvent callback
 // ---------------------------------------------------------------------------
 
-/// WinEvent callback for the Input_Thread. Captures raw event data and
-/// dispatches `RawEvent`s. Performs zero accessibility queries.
+/// WinEvent callback for the Input_Thread: times each call
+/// (`hook_diagnostics`; the mouse hook's calls wait behind it) around
+/// [`input_win_event_handle`].
 unsafe extern "system" fn input_win_event_proc(
+    hook: HWINEVENTHOOK,
+    event: u32,
+    hwnd: HWND,
+    id_object: i32,
+    id_child: i32,
+    id_event_thread: u32,
+    dwms_event_time: u32,
+) {
+    let started = Instant::now();
+    input_win_event_handle(
+        hook,
+        event,
+        hwnd,
+        id_object,
+        id_child,
+        id_event_thread,
+        dwms_event_time,
+    );
+    hook_diagnostics::win_event_returned(started.elapsed());
+}
+
+/// What the WinEvent callback does with one event. Captures raw event data
+/// and dispatches `RawEvent`s. Performs zero accessibility queries.
+unsafe fn input_win_event_handle(
     _hook: HWINEVENTHOOK,
     event: u32,
     hwnd: HWND,
@@ -2058,15 +2104,31 @@ unsafe fn input_press_switch(point_hwnd: HWND, fg_hwnd: HWND, timestamp: u64) {
     });
 }
 
-/// Low-level mouse hook for the Input_Thread. Captures raw mouse data,
-/// performs click-vs-drag classification, and dispatches `RawEvent`s.
-/// Makes the thread's one accessibility call — the `ElementFromPoint`
-/// pre-capture at a click (DCP-1).
+/// Low-level mouse hook for the Input_Thread: times each call and counts how
+/// deep calls run inside one another (`hook_diagnostics`), around
+/// [`input_mouse_ll_handle`], then passes the message on.
 unsafe extern "system" fn input_mouse_ll_proc(
     n_code: i32,
     w_param: WPARAM,
     l_param: LPARAM,
 ) -> LRESULT {
+    let depth = INPUT_MOUSE_HOOK_DEPTH.with(|d| {
+        d.set(d.get() + 1);
+        d.get()
+    });
+    hook_diagnostics::mouse_call_entered(depth);
+    let started = Instant::now();
+    input_mouse_ll_handle(n_code, w_param, l_param);
+    hook_diagnostics::mouse_call_returned(started.elapsed());
+    INPUT_MOUSE_HOOK_DEPTH.with(|d| d.set(d.get() - 1));
+    CallNextHookEx(None, n_code, w_param, l_param)
+}
+
+/// What the low-level mouse hook does with one message. Captures raw mouse
+/// data, performs click-vs-drag classification, and dispatches `RawEvent`s.
+/// Makes the thread's one accessibility call — the `ElementFromPoint`
+/// pre-capture at a click (DCP-1).
+unsafe fn input_mouse_ll_handle(n_code: i32, w_param: WPARAM, l_param: LPARAM) {
     if n_code >= 0 && input_is_active() {
         let mouse_struct = &*(l_param.0 as *const MSLLHOOKSTRUCT);
         let msg = w_param.0 as u32;
@@ -2123,6 +2185,7 @@ unsafe extern "system" fn input_mouse_ll_proc(
 
             match msg as i32 {
                 WM_LBUTTONDOWN => {
+                    hook_diagnostics::left_down();
                     // Record the input for correlation.
                     note_input(timestamp, window_handle);
                     // Store mouse-down position for drag detection.
@@ -2146,6 +2209,7 @@ unsafe extern "system" fn input_mouse_ll_proc(
                     input_press_switch(point_hwnd, fg_hwnd, timestamp);
                 }
                 WM_LBUTTONUP => {
+                    hook_diagnostics::left_up();
                     // A release is input too: selections completed at the end
                     // of a long drag correlate with the release, not the press.
                     note_input(timestamp, window_handle);
@@ -2228,6 +2292,7 @@ unsafe extern "system" fn input_mouse_ll_proc(
                             held: Vec::new(),
                         });
                         INPUT_LAST_CLICK_TIMESTAMP.with(|t| t.set(timestamp));
+                        hook_diagnostics::left_click_dispatched();
                     }
 
                     INPUT_MOUSE_DOWN_POS.with(|p| p.set(None));
@@ -2315,8 +2380,6 @@ unsafe extern "system" fn input_mouse_ll_proc(
             double_click_break_pair();
         }
     }
-
-    CallNextHookEx(None, n_code, w_param, l_param)
 }
 
 /// The modifiers held and the keys that are down now, as a pointer action
