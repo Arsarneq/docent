@@ -4547,6 +4547,88 @@ mod file_dialog_read_tests {
         }
     }
 
+    /// Walk `read_file_dialog_path`'s steps with the helpers it calls and
+    /// report each one's answer, then every Edit, ComboBox and ToolBar under
+    /// the dialog with its ControlType, AutomationId, Name, Value and
+    /// ClassName. Test diagnostics only: it decides nothing.
+    unsafe fn diagnose_file_dialog_read(
+        backend: &WindowsAccessibilityBackend,
+        window: i64,
+    ) -> String {
+        use super::super::uia_core_api::UIA_EditControlTypeId;
+        use super::super::win32_bindings::TreeScope_Descendants;
+        use std::fmt::Write as _;
+
+        let mut out = String::from("file-dialog read diagnosis:\n");
+        let root = backend.root_window_handle(window);
+        let hwnd = HWND(root as *mut _);
+        let _ = writeln!(out, "  window {window:#x}, root {root:#x}");
+        let _ = writeln!(
+            out,
+            "  step class: {:?} (wants \"#32770\")",
+            get_class_name(hwnd)
+        );
+        let _ = writeln!(out, "  step title: {:?}", get_window_title(hwnd));
+        let Some(uia) = backend.uia.as_ref() else {
+            let _ = writeln!(out, "  step uia: no IUIAutomation (init not run)");
+            return out;
+        };
+        let dialog = match uia.ElementFromHandle(UIA_HWND(hwnd.0)) {
+            Ok(el) => el,
+            Err(e) => {
+                let _ = writeln!(out, "  step ElementFromHandle: error {e}");
+                return out;
+            }
+        };
+        let _ = writeln!(
+            out,
+            "  step File name edit (Edit, AutomationId 1001): {:?}",
+            find_child_value_by_automation_id(uia, &dialog, "1001")
+        );
+        let _ = writeln!(
+            out,
+            "  step directory: {:?}",
+            read_file_dialog_directory(uia, &dialog)
+        );
+        let all = match uia
+            .CreateTrueCondition()
+            .and_then(|c| dialog.FindAll(TreeScope_Descendants, &c))
+        {
+            Ok(all) => all,
+            Err(e) => {
+                let _ = writeln!(out, "  descendants: FindAll error {e}");
+                return out;
+            }
+        };
+        let count = all.Length().unwrap_or(0);
+        let _ = writeln!(
+            out,
+            "  descendants: {count} (Edit, ComboBox and ToolBar listed)"
+        );
+        let wanted = [
+            UIA_EditControlTypeId.0,
+            50003, // UIA_ComboBoxControlTypeId (control_type_name's table)
+            UIA_ToolBarControlTypeId.0,
+        ];
+        for i in 0..count {
+            let Ok(el) = all.GetElement(i) else { continue };
+            let control_type = get_i32_property(&el, UIA_ControlTypePropertyId);
+            if !wanted.contains(&control_type) {
+                continue;
+            }
+            let _ = writeln!(
+                out,
+                "    {} ({control_type}) id={:?} name={:?} value={:?} class={:?}",
+                control_type_name(control_type),
+                get_string_property(&el, UIA_AutomationIdPropertyId),
+                get_string_property(&el, UIA_NamePropertyId),
+                get_string_property(&el, UIA_ValueValuePropertyId),
+                get_string_property(&el, UIA_ClassNamePropertyId),
+            );
+        }
+        out
+    }
+
     /// A read given one of the dialog's child windows — its Open button,
     /// which is what a click names — resolves the dialog as that window's
     /// root and returns the dialog type from the title and the folder the
@@ -4625,6 +4707,11 @@ mod file_dialog_read_tests {
                 _ => None,
             }
         });
+        if matched.is_none() {
+            // Diagnostic only: report where the read stops and the dialog's
+            // tree, so a failing run shows what the dialog holds.
+            eprintln!("{}", unsafe { diagnose_file_dialog_read(&backend, child) });
+        }
         assert!(
             matched.is_some(),
             "read {last:?}, expected (\"open\", {expected:?})"
