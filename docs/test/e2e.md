@@ -60,7 +60,7 @@ Every wait for capture readiness goes through these helpers, after **every** nav
 
 ### Retries and timeouts
 
-`retries: 3` (four attempts) with `trace: 'on-first-retry'`, and a 30-second per-test timeout. Retries absorb real-input timing flakes; a genuine failure stays red on every attempt. At most one attempt is traced: the first retry, and only when there is one, so a test that passes first time produces no trace. A test must be self-contained and repeatable. Every attempt starts from a fresh context, so nothing may depend on state a previous attempt or test left behind.
+`retries: 3` (four attempts) with `trace: 'on-first-retry'`, and a 30-second per-test timeout. Retries absorb real-input timing flakes; a genuine failure stays red on every attempt. At most one attempt is traced: the first retry, and only when there is one, so a test that passes first time produces no trace. A test that passes only on a retry is listed as flaky in the run's summary, and CI uploads `test-results/` (the artifact `playwright-report`) whether the job passes or fails, so the trace of that retry is kept. The corpus and vectors runs write to `test-results/corpus/`, so they do not clear it. A test must be self-contained and repeatable. Every attempt starts from a fresh context, so nothing may depend on state a previous attempt or test left behind.
 
 ### Settle waits
 
