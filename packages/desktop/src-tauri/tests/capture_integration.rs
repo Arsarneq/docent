@@ -1961,8 +1961,11 @@ mod user_actions_extended {
         // and the release clears the record. Three key-downs with no key-up
         // between them are what a held key sends; the fourth follows a key-up.
         //
-        // No count is asserted (see `navigation_keys_are_captured`): on a
-        // runner where the workers reach no focus target nothing is captured.
+        // This is the only test that runs the hook's own wiring of the record
+        // (the record itself is pinned in `held_keys.rs`, the mark's way into
+        // the `key` action in `worker_pool_test.rs`). It asserts no count
+        // (see `navigation_keys_are_captured`): on a runner where the workers
+        // reach no focus target nothing is captured and it proves nothing.
         // Where every press is captured, the marks are exact.
         let (tx, rx) = mpsc::channel::<ActionEvent>();
         let mut capture = WindowsCapture::new();

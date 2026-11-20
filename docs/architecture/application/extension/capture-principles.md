@@ -300,7 +300,8 @@ with a caveat):
 - Keys and keyboard shortcuts outside the captured keyboard set ECP-6 states
   (`CAPTURE_KEYS`, and Space where it is not typed text) are not captured as
   key events — the keyboard surface is that set, not all keys; the desktop
-  writes such a key press, so this is a departure (core CP-19;
+  writes such a key press where it enters no text into a field, so this is a
+  departure (core CP-19;
   [docent#702](https://github.com/Arsarneq/docent/issues/702))
 - Arrow keys in native `<select>` are swallowed by the browser before the
   recorder's listeners see them
@@ -380,14 +381,20 @@ with a caveat):
   not captured
 - A middle-button click — the recorder listens for no `auxclick`, so the click
   is not recorded; a tab it opens arrives as a `context_open` with no action
-  behind it
+  behind it; the desktop records the click, so this is a departure (core CP-19;
+  [docent#707](https://github.com/Arsarneq/docent/issues/707))
 - A pointer drag that is not HTML5 drag-and-drop (a slider, a splitter, a text
   selection) — recorded as the click its release produces, not as a
-  `drag_start`/`drop` pair
+  `drag_start`/`drop` pair, which the desktop records; a departure (core CP-19;
+  [docent#707](https://github.com/Arsarneq/docent/issues/707))
 - Moving between two browser windows — the worker listens for no
-  `windows.onFocusChanged`, so the switch records no `context_switch`
+  `windows.onFocusChanged`, so the switch records no `context_switch`, which
+  the desktop records between its windows; a departure (core CP-19;
+  [docent#707](https://github.com/Arsarneq/docent/issues/707))
 - Closing a whole browser window — the tab-removal listener skips tabs removed
-  by a window close, so no `context_close` is recorded
+  by a window close, so no `context_close` is recorded, which the desktop
+  records for a window the person closes; a departure (core CP-19;
+  [docent#707](https://github.com/Arsarneq/docent/issues/707))
 - A file chosen without a trusted click on the input within the 10 s before
   the change — a click the page scripted on the input, or a choice made
   later — no `file_upload` is recorded; a departure (core CP-18). The click

@@ -231,12 +231,23 @@ state; a right or middle button's release, and an extra button's press (see
 the exceptions), refresh none.
 
 **DCP-9.** **Printable key buffering:** Printable keystrokes are buffered.
-A printable keystroke is one that enters a character, with no Ctrl, Alt or
-Meta held: a key named by a single character, the space bar, a key of the
-numeric keypad (digits, operators, decimal and separator), and a keystroke
-injected as Unicode. So a space or a keypad digit typed into a text field is
-part of that field's `type` value, as on the extension, and a `key` (`Space`,
-`Numpad1`) where no value change follows it — on a button or a checkbox.
+A printable keystroke is a typing key pressed with no modifier or as a
+character of its layout (Ctrl and Alt held together is AltGr; Ctrl, Alt or Meta
+held otherwise is a shortcut, written at once). The typing keys are a closed
+table of the key codes that enter a character on some layout: the space bar,
+digits, letters, the numeric keypad (digits, operators, decimal and
+separator), the punctuation keys of every layout, and a keystroke injected as
+Unicode. So a space, a keypad digit or an AltGr character typed into a text
+field is part of that field's `type` value, as on the extension, and a `key`
+(`Space`, `Numpad1`) where no value change of its own element follows it. On
+a control that takes no typed text (a closed list of control types: `Button`,
+`CheckBox`, `Hyperlink`, `MenuItem`, `RadioButton`, `SplitButton`, `TabItem`)
+a typing key is not buffered at all: it is written at once as the `key` that
+presses the control, and a value change attributed to such a control is the
+effect of pressing it (the field a button clears), no `type` and no reason
+to discard a key. Keys buffered on one element are written, as keys, when a
+typing key arrives for another element, so typing into the second supersedes
+none of them.
 If a value-change event arrives (producing a `type` action), the buffered
 keys are discarded (superseded). If no value-change arrives (non-editable
 control like Calculator), the keys are emitted individually. A keystroke
@@ -256,7 +267,10 @@ hook keeps a record of which keys are down, from every key-down and key-up it
 is handed (in an excluded window and outside an active capture too) and
 seeded from the keyboard's state when the hook is installed; a key-down for a
 key already down is a press key repeat generated while the key was held, and
-is written with `repeat` true, the press itself with false. An injected
+is written with `repeat` true, the press itself with false. The keyboard's own
+state, read before it takes the key-down in, has to agree that the key was
+down: a key whose release the hook was never handed is a press again at its
+next key-down. An injected
 character is told apart by the code unit it carries. A keystroke that enters text into a password
 field (DCP-11's signal) is never buffered as a key: it starts or extends that
 field's masked `type` action, so typing into a password field is recorded as

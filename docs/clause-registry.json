@@ -160,7 +160,7 @@
       "doc": "docs/architecture/system/capture-principles.md",
       "clause": "CP-19",
       "tag": "judgment-only",
-      "justification": "Judgment at review: whether a change to what one platform records leaves the other platform recording the same input differently reads both platforms' capture paths side by side, and whether a remaining difference comes from the platforms' own inputs is a reading no check decides. The platforms' capture documents and the session-format rows state the departures the review reads against."
+      "justification": "Judgment at review: whether a change to what one platform records leaves the other platform recording the same input differently reads both platforms' capture paths side by side, and whether a remaining difference comes from the platforms themselves (an input one platform's events never deliver, a quantity that is each platform's own) or is a departure is a reading no check decides. The platforms' capture documents and the session-format rows state the departures, each beside its issue, and the review reads a change against them: a difference they do not state is a new departure."
     },
     {
       "doc": "docs/technical/locator-resolution.md",

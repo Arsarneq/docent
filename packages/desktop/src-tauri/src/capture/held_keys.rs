@@ -8,10 +8,16 @@
 //! Platform-agnostic and free of allocation and locks: it is updated on the
 //! hook callback.
 
-/// The virtual-key code of a keystroke injected as Unicode. Every injected
-/// character shares it, so such a key is told apart by the code unit it
-/// carries.
-const VK_PACKET: u32 = 0xE7;
+// Every character injected as Unicode shares the one code `VK_PACKET`, so such
+// a key is told apart by the code unit it carries.
+use super::worker_pool::VK_PACKET;
+
+/// The keyboard messages a low-level keyboard hook is handed, by their Windows
+/// message numbers: a key going down and a key going up, each in its plain and
+/// its system (Alt held) form.
+pub const KEY_DOWN_MESSAGES: [u32; 2] = [0x0100, 0x0104];
+/// See [`KEY_DOWN_MESSAGES`].
+pub const KEY_UP_MESSAGES: [u32; 2] = [0x0101, 0x0105];
 
 /// How many injected characters can be down at once and still be told apart.
 const PACKET_SLOTS: usize = 8;
@@ -73,6 +79,42 @@ impl HeldKeys {
         let was_down = self.is_set(vk);
         self.set(vk);
         was_down
+    }
+
+    /// [`press`](Self::press), with a second opinion on a repeat: a key the
+    /// record holds is a repeat only while `still_down` (the keyboard's own
+    /// state for that code, as it stood before this key-down) agrees. A key-up
+    /// the hook was never handed leaves its key in the record; the keyboard's
+    /// state then says it is up, and the key-down is the press it is. An
+    /// injected character has no state of its own, so the record decides.
+    pub fn press_checked(
+        &mut self,
+        vk: u32,
+        scan_code: u32,
+        still_down: impl FnOnce(u32) -> bool,
+    ) -> bool {
+        self.press(vk, scan_code) && (vk == VK_PACKET || still_down(vk))
+    }
+
+    /// Take one message of the keyboard hook into the record and answer
+    /// whether it is a repeated key-down: a key-down is noted and checked
+    /// ([`press_checked`](Self::press_checked)), a key-up is noted
+    /// ([`release`](Self::release)), and any other message changes nothing.
+    pub fn on_hook_message(
+        &mut self,
+        message: u32,
+        vk: u32,
+        scan_code: u32,
+        still_down: impl FnOnce(u32) -> bool,
+    ) -> bool {
+        if KEY_DOWN_MESSAGES.contains(&message) {
+            self.press_checked(vk, scan_code, still_down)
+        } else {
+            if KEY_UP_MESSAGES.contains(&message) {
+                self.release(vk, scan_code);
+            }
+            false
+        }
     }
 
     /// Note a key-up.
@@ -177,6 +219,60 @@ mod tests {
         assert!(held.press(ENTER, 0x1C));
         assert!(!held.press(SPACE, 0x39));
         assert_eq!(HeldKeys::seeded(|_| false), HeldKeys::new());
+    }
+
+    #[test]
+    fn a_key_the_keyboard_says_is_up_is_no_repeat_whatever_the_record_holds() {
+        // A key-up the hook was never handed leaves the key in the record; the keyboard's own state says it
+        // is up, so the next key-down is a press, and the one after a repeat.
+        let mut held = HeldKeys::new();
+        assert!(!held.press_checked(ENTER, 0x1C, |_| true));
+        assert!(!held.press_checked(ENTER, 0x1C, |vk| vk != ENTER));
+        assert!(held.press_checked(ENTER, 0x1C, |_| true));
+    }
+
+    #[test]
+    fn the_keyboard_is_asked_only_about_a_key_the_record_holds() {
+        let mut held = HeldKeys::new();
+        let asked = std::cell::Cell::new(0);
+        let ask = |_vk: u32| {
+            asked.set(asked.get() + 1);
+            true
+        };
+        assert!(!held.press_checked(SPACE, 0x39, ask));
+        assert_eq!(asked.get(), 0, "a first press needs no second opinion");
+        assert!(held.press_checked(SPACE, 0x39, ask));
+        assert_eq!(asked.get(), 1);
+        // An injected character has no state of its own to ask about.
+        assert!(!held.press_checked(VK_PACKET, 7, ask));
+        assert!(held.press_checked(VK_PACKET, 7, ask));
+        assert_eq!(asked.get(), 1);
+    }
+
+    #[test]
+    fn the_hooks_messages_drive_the_record() {
+        const KEYDOWN: u32 = 0x0100;
+        const KEYUP: u32 = 0x0101;
+        const SYSKEYDOWN: u32 = 0x0104;
+        const SYSKEYUP: u32 = 0x0105;
+        let mut held = HeldKeys::new();
+        let down = |_vk: u32| true;
+        // Held: the press, then repeats; a key-up answers false and ends it.
+        assert!(!held.on_hook_message(KEYDOWN, SPACE, 0x39, down));
+        assert!(held.on_hook_message(KEYDOWN, SPACE, 0x39, down));
+        assert!(!held.on_hook_message(KEYUP, SPACE, 0x39, down));
+        assert!(!held.on_hook_message(KEYDOWN, SPACE, 0x39, down));
+        // The system forms (a key pressed with Alt held) count the same, and
+        // mix with the plain ones: Alt released while the key is still down.
+        assert!(!held.on_hook_message(SYSKEYDOWN, ENTER, 0x1C, down));
+        assert!(held.on_hook_message(SYSKEYDOWN, ENTER, 0x1C, down));
+        assert!(held.on_hook_message(KEYDOWN, ENTER, 0x1C, down));
+        assert!(!held.on_hook_message(SYSKEYUP, ENTER, 0x1C, down));
+        assert!(!held.on_hook_message(KEYDOWN, ENTER, 0x1C, down));
+        // Any other message leaves the record alone.
+        let before = held.clone();
+        assert!(!held.on_hook_message(0x0102, SPACE, 0x39, down));
+        assert_eq!(held, before);
     }
 
     #[test]

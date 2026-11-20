@@ -55,9 +55,9 @@ use super::win32_bindings::{
     GWL_STYLE, GW_OWNER, HANDLE, HHOOK, HWINEVENTHOOK, HWND, INVALID_HANDLE_VALUE, KBDLLHOOKSTRUCT,
     LPARAM, LRESULT, MSG, MSLLHOOKSTRUCT, OBJID_WINDOW, PM_NOREMOVE, POINT, PROPERTYID, UIA_HWND,
     VK_CONTROL, VK_LWIN, VK_MENU, VK_RWIN, VK_SHIFT, VT_EMPTY, WH_KEYBOARD_LL, WH_MOUSE_LL,
-    WINEVENT_OUTOFCONTEXT, WM_APP, WM_KEYDOWN, WM_KEYUP, WM_LBUTTONDOWN, WM_LBUTTONUP,
-    WM_MBUTTONDOWN, WM_MOUSEHWHEEL, WM_MOUSEWHEEL, WM_NULL, WM_QUIT, WM_RBUTTONDOWN, WM_SYSKEYDOWN,
-    WM_SYSKEYUP, WM_USER, WPARAM, WS_CHILD,
+    WINEVENT_OUTOFCONTEXT, WM_APP, WM_KEYDOWN, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN,
+    WM_MOUSEHWHEEL, WM_MOUSEWHEEL, WM_NULL, WM_QUIT, WM_RBUTTONDOWN, WM_SYSKEYDOWN, WM_USER,
+    WPARAM, WS_CHILD,
 };
 use windows_core::{Error, Interface, BOOL, BSTR, PWSTR};
 
@@ -2177,19 +2177,18 @@ unsafe extern "system" fn input_keyboard_ll_proc(
     // captured.
     let mut repeat = false;
     if n_code >= 0 {
-        let msg = w_param.0 as u32;
         let kb_struct = &*(l_param.0 as *const KBDLLHOOKSTRUCT);
-        if msg == WM_KEYDOWN as u32 || msg == WM_SYSKEYDOWN as u32 {
-            repeat = INPUT_HELD_KEYS.with(|held| {
-                held.borrow_mut()
-                    .press(kb_struct.vkCode, kb_struct.scanCode)
-            });
-        } else if msg == WM_KEYUP as u32 || msg == WM_SYSKEYUP as u32 {
-            INPUT_HELD_KEYS.with(|held| {
-                held.borrow_mut()
-                    .release(kb_struct.vkCode, kb_struct.scanCode)
-            });
-        }
+        // The hook is called before the keyboard's asynchronous state takes
+        // this key-down in, so that state still says whether the key was down
+        // before it: the second opinion on a repeat.
+        repeat = INPUT_HELD_KEYS.with(|held| {
+            held.borrow_mut().on_hook_message(
+                w_param.0 as u32,
+                kb_struct.vkCode,
+                kb_struct.scanCode,
+                |vk| GetAsyncKeyState(vk as i32) < 0,
+            )
+        });
     }
 
     if n_code >= 0 && input_is_active() {
@@ -3284,6 +3283,16 @@ mod tests {
     };
     use crate::capture::uia_core_api::UiaGetReservedNotSupportedValue;
     use crate::capture::win32_bindings::VARIANT;
+
+    // -- the held-key record's message numbers ---------------------------------
+
+    #[test]
+    fn the_held_key_record_reads_the_systems_own_keyboard_messages() {
+        use crate::capture::held_keys::{KEY_DOWN_MESSAGES, KEY_UP_MESSAGES};
+        use crate::capture::win32_bindings::{WM_KEYDOWN, WM_KEYUP, WM_SYSKEYDOWN, WM_SYSKEYUP};
+        assert_eq!(KEY_DOWN_MESSAGES, [WM_KEYDOWN as u32, WM_SYSKEYDOWN as u32]);
+        assert_eq!(KEY_UP_MESSAGES, [WM_KEYUP as u32, WM_SYSKEYUP as u32]);
+    }
 
     // -- the IsPassword reading rule -----------------------------------------
 

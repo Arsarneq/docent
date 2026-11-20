@@ -4725,8 +4725,15 @@ fn regression_696_a_space_with_no_value_change_is_the_key_space() {
     assert_eq!(type_values_of(&events), Vec::<String>::new());
 }
 
-/// The burst a numeric keypad types: `1`, `2`, the decimal key, `5`.
-fn keypad_burst(field_text: &str, value_changes: usize) -> Vec<ActionEvent> {
+/// A key's modifiers: `(ctrl, shift, alt, meta)`.
+type Mods = (bool, bool, bool, bool);
+/// No modifier held.
+const PLAIN: Mods = (false, false, false, false);
+/// AltGr: the keyboard reports it as Ctrl and Alt held together.
+const ALT_GR: Mods = (true, false, true, false);
+
+/// A burst of layout keys, each with its modifiers, into an edit field holding `field_text`, with `value_changes` behind it.
+fn layout_burst(keys: &[(u32, Mods)], field_text: &str, value_changes: usize) -> Vec<ActionEvent> {
     let gate = closed_gate();
     let (action_tx, action_rx) = mpsc::channel::<ActionEvent>();
     let worker_gate = Arc::clone(&gate);
@@ -4744,10 +4751,11 @@ fn keypad_burst(field_text: &str, value_changes: usize) -> Vec<ActionEvent> {
     );
     let t = now_ms();
     let mut seq = 0;
-    // VK_NUMPAD1, VK_NUMPAD2, VK_DECIMAL, VK_NUMPAD5.
-    for key_code in [0x61, 0x62, 0x6E, 0x65] {
+    for (key_code, modifiers) in keys {
         seq += 1;
-        pool.dispatch(layout_key(seq, t, key_code));
+        let mut raw = layout_key(seq, t, *key_code);
+        raw.modifiers = *modifiers;
+        pool.dispatch(raw);
     }
     for _ in 0..value_changes {
         seq += 1;
@@ -4757,6 +4765,48 @@ fn keypad_burst(field_text: &str, value_changes: usize) -> Vec<ActionEvent> {
     thread::sleep(Duration::from_millis(900));
     pool.shutdown();
     action_rx.try_iter().collect()
+}
+
+/// The burst a numeric keypad types: `1`, `2`, the decimal key, `5`
+/// (VK_NUMPAD1, VK_NUMPAD2, VK_DECIMAL, VK_NUMPAD5).
+fn keypad_burst(field_text: &str, value_changes: usize) -> Vec<ActionEvent> {
+    let keys = [0x61, 0x62, 0x6E, 0x65].map(|key_code| (key_code, PLAIN));
+    layout_burst(&keys, field_text, value_changes)
+}
+
+/// Regression: a character typed with AltGr (`@` as AltGr+2 on many layouts)
+/// and a layout key the name table has no name for (the extra key of an ISO
+/// keyboard, VK_OEM_102) were written as keys that cut the field's `type` in
+/// two, as the space was. Every key that enters a character is typing.
+#[test]
+fn regression_696_altgr_and_unnamed_layout_keys_stay_in_the_one_type() {
+    // a, AltGr+2, b, VK_OEM_102.
+    let keys = [(0x41, PLAIN), (0x32, ALT_GR), (0x42, PLAIN), (0xE2, PLAIN)];
+    let events = layout_burst(&keys, "a@b<", 3);
+    assert_eq!(
+        key_names_of(&events),
+        Vec::<String>::new(),
+        "got {events:?}"
+    );
+    assert_eq!(type_values_of(&events), vec!["a@b<".to_string()]);
+}
+
+/// With no value change behind them the same keys are keys, in order, each
+/// with the modifiers it was pressed with.
+#[test]
+fn regression_696_altgr_and_unnamed_layout_keys_with_no_value_change_are_keys() {
+    let keys = [(0x41, PLAIN), (0x32, ALT_GR), (0xE2, PLAIN)];
+    let events = layout_burst(&keys, "", 0);
+    assert_eq!(key_names_of(&events), vec!["A", "2", "VK_0xE2"]);
+}
+
+/// A shortcut is no typing: Ctrl+S right behind typed keys is written at
+/// once, behind the keys typed before it.
+#[test]
+fn a_shortcut_behind_typed_keys_is_a_key_in_its_place() {
+    let ctrl = (true, false, false, false);
+    let events = layout_burst(&[(0x41, PLAIN), (0x53, ctrl), (0x42, PLAIN)], "", 0);
+    assert_eq!(key_names_of(&events), vec!["A", "S", "B"]);
 }
 
 /// Regression: a numeric-keypad key typed into an edit field was written as a
@@ -4821,5 +4871,133 @@ fn regression_696_a_held_key_writes_every_press_and_marks_the_repeats() {
             ("A".to_string(), false),
             ("A".to_string(), true),
         ]
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Typing keys on a control that takes no typed text (docent#696)
+// ---------------------------------------------------------------------------
+
+/// The dialog with one of its controls focused.
+fn dialog_control(tag: &str, selector: &str) -> FocusScene {
+    FocusScene {
+        epoch: 1,
+        foreground: DIALOG,
+        element: scene_element(tag, selector, Some("")),
+    }
+}
+
+/// A space pressed on a button is the key that presses it. A value change the
+/// press causes elsewhere in the window (the field a "Clear" button empties)
+/// is no typing into the button: it supersedes no key and is no `type`.
+#[test]
+fn regression_696_a_space_on_a_button_survives_a_value_change_in_its_window() {
+    for (tag, selector) in [
+        ("Button", "Dialog > Button:Clear"),
+        ("CheckBox", "Dialog > CheckBox:Remember"),
+        ("RadioButton", "Dialog > RadioButton:First"),
+        ("Hyperlink", "Dialog > Hyperlink:More"),
+        ("MenuItem", "Dialog > MenuItem:Open"),
+        ("SplitButton", "Dialog > SplitButton:Paste"),
+        ("TabItem", "Dialog > TabItem:General"),
+    ] {
+        let (backend, _scene, _) = MovingFocusBackend::new(dialog_control(tag, selector));
+        let harness = WorkerTestHarness::new(backend);
+
+        let t = now_ms();
+        harness.send_event(in_dialog(layout_key(1, t, 0x20)));
+        harness.send_event(in_dialog(value_change(2, t + 5, DIALOG)));
+
+        thread::sleep(Duration::from_millis(900));
+        let events = harness.shutdown();
+        assert_eq!(
+            typed_actions_of(&events),
+            vec![format!("key Space on {selector}")],
+            "got {events:?}"
+        );
+    }
+}
+
+/// A typing key on such a control is written at once: no value change can
+/// make it text, so nothing is waited for.
+#[test]
+fn a_typing_key_on_a_button_is_written_without_waiting() {
+    let (backend, _scene, _) =
+        MovingFocusBackend::new(dialog_control("Button", "Dialog > Button:Seven"));
+    let harness = WorkerTestHarness::new(backend);
+
+    let t = now_ms();
+    harness.send_event(in_dialog(layout_key(1, t, 0x67))); // keypad 7
+    harness.send_event(in_dialog(layout_key(2, t + 1, 0x20)));
+
+    // Well inside TYPE_DEBOUNCE_MS (500 ms).
+    thread::sleep(Duration::from_millis(200));
+    let early = harness.drain_actions();
+    assert_eq!(
+        typed_actions_of(&early),
+        vec![
+            "key Numpad7 on Dialog > Button:Seven",
+            "key Space on Dialog > Button:Seven"
+        ],
+        "got {early:?}"
+    );
+    harness.shutdown();
+}
+
+/// Enter on a button, and a value change its press causes elsewhere in the
+/// window: the key, and no `type` on the button.
+#[test]
+fn a_value_change_behind_enter_on_a_button_is_no_type_on_the_button() {
+    let (backend, _scene, _) =
+        MovingFocusBackend::new(dialog_control("Button", "Dialog > Button:Clear"));
+    let harness = WorkerTestHarness::new(backend);
+
+    let t = now_ms();
+    harness.send_event(in_dialog(layout_key(1, t, 0x0D)));
+    harness.send_event(in_dialog(value_change(2, t + 5, DIALOG)));
+
+    thread::sleep(Duration::from_millis(900));
+    let events = harness.shutdown();
+    assert_eq!(
+        typed_actions_of(&events),
+        vec!["key Enter on Dialog > Button:Clear"],
+        "got {events:?}"
+    );
+}
+
+/// Keys buffered on one element are not superseded by typing into another:
+/// a letter pressed on a pane (which may or may not take text), then, focus
+/// having moved, a letter typed into a field whose value change follows. The
+/// first is a key on the pane, the second the field's `type`.
+#[test]
+fn regression_696_keys_buffered_on_one_element_survive_typing_into_another() {
+    let (backend, scene, _) =
+        MovingFocusBackend::new(dialog_control("Pane", "Dialog > Pane:Board"));
+    let harness = WorkerTestHarness::new(backend);
+
+    let t = now_ms();
+    harness.send_event(in_dialog(layout_key(1, t, 0x58))); // x, on the pane
+    thread::sleep(Duration::from_millis(100));
+    *scene.lock().unwrap() = FocusScene {
+        epoch: 2,
+        foreground: DIALOG,
+        element: scene_element("Edit", "Dialog > Edit:Name", Some("a")),
+    };
+    let mut key = in_dialog(layout_key(2, t + 100, 0x41)); // a, in the field
+    key.focus_epoch = 2;
+    harness.send_event(key);
+    let mut change = in_dialog(value_change(3, t + 105, DIALOG));
+    change.focus_epoch = 2;
+    harness.send_event(change);
+
+    thread::sleep(Duration::from_millis(900));
+    let events = harness.shutdown();
+    assert_eq!(
+        typed_actions_of(&events),
+        vec![
+            "key X on Dialog > Pane:Board",
+            "type a on Dialog > Edit:Name"
+        ],
+        "got {events:?}"
     );
 }
