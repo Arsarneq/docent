@@ -11,10 +11,16 @@
  * - a tap is a `click` at the point tapped (ECP-6, `click`; session format,
  *   `click`): it carries a pointer, so it is not taken for a key's effect
  * - a pen's click is a `click` at its point, the same way
+ *
+ * The page notes the pointer type of each click it receives, so the test shows
+ * that the input reached it as a touch and a pen, and each point is off the
+ * element's centre, so the point written is the one tapped and not the
+ * element's.
  * - a press on a range moves its value at the press, and the browser commits
  *   it with `change` ahead of the `click`: a `type` with the new value, then
- *   the `click` (ECP-6, `change` and `click`); a drag commits once, at the
- *   release, with the value it ends on
+ *   the `click` (ECP-6, `change` and `click`), and a later click elsewhere
+ *   writes no second `type`; a drag commits once, at the release: a `type`
+ *   with the value it ends on, then the `click`
  *
  * A long press is not here: the browser the suite runs gives a held touch no
  * context menu (it ends as a tap), so the `right_click` ECP-12 states for it
@@ -35,10 +41,13 @@ const summary = (actions) =>
     a.type === 'type' ? ['type', a.element?.selector, a.value] : [a.type, a.element?.selector],
   );
 
-/** The centre of an element, in the page's viewport coordinates. */
-async function centre(page, selector) {
+/** A whole-pixel point inside an element, at a share of its width and height. */
+async function pointIn(page, selector, across, down) {
   const box = await page.locator(selector).boundingBox();
-  return { x: Math.round(box.x + box.width / 2), y: Math.round(box.y + box.height / 2) };
+  return {
+    x: Math.round(box.x + box.width * across),
+    y: Math.round(box.y + box.height * down),
+  };
 }
 
 /** A tap: a touch that starts and ends at one point. */
@@ -66,6 +75,10 @@ test.describe('Touch and pen', () => {
     <button id="save" style="position:absolute;left:40px;top:40px;width:120px;height:40px">Save</button>
     <button id="plain" style="position:absolute;left:220px;top:40px;width:120px;height:40px">Plain</button>
     <a id="logo" href="#top" style="position:absolute;left:40px;top:140px;width:120px;height:40px;display:block">Logo</a>
+    <script>
+      window.pointerTypes = [];
+      document.addEventListener('click', (e) => window.pointerTypes.push(e.pointerType), true);
+    </script>
   </body></html>`;
 
   test('a tap and a pen click are each a click at their point', async ({
@@ -77,14 +90,15 @@ test.describe('Touch and pen', () => {
     const cdp = await testPage.context().newCDPSession(testPage);
     await cdp.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 1 });
 
-    const save = await centre(testPage, '#save');
-    const plain = await centre(testPage, '#plain');
-    const logo = await centre(testPage, '#logo');
+    const save = await pointIn(testPage, '#save', 0.2, 0.25);
+    const plain = await pointIn(testPage, '#plain', 0.85, 0.8);
+    const logo = await pointIn(testPage, '#logo', 0.7, 0.3);
     await tap(cdp, save);
     await tap(cdp, plain);
     await penClick(cdp, logo);
     await waitForActionsToSettle(serviceWorker, testPage);
 
+    expect(await testPage.evaluate(() => window.pointerTypes)).toEqual(['touch', 'touch', 'pen']);
     const actions = await getPendingActions(serviceWorker);
     expect(summary(actions)).toEqual([
       ['click', '#save'],
@@ -114,6 +128,7 @@ test.describe('A pointer on a range input', () => {
     await clearPendingActions(serviceWorker);
     const box = await testPage.locator('#range').boundingBox();
     await testPage.mouse.click(box.x + box.width * 0.8, box.y + box.height / 2);
+    await testPage.click('#heading');
     await waitForActionsToSettle(serviceWorker, testPage);
 
     const value = await testPage.locator('#range').inputValue();
@@ -122,6 +137,7 @@ test.describe('A pointer on a range input', () => {
     expect(summary(actions)).toEqual([
       ['type', '#range', value],
       ['click', '#range'],
+      ['click', '#heading'],
     ]);
   });
 
