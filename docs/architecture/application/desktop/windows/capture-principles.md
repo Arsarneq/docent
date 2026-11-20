@@ -474,6 +474,25 @@ with a caveat):
   though the dialog navigated; a departure (core CP-18). None is recorded
   either when the read fails as the dialog closes, or finds the File name not
   yet filled
+- A `file_dialog` whose `file_path` is the File name text as the dialog shows
+  it, joined to the dialog's folder, rather than a file on disk. The text
+  lacks a file's extension wherever the shell hides it (for known file types
+  where the system hides extensions, and for some types, such as shortcuts,
+  whatever the setting). For an Open dialog, `file_path` names the file the
+  text names: among the files in the dialog's folder named as the text
+  followed by an extension, the one whose name as the shell displays it is
+  the text (case aside), or the text's own path where that is a file, when
+  exactly one file is either; the lookup is made when the click is processed
+  and lists at most 64 of the folder's entries. The text as shown is recorded
+  where an Open dialog's text names no file or several, where more than 64
+  entries are listed, and where the path is not a full one (no folder was
+  read, or the text is relative). It is recorded for every Save and Save As
+  too: their text names the file to be written, which need not exist yet and
+  need not be a file already displayed under the same text (report.pdf,
+  displayed as "report" where extensions are hidden, while a report is saved
+  as a .docx), so the extension the dialog adds for the chosen file type is
+  not recorded; a departure (core CP-18). A dialog whose File name box is
+  empty records no `file_dialog`
 - A `type` whose value equals the typing worker's last for the same element
   (its selector within its window) — not written, the keys buffered for it
   discarded with it, and for a password field, whose value is the mask, every

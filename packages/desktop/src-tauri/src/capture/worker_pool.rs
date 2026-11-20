@@ -1103,10 +1103,24 @@ pub trait AccessibilityBackend: Send + 'static {
     /// Read a file dialog path from the given window: the dialog itself or
     /// any window inside it (a click names the control under the pointer).
     /// Returns `(dialog_type, file_path)`, `file_path` being the directory the
-    /// dialog shows and its File name joined with a backslash, or the File
-    /// name alone when the directory could not be read; `None` if the window
-    /// is not in a file dialog or no File name could be read.
+    /// dialog shows and its File name text joined with a backslash, or the
+    /// text alone when it is a full path or the directory could not be read;
+    /// `None` if the window is not in a file dialog or its File name box is
+    /// empty or could not be read.
     fn read_file_dialog_path(&self, window_handle: i64) -> Option<(String, String)>;
+
+    /// The file on disk that `shown_path` (a [`read_file_dialog_path`]
+    /// path: the File name text as the dialog shows it, in the dialog's
+    /// folder) names, decided by [`element_mapping::chosen_file_on_disk`]
+    /// against the names the shell displays for the folder's files; `None`
+    /// when the text names no file or several, or `shown_path` is not a full
+    /// path. The worker asks it for an Open dialog only (DCP-13).
+    ///
+    /// [`read_file_dialog_path`]: Self::read_file_dialog_path
+    /// [`element_mapping::chosen_file_on_disk`]: super::element_mapping::chosen_file_on_disk
+    fn file_on_disk(&self, _shown_path: &str) -> Option<String> {
+        None
+    }
 
     /// Resolve a window handle to its top-level root window handle.
     ///
@@ -2422,6 +2436,17 @@ fn handle_click<B: AccessibilityBackend>(
         None
     };
     if let Some(pick) = pick {
+        // An Open dialog's text can leave out the file's extension; the file
+        // it names is recorded where exactly one does. A Save's text names
+        // the file to be written, which a file already displayed under the
+        // same text is not, so it is recorded as shown (DCP-13).
+        let file_path = if pick.dialog_type == "open" {
+            backend
+                .file_on_disk(&pick.file_path)
+                .unwrap_or(pick.file_path)
+        } else {
+            pick.file_path
+        };
         let _ = action_sender.send(ActionEvent {
             timestamp: raw.timestamp,
             context_id: pick.context_id,
@@ -2431,7 +2456,7 @@ fn handle_click<B: AccessibilityBackend>(
             sequence_id: Some(raw.sequence_id),
             payload: ActionPayload::FileDialog {
                 dialog_type: pick.dialog_type,
-                file_path: pick.file_path,
+                file_path,
                 source: pick.source,
             },
         });

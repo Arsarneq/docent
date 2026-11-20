@@ -3995,6 +3995,10 @@ const NOTEPAD: i64 = 0x0600;
 struct FileDialogBackend {
     directory: &'static str,
     file_name: &'static str,
+    /// The file on disk the shown path names, as `(shown path, file)`.
+    on_disk: Option<(&'static str, &'static str)>,
+    /// The dialog type its title gives.
+    dialog_type: &'static str,
     reads: Arc<AtomicU64>,
 }
 
@@ -4005,6 +4009,8 @@ impl FileDialogBackend {
             Self {
                 directory,
                 file_name,
+                on_disk: None,
+                dialog_type: "open",
                 reads: Arc::clone(&reads),
             },
             reads,
@@ -4039,9 +4045,14 @@ impl AccessibilityBackend for FileDialogBackend {
             return None;
         }
         Some((
-            "open".to_string(),
+            self.dialog_type.to_string(),
             format!("{}\\{}", self.directory, self.file_name),
         ))
+    }
+    fn file_on_disk(&self, shown_path: &str) -> Option<String> {
+        self.on_disk
+            .filter(|(shown, _)| *shown == shown_path)
+            .map(|(_, file)| file.to_string())
     }
     fn root_window_handle(&self, window_handle: i64) -> i64 {
         match window_handle {
@@ -4344,6 +4355,93 @@ fn a_click_on_the_open_button_records_the_file_and_its_folder() {
             1,
         )]
     );
+}
+
+/// With file extensions hidden, the dialog shows "license" for license.txt,
+/// in its item view and its File name field alike: the file_dialog names the
+/// file on disk the text names, not the text, whichever way the pick is
+/// confirmed.
+#[test]
+fn regression_692_a_file_shown_without_its_extension_is_recorded_as_the_file() {
+    for by_double_click in [true, false] {
+        let (mut backend, _reads) =
+            FileDialogBackend::showing("C:\\Users\\u\\Downloads", "license");
+        backend.on_disk = Some((
+            "C:\\Users\\u\\Downloads\\license",
+            "C:\\Users\\u\\Downloads\\license.txt",
+        ));
+        let harness = WorkerTestHarness::new(backend);
+        if by_double_click {
+            harness.send_event(left_click(
+                1,
+                1000,
+                ITEMS_VIEW,
+                item_name_cell("license"),
+                false,
+            ));
+            harness.send_event(left_click(2, 1160, EDITOR, notepad_editor(), true));
+        } else {
+            harness.send_event(left_click(1, 1000, ITEMS_VIEW, open_button(), false));
+        }
+
+        thread::sleep(Duration::from_millis(200));
+        let events = harness.shutdown();
+
+        let recorded: Vec<String> = file_dialogs(&events).into_iter().map(|d| d.1).collect();
+        assert_eq!(
+            recorded,
+            vec!["C:\\Users\\u\\Downloads\\license.txt".to_string()],
+            "confirmed by {}",
+            if by_double_click {
+                "a double-click"
+            } else {
+                "the Open button"
+            }
+        );
+    }
+}
+
+/// A Save dialog's File name text names the file to be written, which need
+/// not exist: a file already there that the shell displays under the same
+/// text ("report" for report.pdf, saving a report as .docx) is not the
+/// file chosen, so a Save records the text as the dialog shows it.
+#[test]
+fn a_save_records_the_text_not_a_file_displayed_under_it() {
+    for dialog_type in ["save", "save_as"] {
+        let (mut backend, _reads) = FileDialogBackend::showing("C:\\Users\\u\\Documents", "report");
+        backend.dialog_type = dialog_type;
+        backend.on_disk = Some((
+            "C:\\Users\\u\\Documents\\report",
+            "C:\\Users\\u\\Documents\\report.pdf",
+        ));
+        let harness = WorkerTestHarness::new(backend);
+        harness.send_event(left_click(1, 1000, ITEMS_VIEW, save_button(), false));
+
+        thread::sleep(Duration::from_millis(200));
+        let events = harness.shutdown();
+
+        let recorded: Vec<(String, String)> = file_dialogs(&events)
+            .into_iter()
+            .map(|d| (d.0, d.1))
+            .collect();
+        assert_eq!(
+            recorded,
+            vec![(
+                dialog_type.to_string(),
+                "C:\\Users\\u\\Documents\\report".to_string()
+            )]
+        );
+    }
+}
+
+fn save_button() -> ElementDescription {
+    ElementDescription {
+        tag: "Button".to_string(),
+        name: Some("Save".to_string()),
+        selector: "Pane:Desktop 1 > Window:Untitled - Notepad > Window:Save As > Button:Save"
+            .to_string(),
+        ..Default::default()
+    }
 }
 
 // ---------------------------------------------------------------------------

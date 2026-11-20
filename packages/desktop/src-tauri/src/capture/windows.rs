@@ -2828,7 +2828,38 @@ unsafe fn type_and_automation_id_condition(
     uia.CreateAndCondition(&type_condition, &id_condition).ok()
 }
 
-/// Find a child Edit element by AutomationId and return its value.
+/// The Value of the first Edit under `parent` with AutomationId
+/// `automation_id`, as it is — empty for an empty box; none when no such
+/// Edit exists. Its Name is the label beside the box ("File name:"), never
+/// its content.
+unsafe fn edit_value_by_automation_id(
+    uia: &IUIAutomation,
+    parent: &IUIAutomationElement,
+    automation_id: &str,
+) -> Option<String> {
+    use super::uia_core_api::UIA_EditControlTypeId;
+    use super::win32_bindings::TreeScope_Descendants;
+
+    let condition = type_and_automation_id_condition(uia, UIA_EditControlTypeId.0, automation_id)?;
+    let edit = parent.FindFirst(TreeScope_Descendants, &condition).ok()?;
+    Some(get_string_property(&edit, UIA_ValueValuePropertyId))
+}
+
+/// The text of a file dialog's File name box: the Edit an Open dialog gives
+/// AutomationId 1148 (the cmb13 combo box's id), else the one a Save dialog
+/// gives 1001 (the edt1 id) — the first that exists, by its Value; none when
+/// neither exists or the box is empty.
+unsafe fn file_name_box_text(
+    uia: &IUIAutomation,
+    dialog_element: &IUIAutomationElement,
+) -> Option<String> {
+    ["1148", "1001"]
+        .into_iter()
+        .find_map(|id| edit_value_by_automation_id(uia, dialog_element, id))
+        .filter(|text| !text.is_empty())
+}
+
+/// Find a child Edit element by AutomationId and return its non-empty Value.
 pub(crate) unsafe fn find_child_value_by_automation_id(
     uia: &IUIAutomation,
     parent: &IUIAutomationElement,
@@ -2851,11 +2882,6 @@ pub(crate) unsafe fn find_child_value_by_automation_id(
             if !value.is_empty() {
                 return Some(value);
             }
-            // Fall back to the Name property.
-            let name = get_string_property(&child, UIA_NamePropertyId);
-            if !name.is_empty() {
-                return Some(name);
-            }
         }
     }
     None
@@ -2876,7 +2902,8 @@ pub(crate) unsafe fn read_file_dialog_directory(
     }
 
     // Strategy 2: Look for a ToolBar with AutomationId "1001" — the breadcrumb
-    // bar. Its Name property often contains the current path.
+    // bar. Its Name is the current path behind a label ("Address: " on an
+    // English system), which is not part of the path.
     let toolbar_condition =
         type_and_automation_id_condition(uia, UIA_ToolBarControlTypeId.0, "1001")?;
 
@@ -2888,13 +2915,111 @@ pub(crate) unsafe fn read_file_dialog_directory(
     for i in 0..count {
         if let Ok(tb) = toolbars.GetElement(i) {
             let name = get_string_property(&tb, UIA_NamePropertyId);
-            if !name.is_empty() && name.contains('\\') {
-                return Some(name);
+            if let Some(path) = super::element_mapping::path_in_address_label(&name) {
+                return Some(path.to_string());
             }
         }
     }
 
     None
+}
+
+/// The most folder entries [`file_on_disk`] looks at for one File name text;
+/// past it the text is decided to name no one file, so the cost of the
+/// lookup stays bounded in a folder of any size.
+const FILE_DIALOG_CANDIDATE_LIMIT: usize = 64;
+
+/// The file on disk a file dialog's shown path names (see
+/// [`AccessibilityBackend::file_on_disk`]). The files the text can be shown
+/// for are the ones the folder lists under the text followed by an extension
+/// (`<text>.*`, which also lists `<text>` itself), each with the name the
+/// shell displays for it ([`shell_display_name`]); the typed path itself
+/// counts where it is a file.
+fn file_on_disk(shown_path: &str) -> Option<String> {
+    use super::win32_bindings::{
+        FindClose, FindExInfoBasic, FindExSearchNameMatch, FindFirstFileExW, FindNextFileW,
+        FILE_ATTRIBUTE_DIRECTORY, WIN32_FIND_DATAW,
+    };
+
+    // A path that is not a full one (no folder was read, or the text is
+    // relative) would resolve against this process's working directory.
+    if !super::element_mapping::is_full_path(shown_path) {
+        return None;
+    }
+    let (directory, text) = shown_path.rsplit_once('\\')?;
+    let typed_path_is_file = std::path::Path::new(shown_path).is_file();
+    let mut listed = Vec::new();
+    // A text holding a wildcard is a filter the dialog applies, not a name.
+    if !text.is_empty() && !text.contains(['*', '?']) {
+        let pattern: Vec<u16> = format!("{shown_path}.*")
+            .encode_utf16()
+            .chain(Some(0))
+            .collect();
+        let mut data = WIN32_FIND_DATAW::default();
+        let find = unsafe {
+            FindFirstFileExW(
+                windows_core::PCWSTR(pattern.as_ptr()),
+                FindExInfoBasic,
+                &mut data as *mut WIN32_FIND_DATAW as *mut core::ffi::c_void,
+                FindExSearchNameMatch,
+                None,
+                0,
+            )
+        };
+        if find != INVALID_HANDLE_VALUE {
+            let mut seen = 0;
+            let mut complete = false;
+            while seen < FILE_DIALOG_CANDIDATE_LIMIT {
+                seen += 1;
+                if data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY as u32 == 0 {
+                    let path = format!("{directory}\\{}", wide_until_nul(&data.cFileName));
+                    if let Some(display) = shell_display_name(&path) {
+                        listed.push((display, path));
+                    }
+                }
+                if !unsafe { FindNextFileW(find, &mut data) }.as_bool() {
+                    complete = true;
+                    break;
+                }
+            }
+            unsafe {
+                let _ = FindClose(find);
+            }
+            if !complete {
+                return None;
+            }
+        }
+    }
+    super::element_mapping::chosen_file_on_disk(shown_path, typed_path_is_file, &listed)
+}
+
+/// The name the shell displays for the file at `path`, as a folder view
+/// shows it (`SHGFI_DISPLAYNAME`): without its extension where the system
+/// hides extensions.
+fn shell_display_name(path: &str) -> Option<String> {
+    use super::win32_bindings::{SHGetFileInfoW, SHFILEINFOW, SHGFI_DISPLAYNAME};
+
+    let wide: Vec<u16> = path.encode_utf16().chain(Some(0)).collect();
+    let mut info = SHFILEINFOW::default();
+    let found = unsafe {
+        SHGetFileInfoW(
+            windows_core::PCWSTR(wide.as_ptr()),
+            0,
+            Some(&mut info),
+            std::mem::size_of::<SHFILEINFOW>() as u32,
+            SHGFI_DISPLAYNAME as u32,
+        )
+    };
+    (found != 0).then(|| wide_until_nul(&info.szDisplayName))
+}
+
+/// The text in a fixed UTF-16 buffer, up to its first NUL.
+fn wide_until_nul(buffer: &[u16]) -> String {
+    let len = buffer
+        .iter()
+        .position(|unit| *unit == 0)
+        .unwrap_or(buffer.len());
+    String::from_utf16_lossy(&buffer[..len])
 }
 
 // ---------------------------------------------------------------------------
@@ -3308,25 +3433,22 @@ impl AccessibilityBackend for WindowsAccessibilityBackend {
         unsafe {
             let dialog_element = uia.ElementFromHandle(UIA_HWND(hwnd.0)).ok()?;
 
-            // Read the filename from the "File name:" edit (AutomationId "1001").
-            let filename = find_child_value_by_automation_id(uia, &dialog_element, "1001")?;
-            if filename.is_empty() {
-                return None;
-            }
+            // The File name box's text: the name as the dialog shows it,
+            // without the extension where the system hides extensions.
+            let filename = file_name_box_text(uia, &dialog_element)?;
 
             // Try to read the current directory from the breadcrumb/address bar.
             let directory = read_file_dialog_directory(uia, &dialog_element);
 
-            let file_path = match directory {
-                Some(dir) if !dir.is_empty() => {
-                    let dir = dir.trim_end_matches('\\');
-                    format!("{dir}\\{filename}")
-                }
-                _ => filename,
-            };
+            let file_path =
+                super::element_mapping::typed_file_path(directory.as_deref(), &filename);
 
             Some((dialog_type.to_string(), file_path))
         }
+    }
+
+    fn file_on_disk(&self, shown_path: &str) -> Option<String> {
+        file_on_disk(shown_path)
     }
 
     fn root_window_handle(&self, window_handle: i64) -> i64 {
@@ -4501,8 +4623,8 @@ mod file_dialog_read_tests {
     //! thread; a guard closes it however the test ends.
 
     use super::super::win32_bindings::{
-        FindWindowW, GetDlgItem, GetOpenFileNameW, PostMessageW, OFN_EXPLORER, OFN_FILEMUSTEXIST,
-        OPENFILENAMEW, WM_CLOSE,
+        FindWindowW, GetDlgItem, GetOpenFileNameW, GetSaveFileNameW, PostMessageW, OFN_EXPLORER,
+        OFN_FILEMUSTEXIST, OPENFILENAMEW, WM_CLOSE,
     };
     use super::*;
     use windows_core::PCWSTR;
@@ -4582,8 +4704,9 @@ mod file_dialog_read_tests {
         };
         let _ = writeln!(
             out,
-            "  step File name edit (Edit, AutomationId 1001): {:?}",
-            find_child_value_by_automation_id(uia, &dialog, "1001")
+            "  step File name edit Value (Edit 1148, Edit 1001): {:?}, {:?}",
+            edit_value_by_automation_id(uia, &dialog, "1148"),
+            edit_value_by_automation_id(uia, &dialog, "1001")
         );
         let _ = writeln!(
             out,
@@ -4629,33 +4752,67 @@ mod file_dialog_read_tests {
         out
     }
 
-    /// A read given one of the dialog's child windows — its Open button,
-    /// which is what a click names — resolves the dialog as that window's
-    /// root and returns the dialog type from the title and the folder the
-    /// dialog shows joined with its File name; once the dialog has closed, a
-    /// read from the same window returns none.
-    #[test]
-    fn a_file_dialog_read_from_its_open_button_names_the_folder_and_the_file() {
+    /// Which common dialog [`open_test_dialog`] opens.
+    #[derive(Clone, Copy)]
+    enum DialogKind {
+        Open,
+        SaveAs,
+    }
+
+    /// A common dialog open on a thread of its own, showing a folder made for
+    /// it; dropping it closes the dialog, joins its thread and removes the
+    /// folder.
+    struct TestDialog {
+        /// The folder, by its long path as the dialog shows it.
+        dir: String,
+        made: std::path::PathBuf,
+        /// One of the dialog's child windows, as a click names one.
+        child: i64,
+        guard: Option<CloseOnDrop>,
+        thread: Option<JoinHandle<()>>,
+    }
+
+    impl Drop for TestDialog {
+        fn drop(&mut self) {
+            drop(self.guard.take());
+            if let Some(thread) = self.thread.take() {
+                let _ = thread.join();
+            }
+            let _ = std::fs::remove_dir_all(&self.made);
+        }
+    }
+
+    /// Open a `kind` dialog titled after `tag`, on a folder holding `files`,
+    /// with its File name preset to `preset`, and wait for it to appear.
+    fn open_test_dialog(kind: DialogKind, tag: &str, files: &[&str], preset: &str) -> TestDialog {
         // The folder, by its long path: the temp path can be a short (8.3)
         // one, and the dialog shows the long one.
-        let made = std::env::temp_dir().join(format!("docent-692-{}", std::process::id()));
+        let made = std::env::temp_dir().join(format!("docent-692-{tag}-{}", std::process::id()));
         std::fs::create_dir_all(&made).unwrap();
-        std::fs::write(made.join(FILE), b"692").unwrap();
+        for file in files {
+            std::fs::write(made.join(file), b"692").unwrap();
+        }
         let canonical = std::fs::canonicalize(&made).unwrap();
         let dir = canonical.to_string_lossy();
         let dir = dir.strip_prefix(r"\\?\").unwrap_or(&dir).to_string();
-        let title = format!("Docent read test {} - Open", std::process::id());
+        let title = match kind {
+            DialogKind::Open => format!("Docent read test {tag} {} - Open", std::process::id()),
+            DialogKind::SaveAs => {
+                format!("Docent read test {tag} {} - Save As", std::process::id())
+            }
+        };
 
-        let dialog_thread = {
+        let thread = {
             let dir = dir.clone();
             let title = title.clone();
+            let preset = preset.to_string();
             thread::spawn(move || unsafe {
                 let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED as u32);
                 let dir_w = wide(&dir);
                 let title_w = wide(&title);
                 let filter: Vec<u16> = "Text files\0*.txt\0\0".encode_utf16().collect();
                 let mut file = [0u16; 260];
-                for (slot, unit) in file.iter_mut().zip(FILE.encode_utf16()) {
+                for (slot, unit) in file.iter_mut().zip(preset.encode_utf16()) {
                     *slot = unit;
                 }
                 let mut ofn = OPENFILENAMEW {
@@ -4665,11 +4822,19 @@ mod file_dialog_read_tests {
                     nMaxFile: file.len() as u32,
                     lpstrInitialDir: PCWSTR(dir_w.as_ptr()),
                     lpstrTitle: PCWSTR(title_w.as_ptr()),
-                    Flags: (OFN_EXPLORER | OFN_FILEMUSTEXIST) as u32,
                     ..Default::default()
                 };
-                // Returns once the dialog is closed (cancelled: no file).
-                let _ = GetOpenFileNameW(&mut ofn);
+                // Each returns once the dialog is closed (cancelled: no file).
+                match kind {
+                    DialogKind::Open => {
+                        ofn.Flags = (OFN_EXPLORER | OFN_FILEMUSTEXIST) as u32;
+                        let _ = GetOpenFileNameW(&mut ofn);
+                    }
+                    DialogKind::SaveAs => {
+                        ofn.Flags = OFN_EXPLORER as u32;
+                        let _ = GetSaveFileNameW(&mut ofn);
+                    }
+                }
                 CoUninitialize();
             })
         };
@@ -4678,54 +4843,189 @@ mod file_dialog_read_tests {
         let dialog = poll(Duration::from_secs(20), || {
             let h = unsafe { FindWindowW(windows_core::w!("#32770"), PCWSTR(title_w.as_ptr())) };
             (!h.0.is_null()).then_some(h.0 as isize)
-        })
-        .expect("the common Open dialog did not appear");
-        let guard = CloseOnDrop(dialog);
+        });
+        let mut opened = TestDialog {
+            dir,
+            made,
+            child: 0,
+            guard: dialog.map(CloseOnDrop),
+            thread: Some(thread),
+        };
+        let dialog = dialog.expect("the common dialog did not appear");
 
-        // The Open button (IDOK); the File name combo box (cmb13) where a
-        // dialog shows its button windowless.
-        let child = [1, 0x047C]
+        // The Open or Save button (IDOK); the File name combo box (cmb13)
+        // where a dialog shows its button windowless.
+        opened.child = [1, 0x047C]
             .into_iter()
             .map(|id| unsafe { GetDlgItem(Some(HWND(dialog as *mut _)), id) })
             .find(|h| !h.0.is_null())
-            .expect("the dialog has neither an Open button nor a File name box window")
+            .expect("the dialog has neither an OK button nor a File name box window")
             .0 as i64;
-        assert_ne!(child, dialog as i64, "the read is given a child window");
+        assert_ne!(
+            opened.child, dialog as i64,
+            "the read is given a child window"
+        );
+        opened
+    }
 
-        let mut backend = WindowsAccessibilityBackend::new();
-        backend.init().unwrap();
-        assert_eq!(backend.root_window_handle(child), dialog as i64);
-
-        let expected = format!("{dir}\\{FILE}");
+    /// Read the dialog until the read, passed through what the worker records
+    /// for its type, is `expected`; print the diagnosis and fail otherwise.
+    fn assert_recorded(backend: &WindowsAccessibilityBackend, child: i64, expected: (&str, &str)) {
         let mut last = None;
         let matched = poll(Duration::from_secs(20), || {
-            last = backend.read_file_dialog_path(child);
+            last = backend.read_file_dialog_path(child).map(|(kind, shown)| {
+                // The worker's emission (handle_click): only an Open dialog's
+                // text is looked up on disk.
+                let path = if kind == "open" {
+                    backend.file_on_disk(&shown).unwrap_or(shown)
+                } else {
+                    shown
+                };
+                (kind, path)
+            });
             match &last {
-                Some((kind, path)) if kind == "open" && path.eq_ignore_ascii_case(&expected) => {
-                    Some(())
-                }
+                Some((kind, path)) if kind == expected.0 && path == expected.1 => Some(()),
                 _ => None,
             }
         });
         if matched.is_none() {
             // Diagnostic only: report where the read stops and the dialog's
             // tree, so a failing run shows what the dialog holds.
-            eprintln!("{}", unsafe { diagnose_file_dialog_read(&backend, child) });
+            eprintln!("{}", unsafe { diagnose_file_dialog_read(backend, child) });
+            eprintln!(
+                "  shell display name of {}: {:?}",
+                expected.1,
+                shell_display_name(expected.1)
+            );
         }
-        assert!(
-            matched.is_some(),
-            "read {last:?}, expected (\"open\", {expected:?})"
+        assert!(matched.is_some(), "read {last:?}, expected {expected:?}");
+    }
+
+    /// A read given one of an Open dialog's child windows — its Open button,
+    /// which is what a click names — resolves the dialog as that window's
+    /// root and returns the dialog type from the title and the folder the
+    /// dialog shows joined with its File name, which names the file on disk
+    /// whether or not the system hides its extension; once the dialog has
+    /// closed, a read from the same window returns none.
+    #[test]
+    fn a_file_dialog_read_from_its_open_button_names_the_folder_and_the_file() {
+        let mut opened = open_test_dialog(DialogKind::Open, "open", &[FILE], FILE);
+        let child = opened.child;
+        let mut backend = WindowsAccessibilityBackend::new();
+        backend.init().unwrap();
+        assert_eq!(
+            backend.root_window_handle(child),
+            opened.guard.as_ref().unwrap().0 as i64
         );
 
-        drop(guard);
-        dialog_thread.join().unwrap();
+        let expected = format!("{}\\{FILE}", opened.dir);
+        assert_recorded(&backend, child, ("open", &expected));
+
+        drop(opened.guard.take());
+        if let Some(thread) = opened.thread.take() {
+            thread.join().unwrap();
+        }
         assert_eq!(
             backend.read_file_dialog_path(child),
             None,
             "a closed dialog reads as none"
         );
         backend.cleanup();
+    }
+
+    /// An empty File name box reads as no file: the box's label ("File
+    /// name:", its Name) is not its text. Read once the dialog's folder and
+    /// box are both readable, so the none is the box's and not a dialog
+    /// still loading.
+    #[test]
+    fn a_file_dialog_with_an_empty_file_name_box_reads_as_none() {
+        let opened = open_test_dialog(DialogKind::Open, "empty", &[FILE], "");
+        let mut backend = WindowsAccessibilityBackend::new();
+        backend.init().unwrap();
+        let root = HWND(backend.root_window_handle(opened.child) as *mut _);
+        let loaded = poll(Duration::from_secs(20), || unsafe {
+            let uia = backend.uia.as_ref()?;
+            let dialog = uia.ElementFromHandle(UIA_HWND(root.0)).ok()?;
+            read_file_dialog_directory(uia, &dialog)?;
+            edit_value_by_automation_id(uia, &dialog, "1148")
+                .or_else(|| edit_value_by_automation_id(uia, &dialog, "1001"))
+        });
+        if loaded.is_none() {
+            eprintln!("{}", unsafe {
+                diagnose_file_dialog_read(&backend, opened.child)
+            });
+        }
+        assert_eq!(loaded.as_deref(), Some(""), "the File name box is empty");
+        assert_eq!(backend.read_file_dialog_path(opened.child), None);
+        backend.cleanup();
+    }
+
+    /// A Save As dialog's read returns `save_as` and the folder joined with
+    /// the File name text as shown — the file to be written, which need not
+    /// exist and is not looked up on disk.
+    #[test]
+    fn a_save_as_dialog_read_names_the_folder_and_the_text() {
+        let opened = open_test_dialog(DialogKind::SaveAs, "save", &[FILE], "docent-692-new");
+        let mut backend = WindowsAccessibilityBackend::new();
+        backend.init().unwrap();
+        let expected = format!("{}\\docent-692-new", opened.dir);
+        assert_recorded(&backend, opened.child, ("save_as", &expected));
+        backend.cleanup();
+    }
+
+    /// The lookup on a real folder, on a thread set up as a worker's (COM
+    /// initialised). The shell's display name of a file is its name or its
+    /// stem, as the system shows or hides extensions, and the answers are
+    /// asserted for whichever it is: a stem names its one file; a name typed
+    /// with its extension names that file even beside another file shown
+    /// under the same text; a text two files can be shown as names neither;
+    /// a text more files than the candidate limit are listed under names
+    /// none, where fewer resolve; and a path that is not a full one is not
+    /// looked up.
+    #[test]
+    fn the_file_a_text_names_is_looked_up_on_disk_within_a_bound() {
+        let com = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED as u32) }.is_ok();
+        let made = std::env::temp_dir().join(format!("docent-692-lookup-{}", std::process::id()));
+        std::fs::create_dir_all(&made).unwrap();
+        let canonical = std::fs::canonicalize(&made).unwrap();
+        let dir = canonical.to_string_lossy();
+        let dir = dir.strip_prefix(r"\\?\").unwrap_or(&dir).to_string();
+        for name in ["solo.txt", "pair.txt", "pair.md", "few.txt", "many.txt"] {
+            std::fs::write(canonical.join(name), b"692").unwrap();
+        }
+        for n in 0..3 {
+            std::fs::write(canonical.join(format!("few.txt.{n}")), b"692").unwrap();
+        }
+        for n in 0..FILE_DIALOG_CANDIDATE_LIMIT {
+            std::fs::write(canonical.join(format!("many.txt.{n}")), b"692").unwrap();
+        }
+        let path = |name: &str| format!("{dir}\\{name}");
+
+        // The shell answers, with the name or the stem.
+        let display = shell_display_name(&path("solo.txt"));
+        assert!(
+            matches!(display.as_deref(), Some("solo" | "solo.txt")),
+            "display name of solo.txt: {display:?}"
+        );
+        let hides = display.as_deref() == Some("solo");
+        let stem_names = |name: &str| hides.then(|| path(name));
+        assert_eq!(file_on_disk(&path("solo")), stem_names("solo.txt"));
+        assert_eq!(file_on_disk(&path("few")), stem_names("few.txt"));
+        // Where extensions are hidden, many.txt alone displays as "many":
+        // only the bound leaves it unnamed.
+        assert_eq!(file_on_disk(&path("many")), None);
+
+        assert_eq!(file_on_disk(&path("pair.txt")), Some(path("pair.txt")));
+        assert_eq!(file_on_disk(&path("pair")), None);
+        assert_eq!(file_on_disk(&path("absent")), None);
+        assert_eq!(file_on_disk(&path("pair*")), None, "a filter");
+        assert_eq!(file_on_disk("pair.txt"), None, "no folder");
+        assert_eq!(file_on_disk(r"sub\pair.txt"), None, "a relative path");
+
         let _ = std::fs::remove_dir_all(&made);
+        if com {
+            unsafe { CoUninitialize() };
+        }
     }
 }
 

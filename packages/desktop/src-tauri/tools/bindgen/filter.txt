@@ -28,6 +28,12 @@ Windows.Win32.EVENT_SYSTEM_FOREGROUND
 Windows.Win32.E_FAIL
 Windows.Win32.E_POINTER
 Windows.Win32.EnumWindows
+Windows.Win32.FILE_ATTRIBUTE_DIRECTORY
+Windows.Win32.FindClose
+Windows.Win32.FindExInfoBasic
+Windows.Win32.FindExSearchNameMatch
+Windows.Win32.FindFirstFileExW
+Windows.Win32.FindNextFileW
 Windows.Win32.FindWindowW
 Windows.Win32.GA_ROOT
 Windows.Win32.GA_ROOTOWNER
@@ -47,6 +53,7 @@ Windows.Win32.GetMessageW
 Windows.Win32.GetModuleFileNameExW
 Windows.Win32.GetOpenFileNameW
 Windows.Win32.GetParent
+Windows.Win32.GetSaveFileNameW
 Windows.Win32.GetSystemMetrics
 Windows.Win32.GetWindow
 Windows.Win32.GetWindowLongW
@@ -108,6 +115,9 @@ Windows.Win32.ProviderOptions_UseComThreading
 Windows.Win32.RECT
 Windows.Win32.RegisterClassW
 Windows.Win32.SAFEARRAY
+Windows.Win32.SHFILEINFOW
+Windows.Win32.SHGFI_DISPLAYNAME
+Windows.Win32.SHGetFileInfoW
 Windows.Win32.SM_CXDOUBLECLK
 Windows.Win32.SM_CXVIRTUALSCREEN
 Windows.Win32.SM_CYDOUBLECLK
@@ -151,6 +161,7 @@ Windows.Win32.VT_UNKNOWN
 Windows.Win32.VariantClear
 Windows.Win32.WH_KEYBOARD_LL
 Windows.Win32.WH_MOUSE_LL
+Windows.Win32.WIN32_FIND_DATAW
 Windows.Win32.WINEVENT_OUTOFCONTEXT
 Windows.Win32.WM_APP
 Windows.Win32.WM_CLOSE

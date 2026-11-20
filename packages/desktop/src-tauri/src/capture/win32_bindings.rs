@@ -137,6 +137,43 @@ pub unsafe fn EnumWindows(lpenumfunc: WNDENUMPROC, lparam: LPARAM) -> windows_co
     unsafe { EnumWindows(lpenumfunc, lparam) }
 }
 #[inline]
+pub unsafe fn FindClose(hfindfile: HANDLE) -> windows_core::BOOL {
+    windows_core::link!("kernel32.dll" "system" fn FindClose(hfindfile : HANDLE) -> windows_core::BOOL);
+    unsafe { FindClose(hfindfile as _) }
+}
+#[inline]
+pub unsafe fn FindFirstFileExW<P0>(
+    lpfilename: P0,
+    finfolevelid: FINDEX_INFO_LEVELS,
+    lpfindfiledata: *mut core::ffi::c_void,
+    fsearchop: FINDEX_SEARCH_OPS,
+    lpsearchfilter: Option<*const core::ffi::c_void>,
+    dwadditionalflags: u32,
+) -> HANDLE
+where
+    P0: windows_core::Param<windows_core::PCWSTR>,
+{
+    windows_core::link!("kernel32.dll" "system" fn FindFirstFileExW(lpfilename : windows_core::PCWSTR, finfolevelid : FINDEX_INFO_LEVELS, lpfindfiledata : *mut core::ffi::c_void, fsearchop : FINDEX_SEARCH_OPS, lpsearchfilter : *const core::ffi::c_void, dwadditionalflags : u32) -> HANDLE);
+    unsafe {
+        FindFirstFileExW(
+            lpfilename.param().abi(),
+            finfolevelid,
+            lpfindfiledata as _,
+            fsearchop,
+            lpsearchfilter.unwrap_or(core::mem::zeroed()) as _,
+            dwadditionalflags,
+        )
+    }
+}
+#[inline]
+pub unsafe fn FindNextFileW(
+    hfindfile: HANDLE,
+    lpfindfiledata: *mut WIN32_FIND_DATAW,
+) -> windows_core::BOOL {
+    windows_core::link!("kernel32.dll" "system" fn FindNextFileW(hfindfile : HANDLE, lpfindfiledata : *mut WIN32_FIND_DATAW) -> windows_core::BOOL);
+    unsafe { FindNextFileW(hfindfile, lpfindfiledata as _) }
+}
+#[inline]
 pub unsafe fn FindWindowW<P0, P1>(lpclassname: P0, lpwindowname: P1) -> HWND
 where
     P0: windows_core::Param<windows_core::PCWSTR>,
@@ -241,6 +278,11 @@ pub unsafe fn GetOpenFileNameW(param0: *mut OPENFILENAMEW) -> windows_core::BOOL
 pub unsafe fn GetParent(hwnd: HWND) -> HWND {
     windows_core::link!("user32.dll" "system" fn GetParent(hwnd : HWND) -> HWND);
     unsafe { GetParent(hwnd) }
+}
+#[inline]
+pub unsafe fn GetSaveFileNameW(param0: *mut OPENFILENAMEW) -> windows_core::BOOL {
+    windows_core::link!("comdlg32.dll" "system" fn GetSaveFileNameW(param0 : *mut OPENFILENAMEW) -> windows_core::BOOL);
+    unsafe { GetSaveFileNameW(param0 as _) }
 }
 #[inline]
 pub unsafe fn GetSystemMetrics(nindex: i32) -> i32 {
@@ -377,6 +419,28 @@ pub unsafe fn Process32Next(hsnapshot: HANDLE, lppe: *mut PROCESSENTRY32) -> win
 pub unsafe fn RegisterClassW(lpwndclass: *const WNDCLASSW) -> ATOM {
     windows_core::link!("user32.dll" "system" fn RegisterClassW(lpwndclass : *const WNDCLASSW) -> ATOM);
     unsafe { RegisterClassW(lpwndclass) }
+}
+#[inline]
+pub unsafe fn SHGetFileInfoW<P0>(
+    pszpath: P0,
+    dwfileattributes: u32,
+    psfi: Option<*mut SHFILEINFOW>,
+    cbfileinfo: u32,
+    uflags: u32,
+) -> usize
+where
+    P0: windows_core::Param<windows_core::PCWSTR>,
+{
+    windows_core::link!("shell32.dll" "system" fn SHGetFileInfoW(pszpath : windows_core::PCWSTR, dwfileattributes : u32, psfi : *mut SHFILEINFOW, cbfileinfo : u32, uflags : u32) -> usize);
+    unsafe {
+        SHGetFileInfoW(
+            pszpath.param().abi(),
+            dwfileattributes,
+            psfi.unwrap_or(core::mem::zeroed()) as _,
+            cbfileinfo,
+            uflags,
+        )
+    }
 }
 #[inline]
 pub unsafe fn ScrollWindow(
@@ -591,6 +655,17 @@ pub const EVENT_OBJECT_VALUECHANGE: i32 = 32782;
 pub const EVENT_SYSTEM_FOREGROUND: i32 = 3;
 pub const E_FAIL: windows_core::HRESULT = windows_core::HRESULT(0x80004005_u32 as _);
 pub const E_POINTER: windows_core::HRESULT = windows_core::HRESULT(0x80004003_u32 as _);
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct FILETIME {
+    pub dwLowDateTime: u32,
+    pub dwHighDateTime: u32,
+}
+pub const FILE_ATTRIBUTE_DIRECTORY: i32 = 16;
+pub type FINDEX_INFO_LEVELS = i32;
+pub type FINDEX_SEARCH_OPS = i32;
+pub const FindExInfoBasic: FINDEX_INFO_LEVELS = 1;
+pub const FindExSearchNameMatch: FINDEX_SEARCH_OPS = 0;
 pub const GA_ROOT: i32 = 2;
 pub const GA_ROOTOWNER: i32 = 3;
 #[repr(C)]
@@ -4476,6 +4551,47 @@ pub struct SAFEARRAYBOUND {
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub struct SCODE(pub i32);
+#[repr(C, packed(1))]
+#[cfg(target_arch = "x86")]
+#[derive(Clone, Copy)]
+pub struct SHFILEINFOW {
+    pub hIcon: HICON,
+    pub iIcon: i32,
+    pub dwAttributes: u32,
+    pub szDisplayName: [u16; 260],
+    pub szTypeName: [u16; 80],
+}
+#[cfg(target_arch = "x86")]
+impl Default for SHFILEINFOW {
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+#[repr(C)]
+#[cfg(any(
+    target_arch = "aarch64",
+    target_arch = "arm64ec",
+    target_arch = "x86_64"
+))]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct SHFILEINFOW {
+    pub hIcon: HICON,
+    pub iIcon: i32,
+    pub dwAttributes: u32,
+    pub szDisplayName: [u16; 260],
+    pub szTypeName: [u16; 80],
+}
+#[cfg(any(
+    target_arch = "aarch64",
+    target_arch = "arm64ec",
+    target_arch = "x86_64"
+))]
+impl Default for SHFILEINFOW {
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+pub const SHGFI_DISPLAYNAME: i32 = 512;
 pub const SM_CXDOUBLECLK: i32 = 36;
 pub const SM_CXVIRTUALSCREEN: i32 = 78;
 pub const SM_CYDOUBLECLK: i32 = 37;
@@ -4636,6 +4752,25 @@ pub const VT_I4: VARENUM = 3;
 pub const VT_UNKNOWN: VARENUM = 13;
 pub const WH_KEYBOARD_LL: i32 = 13;
 pub const WH_MOUSE_LL: i32 = 14;
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct WIN32_FIND_DATAW {
+    pub dwFileAttributes: u32,
+    pub ftCreationTime: FILETIME,
+    pub ftLastAccessTime: FILETIME,
+    pub ftLastWriteTime: FILETIME,
+    pub nFileSizeHigh: u32,
+    pub nFileSizeLow: u32,
+    pub dwReserved0: u32,
+    pub dwReserved1: u32,
+    pub cFileName: [u16; 260],
+    pub cAlternateFileName: [u16; 14],
+}
+impl Default for WIN32_FIND_DATAW {
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
 pub type WINEVENTPROC = Option<
     unsafe extern "system" fn(
         hwineventhook: HWINEVENTHOOK,
