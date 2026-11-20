@@ -108,9 +108,14 @@ pub struct RawEvent {
     /// 1 = horizontal (read by the scroll arm); `[scan_code, 0, 0, 0]` from the
     /// keyboard hook, where a `VK_PACKET` keystroke's scan code is the injected
     /// UTF-16 code unit (read by the keyboard arm); `[scan_code,
-    /// focused_control, 0, 0]` in full, the second being the window handle of
-    /// the control that held the keyboard focus at the key, `0` when none was
-    /// read (see `settle_key_on_its_control`). On other platforms: unused or
+    /// focused_control, part_focus, repeat]` in full, the second being the
+    /// window handle of the control that held the keyboard focus at the key,
+    /// `0` when none was read (see `settle_key_on_its_control`), the third the
+    /// number of the latest focus change that named a part of that control
+    /// (see [`PartFocusNote`]), and the fourth `1` on a key-down for a key that
+    /// was already down (a press key repeat generated while the key was held),
+    /// `0` on the press itself (see [`super::held_keys::HeldKeys`]). On other
+    /// platforms: unused or
     /// platform-defined.
     pub callback_params: [i64; 4],
     /// Pre-captured element description from the Input_Thread.
@@ -1196,7 +1201,7 @@ fn vk_to_key_name(vk: u32) -> String {
 /// software keyboards, automation) reaches the low-level hook with. Its scan
 /// code carries the injected UTF-16 code unit, which the hook passes on in
 /// `RawEvent::callback_params[0]` (docent#260).
-const VK_PACKET: u32 = 0xE7;
+pub(crate) const VK_PACKET: u32 = 0xE7;
 
 /// The key value for a key whose identity is not known — the browser's own
 /// value for that case, so the desktop names it the way the extension would.
@@ -1228,10 +1233,55 @@ fn is_modifier_only_key(key: &str) -> bool {
 }
 
 /// Determine whether a keystroke is printable input (should be buffered, not
-/// emitted immediately): a single-character key name, or any `VK_PACKET`
-/// keystroke (it carries text, whatever its name), with no Ctrl/Alt/Meta held.
-fn is_printable_key(raw: &RawEvent, key: &str) -> bool {
-    carries_text(raw, key) && !raw.modifiers.0 && !raw.modifiers.2 && !raw.modifiers.3
+/// emitted immediately): a typing key (see [`is_typing_key_code`]) pressed with
+/// no modifier or as a character of its layout. Ctrl and Alt held together is
+/// AltGr, which enters a character; Ctrl, Alt or Meta held otherwise is a
+/// shortcut.
+fn is_printable_key(raw: &RawEvent) -> bool {
+    let (ctrl, _shift, alt, meta) = raw.modifiers;
+    is_typing_key_code(raw.key_code) && !meta && ctrl == alt
+}
+
+/// Whether a virtual-key code is a typing key's: one that enters a character
+/// on some layout. A closed table: the space bar, digits, letters, the numeric
+/// keypad (digits, operators, decimal and separator; with NumLock off the
+/// keypad sends the navigation keys' own codes instead), punctuation (the OEM
+/// keys of every layout: 0xBA-0xC2, 0xDB-0xDF, 0xE1-0xE4, 0xE6) and
+/// `VK_PACKET`. Called on the keyboard hook: no allocation, no lock.
+pub const fn is_typing_key_code(key_code: u32) -> bool {
+    matches!(
+        key_code,
+        0x20 | 0x30..=0x39
+            | 0x41..=0x5A
+            | 0x60..=0x6F
+            | 0xBA..=0xC2
+            | 0xDB..=0xDF
+            | 0xE1..=0xE4
+            | 0xE6
+            | VK_PACKET
+    )
+}
+
+/// The control types that take no typed text: a key pressed on one presses,
+/// toggles or opens it, and no value change makes that key text. A closed
+/// list of the accessibility control types a platform backend names (see the
+/// backend's control-type table); every other type may take text, and a value
+/// change decides. The adapter's sensitive-field rule keeps the same list
+/// (`packages/desktop/src/adapter-tauri.js`).
+const NON_TEXT_CONTROL_TAGS: &[&str] = &[
+    "Button",
+    "CheckBox",
+    "Hyperlink",
+    "MenuItem",
+    "RadioButton",
+    "SplitButton",
+    "TabItem",
+];
+
+/// Whether `element` is a control that takes no typed text (see
+/// [`NON_TEXT_CONTROL_TAGS`]).
+fn takes_no_typed_text(element: &ElementDescription) -> bool {
+    NON_TEXT_CONTROL_TAGS.contains(&element.tag.as_str())
 }
 
 /// One step of the person's half of the focus epoch (see
@@ -1275,25 +1325,17 @@ pub fn key_may_move_focus(key_code: u32, modifiers: (bool, bool, bool, bool)) ->
         0x10 | 0x11 | 0xA0..=0xA3 | 0x14 | 0x90 | 0x91 => false,
         // Alt (generic and left/right).
         0x12 | 0xA4 | 0xA5 => !ctrl,
-        // Space, digits, letters, numeric keypad, punctuation (the OEM keys of
-        // every layout: 0xBA-0xC2, 0xDB-0xDF, 0xE1-0xE4, 0xE6), VK_PACKET.
-        0x20
-        | 0x30..=0x39
-        | 0x41..=0x5A
-        | 0x60..=0x6F
-        | 0xBA..=0xC2
-        | 0xDB..=0xDF
-        | 0xE1..=0xE4
-        | 0xE6
-        | VK_PACKET => meta || ctrl != alt,
+        // A typing key moves the focus only as a shortcut.
+        code if is_typing_key_code(code) => meta || ctrl != alt,
         _ => true,
     }
 }
 
-/// Whether a keystroke carries text by its name alone: a single-character key
-/// name, or any `VK_PACKET` keystroke.
-fn carries_text(raw: &RawEvent, key: &str) -> bool {
-    raw.key_code == VK_PACKET || key.chars().count() == 1
+/// Whether the keyboard hook marked this key-down as one that key repeat
+/// generated while the key was held down (the fourth callback parameter; see
+/// [`RawEvent::callback_params`]).
+fn is_repeat(raw: &RawEvent) -> bool {
+    raw.callback_params[3] != 0
 }
 
 /// The key names that enter no character: editing, navigation, lock, system
@@ -2410,6 +2452,14 @@ fn record_type_value(
     value: String,
     is_password: bool,
 ) -> bool {
+    // A control that takes no typed text has no `type`: a value change
+    // attributed to it is the effect of pressing it (the field a button
+    // clears), and the key that pressed it stays the record.
+    if takes_no_typed_text(&element) {
+        keep_keys_of_dropped_value_change(pending, action_sender);
+        return false;
+    }
+
     // The first value-change describes the element; that element (and the
     // matching timestamp) is what the coalesced type action exports.
     stamp_described_after(&mut element, raw.timestamp);
@@ -2729,6 +2779,10 @@ fn handle_keyboard<B: AccessibilityBackend>(
         return;
     }
 
+    // A typing key waits for the value change that would make it text, except
+    // on a control that takes no typed text, where it is a key at once.
+    let buffered = is_printable_key(raw) && !takes_no_typed_text(&element);
+
     let event = ActionEvent {
         timestamp: raw.timestamp,
         context_id,
@@ -2744,13 +2798,14 @@ fn handle_keyboard<B: AccessibilityBackend>(
                 alt: raw.modifiers.2,
                 meta: raw.modifiers.3,
             },
+            repeat: is_repeat(raw),
             element,
         },
     };
 
     // In-memory buffer mutation only — short lock, no backend calls inside.
     let mut buffers = lock_buffers(pending);
-    if is_printable_key(raw, &key) {
+    if buffered {
         // A `type` pending for another element is not this key's: it is
         // written now, so that it cannot count this key superseded when it is
         // written later.
@@ -2760,6 +2815,16 @@ fn handle_keyboard<B: AccessibilityBackend>(
             .is_some_and(|pt| pt.context_id != context_id || pt.element.selector != key_selector)
         {
             buffers.flush_pending_type_only(action_sender);
+        }
+        // Keys buffered on another element are not this element's typing
+        // either: its value change must not supersede them, so they are
+        // written now, as the keys they are.
+        if buffers.pending_keys.iter().any(|pending_key| {
+            pending_key.context_id != context_id
+                || !matches!(&pending_key.payload,
+                    ActionPayload::Key { element, .. } if element.selector == key_selector)
+        }) {
+            flush_pending_keys(&mut buffers.pending_keys, action_sender);
         }
         // Buffer printable keys — they may be superseded by a type event.
         buffers.pending_keys.push(event);
@@ -2986,6 +3051,7 @@ mod tests {
                     alt: false,
                     meta: false,
                 },
+                repeat: false,
                 element: ElementDescription {
                     tag: "Edit".to_string(),
                     id: None,
@@ -3303,6 +3369,7 @@ mod tests {
                     key,
                     modifiers,
                     element,
+                    ..
                 } => {
                     assert_eq!(key, expected_key, "key value intact");
                     assert!(

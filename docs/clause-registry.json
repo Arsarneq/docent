@@ -157,6 +157,12 @@
       "justification": "Judgment at review: whether a capture site writes every fact it holds for a field the format has, and trims, picks or masks only within the classes the clause names and the field's documentation discloses, reads the site's write path against that documentation, which no check can; the disclosure sentences the clause asks for are prose the review reads beside the site."
     },
     {
+      "doc": "docs/architecture/system/capture-principles.md",
+      "clause": "CP-19",
+      "tag": "judgment-only",
+      "justification": "Judgment at review: whether a change to what one platform records leaves the other platform recording the same input differently reads both platforms' capture paths side by side, and whether a remaining difference comes from the platforms themselves (an input one platform's events never deliver, a quantity that is each platform's own) or is a departure is a reading no check decides. The platforms' capture documents and the session-format rows state the departures, each beside its issue, and the review reads a change against them: a difference they do not state is a new departure."
+    },
+    {
       "doc": "docs/technical/locator-resolution.md",
       "clause": "LR-1",
       "tag": "check-exists",

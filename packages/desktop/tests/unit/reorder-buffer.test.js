@@ -266,6 +266,7 @@ describe('_insertOrdered redacts sensitive field values', () => {
     sequence_id: seq,
     key,
     modifiers: { ctrl: false, shift: false, alt: false, meta: false, ...modifiers },
+    repeat: false,
     element,
     context_id: 7,
     capture_mode: 'accessibility',
@@ -296,6 +297,52 @@ describe('_insertOrdered redacts sensitive field values', () => {
     assert.equal(actions[0].element.redacted, true);
     assert.equal(actions[0].context_id, 7);
     assert.equal(actions[0].capture_mode, 'accessibility');
+  });
+
+  it('regression_696_a_key_recorded_as_the_masked_type_carries_no_repeat', () => {
+    // `repeat` is a fact of a `key`; the masked `type` a text key becomes on
+    // a sensitive field has no such field, held key or not.
+    insertOrdered(keyOn(cardField(), '4', 1));
+    insertOrdered({ ...keyOn(cardField(), '4', 2), repeat: true });
+
+    assert.deepEqual(shape(), [`type ${SENSITIVE_MASK}`]);
+    assert.equal('repeat' in adapter.getPendingActions()[0], false);
+  });
+
+  it('regression_696_a_key_on_a_sensitive_named_control_that_takes_no_text_stays_a_key', () => {
+    // Space on a "Remember password" checkbox ticks it; no text is typed into
+    // a checkbox, so the key is the record, on every such control type.
+    const tags = [
+      'Button',
+      'CheckBox',
+      'Hyperlink',
+      'MenuItem',
+      'RadioButton',
+      'SplitButton',
+      'TabItem',
+    ];
+    tags.forEach((tag, i) =>
+      insertOrdered(
+        keyOn({ tag, name: 'Remember password', selector: `c${i}`, text: null }, 'Space', i + 1),
+      ),
+    );
+    // The same name on a control that may take text is still masked typing.
+    insertOrdered(
+      keyOn({ tag: 'Edit', name: 'Remember password', selector: 'e', text: null }, 'Space', 9),
+    );
+
+    assert.deepEqual(shape(), [...tags.map(() => 'key Space'), `type ${SENSITIVE_MASK}`]);
+  });
+
+  it('keeps repeat on a key that stays a key on a sensitive field', () => {
+    insertOrdered(keyOn(cardField(), 'Backspace', 1));
+    insertOrdered({ ...keyOn(cardField(), 'Backspace', 2), repeat: true });
+    stripSeqFields();
+
+    assert.deepEqual(
+      adapter.getPendingActions().map((a) => a.repeat),
+      [false, true],
+    );
   });
 
   it('regression_noissue_text_keys_beside_the_masked_type_of_a_sensitive_field_join_it', () => {

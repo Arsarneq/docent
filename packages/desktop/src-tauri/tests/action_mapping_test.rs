@@ -125,13 +125,18 @@ fn arb_native_event() -> impl Strategy<Value = NativeEvent> {
         (arb_element(), "[a-zA-Z0-9 ]{0,50}")
             .prop_map(|(element, value)| NativeEvent::Selection { element, value }),
         // Keyboard
-        ("[a-zA-Z]{1,10}", arb_modifiers(), arb_element(),).prop_map(
-            |(key, modifiers, element)| NativeEvent::Keyboard {
+        (
+            "[a-zA-Z]{1,10}",
+            arb_modifiers(),
+            any::<bool>(),
+            arb_element(),
+        )
+            .prop_map(|(key, modifiers, repeat, element)| NativeEvent::Keyboard {
                 key,
                 modifiers,
+                repeat,
                 element,
-            }
-        ),
+            }),
         // Focus
         arb_element().prop_map(|element| NativeEvent::Focus { element }),
         // DragStart

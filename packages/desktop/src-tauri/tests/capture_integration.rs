@@ -1955,6 +1955,57 @@ mod user_actions_extended {
 
     #[test]
     #[serial]
+    fn regression_696_a_held_key_marks_the_presses_key_repeat_generated() {
+        // A key-down for a key that is already down is a press key repeat
+        // generated: the hook's own record of which keys are down marks it,
+        // and the release clears the record. Three key-downs with no key-up
+        // between them are what a held key sends; the fourth follows a key-up.
+        //
+        // This is the only test that runs the hook's own wiring of the record
+        // (the record itself is pinned in `held_keys.rs`, the mark's way into
+        // the `key` action in `worker_pool_test.rs`). It asserts no count
+        // (see `navigation_keys_are_captured`): on a runner where the workers
+        // reach no focus target nothing is captured and it proves nothing.
+        // Where every press is captured, the marks are exact.
+        let (tx, rx) = mpsc::channel::<ActionEvent>();
+        let mut capture = WindowsCapture::new();
+        capture.set_excluded_pid(None);
+        capture.start(tx).unwrap();
+        thread::sleep(Duration::from_millis(200));
+
+        let window = ResponsiveWindow::new("Held Key Test");
+
+        let mut enigo = Enigo::new(&Settings::default()).unwrap();
+        for _ in 0..3 {
+            enigo.key(enigo::Key::F5, Direction::Press).unwrap();
+            thread::sleep(Duration::from_millis(40));
+        }
+        enigo.key(enigo::Key::F5, Direction::Release).unwrap();
+        thread::sleep(Duration::from_millis(40));
+        enigo.key(enigo::Key::F5, Direction::Click).unwrap();
+        thread::sleep(Duration::from_millis(500));
+
+        drop(window);
+        let events = stop_capture_bounded(capture, &rx);
+        assert_captured_keys_well_formed(&events);
+
+        let marks: Vec<bool> = events
+            .iter()
+            .filter_map(|e| match &e.payload {
+                ActionPayload::Key { key, repeat, .. } if key == "F5" => Some(*repeat),
+                _ => None,
+            })
+            .collect();
+        assert!(marks.len() <= 4, "no press is written twice: {marks:?}");
+        if marks.len() == 4 {
+            assert_eq!(marks, vec![false, true, true, false]);
+        }
+        // Whichever presses were captured, no more repeats than were sent.
+        assert!(marks.iter().filter(|m| **m).count() <= 2, "{marks:?}");
+    }
+
+    #[test]
+    #[serial]
     fn navigation_keys_are_captured() {
         // Home, End, PageUp, PageDown, Delete, Backspace — control keys, which
         // `handle_keyboard` resolves via a *synchronous* `focused_element()`

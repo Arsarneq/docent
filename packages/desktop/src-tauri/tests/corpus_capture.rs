@@ -794,7 +794,9 @@ fn d_type_edit() {
         // VKs, so printables buffer and the value-change supersedes them
         // (enigo.text() would inject VK_PACKET keystrokes — see the session
         // notes: that path leaks phantom keys nondeterministically).
-        for c in "hello".chars() {
+        // The space is typed like any letter and stays in the one type
+        // (docent#696).
+        for c in "hello you".chars() {
             enigo.key(enigo::Key::Unicode(c), Direction::Click).unwrap();
             thread::sleep(Duration::from_millis(60));
         }

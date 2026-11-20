@@ -4518,6 +4518,7 @@ pub const WINEVENT_OUTOFCONTEXT: i32 = 0;
 pub const WM_APP: i32 = 32768;
 pub const WM_GETOBJECT: i32 = 61;
 pub const WM_KEYDOWN: i32 = 256;
+pub const WM_KEYUP: i32 = 257;
 pub const WM_LBUTTONDOWN: i32 = 513;
 pub const WM_LBUTTONUP: i32 = 514;
 pub const WM_MBUTTONDOWN: i32 = 519;
@@ -4527,6 +4528,7 @@ pub const WM_NULL: i32 = 0;
 pub const WM_QUIT: i32 = 18;
 pub const WM_RBUTTONDOWN: i32 = 516;
 pub const WM_SYSKEYDOWN: i32 = 260;
+pub const WM_SYSKEYUP: i32 = 261;
 pub const WM_USER: i32 = 1024;
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]

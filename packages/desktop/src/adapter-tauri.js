@@ -221,6 +221,20 @@ const _NON_TEXT_KEY_NAMES = new Set([
   'ScrollLock',
 ]);
 
+// The control types that take no typed text: a key pressed on one presses,
+// toggles or opens it, whatever its name says. The native layer's typing rule
+// keeps the same list (NON_TEXT_CONTROL_TAGS in
+// src-tauri/src/capture/worker_pool.rs).
+const _NON_TEXT_CONTROL_TAGS = new Set([
+  'Button',
+  'CheckBox',
+  'Hyperlink',
+  'MenuItem',
+  'RadioButton',
+  'SplitButton',
+  'TabItem',
+]);
+
 function _keyEntersText(action) {
   const { ctrl = false, alt = false, meta = false } = action.modifiers || {};
   if (meta || ctrl !== alt) return false;
@@ -244,7 +258,7 @@ function _isMaskedTypeOn(action, element, contextId) {
 
 /** The masked `type` a text-entering key on a sensitive field is recorded as. */
 function _maskedTypeFromKey(action) {
-  const { key: _key, modifiers: _modifiers, ...rest } = action;
+  const { key: _key, modifiers: _modifiers, repeat: _repeat, ...rest } = action;
   return { ...rest, type: 'type', value: SENSITIVE_MASK, _typedKey: true };
 }
 
@@ -285,6 +299,7 @@ function _insertOrdered(action) {
     // A key whose element could not be described carries the window's title
     // as its name; a title is no field name, so it decides nothing here.
     !(received.element.tag === 'Unknown' && received.element.selector === '') &&
+    !_NON_TEXT_CONTROL_TAGS.has(received.element.tag) &&
     _keyEntersText(received);
   const cleanAction = typedOnSensitiveField ? _maskedTypeFromKey(received) : received;
 

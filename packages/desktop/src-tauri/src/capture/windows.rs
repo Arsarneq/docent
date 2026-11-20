@@ -451,6 +451,12 @@ thread_local! {
     /// but fires in a root window the user has not acted in yet.
     static INPUT_LAST_INPUT_WINDOW: std::cell::Cell<i64> = const { std::cell::Cell::new(0) };
 
+    /// The keys that are down, as the keyboard hook saw them go down and up
+    /// (seeded from the keyboard's state when the hook is installed). A
+    /// key-down for a key already in it is a press key repeat generated.
+    static INPUT_HELD_KEYS: std::cell::RefCell<super::held_keys::HeldKeys> =
+        const { std::cell::RefCell::new(super::held_keys::HeldKeys::new()) };
+
     /// Timestamp of the most recent low-level keyboard event only.
     /// Used specifically for value-change correlation — mouse clicks should not
     /// satisfy value-change correlation because only keyboard input produces
@@ -1203,6 +1209,14 @@ fn input_thread_main(
             return Err(CaptureError::HookFailed(format!("WH_KEYBOARD_LL: {e}")));
         }
         ll_hooks.push(kb_hook);
+        // A key already held now is a held key at its next key-down.
+        INPUT_HELD_KEYS.with(|held| {
+            *held.borrow_mut() = super::held_keys::HeldKeys::seeded(|vk| {
+                // SAFETY: GetAsyncKeyState takes any virtual-key code and
+                // reads the keyboard's state; it has no other precondition.
+                unsafe { GetAsyncKeyState(vk as i32) < 0 }
+            });
+        });
 
         Ok(())
     })();
@@ -2157,6 +2171,26 @@ unsafe extern "system" fn input_keyboard_ll_proc(
     w_param: WPARAM,
     l_param: LPARAM,
 ) -> LRESULT {
+    // Which keys are down is kept for every keystroke the hook is handed, in
+    // an excluded window and outside an active capture too: a key held down
+    // across either boundary is still a held key when its next key-down is
+    // captured.
+    let mut repeat = false;
+    if n_code >= 0 {
+        let kb_struct = &*(l_param.0 as *const KBDLLHOOKSTRUCT);
+        // The hook is called before the keyboard's asynchronous state takes
+        // this key-down in, so that state still says whether the key was down
+        // before it: the second opinion on a repeat.
+        repeat = INPUT_HELD_KEYS.with(|held| {
+            held.borrow_mut().on_hook_message(
+                w_param.0 as u32,
+                kb_struct.vkCode,
+                kb_struct.scanCode,
+                |vk| GetAsyncKeyState(vk as i32) < 0,
+            )
+        });
+    }
+
     if n_code >= 0 && input_is_active() {
         let msg = w_param.0 as u32;
         if msg == WM_KEYDOWN as u32 || msg == WM_SYSKEYDOWN as u32 {
@@ -2199,11 +2233,13 @@ unsafe extern "system" fn input_keyboard_ll_proc(
                     // which sends no message and waits on no program.
                     // And the number of the latest focus change that named a
                     // part of that control, from this thread's own note.
+                    // Last, whether the key was already down at this
+                    // key-down: a press key repeat generated (docent#696).
                     callback_params: [
                         i64::from(kb_struct.scanCode),
                         control,
                         INPUT_PART_FOCUS.with(|note| note.borrow().of(control)),
-                        0,
+                        i64::from(repeat),
                     ],
                     pre_captured_element: None,
                     focus_epoch: 0,
@@ -3248,6 +3284,16 @@ mod tests {
     use crate::capture::uia_core_api::UiaGetReservedNotSupportedValue;
     use crate::capture::win32_bindings::VARIANT;
 
+    // -- the held-key record's message numbers ---------------------------------
+
+    #[test]
+    fn the_held_key_record_reads_the_systems_own_keyboard_messages() {
+        use crate::capture::held_keys::{KEY_DOWN_MESSAGES, KEY_UP_MESSAGES};
+        use crate::capture::win32_bindings::{WM_KEYDOWN, WM_KEYUP, WM_SYSKEYDOWN, WM_SYSKEYUP};
+        assert_eq!(KEY_DOWN_MESSAGES, [WM_KEYDOWN as u32, WM_SYSKEYDOWN as u32]);
+        assert_eq!(KEY_UP_MESSAGES, [WM_KEYUP as u32, WM_SYSKEYUP as u32]);
+    }
+
     // -- the IsPassword reading rule -----------------------------------------
 
     #[test]
@@ -3942,6 +3988,7 @@ mod tests {
                     alt: false,
                     meta: false,
                 },
+                repeat: false,
                 element: ElementDescription {
                     tag: "Edit".to_string(),
                     selector: "win > edit".to_string(),

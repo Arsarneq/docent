@@ -10,6 +10,7 @@
 pub mod action_mapping;
 pub mod coordinate;
 pub mod element_mapping;
+pub mod held_keys;
 pub mod scroll;
 pub mod timing;
 pub mod worker_pool;
@@ -366,6 +367,9 @@ pub enum ActionPayload {
     Key {
         key: String,
         modifiers: Modifiers,
+        /// True on a press key repeat generated while the key was held down,
+        /// false on the press itself.
+        repeat: bool,
         element: ElementDescription,
     },
     /// Focus change on an element.
