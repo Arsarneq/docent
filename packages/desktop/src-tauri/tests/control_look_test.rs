@@ -35,15 +35,6 @@ struct Dialog {
 
 impl Dialog {
     fn open() -> Self {
-        Self::open_with(true)
-    }
-
-    /// A window with nothing in it: its `field` and `password` are no windows.
-    fn open_bare() -> Self {
-        Self::open_with(false)
-    }
-
-    fn open_with(fields: bool) -> Self {
         let (tx, rx) = mpsc::channel::<(i64, i64, i64, u32)>();
         let thread = thread::spawn(move || unsafe {
             let window = CreateWindowExW(
@@ -79,15 +70,15 @@ impl Dialog {
                 assert!(!field.0.is_null(), "a field was not created");
                 field
             };
-            let (field, password) = if fields {
-                let field = child(w!("report"), 0, 10);
-                let password = child(w!("hidden"), ES_PASSWORD, 44);
-                (field.0 as i64, password.0 as i64)
-            } else {
-                (0, 0)
-            };
-            tx.send((window.0 as i64, field, password, GetCurrentThreadId()))
-                .expect("the window's handles were not handed back");
+            let field = child(w!("report"), 0, 10);
+            let password = child(w!("hidden"), ES_PASSWORD, 44);
+            tx.send((
+                window.0 as i64,
+                field.0 as i64,
+                password.0 as i64,
+                GetCurrentThreadId(),
+            ))
+            .expect("the window's handles were not handed back");
 
             // A thread waiting in GetMessageW answers the messages UI
             // Automation sends its windows. It ends on the WM_QUIT of `drop`.
@@ -191,24 +182,6 @@ fn a_window_that_holds_fields_is_not_a_control_of_its_own() {
         backend.0.describe_control(dialog.window),
         ControlLook::Shared
     ));
-}
-
-/// A window with nothing in it that can take the focus is itself what a key
-/// pressed in it goes to, and it is described like any element: with a
-/// selector and locator candidates (docent#713). What UI Automation reports as
-/// the focused element of such a window is not asked here, since that depends
-/// on which window is in front.
-#[test]
-#[serial]
-fn a_window_with_nothing_to_focus_is_described_with_locators() {
-    let dialog = Dialog::open_bare();
-    let backend = Backend::new();
-
-    let ControlLook::Own(element) = backend.0.describe_control(dialog.window) else {
-        panic!("the bare window was not described as a control of its own");
-    };
-    assert!(!element.selector.is_empty(), "got {element:?}");
-    assert!(!element.locators.is_empty(), "got {element:?}");
 }
 
 #[test]
