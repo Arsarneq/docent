@@ -15,6 +15,7 @@
     "text": "x",
     "selector": "Pane:Desktop 1 > Window:Docent Vector Fixture > Edit:Amount",
     "framework_id": "Win32",
+    "language": "da-DK",
     "described_after_ms": 99
   },
   "locators": [

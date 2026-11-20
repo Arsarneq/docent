@@ -368,6 +368,44 @@ describe('Schema validation: provider-reported element facts', () => {
   });
 });
 
+// ─── Language facts (docent#142) ──────────────────────────────────────────────
+
+describe('Schema validation: language facts', () => {
+  function exportWithLanguage({ language, preferred } = {}) {
+    const data = exportWithLocators([
+      { strategy: 'automation_id', value: 'btnDelete', match_count: 1, match_index: 0 },
+    ]);
+    const action = data.recordings[0].steps[0].actions[0];
+    if (language !== undefined) action.element.language = language;
+    if (preferred !== undefined) action.preferred_languages = preferred;
+    return data;
+  }
+
+  it('accepts an element language and an action preference list', () => {
+    const data = exportWithLanguage({ language: 'da-DK', preferred: ['da-DK', 'en-US'] });
+    assert.ok(validateDesktop(data), `Failed:\n${formatErrors(validateDesktop)}`);
+  });
+
+  it('accepts null for both (the platform read none)', () => {
+    const data = exportWithLanguage({ language: null, preferred: null });
+    assert.ok(validateDesktop(data), `Failed:\n${formatErrors(validateDesktop)}`);
+  });
+
+  it('accepts a file that states neither (older recordings)', () => {
+    const data = exportWithLanguage();
+    assert.ok(validateDesktop(data), `Failed:\n${formatErrors(validateDesktop)}`);
+  });
+
+  it('rejects a non-string element language', () => {
+    assert.ok(!validateDesktop(exportWithLanguage({ language: 1030 })));
+  });
+
+  it('rejects a preference list that is not an array of strings', () => {
+    assert.ok(!validateDesktop(exportWithLanguage({ preferred: 'da-DK' })));
+    assert.ok(!validateDesktop(exportWithLanguage({ preferred: [1030] })));
+  });
+});
+
 // ─── Describe latency (#220) ──────────────────────────────────────────────────
 
 describe('Schema validation: described_after_ms', () => {

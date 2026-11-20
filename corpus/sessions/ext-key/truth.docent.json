@@ -33,6 +33,7 @@
               "element": {
                 "autocomplete": null,
                 "id": "field",
+                "language": "en",
                 "locators": [
                   {
                     "match_count": 1,
@@ -77,7 +78,8 @@
               "timestamp": 1783348332817,
               "type": "click",
               "x": 96,
-              "y": 18
+              "y": 18,
+              "preferred_languages": ["en-US"]
             },
             {
               "capture_mode": "dom",
@@ -86,6 +88,7 @@
               "element": {
                 "autocomplete": null,
                 "id": "field",
+                "language": "en",
                 "locators": [
                   {
                     "match_count": 1,
@@ -137,7 +140,8 @@
               "repeat": false,
               "code": "Enter",
               "timestamp": 1783348332823,
-              "type": "key"
+              "type": "key",
+              "preferred_languages": ["en-US"]
             },
             {
               "capture_mode": "dom",
@@ -146,6 +150,7 @@
               "element": {
                 "autocomplete": null,
                 "id": "field",
+                "language": "en",
                 "locators": [
                   {
                     "match_count": 1,
@@ -197,7 +202,8 @@
               "repeat": false,
               "code": "Escape",
               "timestamp": 1783348332827,
-              "type": "key"
+              "type": "key",
+              "preferred_languages": ["en-US"]
             },
             {
               "capture_mode": "dom",
@@ -206,6 +212,7 @@
               "element": {
                 "autocomplete": null,
                 "id": "field",
+                "language": "en",
                 "locators": [
                   {
                     "match_count": 1,
@@ -257,7 +264,8 @@
               "repeat": false,
               "code": "ArrowDown",
               "timestamp": 1783348332847,
-              "type": "key"
+              "type": "key",
+              "preferred_languages": ["en-US"]
             },
             {
               "capture_mode": "dom",
@@ -266,6 +274,7 @@
               "element": {
                 "autocomplete": null,
                 "id": "field",
+                "language": "en",
                 "locators": [
                   {
                     "match_count": 1,
@@ -317,7 +326,8 @@
               "repeat": false,
               "code": "Enter",
               "timestamp": 1783348332867,
-              "type": "key"
+              "type": "key",
+              "preferred_languages": ["en-US"]
             }
           ],
           "deleted": false,

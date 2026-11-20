@@ -63,9 +63,9 @@ use windows_core::{
 // reads and the control-type-id → name table are self-contained here.
 use docent_desktop_lib::capture::uia_core_api::{
     UIA_AutomationIdPropertyId, UIA_ClassNamePropertyId, UIA_ControlTypePropertyId,
-    UIA_LabeledByPropertyId, UIA_NamePropertyId, UIA_TextControlTypeId, UIA_ValueValuePropertyId,
-    UiaGetReservedNotSupportedValue, UiaHostProviderFromHwnd, UiaReturnRawElementProvider,
-    UiaRootObjectId,
+    UIA_CulturePropertyId, UIA_LabeledByPropertyId, UIA_NamePropertyId, UIA_TextControlTypeId,
+    UIA_ValueValuePropertyId, UiaGetReservedNotSupportedValue, UiaHostProviderFromHwnd,
+    UiaReturnRawElementProvider, UiaRootObjectId,
 };
 use docent_desktop_lib::capture::variant::Variant;
 use docent_desktop_lib::capture::win32_bindings::{
@@ -131,6 +131,11 @@ const FIXTURE_AUTHORED_IDS: &[&str] = &["1001", "1002"];
 /// The label text the fixture's EDIT is labeled by (the visible STATIC's text).
 const FIXTURE_LABEL_NAME: &str = "Amount";
 
+/// The culture the fixture's EDIT declares: the locale identifier of Danish
+/// (Denmark), `da-DK`. It differs from the language of every machine the corpus
+/// runs on, so the recorded `language` can only come from this declaration.
+const FIXTURE_CULTURE_LCID: i32 = 0x0406;
+
 fn as_hwnd(x: isize) -> HWND {
     HWND(x as *mut core::ffi::c_void)
 }
@@ -173,7 +178,7 @@ impl IRawElementProviderSimple_Impl for LabelProvider_Impl {
 }
 
 /// The EDIT override provider: merges onto the native EDIT (host-delegated), adds
-/// ONLY the LabeledBy relation.
+/// ONLY the LabeledBy relation and the declared culture.
 #[implement(IRawElementProviderSimple)]
 struct EditOverride {
     edit: isize,
@@ -192,6 +197,9 @@ impl IRawElementProviderSimple_Impl for EditOverride_Impl {
         if id == UIA_LabeledByPropertyId {
             let label: IRawElementProviderSimple = LabelProvider.into();
             return Ok(Variant::from(label.cast::<IUnknown>()?).into_raw());
+        }
+        if id == UIA_CulturePropertyId {
+            return Ok(Variant::from(FIXTURE_CULTURE_LCID).into_raw());
         }
         // ControlType / Name / AutomationId / ClassName fall through to the EDIT.
         unsafe { not_supported() }

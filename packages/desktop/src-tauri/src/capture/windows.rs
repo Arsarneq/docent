@@ -33,33 +33,34 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use super::uia_core_api::{
     UIA_AutomationIdPropertyId, UIA_ClassNamePropertyId, UIA_ControlTypePropertyId,
-    UIA_FrameworkIdPropertyId, UIA_IsControlElementPropertyId, UIA_IsKeyboardFocusablePropertyId,
-    UIA_IsPasswordPropertyId, UIA_LabeledByPropertyId, UIA_LevelPropertyId,
-    UIA_LocalizedControlTypePropertyId, UIA_NamePropertyId, UIA_NativeWindowHandlePropertyId,
-    UIA_PositionInSetPropertyId, UIA_SelectionPatternId, UIA_SizeOfSetPropertyId,
-    UIA_ToolBarControlTypeId, UIA_ValueValuePropertyId,
+    UIA_CulturePropertyId, UIA_FrameworkIdPropertyId, UIA_IsControlElementPropertyId,
+    UIA_IsKeyboardFocusablePropertyId, UIA_IsPasswordPropertyId, UIA_LabeledByPropertyId,
+    UIA_LevelPropertyId, UIA_LocalizedControlTypePropertyId, UIA_NamePropertyId,
+    UIA_NativeWindowHandlePropertyId, UIA_PositionInSetPropertyId, UIA_SelectionPatternId,
+    UIA_SizeOfSetPropertyId, UIA_ToolBarControlTypeId, UIA_ValueValuePropertyId,
 };
 use super::variant::Variant;
 use super::win32_bindings::{
     CUIAutomation, CallNextHookEx, CloseHandle, CoCreateInstance, CoInitializeEx, CoUninitialize,
     DispatchMessageW, EnumWindows, GetAncestor, GetAsyncKeyState, GetClassNameW,
     GetCurrentThreadId, GetDoubleClickTime, GetForegroundWindow, GetGUIThreadInfo,
-    GetKeyboardLayout, GetMessageW, GetParent, GetSystemMetrics, GetWindow, GetWindowLongW,
-    GetWindowTextW, GetWindowThreadProcessId, IUIAutomation, IUIAutomationCondition,
-    IUIAutomationElement, IUIAutomationSelectionPattern, IsWindow, IsWindowVisible,
-    MapVirtualKeyExW, PeekMessageW, PostThreadMessageW, SetProcessDpiAwarenessContext,
-    SetWinEventHook, SetWindowsHookExW, TranslateMessage, TreeScope_Descendants, TreeScope_Subtree,
-    UnhookWinEvent, UnhookWindowsHookEx, WindowFromPoint, CHILDID_SELF, CLSCTX_ALL,
-    COINIT_APARTMENTTHREADED, COINIT_MULTITHREADED, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
-    EVENT_OBJECT_CREATE, EVENT_OBJECT_DESTROY, EVENT_OBJECT_FOCUS, EVENT_OBJECT_SELECTION,
-    EVENT_OBJECT_VALUECHANGE, EVENT_SYSTEM_FOREGROUND, GA_ROOT, GA_ROOTOWNER, GUITHREADINFO,
-    GWL_STYLE, GW_OWNER, HANDLE, HHOOK, HKL, HWINEVENTHOOK, HWND, INVALID_HANDLE_VALUE,
-    KBDLLHOOKSTRUCT, LLKHF_EXTENDED, LPARAM, LRESULT, MAPVK_VK_TO_CHAR, MSG, MSLLHOOKSTRUCT,
-    OBJID_WINDOW, PM_NOREMOVE, POINT, PROPERTYID, SM_CXDOUBLECLK, SM_CYDOUBLECLK, UIA_HWND,
-    VK_CONTROL, VK_LWIN, VK_MENU, VK_RWIN, VK_SHIFT, VT_EMPTY, WH_KEYBOARD_LL, WH_MOUSE_LL,
-    WINEVENT_OUTOFCONTEXT, WM_APP, WM_KEYDOWN, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN,
-    WM_MOUSEHWHEEL, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_NULL, WM_QUIT, WM_RBUTTONDOWN, WM_SYSKEYDOWN,
-    WM_USER, WPARAM, WS_CHILD,
+    GetKeyboardLayout, GetMessageW, GetParent, GetSystemMetrics, GetUserPreferredUILanguages,
+    GetWindow, GetWindowLongW, GetWindowTextW, GetWindowThreadProcessId, IUIAutomation,
+    IUIAutomationCondition, IUIAutomationElement, IUIAutomationSelectionPattern, IsWindow,
+    IsWindowVisible, LCIDToLocaleName, MapVirtualKeyExW, PeekMessageW, PostThreadMessageW,
+    SetProcessDpiAwarenessContext, SetWinEventHook, SetWindowsHookExW, TranslateMessage,
+    TreeScope_Descendants, TreeScope_Subtree, UnhookWinEvent, UnhookWindowsHookEx, WindowFromPoint,
+    CHILDID_SELF, CLSCTX_ALL, COINIT_APARTMENTTHREADED, COINIT_MULTITHREADED,
+    DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, EVENT_OBJECT_CREATE, EVENT_OBJECT_DESTROY,
+    EVENT_OBJECT_FOCUS, EVENT_OBJECT_SELECTION, EVENT_OBJECT_VALUECHANGE, EVENT_SYSTEM_FOREGROUND,
+    GA_ROOT, GA_ROOTOWNER, GUITHREADINFO, GWL_STYLE, GW_OWNER, HANDLE, HHOOK, HKL, HWINEVENTHOOK,
+    HWND, INVALID_HANDLE_VALUE, KBDLLHOOKSTRUCT, LCID, LLKHF_EXTENDED, LOCALE_ALLOW_NEUTRAL_NAMES,
+    LOCALE_NAME_MAX_LENGTH, LPARAM, LRESULT, MAPVK_VK_TO_CHAR, MSG, MSLLHOOKSTRUCT,
+    MUI_LANGUAGE_NAME, OBJID_WINDOW, PM_NOREMOVE, POINT, PROPERTYID, SM_CXDOUBLECLK,
+    SM_CYDOUBLECLK, UIA_HWND, VK_CONTROL, VK_LWIN, VK_MENU, VK_RWIN, VK_SHIFT, VT_EMPTY,
+    WH_KEYBOARD_LL, WH_MOUSE_LL, WINEVENT_OUTOFCONTEXT, WM_APP, WM_KEYDOWN, WM_LBUTTONDOWN,
+    WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MOUSEHWHEEL, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_NULL, WM_QUIT,
+    WM_RBUTTONDOWN, WM_SYSKEYDOWN, WM_USER, WPARAM, WS_CHILD,
 };
 use windows_core::{Error, Interface, BOOL, BSTR, PWSTR};
 
@@ -67,6 +68,7 @@ use super::element_mapping::{
     map_element, truncate_text, LocatorMeasurements, MeasuredIndex, MeasuredPair,
     NativeElementProperties,
 };
+use super::language::{names_a_language, parse_multi_string, tag_from_wide};
 use super::scroll::KeyAttribution;
 use super::timing;
 use super::worker_pool::{
@@ -421,9 +423,14 @@ thread_local! {
     static INPUT_PART_FOCUS: std::cell::RefCell<super::worker_pool::PartFocusNote> =
         std::cell::RefCell::new(super::worker_pool::PartFocusNote::default());
 
-    /// Root window handle of the last dispatched foreground event. Used to
-    /// deduplicate foreground events (click-based + WinEvent-based).
-    static INPUT_LAST_FOREGROUND_HWND: std::cell::Cell<i64> = const { std::cell::Cell::new(0) };
+    /// The contexts this capture session has introduced (DCP-7): an event in
+    /// a window not introduced yet has a foreground event dispatched before
+    /// it. With them the root window of the last switch into the window in
+    /// front, which deduplicates foreground events (click-based and
+    /// WinEvent-based). Cleared with the thread's other state when the
+    /// session ends.
+    static INPUT_CONTEXTS: std::cell::RefCell<super::worker_pool::ContextIntroductions> =
+        std::cell::RefCell::new(super::worker_pool::ContextIntroductions::default());
 
     /// Mouse-down position for drag detection. Set on WM_LBUTTONDOWN,
     /// compared against WM_LBUTTONUP to classify click vs drag.
@@ -1324,7 +1331,7 @@ fn input_thread_main(
     INPUT_INCLUDED_PID.with(|p| *p.borrow_mut() = None);
     INPUT_FLUSH_REQUESTS.with(|q| *q.borrow_mut() = None);
     INPUT_FOREGROUND_PID.with(|p| p.set(0));
-    INPUT_LAST_FOREGROUND_HWND.with(|p| p.set(0));
+    INPUT_CONTEXTS.with(|c| *c.borrow_mut() = Default::default());
     INPUT_MOUSE_DOWN_POS.with(|p| p.set(None));
     INPUT_OPENED_WINDOWS.with(|s| s.borrow_mut().clear());
     INPUT_PID_CACHE.with(|c| c.borrow_mut().clear());
@@ -1368,9 +1375,54 @@ fn focus_epoch_advance_by_person() {
     );
 }
 
-/// Assign a sequence ID and dispatch a `RawEvent` to the bridge thread.
-/// Called from hook callbacks on the Input_Thread.
-fn input_dispatch_raw_event(mut event: RawEvent) {
+/// Dispatch a `RawEvent` to the bridge thread, after the foreground event
+/// that introduces its window's context where the session has not introduced
+/// it (DCP-7, `ContextIntroductions`). Called from hook callbacks on the
+/// Input_Thread.
+fn input_dispatch_raw_event(event: RawEvent) {
+    let root = input_root_of(event.window_handle);
+    let foreground_root = input_root_of(unsafe { GetForegroundWindow() }.0 as i64);
+    if INPUT_CONTEXTS.with(|c| c.borrow_mut().switch_before(&event, root, foreground_root)) {
+        let mut process_id: u32 = 0;
+        unsafe { GetWindowThreadProcessId(HWND(root as *mut _), Some(&mut process_id)) };
+        input_send_raw_event(RawEvent {
+            event_type: RawEventType::Foreground,
+            sequence_id: 0,
+            timestamp: event.timestamp,
+            screen_x: 0,
+            screen_y: 0,
+            window_handle: root,
+            process_id,
+            key_code: 0,
+            modifiers: (false, false, false, false),
+            scroll_delta: 0.0,
+            callback_params: [0, 0, 0, 0],
+            pre_captured_element: None,
+            focus_epoch: 0,
+            // A switch states no held keys: only a keystroke, a click, a
+            // right-click and a drop are stamped with them (held_keys).
+            held: Vec::new(),
+        });
+    }
+    input_send_raw_event(event);
+}
+
+/// The top-level (`GA_ROOT`) window of `window_handle`: the handle itself
+/// when it has none, `0` for no window.
+fn input_root_of(window_handle: i64) -> i64 {
+    if window_handle == 0 {
+        return 0;
+    }
+    let root = unsafe { GetAncestor(HWND(window_handle as *mut _), GA_ROOT as u32) };
+    if root.0.is_null() {
+        window_handle
+    } else {
+        root.0 as i64
+    }
+}
+
+/// Assign a sequence ID and send a `RawEvent` to the bridge thread.
+fn input_send_raw_event(mut event: RawEvent) {
     event.focus_epoch = FOCUS_EPOCH.load(Ordering::SeqCst);
     // Assign monotonic sequence ID.
     let seq_id = INPUT_SEQUENCE_COUNTER.with(|c| {
@@ -1641,11 +1693,9 @@ unsafe extern "system" fn input_win_event_proc(
 
             // Deduplicate: if the click-based handler already dispatched a
             // foreground event for this same root window, skip.
-            let last_fg = INPUT_LAST_FOREGROUND_HWND.with(|h| h.get());
-            if root_handle == last_fg {
+            if !INPUT_CONTEXTS.with(|c| c.borrow_mut().activation_switches(root_handle)) {
                 return; // Already dispatched by click handler.
             }
-            INPUT_LAST_FOREGROUND_HWND.with(|h| h.set(root_handle));
 
             input_dispatch_raw_event(RawEvent {
                 event_type: RawEventType::Foreground,
@@ -1971,6 +2021,45 @@ fn double_click_break_pair() {
 // Input_Thread low-level mouse hook callback
 // ---------------------------------------------------------------------------
 
+/// A press on `point_hwnd` while `fg_hwnd` is in front: when it lands in a
+/// different top-level window, proactively dispatch a Foreground event for
+/// that window (`ContextIntroductions::press_switches` decides), before the
+/// press itself is dispatched. Some window classes (e.g. STATIC) don't fire
+/// EVENT_SYSTEM_FOREGROUND on activation, so the switch is detected here to
+/// guarantee the context_switch, and the activation the press causes is then
+/// deduplicated.
+unsafe fn input_press_switch(point_hwnd: HWND, fg_hwnd: HWND, timestamp: u64) {
+    if point_hwnd.0.is_null() {
+        return;
+    }
+    let clicked_handle = input_root_of(point_hwnd.0 as i64);
+    let fg_handle = input_root_of(fg_hwnd.0 as i64);
+    if !INPUT_CONTEXTS.with(|c| c.borrow_mut().press_switches(clicked_handle, fg_handle)) {
+        return;
+    }
+    // Different root window — user is switching context.
+    let clicked_root = HWND(clicked_handle as *mut _);
+    let mut clicked_pid: u32 = 0;
+    GetWindowThreadProcessId(clicked_root, Some(&mut clicked_pid));
+    INPUT_FOREGROUND_PID.with(|p| p.set(clicked_pid));
+    input_dispatch_raw_event(RawEvent {
+        event_type: RawEventType::Foreground,
+        sequence_id: 0,
+        timestamp,
+        screen_x: 0,
+        screen_y: 0,
+        window_handle: clicked_handle,
+        process_id: clicked_pid,
+        key_code: 0,
+        modifiers: (false, false, false, false),
+        scroll_delta: 0.0,
+        callback_params: [0, 0, 0, 0],
+        pre_captured_element: None,
+        focus_epoch: 0,
+        held: Vec::new(),
+    });
+}
+
 /// Low-level mouse hook for the Input_Thread. Captures raw mouse data,
 /// performs click-vs-drag classification, and dispatches `RawEvent`s.
 /// Makes the thread's one accessibility call — the `ElementFromPoint`
@@ -2056,51 +2145,7 @@ unsafe extern "system" fn input_mouse_ll_proc(
                     // EVENT_OBJECT_SELECTION can fire between mousedown and mouseup.
                     INPUT_LAST_CLICK_TIMESTAMP.with(|t| t.set(timestamp));
 
-                    // If clicking on a different top-level window, proactively
-                    // dispatch a Foreground event. Some window classes (e.g.
-                    // STATIC) don't fire EVENT_SYSTEM_FOREGROUND on activation,
-                    // so we detect the switch here to guarantee context_switch.
-                    if !point_hwnd.0.is_null() {
-                        let clicked_root = GetAncestor(point_hwnd, GA_ROOT as u32);
-                        let fg_root = GetAncestor(fg_hwnd, GA_ROOT as u32);
-                        let clicked_root_h = if clicked_root.0.is_null() {
-                            point_hwnd
-                        } else {
-                            clicked_root
-                        };
-                        let fg_root_h = if fg_root.0.is_null() {
-                            fg_hwnd
-                        } else {
-                            fg_root
-                        };
-                        if clicked_root_h != fg_root_h {
-                            let clicked_handle = clicked_root_h.0 as i64;
-                            let last_fg = INPUT_LAST_FOREGROUND_HWND.with(|h| h.get());
-                            if clicked_handle != last_fg {
-                                // Different root window — user is switching context.
-                                INPUT_LAST_FOREGROUND_HWND.with(|h| h.set(clicked_handle));
-                                let mut clicked_pid: u32 = 0;
-                                GetWindowThreadProcessId(clicked_root_h, Some(&mut clicked_pid));
-                                INPUT_FOREGROUND_PID.with(|p| p.set(clicked_pid));
-                                input_dispatch_raw_event(RawEvent {
-                                    event_type: RawEventType::Foreground,
-                                    sequence_id: 0,
-                                    timestamp,
-                                    screen_x: 0,
-                                    screen_y: 0,
-                                    window_handle: clicked_handle,
-                                    process_id: clicked_pid,
-                                    key_code: 0,
-                                    modifiers: (false, false, false, false),
-                                    scroll_delta: 0.0,
-                                    callback_params: [0, 0, 0, 0],
-                                    pre_captured_element: None,
-                                    focus_epoch: 0,
-                                    held: Vec::new(),
-                                });
-                            }
-                        }
-                    }
+                    input_press_switch(point_hwnd, fg_hwnd, timestamp);
                 }
                 WM_LBUTTONUP => {
                     // A release is input too: selections completed at the end
@@ -2240,6 +2285,9 @@ unsafe extern "system" fn input_mouse_ll_proc(
                     if let Some(event_type) = down_dispatch_event_type(msg) {
                         // Record the input for correlation.
                         note_input(timestamp, window_handle);
+                        // The press activates the window it lands in: its
+                        // switch goes before the press, as a left press's.
+                        input_press_switch(point_hwnd, fg_hwnd, timestamp);
                         let pre_element = input_pre_capture_element(pt.x, pt.y);
                         input_dispatch_raw_event(RawEvent {
                             event_type,
@@ -2553,11 +2601,22 @@ pub(crate) unsafe fn uia_element_to_description(
     uia: &IUIAutomation,
     element: &IUIAutomationElement,
 ) -> Option<ElementDescription> {
-    let (mut props, control_type_id, window_root) = gather_native_properties(uia, element);
+    uia_element_to_description_in_window(uia, element).map(|(description, _)| description)
+}
+
+/// [`uia_element_to_description`], together with the top-level window handle
+/// the description resolved for the element (`0` when it resolved none): the
+/// handle a context id is made of.
+pub(crate) unsafe fn uia_element_to_description_in_window(
+    uia: &IUIAutomation,
+    element: &IUIAutomationElement,
+) -> Option<(ElementDescription, i64)> {
+    let (mut props, control_type_id, window_root, window_handle) =
+        gather_native_properties(uia, element);
     if let Some(root) = window_root {
         props.measurements = measure_candidates(uia, &root, element, control_type_id, &props);
     }
-    Some(map_element(&props))
+    Some((map_element(&props), window_handle))
 }
 
 /// Convert a UIA element to an `ElementDescription` WITHOUT measuring match
@@ -2569,7 +2628,8 @@ pub(crate) unsafe fn uia_element_to_description_unmeasured(
     uia: &IUIAutomation,
     element: &IUIAutomationElement,
 ) -> Option<ElementDescription> {
-    let (props, _control_type_id, _window_root) = gather_native_properties(uia, element);
+    let (props, _control_type_id, _window_root, _window_handle) =
+        gather_native_properties(uia, element);
     Some(map_element(&props))
 }
 
@@ -2577,12 +2637,18 @@ pub(crate) unsafe fn uia_element_to_description_unmeasured(
 /// the original six plus ClassName, FrameworkId, LabeledBy-name, and the
 /// provider-reported set ordinals), plus the tree path annotated with the
 /// window-root position. Returns the raw control-type id (measurement
-/// conditions match on it) and the top-level window element (the measurement
-/// scope), when resolvable.
+/// conditions match on it), the top-level window element (the measurement
+/// scope), when resolvable, and the top-level window handle (`0` when none
+/// resolved).
 unsafe fn gather_native_properties(
     uia: &IUIAutomation,
     element: &IUIAutomationElement,
-) -> (NativeElementProperties, i32, Option<IUIAutomationElement>) {
+) -> (
+    NativeElementProperties,
+    i32,
+    Option<IUIAutomationElement>,
+    i64,
+) {
     let control_type_id = get_i32_property(element, UIA_ControlTypePropertyId);
     let automation_id = get_string_property(element, UIA_AutomationIdPropertyId);
     let name = get_string_property(element, UIA_NamePropertyId);
@@ -2596,7 +2662,8 @@ unsafe fn gather_native_properties(
     let size_of_set = get_i32_property(element, UIA_SizeOfSetPropertyId);
     let level = get_i32_property(element, UIA_LevelPropertyId);
 
-    let (tree_path, window_root_offset, window_root) = build_tree_path_with_root(uia, element);
+    let (tree_path, window_root_offset, window_root, window_handle, language) =
+        build_tree_path_with_root(uia, element);
 
     let props = NativeElementProperties {
         tag: control_type_name(control_type_id).to_string(),
@@ -2608,6 +2675,7 @@ unsafe fn gather_native_properties(
         tree_path,
         class_name,
         framework_id,
+        language,
         labeled_by,
         position_in_set,
         size_of_set,
@@ -2615,7 +2683,7 @@ unsafe fn gather_native_properties(
         window_root_offset,
         measurements: Default::default(),
     };
-    (props, control_type_id, window_root)
+    (props, control_type_id, window_root, window_handle)
 }
 
 /// Read one property of a UIA element as an owned [`Variant`]. This is the one
@@ -2806,6 +2874,61 @@ unsafe fn get_is_password(element: &IUIAutomationElement) -> bool {
     is_password_value(property_value(element, UIA_IsPasswordPropertyId).as_ref())
 }
 
+/// The language a UIA element reports for itself: its Culture property (a
+/// locale identifier, `VT_I4`) as the locale name Windows gives that
+/// identifier. `""` when the element reports none (the property's default, 0),
+/// when the identifier names no language of its own ([`names_a_language`]),
+/// and when either call fails. A
+/// language-only identifier keeps its language-only name (`en`, not a
+/// regional default).
+unsafe fn get_culture_tag(element: &IUIAutomationElement) -> String {
+    let lcid = get_i32_property(element, UIA_CulturePropertyId) as u32;
+    if !names_a_language(lcid) {
+        return String::new();
+    }
+    let mut name = [0u16; LOCALE_NAME_MAX_LENGTH as usize];
+    let written = LCIDToLocaleName(
+        LCID(lcid),
+        Some(PWSTR(name.as_mut_ptr())),
+        LOCALE_NAME_MAX_LENGTH,
+        LOCALE_ALLOW_NEUTRAL_NAMES as u32,
+    );
+    if written <= 0 {
+        return String::new();
+    }
+    tag_from_wide(&name).unwrap_or_default()
+}
+
+/// The user's preferred UI languages as Windows lists them, most preferred
+/// first, as language names (`da-DK`). `None` when Windows could not be read.
+/// Asked twice: once for the size of the list, once for the list.
+pub(crate) fn read_preferred_ui_languages() -> Option<Vec<String>> {
+    let mut count = 0u32;
+    let mut length = 0u32;
+    // SAFETY: a null buffer with a zero length asks only for the length; the
+    // out-pointers are live locals.
+    let sized = unsafe {
+        GetUserPreferredUILanguages(MUI_LANGUAGE_NAME as u32, &mut count, None, &mut length)
+    };
+    if !sized.as_bool() || length == 0 {
+        return None;
+    }
+    let mut buffer = vec![0u16; length as usize];
+    // SAFETY: `buffer` holds `length` units, the length the call is told.
+    let read = unsafe {
+        GetUserPreferredUILanguages(
+            MUI_LANGUAGE_NAME as u32,
+            &mut count,
+            Some(buffer.as_mut_ptr()),
+            &mut length,
+        )
+    };
+    if !read.as_bool() {
+        return None;
+    }
+    Some(parse_multi_string(&buffer))
+}
+
 /// Resolve the top-level (GA_ROOT) window handle for a native window handle
 /// reported by UIA. Returns 0 when unresolvable.
 unsafe fn top_level_hwnd(native_hwnd: i32) -> i64 {
@@ -2836,11 +2959,18 @@ unsafe fn top_level_hwnd(native_hwnd: i32) -> i64 {
 /// scope. When no hwnd-backed node is seen within the walk cap, the offset
 /// and scope are `None` — locator measurement is skipped and the `tree_path`
 /// entry is omitted, so the recorded value never contradicts the schema's
-/// "from the window root".
+/// "from the window root". The top-level handle itself is returned fourth (`0`
+/// when none was seen), and the declared language last (empty when none).
 unsafe fn build_tree_path_with_root(
     uia: &IUIAutomation,
     element: &IUIAutomationElement,
-) -> (Vec<String>, Option<usize>, Option<IUIAutomationElement>) {
+) -> (
+    Vec<String>,
+    Option<usize>,
+    Option<IUIAutomationElement>,
+    i64,
+    String,
+) {
     let mut path = Vec::new();
     // Pre-reverse index of the node identified as the top-level window.
     let mut root_pre_index: Option<usize> = None;
@@ -2874,6 +3004,13 @@ unsafe fn build_tree_path_with_root(
     if note_node(element) {
         root_pre_index = Some(0);
     }
+    // The language of the nearest node, from the element up to its top-level
+    // window, that reports one. Once the window root is found, nodes above it
+    // are not asked: the desktop is not part of the application. An ancestor's
+    // answer counts only when the walk confirmed the window root, since
+    // without one nothing shows the ancestor was inside the window.
+    let own_language = get_culture_tag(element);
+    let mut inherited_language = String::new();
 
     let walker = uia.ControlViewWalker().ok();
 
@@ -2892,8 +3029,12 @@ unsafe fn build_tree_path_with_root(
                         format!("{parent_tag}:{parent_name}")
                     };
                     path.push(seg);
+                    let within_window = root_pre_index.is_none();
                     if note_node(&parent) && root_pre_index.is_none() {
                         root_pre_index = Some(path.len() - 1);
+                    }
+                    if within_window && own_language.is_empty() && inherited_language.is_empty() {
+                        inherited_language = get_culture_tag(&parent);
                     }
                     current = parent;
                 }
@@ -2915,7 +3056,15 @@ unsafe fn build_tree_path_with_root(
         None
     };
 
-    (path, window_root_offset, window_root)
+    let language = if !own_language.is_empty() {
+        own_language
+    } else if root_pre_index.is_some() {
+        inherited_language
+    } else {
+        String::new()
+    };
+
+    (path, window_root_offset, window_root, root_hwnd, language)
 }
 
 // ---------------------------------------------------------------------------
@@ -3400,6 +3549,12 @@ impl AccessibilityBackend for WindowsAccessibilityBackend {
         let uia = self.uia.as_ref()?;
         let focused = unsafe { uia.GetFocusedElement().ok()? };
         unsafe { uia_element_to_description(uia, &focused) }
+    }
+
+    fn focused_element_in_window(&self) -> Option<(ElementDescription, i64)> {
+        let uia = self.uia.as_ref()?;
+        let focused = unsafe { uia.GetFocusedElement().ok()? };
+        unsafe { uia_element_to_description_in_window(uia, &focused) }
     }
 
     fn focused_element_marked(&self) -> Option<ElementDescription> {
@@ -4443,6 +4598,7 @@ mod tests {
             capture_mode: CaptureMode::Accessibility,
             frame_src: None,
             window_rect: None,
+            preferred_languages: None,
             sequence_id: Some(1),
             payload: ActionPayload::Key {
                 key: key.to_string(),

@@ -47,6 +47,7 @@ the consumer's preparation, not the recording's burden:
   environment's client profile must be equivalent to capture-time. Practice
   note: recording from a fresh profile makes the dismissals part of the
   recording, and the recording self-contained in this respect.
+- **The application's language is part of the application.** Shown labels and names differ between languages, and several locator candidates and element description fields carry them ([Session Format — Shown text](../technical/session-format.md#shown-text)). Reproduction assumes the application shows the language it showed at capture. The recording states the language facts each platform observed: the element's declared `language` and the action's `preferred_languages`. Both are declarations, not measurements of the text shown: an application can declare no language, or one other than the one it shows.
 - **Recorded geometry is reproduced by the consumer.** Window rectangles,
   where the format records them (the desktop's `window_rect`), are recorded
   facts whose reproduction is the consumer's obligation before
@@ -72,7 +73,8 @@ every entry):
 | Monitor count and arrangement         | Client-profile state (see above)          |
 | Pointer/keyboard hardware differences | Viewport / window size                    |
 | Background system activity            | DPI scaling and zoom                      |
-|                                       | Locale and keyboard layout                |
+|                                       | Application language (see above)          |
+|                                       | Regional format and keyboard layout       |
 |                                       | Timezone-sensitive rendering context      |
 
 A replay failure caused by a right-column difference the consumer did not
@@ -106,6 +108,7 @@ here, not from a failed replay:
   available, an action carries a screen point and window geometry instead of
   element identity; reproduction depends on reproducing that geometry, and no
   element-level claims are made (core CP-18).
+- **The language the application shows** — the recording does not measure it. An element's `language` is the application's declaration, which can be missing or differ from the text shown, and `preferred_languages` states what the application was offered, not what it chose.
 - **Interactions outside the capture surface** — each platform enumerates the
   surface its capture layer observes and treats it as closed: an interaction
   that reaches none of it is not captured, with no per-case listing to go
@@ -175,7 +178,7 @@ classifies, by group:
 
 **Normative** — the guarantee stands on these:
 
-- **Element identity:** `locators[]`, the element description fields, and
+- **Element identity:** `locators[]`, the element description fields other than `language`, and
   `selector`.
 - **Interaction parameters:** `value`, `key`, `code`, `modifiers`, `repeat` and `held_keys`, coordinates
   together with their recorded geometry context (`window_rect`; a viewport
@@ -190,6 +193,7 @@ guarantee does not stand on them:
 - Timestamps (see [Time](#time)).
 - Measurement and provenance facts: `match_count`/`match_index`,
   `described_after_ms`, `capture_mode`.
+- Language facts: the element's `language` and the action's `preferred_languages`. They state the language precondition ([Scope Boundaries](#scope-boundaries)); the guarantee does not stand on their being present.
 - Project and recording metadata, and narration text.
 - Step version history — superseded and soft-deleted step versions. The
   resolved active view is the replayable sequence.

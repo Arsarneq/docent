@@ -33,6 +33,7 @@
               "element": {
                 "autocomplete": null,
                 "id": "q",
+                "language": "en",
                 "locators": [
                   {
                     "match_count": 1,
@@ -77,7 +78,8 @@
               "timestamp": 1783348352235,
               "type": "click",
               "x": 96,
-              "y": 18
+              "y": 18,
+              "preferred_languages": ["en-US"]
             },
             {
               "type": "type",
@@ -85,6 +87,7 @@
               "element": {
                 "autocomplete": null,
                 "id": "q",
+                "language": "en",
                 "locators": [
                   {
                     "match_count": 1,
@@ -128,7 +131,8 @@
               "value": "hello corpus",
               "context_id": 1616494171,
               "capture_mode": "dom",
-              "frame_src": null
+              "frame_src": null,
+              "preferred_languages": ["en-US"]
             },
             {
               "capture_mode": "dom",
@@ -143,6 +147,7 @@
               "element": {
                 "autocomplete": null,
                 "id": "submit",
+                "language": "en",
                 "locators": [
                   {
                     "match_count": 1,
@@ -187,7 +192,8 @@
               "timestamp": 1783348352383,
               "type": "click",
               "x": 218,
-              "y": 18
+              "y": 18,
+              "preferred_languages": ["en-US"]
             }
           ],
           "deleted": false,

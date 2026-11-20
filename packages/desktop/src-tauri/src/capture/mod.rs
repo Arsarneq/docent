@@ -11,6 +11,7 @@ pub mod action_mapping;
 pub mod coordinate;
 pub mod element_mapping;
 pub mod held_keys;
+pub mod language;
 pub mod physical_key;
 pub mod scroll;
 pub mod timing;
@@ -281,6 +282,9 @@ pub enum LocatorEntry {
 ///   (Windows UIA PositionInSet/SizeOfSet/Level); absent when not reported.
 /// - `framework_id`: per-element UI-framework identity (Windows UIA
 ///   FrameworkId, e.g. "Win32"/"WPF"/"XAML"); absent when not reported.
+/// - `language`: the language the application declares for the element, as
+///   the platform names it; null when the provider reports none and on a
+///   description that carries no provider facts.
 /// - `locators`: locator candidates (docent#139); omitted entirely when none
 ///   were observed (e.g. coordinate mode, fallback descriptions).
 /// - `described_after_ms`: observed input→describe latency (docent#220). 0 =
@@ -306,6 +310,7 @@ pub struct ElementDescription {
     pub level: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub framework_id: Option<String>,
+    pub language: Option<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub locators: Vec<LocatorEntry>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -483,6 +488,10 @@ pub struct ActionEvent {
     /// Always `None` for desktop actions (no iframes in native apps).
     pub frame_src: Option<String>,
     pub window_rect: Option<WindowRect>,
+    /// The user's ordered language preference as the platform lists it, read
+    /// when the action is built ([`language::preferred_languages`]). `None`
+    /// (exported as null) when the platform could not be read.
+    pub preferred_languages: Option<Vec<String>>,
     /// Monotonic sequence number for frontend reorder buffer.
     /// Internal to Rust-frontend communication; stripped before export.
     #[serde(skip_serializing_if = "Option::is_none")]

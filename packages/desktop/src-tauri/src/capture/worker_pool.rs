@@ -17,6 +17,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use super::action_mapping::PASSWORD_MASK;
 use super::coordinate;
 use super::held_keys::KEY_EXTENDED_PARAM;
+use super::language::preferred_languages;
 use super::physical_key::physical_key_code;
 use super::scroll::{RawScrollEvent, ScrollAccumulator};
 use super::{
@@ -323,6 +324,7 @@ fn emit_barrier_sentinel(action_sender: &mpsc::Sender<ActionEvent>, barrier_id: 
         capture_mode: CaptureMode::Accessibility,
         frame_src: None,
         window_rect: None,
+        preferred_languages: None,
         sequence_id: None,
         payload: ActionPayload::BarrierComplete { barrier_id },
     });
@@ -414,6 +416,7 @@ impl PendingBuffers {
                 capture_mode: CaptureMode::Accessibility,
                 frame_src: None,
                 window_rect: None,
+                preferred_languages: preferred_languages(),
                 sequence_id: None,
                 payload: ActionPayload::Scroll {
                     element: None,
@@ -1071,6 +1074,14 @@ pub trait AccessibilityBackend: Send + 'static {
     /// Query the currently focused element.
     fn focused_element(&self) -> Option<ElementDescription>;
 
+    /// Query the currently focused element together with the top-level window
+    /// it is in, both read in one description; the window is `0` when the
+    /// description resolved none. A focus action is recorded under the
+    /// context of that window (DCP-7).
+    fn focused_element_in_window(&self) -> Option<(ElementDescription, i64)> {
+        self.focused_element().map(|element| (element, 0))
+    }
+
     /// The current focus epoch: the Input_Thread's count of focus changes,
     /// in the two halves [`RawEvent::focus_epoch`] describes (not one plain
     /// number: compare for equality, or with `person_moved_focus_between`).
@@ -1275,6 +1286,7 @@ fn strip_identity_claims(element: &mut ElementDescription) {
     element.size_of_set = None;
     element.level = None;
     element.framework_id = None;
+    element.language = None;
     element.described_after_ms = None;
 }
 
@@ -1787,6 +1799,7 @@ pub fn worker_loop<B: AccessibilityBackend>(
                         capture_mode: CaptureMode::Accessibility,
                         frame_src: None,
                         window_rect: None,
+                        preferred_languages: preferred_languages(),
                         sequence_id: None,
                         payload: ActionPayload::Scroll {
                             element: None,
@@ -1991,6 +2004,90 @@ impl PartFocusNote {
             .iter()
             .find(|(w, _)| *w == window)
             .map_or(self.pushed_out, |(_, number)| *number)
+    }
+}
+
+/// The Input_Thread's record of the contexts a capture session has
+/// introduced, by top-level window handle (DCP-7). A raw event that is to be
+/// dispatched in a window whose context the session has not introduced has a
+/// `context_switch` into that window dispatched before it, so the context's
+/// first action follows its establishment (core CP-17, session-format SF-10).
+/// Beside it, the window of the last switch into the window in front, which a
+/// foreground change into the same window does not repeat. Kept and read on
+/// the Input_Thread only.
+#[derive(Debug, Default)]
+pub struct ContextIntroductions {
+    introduced: std::collections::HashSet<i64>,
+    last_switch: i64,
+}
+
+impl ContextIntroductions {
+    /// A button press in `pressed_root` while `foreground_root` is in front:
+    /// whether the press switches into another window, which it does when
+    /// the two differ and [`activation_switches`](Self::activation_switches)
+    /// writes it. Dispatched at the press, before the press itself, so the
+    /// press finds the window introduced and the activation it causes is not
+    /// written again.
+    pub fn press_switches(&mut self, pressed_root: i64, foreground_root: i64) -> bool {
+        pressed_root != foreground_root && self.activation_switches(pressed_root)
+    }
+
+    /// A foreground change into `root` that the Input_Thread is to dispatch
+    /// as a `context_switch` (a correlated activation, or a click into
+    /// another window): whether it is written, which it is unless the last
+    /// switch into the window in front named `root` already. Notes `root` as
+    /// that window when it is.
+    pub fn activation_switches(&mut self, root: i64) -> bool {
+        if root == self.last_switch {
+            return false;
+        }
+        self.last_switch = root;
+        true
+    }
+
+    /// Whether a `context_switch` into `root` is dispatched before `event`,
+    /// whose window's top-level window is `root`; noting what `event`
+    /// introduces.
+    ///
+    /// - A `context_switch` or `context_open` (a foreground or window-create
+    ///   event) introduces its window and needs no switch; a close introduces
+    ///   nothing.
+    /// - A lone Shift, Ctrl or Alt press, which the worker drops (DCP-13),
+    ///   and an event with no window, count for nothing.
+    /// - Any other event is an action. One before any switch or open is in
+    ///   the session's first context, which needs no introduction; one in a
+    ///   window not introduced yet takes the switch, and the window is
+    ///   introduced from then on.
+    ///
+    /// `foreground_root` is the top-level window in front when `event` is
+    /// dispatched. A switch into it stands for its activation, which a late
+    /// foreground change then does not repeat; a switch into any other window
+    /// (an inactive window under a wheel or a drop) leaves the window in
+    /// front's activation to be written when it comes.
+    pub fn switch_before(&mut self, event: &RawEvent, root: i64, foreground_root: i64) -> bool {
+        let switched = self.introduces(event, root);
+        if switched && root == foreground_root {
+            self.last_switch = root;
+        }
+        switched
+    }
+
+    fn introduces(&mut self, event: &RawEvent, root: i64) -> bool {
+        if root == 0 {
+            return false;
+        }
+        match event.event_type {
+            RawEventType::Foreground | RawEventType::WindowCreate => {
+                self.introduced.insert(root);
+                false
+            }
+            RawEventType::WindowDestroy | RawEventType::MouseDown | RawEventType::MouseUp => false,
+            RawEventType::Keyboard if is_modifier_only_key(&key_name(event)) => false,
+            _ => {
+                let first = self.introduced.is_empty();
+                self.introduced.insert(root) && !first
+            }
+        }
     }
 }
 
@@ -2335,6 +2432,7 @@ fn process_raw_event<B: AccessibilityBackend>(
                 capture_mode: CaptureMode::Accessibility,
                 frame_src: None,
                 window_rect: window_rect.clone(),
+                preferred_languages: preferred_languages(),
                 sequence_id: Some(raw.sequence_id),
                 payload: ActionPayload::ContextOpen {
                     // The pipeline does not observe which window caused this
@@ -2355,6 +2453,7 @@ fn process_raw_event<B: AccessibilityBackend>(
                 capture_mode: CaptureMode::Accessibility,
                 frame_src: None,
                 window_rect: window_rect.clone(),
+                preferred_languages: preferred_languages(),
                 sequence_id: Some(raw.sequence_id),
                 payload: ActionPayload::ContextClose {
                     window_closing: true,
@@ -2378,6 +2477,7 @@ fn process_raw_event<B: AccessibilityBackend>(
                     capture_mode: CaptureMode::Accessibility,
                     frame_src: None,
                     window_rect: window_rect.clone(),
+                    preferred_languages: preferred_languages(),
                     sequence_id: Some(raw.sequence_id),
                     payload: ActionPayload::Scroll {
                         element: None,
@@ -2568,6 +2668,7 @@ fn handle_click<B: AccessibilityBackend>(
         capture_mode,
         frame_src: None,
         window_rect: window_rect.clone(),
+        preferred_languages: preferred_languages(),
         sequence_id: Some(raw.sequence_id),
         payload,
     });
@@ -2614,6 +2715,7 @@ fn handle_click<B: AccessibilityBackend>(
             capture_mode: CaptureMode::Accessibility,
             frame_src: None,
             window_rect: pick.window_rect,
+            preferred_languages: preferred_languages(),
             sequence_id: Some(raw.sequence_id),
             payload: ActionPayload::FileDialog {
                 dialog_type: pick.dialog_type,
@@ -2636,11 +2738,21 @@ fn handle_focus<B: AccessibilityBackend>(
     last_focus_selector: &mut String,
     window_rect: Option<WindowRect>,
 ) {
-    let mut element = match backend.focused_element() {
-        Some(el) => el,
+    let (mut element, element_window) = match backend.focused_element_in_window() {
+        Some(found) => found,
         None => return, // Can't resolve focused element — skip.
     };
     stamp_described_after(&mut element, raw.timestamp);
+    // The element is the one focused when it is described, which need not be
+    // in the window the focus event named: a dialog that closed as the focus
+    // went back to its owner, for one (docent#709). The focus is recorded in
+    // the context of the element's own window (DCP-7), the event's where the
+    // description resolved no window.
+    let (context_id, window_rect) = if element_window != 0 && Some(element_window) != context_id {
+        (Some(element_window), backend.window_rect(element_window))
+    } else {
+        (context_id, window_rect)
+    };
 
     // Focus deduplication: skip if same selector as last focus event.
     if element.selector == *last_focus_selector {
@@ -2654,6 +2766,7 @@ fn handle_focus<B: AccessibilityBackend>(
         capture_mode: CaptureMode::Accessibility,
         frame_src: None,
         window_rect,
+        preferred_languages: preferred_languages(),
         sequence_id: Some(raw.sequence_id),
         payload: ActionPayload::Focus { element },
     });
@@ -3012,6 +3125,7 @@ fn handle_selection<B: AccessibilityBackend>(
         capture_mode: CaptureMode::Accessibility,
         frame_src: None,
         window_rect,
+        preferred_languages: preferred_languages(),
         sequence_id: Some(raw.sequence_id),
         payload: ActionPayload::Select {
             element: final_element,
@@ -3060,6 +3174,7 @@ fn handle_keyboard<B: AccessibilityBackend>(
             capture_mode: CaptureMode::Accessibility,
             frame_src: None,
             window_rect: None,
+            preferred_languages: preferred_languages(),
             sequence_id: Some(raw.sequence_id),
             payload: ActionPayload::Key {
                 key,
@@ -3204,6 +3319,7 @@ fn handle_keyboard<B: AccessibilityBackend>(
         capture_mode: CaptureMode::Accessibility,
         frame_src: None,
         window_rect,
+        preferred_languages: preferred_languages(),
         sequence_id: Some(raw.sequence_id),
         payload: ActionPayload::Key {
             key: key.clone(),
@@ -3269,6 +3385,7 @@ fn handle_foreground<B: AccessibilityBackend>(
         capture_mode: CaptureMode::Accessibility,
         frame_src: None,
         window_rect,
+        preferred_languages: preferred_languages(),
         sequence_id: Some(raw.sequence_id),
         payload: ActionPayload::ContextSwitch {
             source,
@@ -3305,6 +3422,7 @@ fn handle_drag_start<B: AccessibilityBackend>(
         capture_mode: CaptureMode::Accessibility,
         frame_src: None,
         window_rect,
+        preferred_languages: preferred_languages(),
         sequence_id: Some(raw.sequence_id),
         payload: ActionPayload::DragStart {
             modifiers: modifiers_of(raw),
@@ -3339,6 +3457,7 @@ fn handle_drop<B: AccessibilityBackend>(
         capture_mode: CaptureMode::Accessibility,
         frame_src: None,
         window_rect,
+        preferred_languages: preferred_languages(),
         sequence_id: Some(raw.sequence_id),
         payload: ActionPayload::Drop {
             x: raw.screen_x as f64,
@@ -3369,6 +3488,7 @@ fn flush_pending_type(
             capture_mode: CaptureMode::Accessibility,
             frame_src: None,
             window_rect: pt.window_rect,
+            preferred_languages: preferred_languages(),
             sequence_id: Some(pt.sequence_id),
             payload: ActionPayload::Type {
                 element: pt.element,
@@ -3474,6 +3594,7 @@ mod tests {
             capture_mode: CaptureMode::Accessibility,
             frame_src: None,
             window_rect: None,
+            preferred_languages: preferred_languages(),
             sequence_id: Some(1),
             payload: ActionPayload::Key {
                 key: key.to_string(),

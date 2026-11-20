@@ -33,6 +33,7 @@
               "element": {
                 "autocomplete": null,
                 "id": "email",
+                "language": "en",
                 "locators": [
                   {
                     "match_count": 1,
@@ -83,7 +84,8 @@
               "timestamp": 1783348328553,
               "type": "click",
               "x": 96,
-              "y": 18
+              "y": 18,
+              "preferred_languages": ["en-US"]
             },
             {
               "capture_mode": "dom",
@@ -91,6 +93,7 @@
               "element": {
                 "autocomplete": null,
                 "id": "email",
+                "language": "en",
                 "locators": [
                   {
                     "match_count": 1,
@@ -138,6 +141,7 @@
                 "type": "text"
               },
               "frame_src": null,
+              "preferred_languages": ["en-US"],
               "timestamp": 1783348328630,
               "type": "type",
               "value": "user@example.com"
@@ -155,6 +159,7 @@
               "element": {
                 "autocomplete": null,
                 "id": "elsewhere",
+                "language": "en",
                 "locators": [
                   {
                     "match_count": 1,
@@ -199,7 +204,8 @@
               "timestamp": 1783348328631,
               "type": "click",
               "x": 228,
-              "y": 18
+              "y": 18,
+              "preferred_languages": ["en-US"]
             }
           ],
           "deleted": false,
