@@ -341,7 +341,9 @@ with a caveat):
   on to its control, since the closed root hides the label from the recorder;
   a departure (core CP-18)
 - A captured key other than Tab while nothing is focused — not written; a
-  departure (core CP-18)
+  departure (core CP-18), and one from the desktop, which writes the key on a
+  stand-in element (core CP-19;
+  [docent#710](https://github.com/Arsarneq/docent/issues/710))
 - A click that carries no pointer and reaches the page outside a captured
   key's events (an activation an assistive technology sends, or one a key
   outside the captured set causes, an `accesskey` shortcut for example) —
@@ -350,7 +352,9 @@ with a caveat):
 - A captured key whose press also scrolls (an arrow key, or Space on a focused
   element it does not activate, a link for example) — written as the `key`
   and, where the scroll clears the floor (core CP-16), as a `scroll` too: one
-  press, two actions; a departure (core CP-18)
+  press, two actions; a departure (core CP-18), and one from the desktop,
+  whose `scroll` comes from wheel input only (core CP-19;
+  [docent#710](https://github.com/Arsarneq/docent/issues/710))
 - A `type` on an input or textarea when a button or input marked
   `type="submit"` in the same form was pressed, with any mouse button, within
   100 ms of the change — not written (a `<button>` with no `type` attribute
@@ -366,7 +370,8 @@ with a caveat):
 - A Tab focus move onto an element other than an input, a textarea or a
   contenteditable host (a button, a link or a select, for example) — no
   `focus` is written; the Tab `key` is written against the element it left; a
-  departure (core CP-18)
+  departure (core CP-18), and one from the desktop, which writes the `focus` (core CP-19;
+  [docent#710](https://github.com/Arsarneq/docent/issues/710))
 - Scroll gestures are debounced and coalesced with a sub-threshold discard —
   the shared rule in
   [core CP-16](../../../architecture/system/capture-principles.md#capture-surface);
@@ -403,7 +408,9 @@ with a caveat):
 - Input in a page between its navigation and the completion of its load — the
   recorder is injected as the frame finishes loading (ECP-2), so an action
   taken while the page is still loading is not captured; ECP-5's readiness
-  bound runs from that load completion
+  bound runs from that load completion; the desktop records input in a window
+  that is still starting, so this is a departure (core CP-19;
+  [docent#710](https://github.com/Arsarneq/docent/issues/710))
 - Input in a page or frame the browser does not let the extension inject (the
   browser decides which: the Chrome Web Store, a PDF in the built-in viewer, a
   `file://` page while file access is off and a host an enterprise policy
@@ -414,7 +421,9 @@ with a caveat):
   neither is written; a departure (core CP-18)
 - A value committed in an input, textarea or select inside a shadow root —
   `change` does not cross the shadow boundary to the recorder's `document`
-  listener, so no `type` or `select` is written
+  listener, so no `type` or `select` is written; the desktop records a
+  field's `type` wherever the field sits, so this is a departure (core CP-19;
+  [docent#710](https://github.com/Arsarneq/docent/issues/710))
 - Actions in a tab after a service-worker suspension, once one frame of that
   tab has registered again and the frame acted in has not — the tab's registry
   entry exists, so no lazy reseed runs (ECP-3), and the frame-trust gate drops

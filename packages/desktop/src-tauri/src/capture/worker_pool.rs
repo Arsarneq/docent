@@ -1266,7 +1266,8 @@ pub const fn is_typing_key_code(key_code: u32) -> bool {
 /// toggles or opens it, and no value change makes that key text. A closed
 /// list of the accessibility control types a platform backend names (see the
 /// backend's control-type table); every other type may take text, and a value
-/// change decides.
+/// change decides. The adapter's sensitive-field rule keeps the same list
+/// (`packages/desktop/src/adapter-tauri.js`).
 const NON_TEXT_CONTROL_TAGS: &[&str] = &[
     "Button",
     "CheckBox",

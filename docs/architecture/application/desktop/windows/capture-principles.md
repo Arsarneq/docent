@@ -245,7 +245,8 @@ a control that takes no typed text (a closed list of control types: `Button`,
 a typing key is not buffered at all: it is written at once as the `key` that
 presses the control, and a value change attributed to such a control is the
 effect of pressing it (the field a button clears), no `type` and no reason
-to discard a key. Keys buffered on one element are written, as keys, when a
+to discard a key; the panel's sensitive-field rule (DCP-11) leaves a key on
+such a control a `key` too, whatever the control is named. Keys buffered on one element are written, as keys, when a
 typing key arrives for another element, so typing into the second supersedes
 none of them.
 If a value-change event arrives (producing a `type` action), the buffered
@@ -316,7 +317,9 @@ field's masked `type` it sits beside (a field with an empty selector joins
 none), so no key name carries a character typed into a sensitive field; a key
 that enters no character, and a shortcut, stays a `key`, as does a key whose
 element could not be described (the `Unknown` element with an empty selector,
-whose name is the window's title and no field name). Both the shared detection
+whose name is the window's title and no field name), and a key on a control
+that takes no typed text (DCP-9's list of control types: a checkbox named
+"Remember password" is ticked by its Space, not typed into). Both the shared detection
 and the redaction shape are the cross-platform rule ([core
 CP-11](../../../../architecture/system/capture-principles.md#sensitive-values)).
 (Tokened-URL redaction is extension-only, since the desktop app has no captured
@@ -439,10 +442,14 @@ with a caveat):
   `src/capture/timing.rs`, whose `_PX` suffix is historical
 - A file dialog confirmed from the keyboard (Enter on the filename field)
   produces no `file_dialog` action — the proxy triggers only on a click of
-  the dialog's Save/Open button
+  the dialog's Save/Open button; the extension records its `file_upload`
+  whatever confirmed the chooser, so this is a departure (core CP-19;
+  [docent#710](https://github.com/Arsarneq/docent/issues/710))
 - A file dialog whose confirm button is named other than "Save" or "Open", or
   whose window title contains none of "save as", "save" or "open" — both tests
-  English-only, so a localized dialog — produces no `file_dialog` action
+  English-only, so a localized dialog — produces no `file_dialog` action; a
+  departure (core CP-19;
+  [docent#710](https://github.com/Arsarneq/docent/issues/710))
 - A `type` whose value equals the typing worker's last for the same element
   (its selector within its window) — not written, the keys buffered for it
   discarded with it, and for a password field, whose value is the mask, every
