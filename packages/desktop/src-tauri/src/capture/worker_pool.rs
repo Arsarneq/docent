@@ -1841,7 +1841,8 @@ pub fn worker_loop<B: AccessibilityBackend>(
 /// detach — see that type's docs.
 struct WorkerState {
     last_focus_selector: String,
-    last_value_map: HashMap<String, String>,
+    /// The value of the field typed into last, as last taken for its `type`.
+    last_value: Option<LastValue>,
     last_drag_element: Option<ElementDescription>,
     /// The file the last click selected in a file dialog's item view, read
     /// from the dialog at that click, for the click that completes a
@@ -1864,7 +1865,7 @@ impl WorkerState {
     fn new() -> Self {
         Self {
             last_focus_selector: String::new(),
-            last_value_map: HashMap::new(),
+            last_value: None,
             last_drag_element: None,
             file_pick: None,
             typing_focus: None,
@@ -2837,7 +2838,7 @@ fn handle_value_change<B: AccessibilityBackend>(
             action_sender,
             context_id,
             pending,
-            &mut state.last_value_map,
+            &mut state.last_value,
             window_rect,
             element,
             value,
@@ -2934,7 +2935,7 @@ fn handle_value_change<B: AccessibilityBackend>(
         action_sender,
         context_id,
         pending,
-        &mut state.last_value_map,
+        &mut state.last_value,
         window_rect,
         element,
         value,
@@ -2950,7 +2951,7 @@ fn record_type_value(
     action_sender: &mpsc::Sender<ActionEvent>,
     context_id: Option<i64>,
     pending: &SharedPendingBuffers,
-    last_value_map: &mut HashMap<String, String>,
+    last_value: &mut Option<LastValue>,
     window_rect: Option<WindowRect>,
     mut element: ElementDescription,
     value: String,
@@ -2968,18 +2969,24 @@ fn record_type_value(
     // matching timestamp) is what the coalesced type action exports.
     stamp_described_after(&mut element, raw.timestamp);
 
-    // Value-change deduplication: skip if value unchanged for this element.
-    // (last_value_map is dedup state — stays thread-local in WorkerState.)
-    let value_key = last_value_key(context_id, &element.selector);
-    if let Some(last_val) = last_value_map.get(&value_key) {
-        if *last_val == value {
-            return true;
-        }
-    }
-    last_value_map.insert(value_key, value.clone());
-
     // In-memory buffer mutation only — short lock, no backend calls inside.
     let mut buffers = lock_buffers(pending);
+
+    // A value change that repeats the value just taken for this field, with
+    // no typing key pressed for it, is the same change reported again (a
+    // program that reports one change twice) and adds nothing. With a typing
+    // key buffered it is typing: the person typed the same text over itself.
+    // Only the field typed into last is remembered, so a value the field held
+    // in an earlier typing run is never what a later one is compared with.
+    let repeats_last = buffers.pending_keys.is_empty()
+        && last_value
+            .as_ref()
+            .is_some_and(|last| last.is_of(context_id, &element) && last.value == value);
+    if repeats_last {
+        return true;
+    }
+    *last_value = Some(LastValue::of(context_id, &element, &value));
+
     buffer_type_value(
         &mut buffers,
         action_sender,
@@ -3006,11 +3013,33 @@ fn keep_keys_of_dropped_value_change(
     }
 }
 
-/// The key an element's last recorded value is kept under: its selector within
-/// its window. Two windows can hold elements with equal selectors (two
-/// documents of one application), and each has its own last value.
-fn last_value_key(context_id: Option<i64>, selector: &str) -> String {
-    format!("{}\u{1f}{selector}", context_id.unwrap_or(0))
+/// The value last taken for a field's `type`, and the field it was taken for.
+/// One is kept: that of the field typed into last. It tells a value change
+/// reported twice from typing (see [`record_type_value`]).
+struct LastValue {
+    context_id: Option<i64>,
+    selector: String,
+    place: Option<String>,
+    value: String,
+}
+
+impl LastValue {
+    fn of(context_id: Option<i64>, element: &ElementDescription, value: &str) -> Self {
+        Self {
+            context_id,
+            selector: element.selector.clone(),
+            place: element.place_in_window.clone(),
+            value: value.to_string(),
+        }
+    }
+
+    /// Whether `element` of the window `context_id` is the field it was taken
+    /// for. Two windows can hold elements with equal selectors (two documents
+    /// of one application), and they are two fields.
+    fn is_of(&self, context_id: Option<i64>, element: &ElementDescription) -> bool {
+        self.context_id == context_id
+            && same_field_as(&self.selector, self.place.as_deref(), element)
+    }
 }
 
 /// Whether two descriptions read in one window are of the same element.
@@ -3298,7 +3327,6 @@ fn handle_keyboard<B: AccessibilityBackend>(
         mark,
         control,
     });
-    let last_value_map = &mut state.last_value_map;
 
     // Typing into a password field is its masked type, never a key: a key is
     // named by the character it carries, and a buffered key is written as
@@ -3314,10 +3342,7 @@ fn handle_keyboard<B: AccessibilityBackend>(
     if (element.element_type.as_deref() == Some("password") || unknowable)
         && enters_text_in_password_field(raw, &key)
     {
-        last_value_map.insert(
-            last_value_key(context_id, &element.selector),
-            PASSWORD_MASK.to_string(),
-        );
+        state.last_value = Some(LastValue::of(context_id, &element, PASSWORD_MASK));
         let mut buffers = lock_buffers(pending);
         // Keys still buffered were typed into another control, one that
         // reported no value change; write them before this type starts, so no
