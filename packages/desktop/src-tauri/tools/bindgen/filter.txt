@@ -128,6 +128,7 @@ Windows.Win32.SAFEARRAY
 Windows.Win32.SHFILEINFOW
 Windows.Win32.SHGFI_DISPLAYNAME
 Windows.Win32.SHGetFileInfoW
+Windows.Win32.SMTO_ABORTIFHUNG
 Windows.Win32.SM_CXDOUBLECLK
 Windows.Win32.SM_CXVIRTUALSCREEN
 Windows.Win32.SM_CYDOUBLECLK
@@ -140,6 +141,7 @@ Windows.Win32.SW_RESTORE
 Windows.Win32.SW_SHOW
 Windows.Win32.S_OK
 Windows.Win32.ScrollWindow
+Windows.Win32.SendMessageTimeoutW
 Windows.Win32.SendMessageW
 Windows.Win32.SetForegroundWindow
 Windows.Win32.SetProcessDpiAwarenessContext
