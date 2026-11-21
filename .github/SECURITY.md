@@ -56,8 +56,8 @@ Docent has several capabilities with distinct attack surfaces:
 
 ### Data transmission
 
-- Both platforms can dispatch session data to a user-configured HTTP endpoint, with an optional API key sent as a Bearer token.
-- Vulnerabilities that allow an attacker to redirect dispatch output, inject content into the payload, or expose the API key are in scope.
+- Both platforms can dispatch session data to a user-configured HTTP endpoint and sync session data with a user-configured sync server, each with an optional API key sent as a Bearer token.
+- Vulnerabilities that allow an attacker to redirect dispatch or sync traffic, inject content into a payload, or expose an API key are in scope.
 
 ### Local data persistence
 
@@ -77,7 +77,7 @@ Docent has several capabilities with distinct attack surfaces:
 
 ### Out of scope
 
-- Vulnerabilities in the receiving endpoint (that is outside this project)
+- Vulnerabilities in the receiving endpoint or sync server (those are outside this project)
 - Issues requiring physical access to the machine
 - Social engineering
 

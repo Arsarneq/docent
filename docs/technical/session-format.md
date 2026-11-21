@@ -620,9 +620,10 @@ in the same change:
   [when a capture change turns the check red](../verification/scripted-truth-corpus.md#when-a-capture-change-turns-the-check-red).
 - **Every platform that holds the fact.** Once the format has a field for a
   fact, a platform that observes that fact about an action it records writes
-  it, save in the classes core CP-18 lists. A platform that does not write it
-  yet states the gap as a departure, in the field's row here or in its
-  capture document.
+  it, save in the classes core CP-18 lists. A platform whose events also
+  deliver the input starts writing the field in the same change (core CP-19).
+  A platform that cannot read the fact states that as a difference of the
+  platform, of the kinds core CP-19 lists, in the field's row here.
 
 ---
 
