@@ -1198,6 +1198,14 @@ pub trait AccessibilityBackend: Send + 'static {
     /// Get the process name for a window handle.
     fn process_name(&self, window_handle: i64) -> String;
 
+    /// The name [`process_name`](Self::process_name) gives a window of the
+    /// process `process_id`, read from the process itself, so it names the
+    /// process after the window has closed; `None` where the platform cannot
+    /// name a process by its id.
+    fn process_name_of(&self, _process_id: u32) -> Option<String> {
+        None
+    }
+
     /// Read a file dialog path from the given window: the dialog itself or
     /// any window inside it (a click names the control under the pointer).
     /// Returns `(dialog_type, file_path)`, `file_path` being the directory the
@@ -3499,7 +3507,14 @@ fn handle_foreground<B: AccessibilityBackend>(
     window_rect: Option<WindowRect>,
 ) {
     let title = backend.window_title(raw.window_handle);
-    let source = backend.process_name(raw.window_handle);
+    // The process the Input_Thread read with the event, while the window was
+    // there: a window can close before a worker gets to its switch, and then
+    // it names no process (docent#761). The window names it where the
+    // process cannot be named by its id.
+    let source = Some(raw.process_id)
+        .filter(|pid| *pid != 0)
+        .and_then(|pid| backend.process_name_of(pid))
+        .unwrap_or_else(|| backend.process_name(raw.window_handle));
 
     let _ = action_sender.send(ActionEvent {
         timestamp: raw.timestamp,

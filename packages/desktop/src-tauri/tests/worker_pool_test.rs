@@ -2264,6 +2264,97 @@ fn foreground_event_produces_context_switch() {
     );
 }
 
+/// A window that has closed by the time its foreground change is described:
+/// asked by its handle it names no process ("pid:0", as the Windows backend
+/// gives it), while the process the Input_Thread read at the event is still
+/// named by its id.
+struct ClosedWindowBackend(MockBackend);
+
+impl AccessibilityBackend for ClosedWindowBackend {
+    fn init(&mut self) -> Result<(), CaptureError> {
+        Ok(())
+    }
+    fn cleanup(&mut self) {}
+    fn element_at_point(&self, x: i32, y: i32) -> Option<ElementDescription> {
+        self.0.element_at_point(x, y)
+    }
+    fn focused_element(&self) -> Option<ElementDescription> {
+        self.0.focused_element()
+    }
+    fn window_title(&self, _window_handle: i64) -> String {
+        String::new()
+    }
+    fn process_name(&self, _window_handle: i64) -> String {
+        "pid:0".to_string()
+    }
+    fn process_name_of(&self, process_id: u32) -> Option<String> {
+        (process_id == 4242).then(|| "notepad.exe".to_string())
+    }
+    fn read_file_dialog_path(&self, _window_handle: i64) -> Option<(String, String)> {
+        None
+    }
+    fn root_window_handle(&self, window_handle: i64) -> i64 {
+        window_handle
+    }
+    fn window_rect(&self, _window_handle: i64) -> Option<docent_desktop_lib::capture::WindowRect> {
+        None
+    }
+    fn selected_item_name(&self, _window_handle: i64) -> Option<(ElementDescription, String)> {
+        None
+    }
+}
+
+// Regression: #761 — a context_switch into a window that closed before the
+// worker described it named its source "pid:0"
+// https://github.com/Arsarneq/docent/issues/761
+#[test]
+fn regression_761_context_switch_names_its_source_by_the_event_process() {
+    let harness = WorkerTestHarness::new(ClosedWindowBackend(MockBackend::new()));
+    let mut raw = make_raw_event(RawEventType::Foreground, 66168);
+    raw.sequence_id = 1;
+    raw.process_id = 4242;
+    harness.send_event(raw);
+
+    thread::sleep(Duration::from_millis(200));
+    let events = harness.shutdown();
+
+    let sources: Vec<&str> = events
+        .iter()
+        .filter_map(|e| match &e.payload {
+            ActionPayload::ContextSwitch { source, .. } => Some(source.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        sources,
+        vec!["notepad.exe"],
+        "the switch is named by the process read at the event, not by the closed window"
+    );
+}
+
+/// A process the backend cannot name by its id leaves the switch named by
+/// its window, as before.
+#[test]
+fn a_context_switch_whose_process_has_no_name_by_id_is_named_by_its_window() {
+    let harness = WorkerTestHarness::new(MockBackend::new());
+    let mut raw = make_raw_event(RawEventType::Foreground, 200);
+    raw.sequence_id = 1;
+    raw.process_id = 4242;
+    harness.send_event(raw);
+
+    thread::sleep(Duration::from_millis(200));
+    let events = harness.shutdown();
+
+    let sources: Vec<&str> = events
+        .iter()
+        .filter_map(|e| match &e.payload {
+            ActionPayload::ContextSwitch { source, .. } => Some(source.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(sources, vec!["test.exe"]);
+}
+
 /// Test: right-click event produces a RightClick action.
 #[test]
 fn right_click_event_produces_right_click_action() {

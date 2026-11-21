@@ -3907,6 +3907,10 @@ impl AccessibilityBackend for WindowsAccessibilityBackend {
         unsafe { get_process_name_for_hwnd(hwnd) }
     }
 
+    fn process_name_of(&self, process_id: u32) -> Option<String> {
+        Some(get_process_name_for_pid(process_id))
+    }
+
     fn read_file_dialog_path(&self, window_handle: i64) -> Option<(String, String)> {
         let uia = self.uia.as_ref()?;
         // A click names the control under the pointer (the Open button, the
@@ -4039,6 +4043,22 @@ mod tests {
         MAPVK_VSC_TO_VK,
     };
     use crate::capture::worker_pool::{is_punctuation_key, punctuation_key_name};
+
+    // -- a process named by its id (docent#761) -------------------------------
+
+    /// A process is named by its id as its windows are named, with no window
+    /// needed: the name a context switch states when its window closed before
+    /// a worker got to it. The test process names itself.
+    #[test]
+    fn a_process_is_named_by_its_id_as_its_windows_are() {
+        let backend = super::WindowsAccessibilityBackend::new();
+        let exe = std::env::current_exe().unwrap();
+        let expected = exe.file_name().unwrap().to_string_lossy().into_owned();
+        assert_eq!(
+            super::AccessibilityBackend::process_name_of(&backend, std::process::id()),
+            Some(expected)
+        );
+    }
 
     // -- a punctuation key's layout character (docent#691) --------------------
 
