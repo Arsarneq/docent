@@ -1108,7 +1108,7 @@ describe('SERVICE WORKER: APPEND_ACTION sender validation', () => {
   const pressHolds = new Map();
   const pressHoldKey = () => null;
   // No key is reported as held in another frame in these cases.
-  const heldKeysRelay = { watch: () => ({ take: () => [] }) };
+  const watchKeysHeldElsewhere = () => null;
   async function appendSwAction(action) {
     storageData.pendingActions = [...storageData.pendingActions, action];
     storageData.pendingCount = storageData.pendingActions.length;
@@ -1116,6 +1116,12 @@ describe('SERVICE WORKER: APPEND_ACTION sender validation', () => {
 
   // -- BEGIN MIRRORED APPEND CHOKEPOINT (two-copy: background/service-worker.js <-> this suite; parity-tested) --
   async function validateAndAppend(action, sender) {
+    // The keys held in the tab's other frames are watched from the arrival of
+    // the message, and taken once the hold is over: a key this frame releases
+    // after the action was down at it, and one another frame reports released
+    // in that time, its report late, is not known to have been. Where such a
+    // key's frame is to be asked first, the watch takes a hold for it.
+    const heldElsewhere = watchKeysHeldElsewhere(action, sender);
     // What a frame sends behind its pointer press is stored behind what the
     // press made the tab's other frames write. The hold is read before anything
     // is awaited, so the frame's messages keep their order, and waited on only
@@ -1123,18 +1129,6 @@ describe('SERVICE WORKER: APPEND_ACTION sender validation', () => {
     // the frame that sent it is still registered (the click that navigates its
     // own frame away, or closes its tab).
     const hold = pressHolds.get(pressHoldKey(sender));
-    // The keys held in the tab's other frames are watched from the arrival of
-    // the message too, and taken once the hold is over: a key this frame
-    // releases after the action was down at it, and one another frame reports
-    // released in that time, its report late, is not known to have been.
-    const heldElsewhere =
-      Array.isArray(action?.held_keys) && sender?.tab?.id != null
-        ? heldKeysRelay.watch(
-            sender.tab.id,
-            sender.frameId,
-            action.type === 'key' ? action.code : undefined,
-          )
-        : null;
 
     await restoreWhatSuspensionLost(sender);
     const tabId = sender?.tab?.id;
@@ -1335,6 +1329,7 @@ describe('SERVICE WORKER: messages from a panel that is not the last to open a p
         get: async () => ({}),
       },
       scripting: { executeScript: async () => {} },
+      windows: { onFocusChanged: noListener },
       alarms: { create() {}, clear() {}, onAlarm: noListener },
       sidePanel: { open: async () => {} },
     };

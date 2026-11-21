@@ -106,6 +106,7 @@ globalThis.chrome = {
     get: async () => ({}),
   },
   scripting: { executeScript: async () => {} },
+  windows: { onFocusChanged: noListener },
   alarms: { create() {}, clear() {}, onAlarm: noListener },
   sidePanel: { open: async () => {} },
 };

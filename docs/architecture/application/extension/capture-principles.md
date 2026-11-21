@@ -579,20 +579,23 @@ with a caveat):
     of the action's own.
   - Where a pointer press in another recorded frame takes the focus, the
     keys go to that frame once it reports that focus: their releases reach
-    it from then on, and a recorder reports the release, and the first
-    repeat, of a key it did not see go down.
-  - A frame's reports can reach the worker late (a busy page). The actions
-    of a press are stored once the tab's other frames have answered it
-    (the press's `END_TYPING`), and an answer comes behind the reports of
-    what its frame saw before. A key another frame reports released in
-    that time is not named, and the keys of a frame that gives no answer
-    within the bound, or is gone, are forgotten.
+    it from then on, and a recorder reports the release of a key it did not
+    see go down.
+  - A frame's reports can reach the worker late (a busy page), so a key of
+    another frame is named only by what that frame has reported up to the
+    action. The worker asks the frame (the `END_TYPING` of a pointer press,
+    `HELD_KEY_REPORTS` for an action with no press before it), stores the
+    action once the report the frame names as its last has arrived, and
+    forgets the keys of a frame that gives no answer within the bound or is
+    gone. A key another frame reports released in that time is not named.
   - No key is known to be down once the focus leaves the document any other
     way (to another tab, window or program, to a frame the extension does
     not run in, to another frame by the Tab key or a script) or a drag
     starts: the release can then reach something that does not report it.
-    A key still held when the focus arrives or returns or the drag has ended
-    is named again from its next repeat in the document that has the focus.
+    The worker forgets the keys held across frames when another tab or
+    window takes the focus, which the browser itself tells it. A key still
+    held when the focus arrives or returns or the drag has ended is named
+    again from its next repeat in the document that has the focus.
   - A key pressed while the Meta key was held is treated as released at the
     release of the Meta key, in whichever frame: some systems send the page
     no release for such a key. It is named again from its next repeat.
@@ -607,9 +610,10 @@ with a caveat):
   the key gave no answer within the bound; where a release was reported
   while the action waited to be stored; and where a frame's blur reached
   the worker ahead of the press that caused it. A released key can be named
-  in one case: a frame in a process of its own whose page hangs from before
-  the page loses the focus until a press in another frame, and then answers
-  that press within the bound, has its late blur taken for the press's own
+  in one case: the focus goes to the browser's own interface and comes back
+  by a press in another frame while the page of the frame that held the key,
+  in a process of its own, hangs the whole time and then answers that press
+  within the bound; its late blur is then taken for the press's own
 
 - Back/forward between same-document entries (an SPA's history) — a
   browser-chrome action; the worker's committed-navigation listener does not

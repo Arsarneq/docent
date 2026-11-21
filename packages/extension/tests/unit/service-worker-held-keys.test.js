@@ -66,7 +66,7 @@ globalThis.chrome = {
     getAllFrames: async () => [],
   },
   tabs: {
-    onActivated: noListener,
+    onActivated: listen('tabActivated'),
     onCreated: noListener,
     onRemoved: listen('tabRemoved'),
     query: async () => [],
@@ -76,15 +76,16 @@ globalThis.chrome = {
       const how = endTyping.get(frameId);
       if (how === 'gone') return Promise.reject(new Error('Receiving end does not exist'));
       if (how === 'silent') return new Promise(() => {});
-      return Promise.resolve({ ok: true });
+      return Promise.resolve(how ?? { ok: true });
     },
   },
+  windows: { onFocusChanged: listen('windowFocus'), WINDOW_ID_NONE: -1 },
   scripting: { executeScript: async () => {} },
   alarms: { create() {}, clear() {}, onAlarm: noListener },
   sidePanel: { open: async () => {} },
 };
 
-// How a frame answers END_TYPING: frameId → 'gone' | 'silent'.
+// How a frame answers END_TYPING: frameId → 'gone' | 'silent' | the answer.
 const endTyping = new Map();
 
 const from = (frameId, tabId = TAB) => ({ id: RUNTIME_ID, frameId, tab: { id: tabId } });
@@ -205,6 +206,73 @@ describe('SERVICE WORKER: a key held in another frame of the tab', () => {
     held(INNER, { event: 'focus' });
     assert.deepEqual((await append(INNER, click())).held_keys, ['Escape']);
     held(INNER, { event: 'up', code: 'Escape' });
+    assert.deepEqual((await append(INNER, click())).held_keys, []);
+  });
+
+  it('regression_779_an_action_with_no_press_before_it_asks_the_frame_that_holds_the_key', async () => {
+    // A busy frame reports late a keydown made before the focus left it; the
+    // key's release went to the frame that has the focus. Asked, the busy
+    // frame names its blur as its last report, and the action waits for it.
+    tell(INNER, { type: 'POINTER_PRESSED' });
+    held(INNER, { event: 'focus' });
+    await append(INNER, click());
+    held(TOP, { event: 'down', code: 'Escape', key: 'Escape', recorder: 'r1', seq: 1 });
+    endTyping.set(TOP, { ok: true, heldReports: { recorder: 'r1', seq: 2 } });
+    const key = { type: 'key', key: 'F2', code: 'F2', timestamp: Date.now(), held_keys: [] };
+    const appended = append(INNER, key);
+    // What the frame appends next is stored behind it.
+    const next = append(INNER, { ...key, key: 'F3', code: 'F3' });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    held(TOP, { event: 'blur', recorder: 'r1', seq: 2 });
+    await Promise.all([appended, next]);
+    assert.deepEqual(
+      storage.pendingActions.slice(-2).map((a) => [a.key, a.held_keys]),
+      [
+        ['F2', []],
+        ['F3', []],
+      ],
+    );
+  });
+
+  it('regression_779_an_action_with_no_press_before_it_names_no_key_of_a_frame_that_is_gone', async () => {
+    held(INNER, { event: 'down', code: 'Escape', key: 'Escape' });
+    endTyping.set(INNER, 'gone');
+    const stored = await append(TOP, {
+      type: 'key',
+      key: 'F2',
+      code: 'F2',
+      timestamp: Date.now(),
+      held_keys: [],
+    });
+    assert.deepEqual(stored.held_keys, []);
+  });
+
+  it('regression_779_the_press_waits_for_the_report_a_frame_names_as_its_last', async () => {
+    held(TOP, { event: 'down', code: 'Escape', key: 'Escape', recorder: 'r1', seq: 1 });
+    // The frame's answer overtakes its report of the release.
+    endTyping.set(TOP, { ok: true, heldReports: { recorder: 'r1', seq: 2 } });
+    tell(INNER, { type: 'POINTER_PRESSED' });
+    held(INNER, { event: 'focus' });
+    const appended = append(INNER, click());
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    held(TOP, { event: 'up', code: 'Escape', recorder: 'r1', seq: 2 });
+    assert.deepEqual((await appended).held_keys, []);
+  });
+
+  it('regression_779_a_frame_whose_last_report_does_not_arrive_has_its_keys_forgotten', async () => {
+    held(TOP, { event: 'down', code: 'Escape', key: 'Escape', recorder: 'r1', seq: 1 });
+    endTyping.set(TOP, { ok: true, heldReports: { recorder: 'r1', seq: 2 } });
+    tell(INNER, { type: 'POINTER_PRESSED' });
+    held(INNER, { event: 'focus' });
+    assert.deepEqual((await append(INNER, click())).held_keys, []);
+  });
+
+  it('regression_779_another_tab_or_window_taking_the_focus_forgets_the_keys', async () => {
+    held(TOP, { event: 'down', code: 'Escape', key: 'Escape' });
+    listeners.tabActivated({ tabId: TAB + 1, windowId: 1 });
+    assert.deepEqual((await append(INNER, click())).held_keys, []);
+    held(TOP, { event: 'down', code: 'Escape', key: 'Escape' });
+    listeners.windowFocus(-1);
     assert.deepEqual((await append(INNER, click())).held_keys, []);
   });
 

@@ -290,6 +290,75 @@ describe('createHeldKeysRelay', () => {
     });
   });
 
+  it('names the frames whose keys an action of another frame would be given', () => {
+    const relay = createHeldKeysRelay();
+    relay.report(TAB, TOP, { event: 'down', code: 'KeyA', key: 'a' });
+    relay.report(TAB, OTHER, { event: 'down', code: 'KeyB', key: 'b' });
+    assert.deepEqual(relay.framesHoldingFor(TAB, INNER), [TOP, OTHER]);
+    assert.deepEqual(relay.framesHoldingFor(TAB, TOP), [OTHER]);
+    // A key handed over is the frame's own to release: nobody is to be asked.
+    relay.forgetFrame(TAB, OTHER);
+    relay.report(TAB, INNER, { event: 'press' });
+    relay.report(TAB, TOP, { event: 'blur' });
+    relay.report(TAB, INNER, { event: 'focus' });
+    assert.deepEqual(relay.framesHoldingFor(TAB, INNER), []);
+    assert.deepEqual(relay.framesHoldingFor(TAB + 1, INNER), []);
+  });
+
+  describe('the order of one recorder’s reports', () => {
+    const numbered = (seq, report) => ({ ...report, recorder: 'r1', seq });
+
+    it('drops a report that is not later than the last one taken', () => {
+      const relay = createHeldKeysRelay();
+      relay.report(TAB, TOP, numbered(2, { event: 'down', code: 'KeyB', key: 'b' }));
+      relay.report(TAB, TOP, numbered(1, { event: 'down', code: 'KeyA', key: 'a' }));
+      relay.report(TAB, TOP, numbered(2, { event: 'up', code: 'KeyB' }));
+      assert.deepEqual(relay.heldElsewhere(TAB, INNER), ['b']);
+    });
+
+    it('starts over with a new recorder in the frame', () => {
+      const relay = createHeldKeysRelay();
+      relay.report(TAB, TOP, numbered(5, { event: 'down', code: 'KeyB', key: 'b' }));
+      relay.report(TAB, TOP, { event: 'down', code: 'KeyA', key: 'a', recorder: 'r2', seq: 1 });
+      assert.deepEqual(relay.heldElsewhere(TAB, INNER), ['b', 'a']);
+    });
+
+    it('says when the report a frame names as its last has been taken', async () => {
+      const relay = createHeldKeysRelay();
+      relay.report(TAB, TOP, numbered(1, { event: 'down', code: 'KeyA', key: 'a' }));
+      let seen = false;
+      const waiting = relay.whenSeen(TAB, TOP, 'r1', 2).then(() => (seen = true));
+      await Promise.resolve();
+      assert.equal(seen, false);
+      relay.report(TAB, TOP, numbered(2, { event: 'up', code: 'KeyA' }));
+      await waiting;
+      assert.equal(seen, true);
+      // One already taken is seen at once.
+      await relay.whenSeen(TAB, TOP, 'r1', 1);
+    });
+
+    it('takes what a recorder it has not heard from names as its last for the start', async () => {
+      const relay = createHeldKeysRelay();
+      await relay.whenSeen(TAB, TOP, 'r1', 3);
+      // A report sent before that answer, arriving after it.
+      relay.report(TAB, TOP, numbered(3, { event: 'down', code: 'KeyA', key: 'a' }));
+      assert.deepEqual(relay.heldElsewhere(TAB, INNER), []);
+      relay.report(TAB, TOP, numbered(4, { event: 'down', code: 'KeyB', key: 'b' }));
+      assert.deepEqual(relay.heldElsewhere(TAB, INNER), ['b']);
+    });
+
+    it('lets go of whoever waits when the frame is forgotten', async () => {
+      const relay = createHeldKeysRelay();
+      relay.report(TAB, TOP, numbered(1, { event: 'down', code: 'KeyA', key: 'a' }));
+      const waiting = relay.whenSeen(TAB, TOP, 'r1', 2);
+      relay.forgetFrameAndItsRecorder(TAB, TOP);
+      await waiting;
+      // The frame's numbering starts over.
+      relay.report(TAB, TOP, numbered(1, { event: 'down', code: 'KeyB', key: 'b' }));
+      assert.deepEqual(relay.heldElsewhere(TAB, INNER), ['b']);
+    });
+  });
+
   it('ignores a report it cannot read', () => {
     const relay = createHeldKeysRelay();
     relay.report(TAB, TOP, { event: 'down', code: 'KeyA', key: 'a' });

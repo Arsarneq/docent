@@ -194,17 +194,58 @@ function clearActiveFrames() {
 
 /**
  * Ask one frame to end its typing. Settles when the frame has answered, which
- * it does once what it wrote is stored; never rejects. Gives whether a
- * recorder answered: a frame with none, or one that went away, does not.
+ * it does once what it wrote is stored; never rejects. Gives the recorder's
+ * answer, and null where none came: a frame with no recorder, or one that
+ * went away.
  */
 async function askFrameToEndTyping(tabId, frameId) {
   try {
-    await chrome.tabs.sendMessage(tabId, { type: 'END_TYPING' }, { frameId });
-    return true;
+    return (await chrome.tabs.sendMessage(tabId, { type: 'END_TYPING' }, { frameId })) ?? null;
   } catch {
     // No recorder there, or the frame is gone: nothing to end.
-    return false;
+    return null;
   }
+}
+
+/**
+ * Ask one frame which of its reports of held keys is its last, with nothing
+ * else asked of it. Gives the recorder's answer, and null where none came.
+ */
+async function askFrameForHeldKeyReports(tabId, frameId) {
+  try {
+    return (
+      (await chrome.tabs.sendMessage(tabId, { type: 'HELD_KEY_REPORTS' }, { frameId })) ?? null
+    );
+  } catch {
+    return null;
+  }
+}
+
+/** Settles with `value` once `promise` has, or with null at END_TYPING_BOUND. */
+function withinTheBound(promise) {
+  let timer;
+  const bound = new Promise((resolve) => {
+    timer = setTimeout(() => resolve(null), END_TYPING_BOUND);
+  });
+  return Promise.race([promise, bound]).finally(() => clearTimeout(timer));
+}
+
+/**
+ * Bring the held-keys relay level with one frame, from the answer it gave to
+ * an ask: wait for the report the recorder names as its last, which can
+ * arrive behind the answer. A frame that gave no answer, or whose last
+ * report does not arrive within the bound, has said nothing sure of the keys
+ * it reported as held: they are forgotten.
+ */
+async function levelHeldKeysWith(tabId, frameId, answer) {
+  const last = answer?.heldReports;
+  if (answer && !last) return;
+  const seen =
+    last &&
+    (await withinTheBound(
+      heldKeysRelay.whenSeen(tabId, frameId, last.recorder, last.seq).then(() => true),
+    ));
+  if (!seen) heldKeysRelay.forgetFrame(tabId, frameId);
 }
 
 /**
@@ -213,18 +254,18 @@ async function askFrameToEndTyping(tabId, frameId) {
  * warning, so an entry that came late can be explained.
  *
  * @param {Array<[number, number]>} frames — (tabId, frameId) pairs
- * @returns {Promise<Array<[number, number]>>} the frames no recorder answered
- *   for in that time: what they reported last is not known to be their latest
+ * @returns {Promise<Map<[number, number], object|null>>} each frame's answer,
+ *   null where no recorder gave one in that time
  */
 async function endTypingIn(frames) {
-  if (frames.length === 0) return [];
+  const answered = new Map(frames.map((frame) => [frame, null]));
+  if (frames.length === 0) return answered;
   const unanswered = new Set(frames);
-  const silent = new Set(frames);
   const answers = Promise.all(
     frames.map((frame) =>
-      askFrameToEndTyping(...frame).then((answered) => {
+      askFrameToEndTyping(...frame).then((answer) => {
         unanswered.delete(frame);
-        if (answered) silent.delete(frame);
+        answered.set(frame, answer);
       }),
     ),
   );
@@ -239,7 +280,7 @@ async function endTypingIn(frames) {
       frames: [...unanswered].map(([tabId, frameId]) => ({ tabId, frameId })),
     });
   }
-  return [...silent];
+  return answered;
 }
 
 /**
@@ -288,11 +329,28 @@ async function endTypingInOtherFrames(sender) {
   }
   const tabId = sender.tab.id;
   const others = [...(activeFrames.get(tabId) ?? [])].filter((id) => id !== sender.frameId);
-  const silent = await endTypingIn(others.map((frameId) => [tabId, frameId]));
-  // A frame's answer comes behind the reports of what it saw before the
-  // press. One that gave none has said nothing sure of the keys it reported
-  // as held: they are forgotten, so the press's own actions do not name them.
-  for (const [, frameId] of silent) heldKeysRelay.forgetFrame(tabId, frameId);
+  const answers = await endTypingIn(others.map((frameId) => [tabId, frameId]));
+  // The press's own actions name the keys held in those frames as their
+  // reports up to the answer leave them.
+  await Promise.all(
+    [...answers].map(([[, frameId], answer]) => levelHeldKeysWith(tabId, frameId, answer)),
+  );
+}
+
+/**
+ * The same for an action with no press before it: the frames whose keys it
+ * would be given are asked for their last report, and nothing else.
+ */
+async function levelHeldKeysWithFrames(tabId, frameIds) {
+  await Promise.all(
+    frameIds.map(async (frameId) =>
+      levelHeldKeysWith(
+        tabId,
+        frameId,
+        await withinTheBound(askFrameForHeldKeyReports(tabId, frameId)),
+      ),
+    ),
+  );
 }
 
 // Press holds: "tabId:frameId" → a promise that settles once the typing a
@@ -303,6 +361,29 @@ const pressHolds = new Map();
 
 const pressHoldKey = (sender) =>
   sender?.tab?.id == null || sender.frameId == null ? null : `${sender.tab.id}:${sender.frameId}`;
+
+/**
+ * Open the watch for the keys an action is given beside its own: those held
+ * in the tab's other frames (lib/held-keys-relay.js). Where a key of another
+ * frame is among them and no press hold stands for the sender, that frame is
+ * asked for its last report first, and what the sender appends is held behind
+ * the answer: a frame's reports can arrive late, and a key is named only by
+ * what its frame has reported up to the action. Called synchronously as the
+ * action's message arrives. Null for an action that carries no `held_keys`.
+ */
+function watchKeysHeldElsewhere(action, sender) {
+  const tabId = sender?.tab?.id;
+  if (!Array.isArray(action?.held_keys) || tabId == null || sender.frameId == null) return null;
+  if (!pressHolds.has(pressHoldKey(sender))) {
+    const frames = heldKeysRelay.framesHoldingFor(tabId, sender.frameId);
+    if (frames.length > 0) holdAppendsBehind(sender, levelHeldKeysWithFrames(tabId, frames));
+  }
+  return heldKeysRelay.watch(
+    tabId,
+    sender.frameId,
+    action.type === 'key' ? action.code : undefined,
+  );
+}
 
 /** Pass a registered frame's report to the held-keys relay. */
 function reportToHeldKeysRelay(sender, report) {
@@ -321,9 +402,14 @@ function reportToHeldKeysRelay(sender, report) {
  * frame's next message is read.
  */
 function holdAppendsBehindPress(sender) {
+  holdAppendsBehind(sender, endTypingInOtherFrames(sender));
+}
+
+/** Hold what the frame appends next behind `work`, and behind any hold it has. */
+function holdAppendsBehind(sender, work) {
   const key = pressHoldKey(sender);
   if (key == null) return;
-  const hold = Promise.all([pressHolds.get(key), endTypingInOtherFrames(sender)]).then(
+  const hold = Promise.all([pressHolds.get(key), work]).then(
     () => undefined,
     () => undefined,
   );
@@ -493,7 +579,7 @@ chrome.webNavigation.onBeforeNavigate.addListener((details) => {
     heldKeysRelay.forgetTab(details.tabId);
     return;
   }
-  heldKeysRelay.forgetFrame(details.tabId, details.frameId);
+  heldKeysRelay.forgetFrameAndItsRecorder(details.tabId, details.frameId);
   const frames = activeFrames.get(details.tabId);
   if (frames) frames.delete(details.frameId);
 });
@@ -643,6 +729,12 @@ async function restoreWhatSuspensionLost(sender) {
 // on success. Drops untrusted senders silently (warn + return — never throw), so
 // a frame outside the registry cannot write actions into the recording.
 async function validateAndAppend(action, sender) {
+  // The keys held in the tab's other frames are watched from the arrival of
+  // the message, and taken once the hold is over: a key this frame releases
+  // after the action was down at it, and one another frame reports released
+  // in that time, its report late, is not known to have been. Where such a
+  // key's frame is to be asked first, the watch takes a hold for it.
+  const heldElsewhere = watchKeysHeldElsewhere(action, sender);
   // What a frame sends behind its pointer press is stored behind what the
   // press made the tab's other frames write. The hold is read before anything
   // is awaited, so the frame's messages keep their order, and waited on only
@@ -650,18 +742,6 @@ async function validateAndAppend(action, sender) {
   // the frame that sent it is still registered (the click that navigates its
   // own frame away, or closes its tab).
   const hold = pressHolds.get(pressHoldKey(sender));
-  // The keys held in the tab's other frames are watched from the arrival of
-  // the message too, and taken once the hold is over: a key this frame
-  // releases after the action was down at it, and one another frame reports
-  // released in that time, its report late, is not known to have been.
-  const heldElsewhere =
-    Array.isArray(action?.held_keys) && sender?.tab?.id != null
-      ? heldKeysRelay.watch(
-          sender.tab.id,
-          sender.frameId,
-          action.type === 'key' ? action.code : undefined,
-        )
-      : null;
 
   await restoreWhatSuspensionLost(sender);
   const tabId = sender?.tab?.id;
@@ -783,11 +863,23 @@ let lastTabCreatedId = null;
 // Their close events should be suppressed (they were never captured as context_open).
 const programmaticTabs = new Set();
 
+// Another window or another program has the focus (or the browser has it
+// back): the release of a key held in a recorded tab can have gone there
+// unreported, so no key is known to be held across the frames of any tab.
+// The event comes from the browser, which a busy page does not delay.
+chrome.windows.onFocusChanged.addListener(() => {
+  heldKeysRelay.forgetKeys();
+});
+
 // Context switch — only record when NO recent tab close and NO recent tab creation.
 // If there's a recent tab close, the switch is an auto-activation by the browser.
 // If there's a recent tab creation, the switch is the browser activating the new tab.
 // If none of the above, the user clicked a tab in browser chrome.
 chrome.tabs.onActivated.addListener(async ({ tabId, windowId: _windowId }) => {
+  // Another tab has the focus: the release of a key held in a recorded tab
+  // can go to it unreported. Read before anything is awaited, and from the
+  // browser, which a busy page does not delay.
+  heldKeysRelay.forgetKeys();
   if (!(await isRecording())) return;
   // Suppress auto-switch to a just-removed tab's replacement (fallback: timing)
   if (Date.now() - lastTabRemovedTimestamp < TAB_REMOVED_SWITCH_SUPPRESSION) return;

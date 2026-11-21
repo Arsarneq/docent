@@ -276,6 +276,58 @@ test.describe('Cross-origin iframe capture (#93)', () => {
     ]);
   });
 
+  test('regression_779_a_key_whose_press_a_busy_frame_reports_late_is_not_held', async ({
+    context,
+    serviceWorker,
+  }) => {
+    // The key goes down in the parent while its page is busy, the other
+    // site's frame is clicked, and the key is released there. The parent
+    // handles the old keydown afterwards and reports the key as held.
+    routes.set(
+      '/child',
+      `<!DOCTYPE html><html><body><button id="inner" style="padding:1rem">Inner</button></body></html>`,
+    );
+    routes.set(
+      '/parent',
+      `<!DOCTYPE html><html><body>
+        <button id="outer">Outer</button>
+        <iframe id="x" src="${ORIGIN_B()}/child" width="400" height="120"></iframe>
+        <script>
+          window.busy = (ms) => { const end = performance.now() + ms; while (performance.now() < end); };
+          window.addEventListener('keydown', () => busy(400), false);
+        </script>
+      </body></html>`,
+    );
+
+    await startRecording(serviceWorker);
+    const page = context.pages()[0] || (await context.newPage());
+    await page.goto(`${ORIGIN_A()}/parent`);
+    await waitForTopFrameReady(serviceWorker, page);
+    await page.waitForTimeout(300);
+    const inner = page.frameLocator('#x').locator('#inner');
+    await inner.waitFor();
+    const box = await inner.boundingBox();
+
+    await page.locator('#outer').focus();
+    const start = Date.now();
+    await page.evaluate(() => setTimeout(() => window.busy(800), 30));
+    await page.waitForTimeout(80);
+    const down = page.keyboard.down('Escape');
+    await page.waitForTimeout(40);
+    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+    const up = page.keyboard.up('Escape');
+    // Once the parent has handled the keydown, and while its listener still runs.
+    await page.waitForTimeout(Math.max(0, 920 - (Date.now() - start)));
+    const f2 = page.keyboard.press('F2');
+    await Promise.all([down, up, f2]);
+    await page.waitForTimeout(1200);
+    await settle(serviceWorker, page);
+
+    const actions = await getPendingActions(serviceWorker);
+    const f2Key = actions.find((a) => a.type === 'key' && a.key === 'F2');
+    expect([f2Key.element.selector, f2Key.held_keys]).toEqual(['#inner', []]);
+  });
+
   test('parent-page capture keeps working alongside a cross-origin iframe', async ({
     context,
     serviceWorker,

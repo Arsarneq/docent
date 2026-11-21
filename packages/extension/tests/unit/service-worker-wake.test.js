@@ -61,6 +61,7 @@ function fakeChrome(storage, read, onMessage) {
       get: async () => ({}),
     },
     scripting: { executeScript: async () => {} },
+    windows: { onFocusChanged: noListener },
     alarms: { create() {}, clear() {}, onAlarm: noListener },
     sidePanel: { open: async () => {} },
   };

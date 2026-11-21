@@ -24,8 +24,10 @@
  *   and a focus that never comes leaves them unnamed until the next press
  *   drops them. A blur that arrives ahead of the press itself forgets them.
  * - An action is given its keys through a watch, opened as the action
- *   arrives and taken when it is stored, which is after the tab's other
- *   frames have answered the press (the worker's press hold). A key another
+ *   arrives and taken when it is stored. Where a key of another frame is
+ *   among them, the worker first asks that frame and waits for the report
+ *   it names as its last (`whenSeen`; a recorder numbers its reports, and
+ *   one that is not later than the last taken is dropped). A key another
  *   frame reports released in that time is not named: whether the release
  *   came before the action is not known.
  * - The worker forgets the keys a frame reported when that frame does not
@@ -51,6 +53,8 @@
  * @property {string} [code] — the physical key, for `down` and `up`
  * @property {string} [key] — the name the key's `key` action carries, for `down`
  * @property {boolean} [underMeta] — the key went down while the Meta key was held, for `down`
+ * @property {string} [recorder] — the recorder that sends the report, new with each document
+ * @property {number} [seq] — the report's number among that recorder's reports, from 1
  */
 
 export function createHeldKeysRelay() {
@@ -62,6 +66,63 @@ export function createHeldKeysRelay() {
   // `pressed` is the frame of the tab's last press whose focus has not been
   // reported. `watches` are the open watches of the tab's actions.
   const tabs = new Map();
+  // "tabId:frameId" → { recorder, seq, waiting }: the last numbered report
+  // taken from the frame's recorder, and who waits for a later one.
+  const lastReports = new Map();
+  const frameKey = (tabId, frameId) => `${tabId}:${frameId}`;
+
+  /**
+   * Whether a numbered report is to be taken: later than the last taken from
+   * its recorder. A report with no number is taken as it comes.
+   */
+  const inOrder = (tabId, frameId, { recorder, seq }) => {
+    if (typeof recorder !== 'string' || typeof seq !== 'number') return true;
+    const key = frameKey(tabId, frameId);
+    const last = lastReports.get(key);
+    if (last && last.recorder === recorder) {
+      if (seq <= last.seq) return false;
+      last.seq = seq;
+      last.waiting = last.waiting.filter((wait) => {
+        if (wait.seq > seq) return true;
+        wait.seen();
+        return false;
+      });
+      return true;
+    }
+    // Another recorder in the frame: whoever waited for the old one is let go.
+    for (const wait of last?.waiting ?? []) wait.seen();
+    lastReports.set(key, { recorder, seq, waiting: [] });
+    return true;
+  };
+
+  const forgetReports = (matches) => {
+    for (const [key, last] of lastReports) {
+      if (!matches(key)) continue;
+      for (const wait of last.waiting) wait.seen();
+      lastReports.delete(key);
+    }
+  };
+
+  /**
+   * Settles once the report `seq` of `recorder` in the frame has been taken,
+   * or at once where it already was. A recorder the relay has not heard from
+   * has that report taken for its start: one that arrives later with a
+   * number up to it was sent before, and is dropped.
+   *
+   * @returns {Promise<void>}
+   */
+  function whenSeen(tabId, frameId, recorder, seq) {
+    if (typeof recorder !== 'string' || typeof seq !== 'number') return Promise.resolve();
+    const key = frameKey(tabId, frameId);
+    const last = lastReports.get(key);
+    if (!last || last.recorder !== recorder) {
+      for (const wait of last?.waiting ?? []) wait.seen();
+      lastReports.set(key, { recorder, seq, waiting: [] });
+      return Promise.resolve();
+    }
+    if (seq <= last.seq) return Promise.resolve();
+    return new Promise((seen) => last.waiting.push({ seq, seen }));
+  }
 
   const tabOf = (tabId) => {
     let tab = tabs.get(tabId);
@@ -113,6 +174,7 @@ export function createHeldKeysRelay() {
    */
   function report(tabId, frameId, report) {
     if (tabId == null || frameId == null || !report || typeof report !== 'object') return;
+    if (!inOrder(tabId, frameId, report)) return;
     const { event, code, key } = report;
     if (event === 'down') {
       if (typeof code !== 'string' || code === '') return;
@@ -203,6 +265,22 @@ export function createHeldKeysRelay() {
     };
   }
 
+  /**
+   * The frames, other than `frameId`, whose keys a watch for `frameId` would
+   * hold now: their latest reports are what such a key's naming rests on.
+   *
+   * @returns {number[]}
+   */
+  function framesHoldingFor(tabId, frameId) {
+    const tab = tabs.get(tabId);
+    if (!tab) return [];
+    const frames = new Set();
+    for (const held of tab.keys.values()) {
+      if (held.frame !== frameId && namedTo(held, frameId)) frames.add(held.frame);
+    }
+    return [...frames];
+  }
+
   /** The keys a watch opened and taken now gives. */
   function heldElsewhere(tabId, frameId, exceptCode) {
     return watch(tabId, frameId, exceptCode).take();
@@ -222,13 +300,37 @@ export function createHeldKeysRelay() {
     if (tab.pressed === frameId) tab.pressed = null;
   }
 
-  function forgetTab(tabId) {
-    dropTab(tabId);
+  /** The frame's recorder is gone with it: its numbering starts over. */
+  function forgetFrameAndItsRecorder(tabId, frameId) {
+    forgetFrame(tabId, frameId);
+    forgetReports((key) => key === frameKey(tabId, frameId));
   }
 
-  function forgetAll() {
+  function forgetTab(tabId) {
+    dropTab(tabId);
+    forgetReports((key) => key.startsWith(`${tabId}:`));
+  }
+
+  /** Nothing is known to be down in any tab; the recorders stay known. */
+  function forgetKeys() {
     for (const tabId of [...tabs.keys()]) dropTab(tabId);
   }
 
-  return { report, watch, heldElsewhere, forgetFrame, forgetTab, forgetAll };
+  function forgetAll() {
+    forgetKeys();
+    forgetReports(() => true);
+  }
+
+  return {
+    report,
+    whenSeen,
+    watch,
+    heldElsewhere,
+    framesHoldingFor,
+    forgetFrame,
+    forgetFrameAndItsRecorder,
+    forgetTab,
+    forgetKeys,
+    forgetAll,
+  };
 }

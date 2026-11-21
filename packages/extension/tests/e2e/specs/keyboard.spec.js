@@ -2865,7 +2865,7 @@ test.describe('Keyboard activation', () => {
     ]);
   });
 
-  test('regression_779_a_key_whose_repeat_is_text_in_the_frame_is_not_held_after_its_release', async ({
+  test('regression_779_a_key_whose_repeat_is_text_in_the_frame_is_held_until_its_release', async ({
     testPage,
     serviceWorker,
   }) => {
@@ -2885,6 +2885,8 @@ test.describe('Keyboard activation', () => {
     await testPage.keyboard.down('a');
     await frame.locator('#field').click();
     await testPage.keyboard.down('a');
+    // Still down: it stays named, as it does within one document.
+    await frame.locator('#inner').click({ button: 'right' });
     await testPage.keyboard.up('a');
     await frame.locator('#inner').click();
     await waitForActionsToSettle(serviceWorker, testPage);
@@ -2892,11 +2894,12 @@ test.describe('Keyboard activation', () => {
     const actions = await getPendingActions(serviceWorker);
     expect(
       actions
-        .filter((a) => a.type === 'key' || a.type === 'click')
+        .filter((a) => a.type === 'key' || a.type.endsWith('click'))
         .map((a) => [a.type, a.held_keys, a.element.selector]),
     ).toEqual([
       ['key', [], '#btn'],
       ['click', ['a'], '#field'],
+      ['right_click', ['a'], '#inner'],
       ['click', [], '#inner'],
     ]);
   });
@@ -2923,11 +2926,18 @@ test.describe('Keyboard activation', () => {
     await testPage.bringToFront();
     await other.close();
     await testPage.waitForTimeout(200);
+    // A key first: no pointer press comes before it.
+    await testPage.keyboard.press('F2');
     await testPage.click('#btn');
     await waitForActionsToSettle(serviceWorker, testPage);
 
-    const clicks = (await getPendingActions(serviceWorker)).filter((a) => a.type === 'click');
-    expect(clicks.map((a) => [a.element.selector, a.held_keys])).toEqual([['#btn', []]]);
+    const later = (await getPendingActions(serviceWorker)).filter(
+      (a) => a.type === 'click' || a.key === 'F2',
+    );
+    expect(later.map((a) => [a.type, a.held_keys])).toEqual([
+      ['key', []],
+      ['click', []],
+    ]);
   });
 
   test('regression_779_a_key_released_while_the_page_was_not_focused_is_not_held_in_a_frame', async ({
