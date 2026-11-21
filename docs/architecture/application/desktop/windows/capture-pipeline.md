@@ -35,7 +35,7 @@ Every worker's queue is FIFO, and all workers share one action channel. So per-w
 
 - **Typing worker.** Every keyboard and value-change event reaches one worker. So a value change is processed after the keystrokes that caused it, and supersedes the buffered ones (DCP-9).
 - **End of typing.** An event that ends the typing in a field (a click, a drag, a window change) is routed like any other. The dispatcher tells the typing worker behind the events already sent to it, so the `type` that worker holds is written (DCP-9).
-- **A look at the focus.** When a capture starts, and behind each window change it dispatches, the dispatcher asks the typing worker to look at the control that holds the keyboard focus, choosing the typing worker if none holds the role yet. The look writes nothing; it makes the first key typed there find its control known (DCP-11).
+- **A look at the focus.** When a capture starts, and behind each window change it dispatches, the dispatcher asks the typing worker to look at the control that holds the keyboard focus, choosing the typing worker if none holds the role yet. The look writes nothing; it makes the first key typed there find its control known, and it is skipped for a control of Docent's own process and for one whose window does not answer within 50 ms (DCP-11).
 - **Focus worker.** Every focus event reaches one worker, whatever window it names, so each focus is compared with the focus before it (DCP-12, DCP-13).
 - **Sticky routing.** Selection events for the same window handle always reach the same worker, which processes them in order.
 - **Drag pairing.** A drop routes to the worker that took its drag start, so the pair is built from the same recorded source element.
