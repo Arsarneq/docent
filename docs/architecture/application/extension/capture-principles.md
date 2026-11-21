@@ -209,12 +209,15 @@ phase, for exactly these DOM events, on `document` unless the item names
   together with that press. With a key of another kind the browser can enter
   the bare accent while it handles that key (Enter after a dead key): that
   key waits behind the dead key, the dead key is text where the browser's
-  `input` for typed text follows or the field holds other text than at the
-  dead key's press, and the key behind it is then written as the `key` it
-  was; with neither, both are keys, the dead key first, and the press after
-  them, any other action, the end of the handling of the second key or the
-  release of a key ends the wait. The desktop follows the same rule with
-  what its platform tells it (desktop capture DCP-9). On any other element a
+  `input` for typed text follows in the dead key's own field, and the key
+  behind it is then written as the `key` it was; without it both are keys,
+  the dead key first, and the press after them, any other action, the end
+  of the handling of the second key or the release of a key ends the wait.
+  Other text in the field does not make such a dead key text (the key
+  behind it can change the field by itself), nor does typed text that lands
+  in another field (that key's own character, in the field the focus moved
+  to). The desktop decides the same question by the accent the field's
+  value gained (desktop capture DCP-9). On any other element a
   character key is written at once (a letter on a button). An entry a key
   press writes ahead of itself (below) carries the time of that press. A
   character key pressed with no shortcut modifier on a sensitive element is

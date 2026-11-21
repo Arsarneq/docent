@@ -940,9 +940,11 @@
   // key enters nothing until the next key is pressed in its field (`dead`).
   // With a character key it is text or a key together with that press. A key
   // of another kind waits behind it (`behindDead`) while the browser handles
-  // that key: where the bare accent is entered then, the dead key is text and
-  // only the key behind it is a `key`; otherwise both are keys, in the order
-  // pressed (#769). The timer and a release leave a run and a dead key with
+  // that key: where the bare accent is entered then (`input` with inputType
+  // `insertText` in the dead key's own field), the dead key is text and only
+  // the key behind it is a `key`; otherwise both are keys, in the order
+  // pressed (#769). The field holding other text does not make such a dead
+  // key text: the key behind it can change the field by itself. The timer and a release leave a run and a dead key with
   // nothing behind it waiting, and a press that does not belong with them
   // ends the wait.
   let pendingKeys = [];
@@ -1044,8 +1046,14 @@
     const resolved = pending.filter((press) => !pendingKeys.includes(press));
     writingPendingKeys = true;
     try {
-      for (const press of resolved) {
-        if (press.textAtPress !== null && textHeld(press.field) !== press.textAtPress) {
+      for (const [at, press] of resolved.entries()) {
+        // A dead key with a key behind it is text only by the `input` for
+        // its accent in its own field (`pendingKeysBecameText`): the key
+        // behind it can change the field by itself.
+        const keyBehind = press.dead && resolved.slice(at + 1).some((later) => later.behindDead);
+        const fieldChanged =
+          press.textAtPress !== null && textHeld(press.field) !== press.textAtPress;
+        if (fieldChanged && !keyBehind) {
           noteTextEntered(press.field);
         } else {
           writeKeyPress(press);
@@ -1072,10 +1080,15 @@
     if (pendingKeys.length === 0) return;
     const target = e.composedPath?.()[0] ?? e.target;
     const waiting = pendingKeys.length;
+    const keyBehind = pendingKeys.some((press) => press.behindDead);
     pendingKeys = pendingKeys.filter((press) => {
       if (press.byParts) return press.field !== target && press.el !== e.target;
       // The key behind a dead key is no text: the text is the dead key's.
       if (press.behindDead) return true;
+      // With a key behind it, a dead key is text only where the typed text
+      // lands in its own field: that key's own character can land in the
+      // field the focus moved to (#769).
+      if (press.dead && keyBehind) return !(typed && press.field === target);
       return press.dead ? !typed && !composed : !typed;
     });
     // The text can land in another field than the one the key was pressed in

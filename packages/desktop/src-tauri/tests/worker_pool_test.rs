@@ -140,7 +140,9 @@ proptest! {
                             wc.fetch_add(1, Ordering::SeqCst);
                         }
                         Ok(WorkerMessage::Flush(_)) => {}
-                        Ok(WorkerMessage::EndTyping) | Ok(WorkerMessage::MenuCommand)
+                        Ok(WorkerMessage::EndTyping)
+                        | Ok(WorkerMessage::MenuCommand)
+                    | Ok(WorkerMessage::WriteHeldKey)
                             | Ok(WorkerMessage::LookAtFocus) => {}
                         Ok(WorkerMessage::Shutdown) => break,
                         Err(_) => break,
@@ -239,7 +241,9 @@ proptest! {
                             _ => {}
                         },
                         Ok(WorkerMessage::Flush(_)) => {}
-                        Ok(WorkerMessage::EndTyping) | Ok(WorkerMessage::MenuCommand)
+                        Ok(WorkerMessage::EndTyping)
+                        | Ok(WorkerMessage::MenuCommand)
+                    | Ok(WorkerMessage::WriteHeldKey)
                             | Ok(WorkerMessage::LookAtFocus) => {}
                         Ok(WorkerMessage::Shutdown) => break,
                         Err(_) => break,
@@ -325,7 +329,9 @@ proptest! {
                             events.lock().unwrap().push(event_name.to_string());
                         }
                         Ok(WorkerMessage::Flush(_)) => {}
-                        Ok(WorkerMessage::EndTyping) | Ok(WorkerMessage::MenuCommand)
+                        Ok(WorkerMessage::EndTyping)
+                        | Ok(WorkerMessage::MenuCommand)
+                    | Ok(WorkerMessage::WriteHeldKey)
                             | Ok(WorkerMessage::LookAtFocus) => {}
                         Ok(WorkerMessage::Shutdown) => break,
                         Err(_) => break,
@@ -964,6 +970,7 @@ fn worker_panic_respawns_and_redistributes() {
                         Ok(WorkerMessage::Flush(_)) => {}
                         Ok(WorkerMessage::EndTyping)
                         | Ok(WorkerMessage::MenuCommand)
+                        | Ok(WorkerMessage::WriteHeldKey)
                         | Ok(WorkerMessage::LookAtFocus) => {}
                         Ok(WorkerMessage::Shutdown) => break,
                         Err(_) => break,
@@ -1040,6 +1047,7 @@ fn repeatedly_failing_workers_get_respawned_and_shutdown_completes() {
                     Ok(WorkerMessage::Flush(_)) => {}
                     Ok(WorkerMessage::EndTyping)
                     | Ok(WorkerMessage::MenuCommand)
+                    | Ok(WorkerMessage::WriteHeldKey)
                     | Ok(WorkerMessage::LookAtFocus) => {}
                     Ok(WorkerMessage::Shutdown) => {}
                     Err(_) => {}
@@ -3336,7 +3344,9 @@ proptest! {
                             }
                         }
                         Ok(WorkerMessage::Flush(_)) => {}
-                        Ok(WorkerMessage::EndTyping) | Ok(WorkerMessage::MenuCommand)
+                        Ok(WorkerMessage::EndTyping)
+                        | Ok(WorkerMessage::MenuCommand)
+                    | Ok(WorkerMessage::WriteHeldKey)
                             | Ok(WorkerMessage::LookAtFocus) => {}
                         Ok(WorkerMessage::Shutdown) => break,
                         Err(_) => break,
@@ -4230,6 +4240,7 @@ fn messages_sent_for(events: Vec<RawEvent>) -> Vec<Vec<&'static str>> {
                     Ok(WorkerMessage::Event(_)) => sent.lock().unwrap().push("event"),
                     Ok(WorkerMessage::EndTyping) => sent.lock().unwrap().push("end typing"),
                     Ok(WorkerMessage::MenuCommand) => sent.lock().unwrap().push("menu command"),
+                    Ok(WorkerMessage::WriteHeldKey) => sent.lock().unwrap().push("write held key"),
                     Ok(WorkerMessage::LookAtFocus) => sent.lock().unwrap().push("look at focus"),
                     Ok(WorkerMessage::Flush(_)) => {}
                     Ok(WorkerMessage::Shutdown) | Err(_) => break,
@@ -4291,6 +4302,38 @@ fn a_window_that_comes_to_the_front_has_the_typing_worker_look_at_its_focus() {
         ]);
         assert!(
             sent.iter().all(|w| !w.contains(&"look at focus")),
+            "{name}: got {sent:?}"
+        );
+    }
+}
+
+/// A scroll is written with no place in the order of the events, by the
+/// worker that took the wheel. A key held behind a dead key must stand ahead
+/// of it, so the dispatcher tells the typing worker to write that key, behind
+/// the keys dispatched before the wheel; no other event sends that.
+#[test]
+fn a_wheel_event_has_the_typing_worker_write_the_key_it_holds() {
+    let sent = messages_sent_for(vec![
+        layout_key(1, 1000, 0x41),
+        make_raw_event(RawEventType::Scroll, 1234),
+    ]);
+    assert!(
+        sent.iter()
+            .any(|worker| worker.starts_with(&["event", "write held key"])),
+        "got {sent:?}"
+    );
+    for (name, event_type) in typing_enders().into_iter().chain([
+        ("focus", RawEventType::Focus),
+        ("key", RawEventType::Keyboard),
+        ("value change", RawEventType::ValueChange),
+        ("selection", RawEventType::Selection),
+    ]) {
+        let sent = messages_sent_for(vec![
+            layout_key(1, 1000, 0x41),
+            make_raw_event(event_type, 1234),
+        ]);
+        assert!(
+            sent.iter().all(|w| !w.contains(&"write held key")),
             "{name}: got {sent:?}"
         );
     }
@@ -6845,6 +6888,7 @@ fn a_click_completing_a_double_click_routes_to_the_previous_clicks_worker() {
                     Ok(WorkerMessage::Flush(_))
                     | Ok(WorkerMessage::EndTyping)
                     | Ok(WorkerMessage::MenuCommand)
+                    | Ok(WorkerMessage::WriteHeldKey)
                     | Ok(WorkerMessage::LookAtFocus) => {}
                     Ok(WorkerMessage::Shutdown) | Err(_) => break,
                 }
@@ -9352,6 +9396,32 @@ fn a_dead_key_and_the_key_behind_it_are_written_ahead_of_a_click() {
         })
         .collect();
     assert_eq!(order, vec!["key \u{b4}", "key Tab", "click"]);
+}
+
+/// The typing worker, told to write the key it holds behind a dead key (a
+/// wheel was turned), writes the dead key and that key at once, in the order
+/// pressed; with no key held it writes nothing, and a dead key goes on
+/// waiting.
+#[test]
+fn the_key_held_behind_a_dead_key_is_written_when_the_worker_is_told() {
+    let (backend, _scene, _) = MovingFocusBackend::new(file_name_field(""));
+    let harness = WorkerTestHarness::new(backend);
+    harness.send_event(dead_key(1));
+    harness.event_tx.send(WorkerMessage::WriteHeldKey).unwrap();
+    thread::sleep(Duration::from_millis(150));
+    assert!(harness.action_rx.try_recv().is_err(), "a dead key waits");
+    harness.send_event(in_dialog(layout_key(2, now_ms(), 0x25)));
+    harness.event_tx.send(WorkerMessage::WriteHeldKey).unwrap();
+    thread::sleep(Duration::from_millis(150));
+    let mut written = Vec::new();
+    while let Ok(event) = harness.action_rx.try_recv() {
+        written.push(event);
+    }
+    assert_eq!(
+        types_and_keys(&written),
+        vec!["key \u{b4}", "key ArrowLeft"]
+    );
+    assert!(types_and_keys(&harness.shutdown()).is_empty());
 }
 
 /// A dead key, a key that is no typing key, and a value that holds no more

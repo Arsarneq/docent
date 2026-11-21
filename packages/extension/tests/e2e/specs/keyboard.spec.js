@@ -1887,6 +1887,42 @@ test.describe('Every key press that is not text', () => {
     });
   }
 
+  test('a_dead_key_is_a_key_where_the_key_behind_it_changes_the_field_or_enters_text_elsewhere', async ({
+    testPage,
+    serviceWorker,
+    context,
+  }) => {
+    // The key behind a dead key can change the field by itself (Backspace),
+    // and its own character can land in the field the focus moved to (Tab).
+    // Neither is the dead key's accent entered in its field: the dead key
+    // entered nothing and is the `key` it was.
+    const session = await context.newCDPSession(testPage);
+    const dead = { key: 'Dead', code: 'Equal', windowsVirtualKeyCode: 221 };
+    const pressDead = async () => {
+      await session.send('Input.dispatchKeyEvent', { type: 'rawKeyDown', ...dead });
+      await session.send('Input.dispatchKeyEvent', { type: 'keyUp', ...dead });
+    };
+    await testPage.focus('#text');
+    await testPage.keyboard.type('c');
+    await pressDead();
+    await testPage.keyboard.press('Backspace');
+    await pressDead();
+    const tab = { key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9 };
+    await session.send('Input.dispatchKeyEvent', { type: 'rawKeyDown', ...tab });
+    await testPage.evaluate(() => document.querySelector('#area').focus());
+    await session.send('Input.dispatchKeyEvent', { type: 'char', ...tab, text: '\t' });
+    await session.send('Input.dispatchKeyEvent', { type: 'keyUp', ...tab });
+    const actions = await written(serviceWorker, testPage);
+    expect(actions.slice(0, 6)).toEqual([
+      ['type', 'c'],
+      ['key', 'Dead'],
+      ['key', 'Backspace'],
+      ['type', ''],
+      ['key', 'Dead'],
+      ['key', 'Tab'],
+    ]);
+  });
+
   test('a_dead_key_and_a_key_that_enters_nothing_are_keys_in_the_order_pressed', async ({
     testPage,
     serviceWorker,

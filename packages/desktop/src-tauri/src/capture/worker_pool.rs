@@ -282,6 +282,11 @@ pub enum WorkerMessage {
     /// Paste, where the menu is the field's own). Sent to the typing worker
     /// only, behind the [`WorkerMessage::EndTyping`] of the same click.
     MenuCommand,
+    /// A wheel event was dispatched. The scroll it becomes is written with no
+    /// place in the order of the events, so a key held behind a dead key
+    /// ([`PendingBuffers::key_behind_dead_keys`]) is written now, ahead of
+    /// it. Sent to the typing worker only; with no key held it does nothing.
+    WriteHeldKey,
     /// Capture started, or a window came to the front: look at the control
     /// that holds the keyboard focus now, so the first key typed into it finds
     /// it known and the field's first value is read without waiting on its
@@ -567,6 +572,16 @@ impl PendingBuffers {
         // The dead keys left wait behind this value: it is what the field
         // held before any accent of theirs.
         self.value_at_dead_key = (self.pending_dead_keys > 0).then(|| value.to_string());
+    }
+
+    /// Whether every buffered key was pressed in `element` of `context_id`:
+    /// the field a value was taken for.
+    fn dead_keys_wait_in(&self, context_id: Option<i64>, element: &ElementDescription) -> bool {
+        self.pending_keys.iter().all(|key| {
+            key.context_id == context_id
+                && matches!(&key.payload,
+                    ActionPayload::Key { element: pressed_in, .. } if same_field(pressed_in, element))
+        })
     }
 
     /// The key held behind waiting dead keys is written now, behind them:
@@ -865,6 +880,9 @@ impl WorkerPool {
         }
         if is_menu_command(&event) {
             self.tell_typing_worker(WorkerMessage::MenuCommand);
+        }
+        if matches!(event.event_type, RawEventType::Scroll) {
+            self.tell_typing_worker(WorkerMessage::WriteHeldKey);
         }
         let comes_to_front = matches!(event.event_type, RawEventType::Foreground);
         let worker_index = self.select_worker(&event);
@@ -2165,6 +2183,10 @@ pub fn worker_loop<B: AccessibilityBackend>(
                 lock_buffers(&pending).end_typing(current_timestamp_ms(), &action_sender);
             }
             Ok(WorkerMessage::MenuCommand) => note_menu_command(&mut state),
+            Ok(WorkerMessage::WriteHeldKey) => {
+                // In-memory buffer mutation only — no backend calls inside.
+                lock_buffers(&pending).write_key_behind_dead_keys(&action_sender);
+            }
             Ok(WorkerMessage::LookAtFocus) => {
                 // Backend calls only; the buffers are not touched.
                 let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -2200,6 +2222,9 @@ pub fn worker_loop<B: AccessibilityBackend>(
                                 .end_typing(current_timestamp_ms(), &action_sender);
                         }
                         WorkerMessage::MenuCommand => note_menu_command(&mut state),
+                        WorkerMessage::WriteHeldKey => {
+                            lock_buffers(&pending).write_key_behind_dead_keys(&action_sender);
+                        }
                         // No key follows a stop: nothing to look at.
                         WorkerMessage::LookAtFocus => {}
                         WorkerMessage::Flush(ack) => {
@@ -3701,11 +3726,12 @@ fn record_type_value(
     if repeats_last {
         return true;
     }
-    // Dead keys whose accent the program entered are part of this text. What
-    // the field held before them is the value read at the first of them, or
-    // else the value last taken for the field. A password field's value is
-    // its mask and says nothing.
-    if !is_password {
+    // Dead keys that wait in this field and whose accent the program entered
+    // are part of this text. What the field held before them is the value
+    // read at the first of them, or else the value last taken for the field.
+    // A password field's value is its mask and says nothing, and a value
+    // taken for another field says nothing about dead keys pressed in theirs.
+    if !is_password && buffers.dead_keys_wait_in(context_id, &element) {
         let before = buffers.value_at_dead_key.take().or_else(|| {
             last_value
                 .as_ref()
@@ -4758,6 +4784,7 @@ mod tests {
                     }
                     Ok(WorkerMessage::EndTyping)
                     | Ok(WorkerMessage::MenuCommand)
+                    | Ok(WorkerMessage::WriteHeldKey)
                     | Ok(WorkerMessage::LookAtFocus) => {}
                     Ok(WorkerMessage::Shutdown) | Err(_) => break,
                 }
@@ -4794,6 +4821,38 @@ mod tests {
              behind it; after the barrier the next one reaches worker 1"
         );
         pool.shutdown_with_timeout(Duration::from_millis(200));
+    }
+
+    #[test]
+    fn dead_keys_are_made_text_only_by_a_value_of_their_own_field() {
+        // A value taken for another field, or in another window, says nothing
+        // about dead keys that wait in theirs: the accent it holds is not
+        // theirs.
+        let field = |selector: &str| ElementDescription {
+            tag: "Edit".to_string(),
+            selector: selector.to_string(),
+            ..Default::default()
+        };
+        let mut buffers = PendingBuffers::new();
+        buffers.pending_keys = vec![key_event("\u{b4}")];
+        buffers.note_buffered_key(true, Some('\u{b4}'), Some(String::new()));
+        assert!(buffers.dead_keys_wait_in(Some(42), &field("win > edit")));
+        assert!(!buffers.dead_keys_wait_in(Some(42), &field("win > other")));
+        assert!(!buffers.dead_keys_wait_in(Some(7), &field("win > edit")));
+
+        // In their own field the accent gained makes them text, once each.
+        buffers.pending_keys.push(key_event("\u{b4}"));
+        buffers.note_buffered_key(true, Some('\u{b4}'), None);
+        buffers.pending_keys.push(key_event("\u{b4}"));
+        buffers.note_buffered_key(true, Some('\u{b4}'), None);
+        let before = buffers.value_at_dead_key.take();
+        buffers.take_dead_keys_entered(before.as_deref(), "\u{b4}\u{b4}");
+        assert_eq!(buffers.pending_keys.len(), 1);
+        assert_eq!(buffers.waiting_dead_keys(), 1);
+        assert_eq!(buffers.value_at_dead_key.as_deref(), Some("\u{b4}\u{b4}"));
+        // With what the field held before not known, nothing is decided.
+        buffers.take_dead_keys_entered(None, "\u{b4}\u{b4}\u{b4}");
+        assert_eq!(buffers.pending_keys.len(), 1);
     }
 
     #[test]

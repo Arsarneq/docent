@@ -372,22 +372,29 @@ is part of that text. A program can also enter the bare accent as a
 character: when the dead key is pressed again, or with a key that is no
 typing key (Enter in a text editor). The dead key is part of that text too,
 and no `key` beside it, where the value taken for the field holds the accent
-more often than the field did when the first waiting dead key was pressed
-(the value read at that press, or else the value last taken for the field);
+more often than the field did before the first waiting dead key (the value
+the worker read when it took that press, or else the value last taken for
+the field);
 that many of the waiting dead keys with the accent, from the first, are
-text. The accent is the character the layout names for the dead key. This
-is asked only while every buffered key is a waiting dead key and what the
-field held before is known; otherwise the dead keys stay as they are. A key
-that is no typing key pressed behind waiting dead keys in their field is
-held with them, so that the keys are written in the order pressed: a value
+text. The accent is the character the layout names for the dead key. This is asked only of a value taken for the dead keys' own field, while
+every buffered key is a waiting dead key and what the field held before is
+known; otherwise the dead keys stay as they are, and are written as keys
+beside the text. The worker reads the field when it takes the press, which
+can be after the program applied later keys: the value read then holds
+their accents already, none is counted as gained, and the dead keys stay
+keys. A key that is no typing key pressed behind waiting dead keys in their
+field, with no other key buffered, is held with them, so that the keys are
+written in the order pressed (with another key buffered all are written at
+once, as keys): a value
 taken for the field decides what the dead keys were and the held key is
 written behind those that are keys, ahead of the `type` the value starts.
 With no such value within the 500 ms, or at the next key or any other
-action, the dead keys and the held key are written as keys. Where the
+action (a turn of the wheel included, whose scroll is written later), the
+dead keys and the held key are written as keys. Where the
 typing ends with a dead key still waiting, it is written as a `key`, behind
-the keys pressed before it that are still buffered. The extension follows
-the same rule with what the browser tells it (extension capture principles,
-Capture Surface). The keyboard hook asks the layout
+the keys pressed before it that are still buffered. The extension decides the same question by the browser's `input` for typed
+text in the dead key's field (extension capture principles, Capture
+Surface); the desktop has no such event and counts the accent in the value. The keyboard hook asks the layout
 with the system's read that leaves the keyboard state as it is, so an accent
 pending in the application is not touched. The layout's answer depends on an
 accent already pending, so it is asked about a key pressed with Shift or
