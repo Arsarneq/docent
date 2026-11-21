@@ -289,7 +289,7 @@ jobs:
       # person, so a paragraph, list item or table row over the word limit reds
       # until it is split. scripts/clause-form-baseline.json lists the cases
       # the check admits. On a pull request the check is given the base
-      # branch and reds when that list admits more than it does at the base;
+      # branch and reds on an entry the base's list does not hold;
       # scripts/check-clause-form.js holds the rules and their limits.
       - name: Validate one home per rule and clause unit length
         run: |

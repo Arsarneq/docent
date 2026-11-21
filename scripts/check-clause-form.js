@@ -32,17 +32,17 @@
  * registry does not hold, an entry that admits nothing, and a pair listed
  * twice or out of order red as well. Given a base ref, the check also holds
  * the list against the same file at the merge base of that ref and HEAD: a
- * list that admits more than it does there (clauses under issues, pairs,
- * long units, each counted as a total) reds, so a new case cannot be admitted
- * by adding an entry. An entry may move to another clause. Without a base
- * ref, and when the base holds no baseline, the lists are not compared.
+ * clause the base does not list under an issue, a pair it does not list, and
+ * a count of long units above the base's count for that clause each red, so
+ * a new case cannot be admitted by adding an entry. Without a base ref, and
+ * when the base holds no baseline, the lists are not compared.
  *
  * Honest limits: a rule restated in other words shares no run and is not
  * seen; that stays a review judgment. Inside a listed pair, further shared
  * text is not counted, and inside a clause's admitted count a long unit may
  * grow. Text outside every clause is not read.
  *
- * A registered document that cannot be read, a registered clause whose marker
+ * A base ref with no merge base with HEAD, a registered document that cannot be read, a registered clause whose marker
  * its document does not carry, and a baseline that is not JSON or lacks one of
  * its three lists in their shape (now or at the base) are the machinery verdict, on this check's own exit code
  * (exit 2), never a pass and never a form problem (exit 1).
@@ -208,23 +208,33 @@ function loadClauses(readFile) {
 }
 
 /**
- * How much a baseline admits, per list.
- * @param {ReturnType<typeof loadBaseline>} baseline the baseline
- * @returns {Array<{ what: string, count: number }>}
+ * The entries of a baseline that the base baseline does not hold.
+ * @param {ReturnType<typeof loadBaseline>} baseline the baseline now
+ * @param {ReturnType<typeof loadBaseline>} atBase the baseline at the base
+ * @returns {string[]} one statement per new entry
  */
-function admittedCounts(baseline) {
-  const sum = (numbers) => numbers.reduce((total, n) => total + n, 0);
-  return [
-    {
-      what: 'clause(s) linking an issue a second time',
-      count: sum(Object.values(baseline['issue-homes']).map((clauses) => clauses.length)),
-    },
-    { what: 'pair(s) of clauses sharing text', count: baseline['shared-text'].length },
-    {
-      what: `unit(s) over ${UNIT_WORD_LIMIT} words`,
-      count: sum(Object.values(baseline['long-units'])),
-    },
-  ];
+function newEntries(baseline, atBase) {
+  const found = [];
+  for (const [issue, clauses] of Object.entries(baseline['issue-homes'])) {
+    const added = clauses.filter(
+      (clause) => !(atBase['issue-homes'][issue] ?? []).includes(clause),
+    );
+    if (added.length > 0) {
+      found.push(`lists docent#${issue} for ${added.join(', ')}, which the base does not`);
+    }
+  }
+  for (const pair of baseline['shared-text']) {
+    if (!atBase['shared-text'].includes(pair)) {
+      found.push(`lists ${pair} as sharing text, which the base does not`);
+    }
+  }
+  for (const [clause, count] of Object.entries(baseline['long-units'])) {
+    const before = atBase['long-units'][clause] ?? 0;
+    if (count > before) {
+      found.push(`admits ${count} unit(s) over ${UNIT_WORD_LIMIT} words in ${clause} where the base admits ${before}`); // prettier-ignore
+    }
+  }
+  return found;
 }
 
 /**
@@ -241,14 +251,12 @@ export function auditClauseForm(readFile, readBaseFile) {
   const docOf = new Map(clauses.map((c) => [c.clause, c.doc]));
   const problems = [];
 
-  // The list only shrinks: no list admits more than it does at the base.
+  // The list only shrinks: no entry the base does not hold.
   const baseText = readBaseFile?.(BASELINE_PATH) ?? null;
   if (baseText !== null) {
-    const atBase = admittedCounts(loadBaseline(() => baseText, `${BASELINE_PATH} at the base`));
-    for (const [i, { what, count }] of admittedCounts(baseline).entries()) {
-      if (count > atBase[i].count) {
-        problems.push(`${BASELINE_PATH} admits ${count} ${what} where the base admits ${atBase[i].count} — the list only shrinks: fix the clause and take the new entry out`); // prettier-ignore
-      }
+    const atBase = loadBaseline(() => baseText, `${BASELINE_PATH} at the base`);
+    for (const entry of newEntries(baseline, atBase)) {
+      problems.push(`${BASELINE_PATH} ${entry} — the list only shrinks: fix the clause and take the new entry out`); // prettier-ignore
     }
   }
 
@@ -407,7 +415,13 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const git = (args) =>
     execFileSync('git', args, { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
   const baseRef = process.argv[2];
-  const base = baseRef === undefined ? undefined : git(['merge-base', baseRef, 'HEAD']).trim();
+  let base;
+  try {
+    base = baseRef === undefined ? undefined : git(['merge-base', baseRef, 'HEAD']).trim();
+  } catch {
+    console.error(`✗ an input this check reads could not be read:\n    no merge base of ${baseRef} and HEAD`); // prettier-ignore
+    process.exit(2);
+  }
   const readBaseFile = (rel) => {
     try {
       return git(['show', `${base}:${rel}`]);

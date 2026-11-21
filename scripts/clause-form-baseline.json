@@ -1,5 +1,5 @@
 {
-  "description": "The cases scripts/check-clause-form.js admits: the clauses of one document that link the same issue, the pairs of clauses sharing a run of words, and the count of long units per clause. The list only shrinks: an entry the tree no longer needs reds until it is removed or lowered, and on a pull request a list that admits more than it does at the base reds. Fix the clause; do not add an entry.",
+  "description": "The cases scripts/check-clause-form.js admits: the clauses of one document that link the same issue, the pairs of clauses sharing a run of words, and the count of long units per clause. The list only shrinks: an entry the tree no longer needs reds until it is removed or lowered, and on a pull request an entry the base does not hold reds. Fix the clause; do not add an entry.",
   "issue-homes": {
     "237": ["DCP-13", "DCP-9"],
     "710": ["DCP-13", "DCP-9"],

@@ -501,34 +501,40 @@ describe('main — the baseline admits no more than the base it is compared with
     assert.equal(run({ rows, docs, baseline, base: wider }).code, 0);
   });
 
-  it('a pair the base does not admit reds though the baseline lists it', () => {
+  it('a pair the base does not list reds though the baseline lists it', () => {
     const { code, err } = run({ rows, docs, baseline, base: { ...baseline, 'shared-text': [] } });
     assert.equal(code, 1);
     assert.equal(
       err[0],
-      `✗ ${BASELINE_PATH} admits 1 pair(s) of clauses sharing text where the base admits 0 — the list only shrinks: fix the clause and take the new entry out`,
+      `✗ ${BASELINE_PATH} lists AA-1|BB-1 as sharing text, which the base does not — the list only shrinks: fix the clause and take the new entry out`,
     );
     assert.equal(err[1], `\n1 problem. ${SEE}`);
   });
 
-  it('a further clause under an issue, and a higher count of long units, each red the same way', () => {
+  it('a clause the base does not list under an issue, and a count above the base, each red the same way', () => {
     const issue = run({ rows, docs, baseline, base: { ...baseline, 'issue-homes': {} } });
     assert.equal(issue.code, 1);
     assert.equal(
       issue.err[0],
-      `✗ ${BASELINE_PATH} admits 2 clause(s) linking an issue a second time where the base admits 0 — the list only shrinks: fix the clause and take the new entry out`,
+      `✗ ${BASELINE_PATH} lists docent#7 for AA-1, AA-2, which the base does not — the list only shrinks: fix the clause and take the new entry out`,
     );
     const units = run({ rows, docs, baseline, base: { ...baseline, 'long-units': {} } });
     assert.equal(units.code, 1);
     assert.equal(
       units.err[0],
-      `✗ ${BASELINE_PATH} admits 1 unit(s) over ${UNIT_WORD_LIMIT} words where the base admits 0 — the list only shrinks: fix the clause and take the new entry out`,
+      `✗ ${BASELINE_PATH} admits 1 unit(s) over ${UNIT_WORD_LIMIT} words in AA-2 where the base admits 0 — the list only shrinks: fix the clause and take the new entry out`,
     );
   });
 
-  it('an entry moved to another clause keeps the count and passes', () => {
-    const moved = { ...baseline, 'long-units': { 'BB-1': 1 } };
-    assert.equal(run({ rows, docs, baseline, base: moved }).code, 0);
+  it('a new entry reds even when another entry left the list, so the totals do not grow', () => {
+    const other = {
+      'issue-homes': { 9: ['AA-1', 'AA-2'] },
+      'shared-text': ['AA-2|BB-1'],
+      'long-units': { 'BB-1': 1 },
+    };
+    const { code, err } = run({ rows, docs, baseline, base: other });
+    assert.equal(code, 1);
+    assert.equal(err.filter((line) => line.includes('the list only shrinks')).length, 3);
   });
 
   it('a base that holds no baseline is not compared', () => {

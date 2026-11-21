@@ -107,7 +107,7 @@ The detail for each:
   - **Meaning and justification.** A clause's meaning lives in the doctrine
     text; a row's justification states how compliance is verified and why no
     check decides it, never the clause's meaning.
-  - **One home and unit length.** `lint:clause-form` holds the rules below. The [lint table](ci.md#the-lint-and-freshness-gates) states what it reds on and where its list of admitted cases lives.
+  - **One home and unit length.** `lint:clause-form` checks the rules below as far as a check can read them. The [lint table](ci.md#the-lint-and-freshness-gates) states what it reds on, what it does not see, and where its list of admitted cases lives. What it does not see is a review judgment.
     - A rule is stated in one clause. Another clause that needs it cites that clause by its id.
     - Within a document, a departure or an open case is linked to its issue from one clause. A case that holds on two platforms is linked once in each platform's document, on that platform's exception list.
     - A sentence two platform documents both need is stated in the cross-platform clause, and each platform clause cites that clause.
