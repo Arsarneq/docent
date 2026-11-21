@@ -216,7 +216,11 @@ phase, for exactly these DOM events, on `document` unless the item names
   Other text in the field does not make such a dead key text (the key
   behind it can change the field by itself), nor does typed text that lands
   in another field (that key's own character, in the field the focus moved
-  to). The desktop decides the same question by the accent the field's
+  to). Editable content has its text read when its entry is written, and
+  the key behind a dead key is written after the page has handled it: the
+  text is taken at that key's press, so that the entry the key ends holds
+  what the page saw, and what the element holds beyond it is its next
+  entry. The desktop decides the same question by the accent the field's
   value gained (desktop capture DCP-9). On any other element a
   character key is written at once (a letter on a button). An entry a key
   press writes ahead of itself (below) carries the time of that press. A

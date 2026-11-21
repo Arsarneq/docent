@@ -810,6 +810,10 @@
   // when the typing in it ends. Null while none has been typed into since the
   // last entry was written.
   let editableTypedInto = null;
+  // What the editable content typed into held at the press of a key that
+  // waits behind a dead key (`{ el, value }`), until that key's entry is
+  // written. Null otherwise.
+  let editableAtKeyBehind = null;
 
   /**
    * Write the text the editable content typed into holds, as its `type`. The
@@ -821,16 +825,25 @@
    *   typing, when a key press writes the entry
    * @returns {Promise<void>} settled once the worker has answered
    */
+  const editableText = (el) => el.innerText.trim().slice(0, 500);
+
   function writeEditableEntry(timestamp = Date.now()) {
     const el = editableTypedInto;
     if (!el) return Promise.resolve();
-    editableTypedInto = null;
+    const now = editableText(el);
+    // The text taken at the press of a key that waited behind a dead key is
+    // what that key ended. Text the element holds beyond it came with or
+    // after the key, and is the element's next entry.
+    const atPress = editableAtKeyBehind?.el === el ? editableAtKeyBehind.value : null;
+    editableAtKeyBehind = null;
+    const value = atPress ?? now;
+    if (value === now || !active) editableTypedInto = null;
     if (!active) return Promise.resolve();
     const sent = appendAction({
       type: 'type',
       timestamp,
       element: describeElement(el),
-      value: el.innerText.trim().slice(0, 500),
+      value,
     });
     markUserAction();
     return sent;
@@ -1062,6 +1075,7 @@
     } finally {
       writingPendingKeys = false;
     }
+    if (pendingKeys.length === 0) editableAtKeyBehind = null;
     releaseHeldBehindPendingKeys();
   }
 
@@ -1112,6 +1126,7 @@
   function forgetPendingKeys() {
     pendingKeys = [];
     heldBehindPendingKeys = [];
+    editableAtKeyBehind = null;
   }
 
   // ─── Click capture ────────────────────────────────────────────────────────────
@@ -1714,6 +1729,12 @@
       markKeyEvent();
       if (mayBeText || press.behindDead) pendingKeys.push(press);
       else writeKeyPress(press);
+      // A key behind a dead key is written once the browser and the page
+      // have handled it: the editable content's text is taken here, before
+      // they act, for the entry that key ends.
+      if (press.behindDead && editableTypedInto && !editableAtKeyBehind) {
+        editableAtKeyBehind = { el: editableTypedInto, value: editableText(editableTypedInto) };
+      }
     },
     { capture: true, passive: true },
   );

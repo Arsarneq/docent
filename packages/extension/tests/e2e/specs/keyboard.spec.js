@@ -1887,6 +1887,60 @@ test.describe('Every key press that is not text', () => {
     });
   }
 
+  // Editable content has its text read when its entry is written. A key
+  // behind a dead key is written after the page has handled it, so the text
+  // is taken at that key's press: a page that sends and empties its editable
+  // content at Enter (a chat box) still has what was typed in the file.
+  for (const [name, empties, expected] of [
+    [
+      'a_page_that_empties_it_at_that_key',
+      true,
+      [
+        ['type', 'c'],
+        ['key', 'Enter'],
+        ['type', '´'],
+      ],
+    ],
+    [
+      'a_page_that_leaves_it',
+      false,
+      [
+        ['type', 'c'],
+        ['key', 'Enter'],
+        ['type', 'c´'],
+      ],
+    ],
+  ]) {
+    test(`regression_769_text_in_editable_content_is_read_at_the_press_of_the_key_behind_a_dead_key_on_${name}`, async ({
+      testPage,
+      serviceWorker,
+      context,
+    }) => {
+      const session = await context.newCDPSession(testPage);
+      const dead = { key: 'Dead', code: 'Equal', windowsVirtualKeyCode: 221 };
+      const enter = { key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 };
+      if (empties) {
+        await testPage.evaluate(() => {
+          const box = document.querySelector('#editable');
+          box.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') box.textContent = '';
+          });
+        });
+      }
+      await testPage.focus('#editable');
+      await testPage.keyboard.type('c');
+      await session.send('Input.dispatchKeyEvent', { type: 'rawKeyDown', ...dead });
+      await session.send('Input.dispatchKeyEvent', { type: 'keyUp', ...dead });
+      await session.send('Input.dispatchKeyEvent', { type: 'rawKeyDown', ...enter });
+      await session.send('Input.dispatchKeyEvent', { type: 'char', ...enter, text: '´' });
+      await testPage.waitForTimeout(50);
+      await session.send('Input.dispatchKeyEvent', { type: 'keyUp', ...enter });
+      await testPage.locator('#btn').click();
+      const actions = (await written(serviceWorker, testPage)).filter(([type]) => type !== 'click');
+      expect(actions).toEqual(expected);
+    });
+  }
+
   test('a_dead_key_is_a_key_where_the_key_behind_it_changes_the_field_or_enters_text_elsewhere', async ({
     testPage,
     serviceWorker,
