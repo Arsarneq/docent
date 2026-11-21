@@ -368,9 +368,26 @@ exception to that wait: it enters
 nothing by itself, so it stays buffered until the next key or the end of the
 typing decides what it was; a value change that comes while it waits is the
 text of the keys before it. Where the character key after it enters text it
-is part of that text; where a key that is no typing key follows, or the
-typing ends, it is written as a `key`, as on the extension, behind the keys
-pressed before it that are still buffered. The keyboard hook asks the layout
+is part of that text. A program can also enter the bare accent as a
+character: when the dead key is pressed again, or with a key that is no
+typing key (Enter in a text editor). The dead key is part of that text too,
+and no `key` beside it, where the value taken for the field holds the accent
+more often than the field did when the first waiting dead key was pressed
+(the value read at that press, or else the value last taken for the field);
+that many of the waiting dead keys with the accent, from the first, are
+text. The accent is the character the layout names for the dead key. This
+is asked only while every buffered key is a waiting dead key and what the
+field held before is known; otherwise the dead keys stay as they are. A key
+that is no typing key pressed behind waiting dead keys in their field is
+held with them, so that the keys are written in the order pressed: a value
+taken for the field decides what the dead keys were and the held key is
+written behind those that are keys, ahead of the `type` the value starts.
+With no such value within the 500 ms, or at the next key or any other
+action, the dead keys and the held key are written as keys. Where the
+typing ends with a dead key still waiting, it is written as a `key`, behind
+the keys pressed before it that are still buffered. The extension follows
+the same rule with what the browser tells it (extension capture principles,
+Capture Surface). The keyboard hook asks the layout
 with the system's read that leaves the keyboard state as it is, so an accent
 pending in the application is not touched. The layout's answer depends on an
 accent already pending, so it is asked about a key pressed with Shift or

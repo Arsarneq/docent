@@ -157,6 +157,19 @@
  *     as a second test; the growth before this change is the end of typing
  *     the worker asks the frames for, which landed inside the previous
  *     budget; no new dependency.
+ *   - Raised to 835KB for a dead key whose accent the browser enters with
+ *     the key after it (docent#769): measured 829,323 B (`node_modules`
+ *     inside the checkout); margin 25,717 B; growth since 803,721 B (the
+ *     header's recorded size): `content/recorder.js` +13,102 B (+1,226 B in
+ *     this change, +11,876 B before it), the files synced from the shared
+ *     package with the generated validator +11,161 B, `content/recorder-logic.js`
+ *     +788 B, `background/service-worker.js` +442 B, `lib/redaction-logic.js`
+ *     +109 B (all before this change). Deliberate: the recorder keeps a key
+ *     that is no character key waiting behind a dead key until it is known
+ *     whether the browser entered the accent; the growth before this change
+ *     is the physical key, the input method's keys and composed text, and
+ *     entries made again, which landed inside the previous budget, 319 B
+ *     under it; no new dependency.
  *
  * Requires `npm run sync-shared` to have been run first.
  */
@@ -207,7 +220,7 @@ function formatSize(bytes) {
 
 const extensionExcludes = ['node_modules', 'tests', '.git', 'coverage'];
 
-const JS_BUDGET_KB = 809;
+const JS_BUDGET_KB = 835;
 
 /** The headroom rule's figures for a measured size: the next budget and its margin. */
 function nextBudget(bytes) {

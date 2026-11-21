@@ -937,10 +937,14 @@
   // Two kinds of press wait for more than themselves. A date or time field
   // has a value, and sends `input`, only once its parts make one: the
   // character keys typed into one wait together as a run (`byParts`). A dead
-  // key enters nothing until the next character key is pressed: it waits for
-  // that press and is text or a key together with it (`dead`). The timer and
-  // a release leave both kinds waiting, and a press that does not belong with
-  // them ends the wait.
+  // key enters nothing until the next key is pressed in its field (`dead`).
+  // With a character key it is text or a key together with that press. A key
+  // of another kind waits behind it (`behindDead`) while the browser handles
+  // that key: where the bare accent is entered then, the dead key is text and
+  // only the key behind it is a `key`; otherwise both are keys, in the order
+  // pressed (#769). The timer and a release leave a run and a dead key with
+  // nothing behind it waiting, and a press that does not belong with them
+  // ends the wait.
   let pendingKeys = [];
   // The actions the browser caused while it handled a waiting press, other
   // than entries: written behind the press once it is known what it was.
@@ -1070,6 +1074,8 @@
     const waiting = pendingKeys.length;
     pendingKeys = pendingKeys.filter((press) => {
       if (press.byParts) return press.field !== target && press.el !== e.target;
+      // The key behind a dead key is no text: the text is the dead key's.
+      if (press.behindDead) return true;
       return press.dead ? !typed && !composed : !typed;
     });
     // The text can land in another field than the one the key was pressed in
@@ -1080,6 +1086,11 @@
     if (pendingKeys.length < waiting && takesEntry(e.target)) {
       fieldsEditedByKey.add(e.target);
       if (typed) noteEntryMadeAgain(e.target);
+    }
+    // A key that waited behind a dead key waits for nothing more once the
+    // dead key is known to be text.
+    if (pendingKeys.length > 0 && pendingKeys.every((press) => press.behindDead)) {
+      resolvePendingKeys();
     }
     releaseHeldBehindPendingKeys();
   }
@@ -1600,13 +1611,18 @@
       const secret = character || altCode ? (sensitiveField ?? sensitiveHost) : null;
       // A press before this one that still waits has had its chance: the
       // browser enters a key's text before the next key. A run goes on with
-      // a press that belongs to it, and a dead key waits for a character key
-      // through the modifiers and the input method's keys pressed on the way.
+      // a press that belongs to it. A dead key waits for the next key press
+      // in its field, through the modifiers and the input method's keys
+      // pressed on the way: its accent goes into the character a character
+      // key enters, and the browser can enter the bare accent with a key of
+      // another kind, while it handles that key (#769). Once such a key
+      // waits behind it, the press after that ends the wait of both.
+      const keyBehindWaits = pendingKeys.some((press) => press.behindDead);
       const goesOn = inRun
         ? (press) => press.byParts && press.field === field
-        : mayBeText || kind === 'modifier' || kind === 'composed'
-          ? (press) => press.dead && press.field === field
-          : undefined;
+        : keyBehindWaits
+          ? undefined
+          : (press) => press.dead && press.field === field;
       resolvePendingKeys(goesOn);
       // The entry the person made in the field is complete before this press,
       // and the browser's `change` for it comes only while it handles the
@@ -1657,6 +1673,10 @@
         downByThis,
         byParts: inRun,
         dead,
+        // A key that is no character key, pressed behind a dead key that
+        // still waits: it is written behind the dead key, once it is known
+        // what that was.
+        behindDead: !mayBeText && pendingKeys.length > 0,
         secret,
         // What the field held at the press, for a press that waits.
         textAtPress: mayBeText ? textHeld(field) : null,
@@ -1679,7 +1699,7 @@
       // the press's events; a press that waits is marked like one written.
       pressedKeysDown.add(e.code);
       markKeyEvent();
-      if (mayBeText) pendingKeys.push(press);
+      if (mayBeText || press.behindDead) pendingKeys.push(press);
       else writeKeyPress(press);
     },
     { capture: true, passive: true },
