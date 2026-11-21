@@ -676,9 +676,11 @@ with a caveat):
 - A key pressed while an input method composes text (the letters of a
   romanized reading, Space, the Enter that confirms, Escape, an arrow in the
   candidate list, Backspace) — written as a `key`, a typing key among them
-  where no value change follows it; the composed text is the field's one
-  `type` when it is confirmed, and a composition given up leaves only its
-  keys. The keyboard hook is handed each key ahead of the input method, and
+  where the field reports no value change for it (a field that reports the
+  composing text as its value has those keys in its `type` instead); the
+  composed text is the field's `type` when it is confirmed, and a
+  composition given up leaves its keys, and no `type` where the field
+  reported no value for it. The keyboard hook is handed each key ahead of the input method, and
   nothing a program outside the application can read says that a composition
   is open: measured on Windows 11 with the Japanese Microsoft IME in Notepad
   and in a WebView2 field, the input method's accessibility events

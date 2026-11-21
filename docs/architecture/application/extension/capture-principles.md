@@ -490,7 +490,8 @@ with a caveat):
   composition is given up with no text leaves no record; a departure (core
   CP-18), and one from the desktop, whose keyboard hook is handed each key
   ahead of the input method and can read nothing that says a composition is
-  open, so it writes the keys pressed inside one as `key` actions; the
+  open, so it writes the keys pressed inside one as `key` actions, a typing
+  key among them where the field reports no value change for it; the
   composed text is one `type` on both; a difference that comes from the
   platforms themselves (core CP-19;
   [docent#744](https://github.com/Arsarneq/docent/issues/744))

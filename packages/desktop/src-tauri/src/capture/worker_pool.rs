@@ -382,11 +382,13 @@ pub struct PendingBuffers {
     pub pending_keys: Vec<ActionEvent>,
     /// Timestamp of the last buffered key (the wait is counted from it).
     pub pending_keys_last_timestamp: u64,
-    /// Whether the last buffered key is a dead key (see [`is_dead_key`]). A
-    /// dead key enters nothing by itself, so no value change follows it and
-    /// the wait says nothing about it: it stays buffered until the next key
-    /// or the end of the typing decides what it was.
-    pub pending_keys_end_in_dead_key: bool,
+    /// How many of the last buffered keys are dead keys (see
+    /// [`is_dead_key`]) with no other key behind them. A dead key enters
+    /// nothing by itself, so no value change follows it and the wait says
+    /// nothing about it: it stays buffered until the next key or the end of
+    /// the typing decides what it was. No pending `type` holds its text, so
+    /// a `type` written while it waits does not supersede it.
+    pub pending_dead_keys: usize,
 }
 
 impl PendingBuffers {
@@ -403,27 +405,32 @@ impl PendingBuffers {
 
     /// The typing in a field has ended: write the pending `type`, and a dead
     /// key still waiting for the key after it. No character follows it now,
-    /// so it is a key, with the keys buffered ahead of it; no value change
-    /// that comes later is theirs.
+    /// so it is a key; no value change that comes later is its own.
     fn end_typing(&mut self, action_sender: &mpsc::Sender<ActionEvent>) {
-        if self.pending_keys_end_in_dead_key && !self.pending_keys.is_empty() {
+        if self.waiting_dead_keys() > 0 {
             self.drain_typing_into(action_sender);
         } else {
             self.flush_pending_type_only(action_sender);
         }
     }
 
-    /// Write the pending `type`, or else the buffered keys (the `type`
-    /// supersedes them).
+    /// How many dead keys wait at the end of the buffered keys.
+    fn waiting_dead_keys(&self) -> usize {
+        self.pending_dead_keys.min(self.pending_keys.len())
+    }
+
+    /// Write the pending `type`, which supersedes the keys buffered for it,
+    /// or else the buffered keys. Dead keys waiting at the end of the buffer
+    /// are no part of a `type` and are written behind it, as keys.
     fn drain_typing_into(&mut self, action_sender: &mpsc::Sender<ActionEvent>) {
         if self.pending_type.is_some() {
+            let dead_from = self.pending_keys.len() - self.waiting_dead_keys();
             flush_pending_type(&mut self.pending_type, action_sender);
-            self.pending_keys.clear();
-        } else {
-            flush_pending_keys(&mut self.pending_keys, action_sender);
+            self.pending_keys.drain(..dead_from);
         }
+        flush_pending_keys(&mut self.pending_keys, action_sender);
         self.pending_keys_last_timestamp = 0;
-        self.pending_keys_end_in_dead_key = false;
+        self.pending_dead_keys = 0;
     }
 
     /// Drain all buffered actions, emitting them via `action_sender`.
@@ -434,15 +441,7 @@ impl PendingBuffers {
     /// once and from either the worker or the shutdown drainer — whoever calls
     /// first empties the buffers; subsequent calls are no-ops.
     fn drain_into(&mut self, action_sender: &mpsc::Sender<ActionEvent>) {
-        if self.pending_type.is_some() {
-            // A type event supersedes buffered keys.
-            flush_pending_type(&mut self.pending_type, action_sender);
-            self.pending_keys.clear();
-            self.pending_keys_last_timestamp = 0;
-        } else {
-            flush_pending_keys(&mut self.pending_keys, action_sender);
-            self.pending_keys_last_timestamp = 0;
-        }
+        self.drain_typing_into(action_sender);
         if let Some(result) = self.scroll_acc.try_flush(u64::MAX) {
             let _ = action_sender.send(ActionEvent {
                 timestamp: current_timestamp_ms(),
@@ -3519,7 +3518,11 @@ fn handle_keyboard<B: AccessibilityBackend>(
         // Buffer printable keys — they may be superseded by a type event.
         buffers.pending_keys.push(event);
         buffers.pending_keys_last_timestamp = raw.timestamp;
-        buffers.pending_keys_end_in_dead_key = is_dead_key(raw);
+        buffers.pending_dead_keys = if is_dead_key(raw) {
+            buffers.waiting_dead_keys() + 1
+        } else {
+            0
+        };
     } else {
         // Control key — flush pending type and pending keys, then emit.
         buffers.flush_pending_type_only(action_sender);
@@ -3687,7 +3690,7 @@ fn write_keys_that_took_no_text(
     action_sender: &mpsc::Sender<ActionEvent>,
 ) {
     if !buffers.pending_keys.is_empty()
-        && !buffers.pending_keys_end_in_dead_key
+        && buffers.waiting_dead_keys() == 0
         && buffers.pending_keys_last_timestamp > 0
         && debounce_elapsed(now, buffers.pending_keys_last_timestamp, KEY_TEXT_WAIT_MS)
     {

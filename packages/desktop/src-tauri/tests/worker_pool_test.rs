@@ -4813,6 +4813,56 @@ fn regression_744_a_dead_key_waiting_is_written_when_the_typing_ends() {
     assert_eq!(key_names_of(&written), vec!["\u{b4}"], "got {written:?}");
 }
 
+/// Text is typed, then a dead key: the field's `type` is still held when the
+/// typing ends, and the dead key behind it took no part in that text. It is
+/// written as a `key` behind the `type`, whatever ends the typing.
+#[test]
+fn regression_744_a_dead_key_behind_typed_text_is_written_behind_the_type() {
+    for ender in ["end of typing", "commit", "stop"] {
+        let (backend, scene, _) = MovingFocusBackend::new(file_name_field(""));
+        let harness = WorkerTestHarness::new(backend);
+
+        harness.send_event(in_dialog(layout_key(1, now_ms(), 0x43)));
+        {
+            let mut scene = scene.lock().unwrap();
+            scene.element.text = Some("c".to_string());
+            scene.element.value = Some("c".to_string());
+        }
+        harness.send_event(in_dialog(value_change(2, now_ms(), DIALOG)));
+        thread::sleep(Duration::from_millis(150));
+        harness.send_event(dead_key(3));
+        thread::sleep(Duration::from_millis(900));
+
+        let mut events = Vec::new();
+        match ender {
+            "end of typing" => {
+                harness.event_tx.send(WorkerMessage::EndTyping).unwrap();
+                events.extend(harness.drain_actions());
+            }
+            "commit" => {
+                harness.flush();
+                events.extend(harness.drain_actions());
+            }
+            _ => {}
+        }
+        events.extend(harness.shutdown());
+
+        let written: Vec<String> = events
+            .iter()
+            .filter_map(|e| match &e.payload {
+                ActionPayload::Type { value, .. } => Some(format!("type {value}")),
+                ActionPayload::Key { key, .. } => Some(format!("key {key}")),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            written,
+            vec!["type c", "key \u{b4}"],
+            "{ender}: got {events:?}"
+        );
+    }
+}
+
 /// A dead key and the character key after it are both keys where the control
 /// took no text from them.
 #[test]
