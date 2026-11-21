@@ -76,9 +76,11 @@ impl ResponsiveWindow {
         use docent_desktop_lib::capture::win32_bindings::GetCurrentThreadId;
         use docent_desktop_lib::capture::win32_bindings::{
             CreateWindowExW, DestroyWindow, DispatchMessageW, GetMessageW, SetForegroundWindow,
-            TranslateMessage, MSG, WS_OVERLAPPEDWINDOW, WS_VISIBLE,
+            TranslateMessage, MSG, WM_SYSKEYDOWN, WS_OVERLAPPEDWINDOW, WS_VISIBLE,
         };
         use std::sync::mpsc as smpsc;
+        /// The virtual-key code of F4.
+        const VK_F4_KEY: usize = 0x73;
 
         let title = title.to_string();
         let (tx, rx) = smpsc::channel::<u32>();
@@ -111,6 +113,14 @@ impl ResponsiveWindow {
             // workers' queries. Exits when Drop posts WM_QUIT to this thread.
             let mut msg = MSG::default();
             while GetMessageW(&mut msg, None, 0, 0).as_bool() {
+                // Alt+F4 is not handed to the window: the default handling
+                // closes it, and the keyboard focus then falls to whatever
+                // window is next, on a CI runner the runner's own terminal,
+                // which the capture workers then ask about the focused
+                // element (docent#764). The hook has seen the key by now.
+                if msg.message == WM_SYSKEYDOWN as u32 && msg.wParam.0 == VK_F4_KEY {
+                    continue;
+                }
                 let _ = TranslateMessage(&msg);
                 DispatchMessageW(&msg);
             }
@@ -121,9 +131,6 @@ impl ResponsiveWindow {
         let thread_id = rx.recv().expect("window thread failed to start");
         // Let the window settle and become foreground before input is driven.
         thread::sleep(Duration::from_millis(100));
-        docent_desktop_lib::capture::windows::diag_foreground(&format!(
-            "responsive window up (its thread {thread_id})"
-        )); // TEMP-DIAG
         Self {
             thread_id,
             handle: Some(handle),
@@ -133,7 +140,6 @@ impl ResponsiveWindow {
 
 impl Drop for ResponsiveWindow {
     fn drop(&mut self) {
-        docent_desktop_lib::capture::windows::diag_foreground("responsive window dropped"); // TEMP-DIAG
         use docent_desktop_lib::capture::win32_bindings::{PostThreadMessageW, WM_QUIT};
         use docent_desktop_lib::capture::win32_bindings::{LPARAM, WPARAM};
         unsafe {
@@ -1880,10 +1886,6 @@ mod user_actions_extended {
         );
         let _ = SetForegroundWindow(hwnd);
         thread::sleep(Duration::from_millis(100));
-        docent_desktop_lib::capture::windows::diag_foreground(&format!(
-            "target window {:#x} up",
-            hwnd.0 as usize
-        )); // TEMP-DIAG
         let mut rect = RECT::default();
         GetWindowRect(hwnd, &mut rect).unwrap();
         let cx = (rect.left + rect.right) / 2;
@@ -2151,7 +2153,7 @@ mod user_actions_extended {
     #[serial]
     fn alt_f4_is_captured() {
         // Alt+F4 is a user action (close window). NOTE: we don't actually close
-        // our test window — STATIC windows don't process WM_CLOSE — we just
+        // our test window (`ResponsiveWindow` keeps the key from it), we just
         // verify the key path. Asserts the environment-independent contract
         // (no-hang + well-formed keys); see stop_capture_bounded.
         let (tx, rx) = mpsc::channel::<ActionEvent>();
@@ -2209,10 +2211,6 @@ mod scroll_behaviour {
         );
         let _ = SetForegroundWindow(hwnd);
         thread::sleep(Duration::from_millis(100));
-        docent_desktop_lib::capture::windows::diag_foreground(&format!(
-            "target window {:#x} up",
-            hwnd.0 as usize
-        )); // TEMP-DIAG
         let mut rect = RECT::default();
         GetWindowRect(hwnd, &mut rect).unwrap();
         let cx = (rect.left + rect.right) / 2;
@@ -2330,10 +2328,6 @@ mod user_actions_missing {
         );
         let _ = SetForegroundWindow(hwnd);
         thread::sleep(Duration::from_millis(100));
-        docent_desktop_lib::capture::windows::diag_foreground(&format!(
-            "target window {:#x} up",
-            hwnd.0 as usize
-        )); // TEMP-DIAG
         let mut rect = RECT::default();
         GetWindowRect(hwnd, &mut rect).unwrap();
         let cx = (rect.left + rect.right) / 2;
@@ -2483,10 +2477,6 @@ mod capture_behaviour_missing {
         );
         let _ = SetForegroundWindow(hwnd);
         thread::sleep(Duration::from_millis(100));
-        docent_desktop_lib::capture::windows::diag_foreground(&format!(
-            "target window {:#x} up",
-            hwnd.0 as usize
-        )); // TEMP-DIAG
         let mut rect = RECT::default();
         GetWindowRect(hwnd, &mut rect).unwrap();
         let cx = (rect.left + rect.right) / 2;
@@ -2627,10 +2617,6 @@ mod completeness {
         );
         let _ = SetForegroundWindow(hwnd);
         thread::sleep(Duration::from_millis(100));
-        docent_desktop_lib::capture::windows::diag_foreground(&format!(
-            "target window {:#x} up",
-            hwnd.0 as usize
-        )); // TEMP-DIAG
         let mut rect = RECT::default();
         GetWindowRect(hwnd, &mut rect).unwrap();
         let cx = (rect.left + rect.right) / 2;
@@ -3340,10 +3326,6 @@ mod deduplication {
         );
         let _ = SetForegroundWindow(hwnd);
         thread::sleep(Duration::from_millis(100));
-        docent_desktop_lib::capture::windows::diag_foreground(&format!(
-            "target window {:#x} up",
-            hwnd.0 as usize
-        )); // TEMP-DIAG
         let mut rect = RECT::default();
         GetWindowRect(hwnd, &mut rect).unwrap();
         let cx = (rect.left + rect.right) / 2;

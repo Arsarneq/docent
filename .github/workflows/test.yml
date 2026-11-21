@@ -980,22 +980,6 @@ jobs:
           # shellcheck disable=SC2086
           cargo llvm-cov --lib $RUST_UNIT_TEST_ARGS --ignore-filename-regex "(lib|main|win32_bindings)\.rs$" --lcov --output-path coverage-unit.lcov ${{ runner.debug == '1' && '-- --nocapture' || '' }}
 
-      # TEMP-DIAG: the real-input suite four times, the input-method read off
-      # and on in turn, with its diagnostic lines shown.
-      - name: Diagnose the real-input suite
-        if: runner.os == 'Windows'
-        working-directory: packages/desktop/src-tauri
-        shell: bash
-        continue-on-error: true
-        run: |
-          cargo test --test capture_integration --no-run
-          for i in 1 2; do
-            echo "=== round $i, read on"
-            cargo test --test capture_integration -- --test-threads=1 --nocapture 2>&1 || true
-            echo "=== round $i, read off"
-            DOCENT_DIAG_NO_IME=1 cargo test --test capture_integration -- --test-threads=1 --nocapture 2>&1 || true
-          done
-
       - name: Run Rust integration tests with coverage
         working-directory: packages/desktop/src-tauri
         shell: bash

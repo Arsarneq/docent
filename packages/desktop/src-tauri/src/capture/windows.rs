@@ -2800,15 +2800,6 @@ unsafe fn input_method_state_of(
 ) -> Option<super::held_keys::InputMethodState> {
     use super::held_keys::InputMethodQuestion;
     use hook_diagnostics::InputMethodReadOutcome;
-    // TEMP-DIAG
-    if diag_read_off() {
-        eprintln!(
-            "[diag] key: read off; fg {} control {}",
-            diag_window(foreground),
-            diag_window(HWND(control as *mut core::ffi::c_void))
-        );
-        return None;
-    }
     let timeout_ms = INPUT_METHOD_QUESTION_LIMIT_MS.with(|t| t.get());
     if timeout_ms == 0 {
         return None;
@@ -2841,90 +2832,7 @@ unsafe fn input_method_state_of(
         Some(_) => InputMethodReadOutcome::Answered,
     };
     hook_diagnostics::input_method_read(started.elapsed(), outcome);
-    // TEMP-DIAG
-    eprintln!(
-        "[diag] key: fg {} control {} imewnd {} -> {:?} in {:?}",
-        diag_window(foreground),
-        diag_window(HWND(control as *mut core::ffi::c_void)),
-        diag_window(input_method_window),
-        state.map(|s| (s.open, s.conversion_mode)),
-        started.elapsed()
-    );
     state
-}
-
-// TEMP-DIAG
-unsafe fn diag_focused(uia: &IUIAutomation) -> Option<IUIAutomationElement> {
-    let tid = GetCurrentThreadId();
-    eprintln!("[diag] worker tid {tid}: GetFocusedElement starts");
-    let started = Instant::now();
-    let focused = uia.GetFocusedElement();
-    eprintln!(
-        "[diag] worker tid {tid}: GetFocusedElement {} in {:?}",
-        if focused.is_ok() {
-            "answered"
-        } else {
-            "failed"
-        },
-        started.elapsed()
-    );
-    if let Ok(element) = &focused {
-        let started = Instant::now();
-        let pid = element.CurrentProcessId().ok();
-        let class = element
-            .CurrentClassName()
-            .ok()
-            .map(|c| String::from_utf16_lossy(&c));
-        eprintln!(
-            "[diag] worker tid {tid}: focused is pid {pid:?} class {class:?} (read in {:?}); fg now {}",
-            started.elapsed(),
-            diag_window(GetForegroundWindow())
-        );
-    }
-    focused.ok()
-}
-
-// TEMP-DIAG
-fn diag_read_off() -> bool {
-    static OFF: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *OFF.get_or_init(|| std::env::var_os("DOCENT_DIAG_NO_IME").is_some())
-}
-
-// TEMP-DIAG
-/// A window for the diagnostic lines: handle, class, process, thread.
-unsafe fn diag_window(hwnd: HWND) -> String {
-    if hwnd.0.is_null() {
-        return "none".to_string();
-    }
-    let mut pid = 0u32;
-    let tid = GetWindowThreadProcessId(hwnd, Some(&mut pid));
-    format!(
-        "[{:#x} {:?} pid {}{} tid {}]",
-        hwnd.0 as usize,
-        get_class_name(hwnd),
-        pid,
-        if pid == std::process::id() {
-            " (own)"
-        } else {
-            ""
-        },
-        tid
-    )
-}
-
-// TEMP-DIAG
-/// The foreground window and its focused control, for the diagnostic lines.
-pub fn diag_foreground(label: &str) {
-    unsafe {
-        let fg = GetForegroundWindow();
-        let tid = GetWindowThreadProcessId(fg, None);
-        let control = focused_control_of_thread(tid);
-        eprintln!(
-            "[diag] {label}: fg {} focus {}",
-            diag_window(fg),
-            diag_window(HWND(control as *mut core::ffi::c_void))
-        );
-    }
 }
 
 /// Ask an input-method window one `WM_IME_CONTROL` question; `None` when no
@@ -4002,23 +3910,13 @@ impl AccessibilityBackend for WindowsAccessibilityBackend {
 
     fn focused_element(&self) -> Option<ElementDescription> {
         let uia = self.uia.as_ref()?;
-        let focused = unsafe { diag_focused(uia)? };
-        let started = Instant::now();
-        let description = unsafe { uia_element_to_description(uia, &focused) };
-        eprintln!(
-            "[diag] worker tid {}: described in {:?}: {:?}",
-            unsafe { GetCurrentThreadId() },
-            started.elapsed(),
-            description
-                .as_ref()
-                .map(|d| format!("{d:?}").chars().take(160).collect::<String>())
-        );
-        description
+        let focused = unsafe { uia.GetFocusedElement().ok()? };
+        unsafe { uia_element_to_description(uia, &focused) }
     }
 
     fn focused_element_in_window(&self) -> Option<(ElementDescription, i64)> {
         let uia = self.uia.as_ref()?;
-        let focused = unsafe { diag_focused(uia)? };
+        let focused = unsafe { uia.GetFocusedElement().ok()? };
         unsafe { uia_element_to_description_in_window(uia, &focused) }
     }
 
@@ -4026,7 +3924,7 @@ impl AccessibilityBackend for WindowsAccessibilityBackend {
         // Nothing is marked unless this call describes an element.
         *self.marked.borrow_mut() = None;
         let uia = self.uia.as_ref()?;
-        let focused = unsafe { diag_focused(uia)? };
+        let focused = unsafe { uia.GetFocusedElement().ok()? };
         let description = unsafe { uia_element_to_description(uia, &focused)? };
         *self.marked.borrow_mut() = Some(focused);
         Some(description)
@@ -4257,7 +4155,7 @@ impl AccessibilityBackend for WindowsAccessibilityBackend {
 
     fn selected_item_name(&self, _window_handle: i64) -> Option<(ElementDescription, String)> {
         let uia = self.uia.as_ref()?;
-        let focused = unsafe { diag_focused(uia)? };
+        let focused = unsafe { uia.GetFocusedElement().ok()? };
 
         // Try to get the SelectionPattern from the focused element.
         let pattern: IUIAutomationSelectionPattern = unsafe {
