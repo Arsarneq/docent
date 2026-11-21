@@ -754,7 +754,9 @@ writes nothing when that is the element of the last focus written (the person
 moved the focus away and back) or an element the accessibility layer cannot
 describe. A description made after the focus moved but before the later focus
 event was dispatched, or after a focus change that sends no event, names the
-element focused by then and is written at the earlier event's place. And a
+element focused by then and is written at the earlier event's place, unless
+that element is in another window of another process (DCP-7), which writes
+nothing. And a
 platform that numbers no focus events (number `0`) writes every focus
 described. A respawned worker starts with no last
 focus, and a worker that takes the role over compares with the last focus it
@@ -948,6 +950,11 @@ with a caveat):
   the one the event named, and the later event records where the focus went,
   at its own place, save in the open cases DCP-12 states; a departure (core
   CP-18)
+- A focus whose element, when a worker describes it, is in another top-level
+  window than the one the focus event named, where that window belongs to
+  another process than the event's or to a process that can no longer be read
+  (DCP-7) — not written: the scope filters judged the event's process, not
+  that one; a departure (core CP-18)
 - A key pressed while an input method composes text (the letters of a
   romanized reading, Space, the Enter that confirms, Escape, an arrow in the
   candidate list, Backspace) — written as a `key`, a typing key among them
