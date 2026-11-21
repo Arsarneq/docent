@@ -459,22 +459,34 @@ impl PendingBuffers {
         self.pending_dead_keys = 0;
     }
 
-    /// Discard the buffered keys: a value read in time made them text.
+    /// Discard the buffered keys a value read in time made text. A dead key
+    /// waiting at the end of the buffer stays: it enters nothing by itself,
+    /// so the value is the text of the keys before it.
     fn clear_keys(&mut self) {
-        self.pending_keys.clear();
-        self.pending_keys_last_timestamp = 0;
+        let waiting = self.waiting_dead_keys();
+        let text_keys = self.pending_keys.len() - waiting;
+        self.pending_keys.drain(..text_keys);
         self.keys_after_type = 0;
-        self.pending_dead_keys = 0;
+        if waiting == 0 {
+            self.pending_keys_last_timestamp = 0;
+        }
     }
 
-    /// The typing in a field has ended: write the pending `type`, and a dead
-    /// key still waiting for the key after it. No character follows it now,
-    /// so it is a key; no value change that comes later is its own.
+    /// The typing in a field has ended: write the pending `type` and the
+    /// keys after it, then a dead key still waiting for the key after it. No
+    /// character follows it now, so it is a key; no value change that comes
+    /// later is its own. A key ahead of it that no value change has reached
+    /// stays buffered, as it does where no dead key waits.
     fn end_typing(&mut self, action_sender: &mpsc::Sender<ActionEvent>) {
-        if self.waiting_dead_keys() > 0 {
-            self.drain_typing_into(action_sender);
-        } else {
-            self.flush_pending_type_only(action_sender);
+        self.flush_pending_type_only(action_sender);
+        let waiting = self.waiting_dead_keys();
+        let first = self.pending_keys.len() - waiting;
+        for event in self.pending_keys.drain(first..) {
+            let _ = action_sender.send(event);
+        }
+        self.pending_dead_keys = 0;
+        if self.pending_keys.is_empty() {
+            self.pending_keys_last_timestamp = 0;
         }
     }
 
@@ -1684,10 +1696,15 @@ fn is_printable_key(raw: &RawEvent) -> bool {
 /// foreground window's thread marks as one (the dead-key flag, bit 31 of the
 /// value the keyboard hook read for the key with no modifier). It enters
 /// nothing by itself; its accent goes into the character the next key enters.
-/// The flag is the unmodified key's: a key that is dead only with Shift or
-/// AltGr is not known as one.
+/// The flag is the unmodified key's, so it counts for a press with neither
+/// Shift nor AltGr (Ctrl and Alt together): a key that is dead only with one
+/// of them is not known as a dead key, and a key that is dead only without
+/// them is none when pressed with one.
 fn is_dead_key(raw: &RawEvent) -> bool {
+    let (ctrl, shift, alt, _meta) = raw.modifiers;
     is_printable_key(raw)
+        && !shift
+        && !(ctrl && alt)
         && super::held_keys::layout_char_of(raw.callback_params[3]) & 0x8000_0000 != 0
 }
 

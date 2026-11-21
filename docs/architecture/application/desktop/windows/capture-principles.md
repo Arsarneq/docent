@@ -365,11 +365,13 @@ the last buffered key (non-editable control like Calculator), the keys are
 emitted individually. A dead key (a key the keyboard layout marks as one, read
 for the key with no modifier) is the exception to that wait: it enters
 nothing by itself, so it stays buffered until the next key or the end of the
-typing decides what it was. Where the character key after it enters text it
+typing decides what it was; a value change that comes while it waits is the
+text of the keys before it. Where the character key after it enters text it
 is part of that text; where a key that is no typing key follows, or the
 typing ends, it is written as a `key`, as on the extension. A key that is
 dead only with Shift or AltGr is not known as one and is written after the
-wait; a departure (core CP-18). The `type` itself is held for the field and carried
+wait; a departure (core CP-18). A key that is dead only without them is an
+ordinary key when pressed with one. The `type` itself is held for the field and carried
 forward to each new value, and it is written when the typing in the field
 ends: a key that is no typing key is pressed, a typing key is pressed in
 another element, the pointer is pressed (a click, a right-click or a drag),

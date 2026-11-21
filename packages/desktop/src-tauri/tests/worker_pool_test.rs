@@ -8995,3 +8995,106 @@ fn open_case_762_a_pasted_value_read_late_is_recorded_nowhere() {
         "the open case: the pasted text is recorded nowhere"
     );
 }
+
+/// The `type` and `key` actions of a recording, each as one word and its
+/// text, in the order they were written.
+fn types_and_keys(events: &[ActionEvent]) -> Vec<String> {
+    events
+        .iter()
+        .filter_map(|e| match &e.payload {
+            ActionPayload::Type { value, .. } => Some(format!("type {value}")),
+            ActionPayload::Key { key, .. } => Some(format!("key {key}")),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn a_key_ahead_of_a_waiting_dead_key_is_written_once_when_its_value_comes_after_the_typing_ends() {
+    // X, a dead key, the typing ends (a click), and only then the program
+    // reports X's text. The dead key is a key: no character followed it. X is
+    // the text of the `type`, and is not written as a key beside it.
+    let (backend, scene, _) = MovingFocusBackend::new(file_name_field(""));
+    let harness = WorkerTestHarness::new(backend);
+    harness.send_event(in_dialog(layout_key(1, now_ms(), 0x58)));
+    harness.send_event(dead_key(2));
+    harness.event_tx.send(WorkerMessage::EndTyping).unwrap();
+    {
+        let mut scene = scene.lock().unwrap();
+        scene.element.text = Some("x".to_string());
+        scene.element.value = Some("x".to_string());
+    }
+    harness.send_event(in_dialog(value_change(3, now_ms(), DIALOG)));
+    thread::sleep(Duration::from_millis(900));
+    assert_eq!(
+        types_and_keys(&harness.shutdown()),
+        vec!["key \u{b4}", "type x"]
+    );
+}
+
+#[test]
+fn a_value_change_of_an_earlier_key_leaves_a_waiting_dead_key_to_be_written() {
+    // C, a dead key, then C's value change, then the typing ends. The dead
+    // key entered nothing; the value change is C's.
+    let (backend, scene, _) = MovingFocusBackend::new(file_name_field(""));
+    let harness = WorkerTestHarness::new(backend);
+    harness.send_event(in_dialog(layout_key(1, now_ms(), 0x43)));
+    harness.send_event(dead_key(2));
+    {
+        let mut scene = scene.lock().unwrap();
+        scene.element.text = Some("c".to_string());
+        scene.element.value = Some("c".to_string());
+    }
+    harness.send_event(in_dialog(value_change(3, now_ms(), DIALOG)));
+    thread::sleep(Duration::from_millis(900));
+    harness.event_tx.send(WorkerMessage::EndTyping).unwrap();
+    assert_eq!(
+        types_and_keys(&harness.shutdown()),
+        vec!["type c", "key \u{b4}"]
+    );
+}
+
+#[test]
+fn a_value_reported_again_behind_a_waiting_dead_key_leaves_it_to_be_written() {
+    // C and its value change, a dead key, then the program reports the same
+    // value once more, then the typing ends.
+    let (backend, scene, _) = MovingFocusBackend::new(file_name_field(""));
+    let harness = WorkerTestHarness::new(backend);
+    harness.send_event(in_dialog(layout_key(1, now_ms(), 0x43)));
+    {
+        let mut scene = scene.lock().unwrap();
+        scene.element.text = Some("c".to_string());
+        scene.element.value = Some("c".to_string());
+    }
+    harness.send_event(in_dialog(value_change(2, now_ms(), DIALOG)));
+    thread::sleep(Duration::from_millis(150));
+    harness.send_event(dead_key(3));
+    harness.send_event(in_dialog(value_change(4, now_ms(), DIALOG)));
+    thread::sleep(Duration::from_millis(900));
+    harness.event_tx.send(WorkerMessage::EndTyping).unwrap();
+    assert_eq!(
+        types_and_keys(&harness.shutdown()),
+        vec!["type c", "key \u{b4}"]
+    );
+}
+
+#[test]
+fn a_key_that_is_dead_only_unshifted_is_no_dead_key_when_pressed_with_shift() {
+    // The layout marks the key as dead for the press with no modifier. With
+    // Shift it enters a character of its own (the German `^` key enters `°`),
+    // so its value change makes it text and it is not written as a key.
+    let (backend, scene, _) = MovingFocusBackend::new(file_name_field(""));
+    let harness = WorkerTestHarness::new(backend);
+    let mut key = dead_key(1);
+    key.modifiers = (false, true, false, false);
+    harness.send_event(key);
+    {
+        let mut scene = scene.lock().unwrap();
+        scene.element.text = Some("\u{b0}".to_string());
+        scene.element.value = Some("\u{b0}".to_string());
+    }
+    harness.send_event(in_dialog(value_change(2, now_ms(), DIALOG)));
+    thread::sleep(Duration::from_millis(900));
+    harness.event_tx.send(WorkerMessage::EndTyping).unwrap();
+    assert_eq!(types_and_keys(&harness.shutdown()), vec!["type \u{b0}"]);
+}
