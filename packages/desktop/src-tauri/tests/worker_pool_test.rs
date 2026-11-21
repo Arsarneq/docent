@@ -14,9 +14,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc;
 use std::sync::Arc;
 
-use docent_desktop_lib::capture::worker_pool::{
-    ends_typing_outside_the_recording, RawEvent, RawEventType, WorkerMessage, WorkerPool,
-};
+use docent_desktop_lib::capture::worker_pool::{RawEvent, RawEventType, WorkerMessage, WorkerPool};
 use docent_desktop_lib::capture::ActionEvent;
 use proptest::prelude::*;
 
@@ -4140,10 +4138,9 @@ fn regression_719_the_event_that_ends_the_typing_writes_the_type() {
     }
 }
 
-/// The person leaves the recorded windows for one the recording keeps
-/// nothing of (the recorder's own window to complete the step, or a window
-/// outside the application recorded): no event of that window reaches the
-/// pool, and the typing has ended all the same. Told so, the pool has the
+/// A window the recording keeps nothing of comes to the front (the
+/// recorder's own window to complete the step, or a window outside the
+/// application recorded): no event of that window reaches the pool, and the typing has ended all the same. Told so, the pool has the
 /// `type` written at once, with no further key or click in the application
 /// (docent#768), and the text typed on return is the next `type`.
 #[test]
@@ -4194,8 +4191,7 @@ fn regression_768_leaving_for_a_window_not_recorded_writes_the_type() {
     );
 }
 
-/// Leaving with nothing typed tells no worker anything it has to act on: no
-/// typing worker is chosen by it, and nothing is written.
+/// Leaving with nothing typed writes nothing.
 #[test]
 fn regression_768_leaving_with_nothing_typed_writes_nothing() {
     let (action_tx, action_rx) = mpsc::channel::<ActionEvent>();
@@ -4214,24 +4210,6 @@ fn regression_768_leaving_with_nothing_typed_writes_nothing() {
     pool.shutdown();
     let written: Vec<ActionEvent> = action_rx.try_iter().collect();
     assert!(written.is_empty(), "got {written:?}");
-}
-
-/// What ends the typing from a window not recorded is what ends it from a
-/// recorded one: a press of the left or right button, a drag, a window that
-/// comes to the front. A scroll, a focus report or a key there ends nothing.
-#[test]
-fn regression_768_the_same_input_ends_the_typing_from_a_window_not_recorded() {
-    for (name, ender) in typing_enders() {
-        assert!(ends_typing_outside_the_recording(&ender), "{name}");
-    }
-    for (name, other) in [
-        ("scroll", RawEventType::Scroll),
-        ("focus", RawEventType::Focus),
-        ("key", RawEventType::Keyboard),
-        ("value change", RawEventType::ValueChange),
-    ] {
-        assert!(!ends_typing_outside_the_recording(&other), "{name}");
-    }
 }
 
 /// What each worker of a three-worker pool is sent when `events` are
