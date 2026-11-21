@@ -15,7 +15,7 @@
  * clicks are not input and the foreground stays on Notepad.
  */
 
-import { mkdtempSync } from 'node:fs';
+import { copyFileSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { lintFile } from '../../../../../scripts/sufficiency-lint.js';
@@ -46,7 +46,7 @@ function expectKey(action, { key, code, on = [], context }) {
 test('typing in Notepad and closing it unsaved exports exactly those actions', async ({
   app,
   notepad,
-}) => {
+}, testInfo) => {
   const { panel } = app;
   const file = join(mkdtempSync(join(tmpdir(), 'docent-e2e-')), 'smoke.docent.json');
 
@@ -94,6 +94,8 @@ test('typing in Notepad and closing it unsaved exports exactly those actions', a
   await expect(panel.locator('#view-project')).toBeVisible();
 
   const doc = await exportProject(app, file);
+  // The export goes with the test's results, so a red run carries the file.
+  copyFileSync(file, testInfo.outputPath('export.docent.json'));
 
   // The envelope (session-format).
   expect(doc.docent_format.platform).toBe('desktop-windows');
@@ -107,7 +109,9 @@ test('typing in Notepad and closing it unsaved exports exactly those actions', a
   expect(steps[0].narration_source).toBe('typed');
 
   const actions = steps[0].actions;
-  const summary = actions.map((a) => `${a.type}:${a.value ?? a.key ?? a.title ?? ''}`);
+  const summary = actions.map(
+    (a) => `${a.type}:${a.value ?? a.key ?? a.title ?? ''}@${a.context_id}`,
+  );
   console.log(`[actions] ${JSON.stringify(summary)}`);
 
   // A: Notepad's main window. The typing is one held value per run of typing
