@@ -116,7 +116,9 @@ pub struct RawEvent {
     /// keystroke the injected UTF-16 code unit, with the hook's extended mark
     /// for the key in the bit above it
     /// ([`super::held_keys::KEY_EXTENDED_PARAM`]), scan code and mark together
-    /// naming the physical key a `key` action's `code` states;
+    /// naming the physical key a `key` action's `code` states, and above the
+    /// mark what the hook read of the input method at the press
+    /// ([`super::held_keys::input_method_param`]; nothing where none was read);
     /// `focused_control` the window
     /// handle of the control that held the keyboard focus at the key (`0` when
     /// none was read, see `settle_key_on_its_control`); `part_focus` the
@@ -1744,6 +1746,13 @@ fn physical_key_of(raw: &RawEvent) -> Option<&'static str> {
     let params = raw.callback_params[0];
     // The low half is the hook's scan code, a 32-bit value.
     physical_key_code(params as u32, params & KEY_EXTENDED_PARAM != 0)
+}
+
+/// What the keyboard hook read of the input method at a keystroke (the fourth
+/// callback parameter, above the repeat mark; see
+/// [`RawEvent::callback_params`]), as the `key` action states it.
+fn input_method_at(raw: &RawEvent) -> super::InputMethodAtKey {
+    super::held_keys::input_method_of(raw.callback_params[0]).into()
 }
 
 /// The key names that enter no character: editing, navigation, lock, system
@@ -3689,6 +3698,7 @@ fn handle_keyboard<B: AccessibilityBackend>(
                 key,
                 modifiers: modifiers_of(raw),
                 code: physical_key_of(raw),
+                input_method: input_method_at(raw),
                 repeat: is_repeat(raw),
                 held: held_at(raw),
                 element,
@@ -3833,6 +3843,7 @@ fn handle_keyboard<B: AccessibilityBackend>(
             modifiers: modifiers_of(raw),
             repeat: is_repeat(raw),
             code: physical_key_of(raw),
+            input_method: input_method_at(raw),
             held: held_at(raw),
             element,
         },
@@ -4126,6 +4137,7 @@ mod tests {
                 },
                 repeat: false,
                 code: None,
+                input_method: Default::default(),
                 held: HeldKeysAtAction::default(),
                 element: ElementDescription {
                     tag: "Edit".to_string(),

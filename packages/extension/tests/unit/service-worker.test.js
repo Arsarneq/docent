@@ -803,6 +803,23 @@ describe('SERVICE WORKER: a key that enters a character on a sensitive field is 
     element,
   });
 
+  it('regression_237_a_character_key_that_becomes_the_masked_type_loses_its_input_method_fields', () => {
+    // The fields belong to a `key` action; the masked `type` is none.
+    const withState = (action) => ({
+      ...action,
+      input_method_open: true,
+      input_method_conversion_mode: 9,
+    });
+    const out = redactSensitive(withState(key('4', card())));
+    assert.equal(out.type, 'type');
+    assert.equal('input_method_open' in out, false);
+    assert.equal('input_method_conversion_mode' in out, false);
+    // A key that stays a key keeps them.
+    const enter = redactSensitive(withState(key('Enter', card(), none, 'NumpadEnter')));
+    assert.equal(enter.input_method_open, true);
+    assert.equal(enter.input_method_conversion_mode, 9);
+  });
+
   it('regression_717_a_character_key_that_becomes_the_masked_type_loses_its_code', () => {
     // `code` names the physical key, which says as much as the character.
     const out = redactSensitive(key('4', card()));

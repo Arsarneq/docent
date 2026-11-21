@@ -22,7 +22,9 @@ numeric sequence.
 **DCP-1.** Capture runs on four thread roles:
 
 1. **Input Thread** — low-level hooks (WH_MOUSE_LL, WH_KEYBOARD_LL). It makes
-   no accessibility call itself. At left mouse-up on a non-drag click, and at
+   no accessibility call itself. The keyboard hook asks the focused control's
+   input-method window two questions at each key press, each with a short
+   time limit (DCP-9). At left mouse-up on a non-drag click, and at
    right/middle button-down, the mouse hook asks a pre-capture describer for
    the clicked element and waits for the answer for at most a budget set at
    start from the system's low-level hook timeout: the user's
@@ -467,7 +469,33 @@ Events `code` values, by the scan-code table Chromium publishes), so one
 physical key has one name on both platforms whatever the keyboard layout. A
 keystroke injected as a character carries none, and neither does a key whose
 scan code the table has no name for (zero among them, which software sending
-a key by its virtual-key code alone can give). Each `key` also carries
+a key by its virtual-key code alone can give). Each `key` carries what the
+keyboard hook read of the input method at the press, before the key took
+effect: `input_method_open`, whether an input method was on for the control
+that held the keyboard focus (the foreground window where none was read),
+and `input_method_conversion_mode`, its conversion mode as Windows gave it,
+less its five highest bits, the four Windows reserves among them. The hook
+asks that control's input-method window (`ImmGetDefaultIMEWnd`) with two
+`WM_IME_CONTROL` messages (`IMC_GETOPENSTATUS`, then
+`IMC_GETCONVERSIONMODE`), which the program's own thread answers. Each ask
+waits for at most `INPUT_METHOD_READ_TIMEOUT_MS` (20 ms), or an eighth of
+the system's low-level hook timeout where that is less
+(`src/capture/timing.rs`), gives up at once on a thread Windows knows to be
+hung, and dispatches no message to the hook's own thread while it waits.
+With a hook timeout under 8 ms that limit is 0 and the hook asks nothing.
+Where the first ask gets no answer, or is refused, nothing was read and the
+second is not sent; where the first is answered and the second is not, the
+open status is written alone, a fact that was read being written (core
+CP-18). Neither field is written where the control has no input-method
+window or on a key attributed to no window (DCP-14). Windows hands a
+program a message another thread sent it ahead of the key presses waiting
+in its queue, so on a program that runs behind the typing the read can
+show the state before an earlier key took effect. They say that
+an input method was on and in which mode, not that it took the key: nothing
+the desktop can read says a composition is open
+([docent#237](https://github.com/Arsarneq/docent/issues/237)). The extension
+writes neither, the browser giving no reading of the input method's state; a
+difference that comes from the platforms themselves (core CP-19). Each `key` also carries
 `held_keys`: the keys that were down at the press, other than the modifiers
 and the key itself, each a key whose own key-down is a `key` action, by the
 name that action carries, in the order they went down. The hook's record

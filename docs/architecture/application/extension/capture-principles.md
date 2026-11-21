@@ -468,6 +468,12 @@ with a caveat):
   and the shift state, where the desktop names it from the virtual-key code:
   a departure (core CP-19;
   [docent#717](https://github.com/Arsarneq/docent/issues/717))
+- A `key` states nothing of the input method: the browser gives a page and
+  an extension no reading of whether one is on or of its mode, where the
+  desktop writes `input_method_open` and `input_method_conversion_mode` on
+  each `key` from what Windows tells it; a difference that comes from the
+  platforms themselves (core CP-19;
+  [docent#237](https://github.com/Arsarneq/docent/issues/237))
 - A key the input method takes: not written as a `key`. Its text arrives as
   a composition, which the field's `type` records, and a press whose
   composition is given up with no text leaves no record; a departure (core

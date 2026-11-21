@@ -203,6 +203,16 @@ export const PREDICATES = [
     },
   },
   {
+    id: 'key-input-method-pair',
+    class: 'fail',
+    title: "a key's conversion mode stands beside the open status it was read with",
+    appliesTo: (a) => a.type === 'key' && 'input_method_conversion_mode' in a,
+    check: (a) =>
+      'input_method_open' in a
+        ? null
+        : 'key carries input_method_conversion_mode without input_method_open',
+  },
+  {
     id: 'coordinate-geometry',
     class: 'fail',
     title: 'coordinate-mode point actions carry their window geometry',

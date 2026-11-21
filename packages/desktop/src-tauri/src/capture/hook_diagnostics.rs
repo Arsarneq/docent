@@ -73,6 +73,26 @@ static PRE_CAPTURES_SKIPPED_HELD: AtomicU64 = AtomicU64::new(0);
 static PRE_CAPTURES_SKIPPED_BUSY: AtomicU64 = AtomicU64::new(0);
 static DESCRIBERS_ABANDONED: AtomicU64 = AtomicU64::new(0);
 static DESCRIBER_CLIENTS_NOT_BUILT: AtomicU64 = AtomicU64::new(0);
+static INPUT_METHOD_READ_LIMIT_MS: AtomicU64 = AtomicU64::new(0);
+static INPUT_METHOD_READS: AtomicU64 = AtomicU64::new(0);
+static INPUT_METHOD_READS_ANSWERED: AtomicU64 = AtomicU64::new(0);
+static INPUT_METHOD_READS_OPEN_STATUS_ALONE: AtomicU64 = AtomicU64::new(0);
+static INPUT_METHOD_READS_UNANSWERED: AtomicU64 = AtomicU64::new(0);
+static INPUT_METHOD_READS_WITHOUT_WINDOW: AtomicU64 = AtomicU64::new(0);
+static LONGEST_INPUT_METHOD_READ_US: AtomicU64 = AtomicU64::new(0);
+
+/// How the keyboard hook's read of the input method at one key press ended.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InputMethodReadOutcome {
+    /// Both questions were answered.
+    Answered,
+    /// The open status was answered, the conversion mode was not.
+    OpenStatusAlone,
+    /// The first question got no answer within the limit, or was refused.
+    NoAnswer,
+    /// The control had no input-method window, so nothing was asked.
+    NoWindow,
+}
 
 /// A snapshot of the counters.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -123,6 +143,22 @@ pub struct HookDiagnostics {
     pub describers_abandoned: u64,
     /// Describers whose accessibility client could not be built.
     pub describer_clients_not_built: u64,
+    /// The session's time limit for one question to an input-method window,
+    /// in milliseconds; 0 where the session asks none.
+    pub input_method_read_limit_ms: u64,
+    /// Key presses the keyboard hook read the input method at, however the
+    /// read ended. A session whose limit is 0 has none.
+    pub input_method_reads: u64,
+    /// Of those, reads with both answers.
+    pub input_method_reads_answered: u64,
+    /// Of those, reads with the open status and no conversion mode.
+    pub input_method_reads_open_status_alone: u64,
+    /// Of those, reads whose first question got no answer.
+    pub input_method_reads_unanswered: u64,
+    /// Of those, key presses on a control with no input-method window.
+    pub input_method_reads_without_window: u64,
+    /// The longest the keyboard hook spent on one read, in microseconds.
+    pub longest_input_method_read_us: u64,
 }
 
 fn micros(elapsed: Duration) -> u64 {
@@ -163,6 +199,13 @@ pub fn reset() {
         &PRE_CAPTURES_SKIPPED_BUSY,
         &DESCRIBERS_ABANDONED,
         &DESCRIBER_CLIENTS_NOT_BUILT,
+        &INPUT_METHOD_READ_LIMIT_MS,
+        &INPUT_METHOD_READS,
+        &INPUT_METHOD_READS_ANSWERED,
+        &INPUT_METHOD_READS_OPEN_STATUS_ALONE,
+        &INPUT_METHOD_READS_UNANSWERED,
+        &INPUT_METHOD_READS_WITHOUT_WINDOW,
+        &LONGEST_INPUT_METHOD_READ_US,
     ] {
         counter.store(0, Ordering::Relaxed);
     }
@@ -193,13 +236,42 @@ pub fn snapshot() -> HookDiagnostics {
         pre_captures_skipped_busy: PRE_CAPTURES_SKIPPED_BUSY.load(Ordering::Relaxed),
         describers_abandoned: DESCRIBERS_ABANDONED.load(Ordering::Relaxed),
         describer_clients_not_built: DESCRIBER_CLIENTS_NOT_BUILT.load(Ordering::Relaxed),
+        input_method_read_limit_ms: INPUT_METHOD_READ_LIMIT_MS.load(Ordering::Relaxed),
+        input_method_reads: INPUT_METHOD_READS.load(Ordering::Relaxed),
+        input_method_reads_answered: INPUT_METHOD_READS_ANSWERED.load(Ordering::Relaxed),
+        input_method_reads_open_status_alone: INPUT_METHOD_READS_OPEN_STATUS_ALONE
+            .load(Ordering::Relaxed),
+        input_method_reads_unanswered: INPUT_METHOD_READS_UNANSWERED.load(Ordering::Relaxed),
+        input_method_reads_without_window: INPUT_METHOD_READS_WITHOUT_WINDOW
+            .load(Ordering::Relaxed),
+        longest_input_method_read_us: LONGEST_INPUT_METHOD_READ_US.load(Ordering::Relaxed),
     }
 }
 
-/// Store the session's hook timeout and pre-capture budget: a session starts.
-pub fn session_bounds(hook_timeout_ms: u64, pre_capture_budget_ms: u64) {
+/// Store the session's hook timeout, pre-capture budget and time limit for
+/// one question to an input-method window: a session starts.
+pub fn session_bounds(
+    hook_timeout_ms: u64,
+    pre_capture_budget_ms: u64,
+    input_method_read_limit_ms: u64,
+) {
     HOOK_TIMEOUT_MS.store(hook_timeout_ms, Ordering::Relaxed);
     PRE_CAPTURE_BUDGET_MS.store(pre_capture_budget_ms, Ordering::Relaxed);
+    INPUT_METHOD_READ_LIMIT_MS.store(input_method_read_limit_ms, Ordering::Relaxed);
+}
+
+/// The keyboard hook read the input method at a key press, which took
+/// `elapsed` and ended as `outcome`.
+pub fn input_method_read(elapsed: Duration, outcome: InputMethodReadOutcome) {
+    INPUT_METHOD_READS.fetch_add(1, Ordering::Relaxed);
+    LONGEST_INPUT_METHOD_READ_US.fetch_max(micros(elapsed), Ordering::Relaxed);
+    let counter = match outcome {
+        InputMethodReadOutcome::Answered => &INPUT_METHOD_READS_ANSWERED,
+        InputMethodReadOutcome::OpenStatusAlone => &INPUT_METHOD_READS_OPEN_STATUS_ALONE,
+        InputMethodReadOutcome::NoAnswer => &INPUT_METHOD_READS_UNANSWERED,
+        InputMethodReadOutcome::NoWindow => &INPUT_METHOD_READS_WITHOUT_WINDOW,
+    };
+    counter.fetch_add(1, Ordering::Relaxed);
 }
 
 /// Store the pre-capture's outcome counts: its input thread ends.
@@ -275,6 +347,7 @@ impl HookDiagnostics {
         let slow = slow_bound_ms(self.hook_timeout_ms) * 1000;
         self.longest_mouse_call_us >= slow
             || self.longest_win_event_us >= slow
+            || self.longest_input_method_read_us >= slow
             || self.deepest_mouse_nesting > 1
     }
 
@@ -284,9 +357,16 @@ impl HookDiagnostics {
         self.pre_captures_without_element
     }
 
+    /// Key presses that carry less than the whole read of the input method
+    /// because a question got no answer: the open status alone, or nothing.
+    pub fn keys_short_of_an_answer(&self) -> u64 {
+        self.input_method_reads_unanswered + self.input_method_reads_open_status_alone
+    }
+
     /// The one line logged at stop: a warning when the session [is
     /// anomalous](Self::is_anomalous), a note when it is not but clicks took
-    /// the late path, `None` otherwise.
+    /// the late path or an input-method window left a question unanswered,
+    /// `None` otherwise.
     pub fn report(&self) -> Option<String> {
         let counts = format!(
             "hook timeout {} ms, pre-capture budget {} ms; left presses {}, left \
@@ -296,7 +376,9 @@ impl HookDiagnostics {
              answered, {} overran, {} waited out for a held application, {} \
              waited out for a free describer, longest {} ms; {} describers left \
              to an application, {} describer clients not built), longest \
-             WinEvent callback {} ms",
+             WinEvent callback {} ms, input-method reads {} (limit {} ms a \
+             question; {} answered, {} with the open status alone, {} \
+             unanswered, {} with no input-method window, longest {} ms)",
             self.hook_timeout_ms,
             self.pre_capture_budget_ms,
             self.left_downs,
@@ -318,10 +400,17 @@ impl HookDiagnostics {
             self.describers_abandoned,
             self.describer_clients_not_built,
             self.longest_win_event_us / 1000,
+            self.input_method_reads,
+            self.input_method_read_limit_ms,
+            self.input_method_reads_answered,
+            self.input_method_reads_open_status_alone,
+            self.input_method_reads_unanswered,
+            self.input_method_reads_without_window,
+            self.longest_input_method_read_us / 1000,
         );
         if self.is_anomalous() {
             Some(format!(
-                "[WindowsCapture] Warning: a mouse hook call reached the system's \
+                "[WindowsCapture] Warning: a hook call reached the system's \
                  hook timeout this session (input may have been passed on without \
                  it): {counts}"
             ))
@@ -330,6 +419,13 @@ impl HookDiagnostics {
                 "[WindowsCapture] {} click(s) got no pre-captured element and were \
                  described by their workers after the click: {counts}",
                 self.late_path_clicks()
+            ))
+        } else if self.keys_short_of_an_answer() > 0 {
+            Some(format!(
+                "[WindowsCapture] {} key press(es) carry less than the whole read \
+                 of the input method, a question to its window getting no answer \
+                 in time: {counts}",
+                self.keys_short_of_an_answer()
             ))
         } else {
             None
@@ -486,7 +582,7 @@ mod tests {
     fn the_recorders_feed_the_snapshot_and_reset_zeroes_it() {
         let _counters = TEST_COUNTERS.lock().unwrap_or_else(|e| e.into_inner());
         reset();
-        session_bounds(TIMEOUT_MS, BUDGET_MS);
+        session_bounds(TIMEOUT_MS, BUDGET_MS, 20);
         mouse_call_entered(1);
         mouse_call_entered(2);
         mouse_call_returned(Duration::from_millis(TIMEOUT_MS + 50));
@@ -496,6 +592,13 @@ mod tests {
         left_click_dispatched();
         pre_capture(Duration::from_millis(120), PreCaptureOutcome::NoAnswer);
         win_event_returned(Duration::from_millis(7));
+        input_method_read(Duration::from_micros(300), InputMethodReadOutcome::Answered);
+        input_method_read(Duration::from_millis(21), InputMethodReadOutcome::NoAnswer);
+        input_method_read(
+            Duration::from_millis(20),
+            InputMethodReadOutcome::OpenStatusAlone,
+        );
+        input_method_read(Duration::from_micros(5), InputMethodReadOutcome::NoWindow);
         pre_capture_outcomes(PreCaptureCounts {
             answered: 4,
             overran: 1,
@@ -530,9 +633,58 @@ mod tests {
                 pre_captures_skipped_busy: 3,
                 describers_abandoned: 1,
                 describer_clients_not_built: 2,
+                input_method_read_limit_ms: 20,
+                input_method_reads: 4,
+                input_method_reads_answered: 1,
+                input_method_reads_open_status_alone: 1,
+                input_method_reads_unanswered: 1,
+                input_method_reads_without_window: 1,
+                longest_input_method_read_us: 21_000,
             }
         );
         reset();
         assert_eq!(snapshot(), HookDiagnostics::default());
+    }
+
+    // Regression: #237 — the keyboard hook's waits on an input-method window
+    // show in the line logged at stop: a question left unanswered is noted,
+    // and a read that reached the hook timeout is a warning.
+    // https://github.com/Arsarneq/docent/issues/237
+    #[test]
+    fn regression_237_input_method_reads_short_of_an_answer_are_noted_and_a_slow_one_warned_of() {
+        let answered = HookDiagnostics {
+            input_method_read_limit_ms: 20,
+            input_method_reads: 5,
+            input_method_reads_answered: 4,
+            input_method_reads_without_window: 1,
+            ..quiet()
+        };
+        assert_eq!(answered.report(), None);
+        let short = HookDiagnostics {
+            input_method_reads: 5,
+            input_method_reads_answered: 2,
+            input_method_reads_open_status_alone: 1,
+            input_method_reads_unanswered: 2,
+            input_method_reads_without_window: 0,
+            longest_input_method_read_us: 40_000,
+            ..answered
+        };
+        assert!(!short.is_anomalous());
+        let line = short.report().expect("unanswered questions are noted");
+        assert!(!line.contains("Warning"), "{line}");
+        assert!(line.contains("3 key press(es) carry less"), "{line}");
+        assert!(
+            line.contains(
+                "input-method reads 5 (limit 20 ms a question; 2 answered, 1 with the open \
+                 status alone, 2 unanswered, 0 with no input-method window, longest 40 ms)"
+            ),
+            "{line}"
+        );
+        let slow = HookDiagnostics {
+            longest_input_method_read_us: TIMEOUT_MS * 1000,
+            ..answered
+        };
+        assert!(slow.is_anomalous());
+        assert!(slow.report().unwrap().contains("Warning"));
     }
 }
