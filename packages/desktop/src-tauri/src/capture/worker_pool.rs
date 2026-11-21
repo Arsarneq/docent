@@ -277,6 +277,10 @@ pub enum WorkerMessage {
     /// channel, so it is processed after every keystroke and value change
     /// dispatched before it.
     EndTyping,
+    /// A menu item was clicked: a command to the field typed into last (its
+    /// Paste, where the menu is the field's own). Sent to the typing worker
+    /// only, behind the [`WorkerMessage::EndTyping`] of the same click.
+    MenuCommand,
     /// Poison pill — drain remaining events then exit.
     Shutdown,
 }
@@ -385,6 +389,13 @@ pub struct PendingBuffers {
     pub pending_keys: Vec<ActionEvent>,
     /// Timestamp of the last buffered key (the wait is counted from it).
     pub pending_keys_last_timestamp: u64,
+    /// How many of the last buffered keys are dead keys (see
+    /// [`is_dead_key`]) with no other key behind them. A dead key enters
+    /// nothing by itself, so no value change follows it and the wait says
+    /// nothing about it: it stays buffered until the next key or the end of
+    /// the typing decides what it was. No pending `type` holds its text, so
+    /// a `type` written while it waits does not supersede it.
+    pub pending_dead_keys: usize,
 }
 
 impl PendingBuffers {
@@ -399,6 +410,36 @@ impl PendingBuffers {
         flush_pending_type(&mut self.pending_type, action_sender);
     }
 
+    /// The typing in a field has ended: write the pending `type`, and a dead
+    /// key still waiting for the key after it. No character follows it now,
+    /// so it is a key; no value change that comes later is its own.
+    fn end_typing(&mut self, action_sender: &mpsc::Sender<ActionEvent>) {
+        if self.waiting_dead_keys() > 0 {
+            self.drain_typing_into(action_sender);
+        } else {
+            self.flush_pending_type_only(action_sender);
+        }
+    }
+
+    /// How many dead keys wait at the end of the buffered keys.
+    fn waiting_dead_keys(&self) -> usize {
+        self.pending_dead_keys.min(self.pending_keys.len())
+    }
+
+    /// Write the pending `type`, which supersedes the keys buffered for it,
+    /// or else the buffered keys. Dead keys waiting at the end of the buffer
+    /// are no part of a `type` and are written behind it, as keys.
+    fn drain_typing_into(&mut self, action_sender: &mpsc::Sender<ActionEvent>) {
+        if self.pending_type.is_some() {
+            let dead_from = self.pending_keys.len() - self.waiting_dead_keys();
+            flush_pending_type(&mut self.pending_type, action_sender);
+            self.pending_keys.drain(..dead_from);
+        }
+        flush_pending_keys(&mut self.pending_keys, action_sender);
+        self.pending_keys_last_timestamp = 0;
+        self.pending_dead_keys = 0;
+    }
+
     /// Drain all buffered actions, emitting them via `action_sender`.
     ///
     /// Pending type takes precedence over pending keys (the type value
@@ -407,15 +448,7 @@ impl PendingBuffers {
     /// once and from either the worker or the shutdown drainer — whoever calls
     /// first empties the buffers; subsequent calls are no-ops.
     fn drain_into(&mut self, action_sender: &mpsc::Sender<ActionEvent>) {
-        if self.pending_type.is_some() {
-            // A type event supersedes buffered keys.
-            flush_pending_type(&mut self.pending_type, action_sender);
-            self.pending_keys.clear();
-            self.pending_keys_last_timestamp = 0;
-        } else {
-            flush_pending_keys(&mut self.pending_keys, action_sender);
-            self.pending_keys_last_timestamp = 0;
-        }
+        self.drain_typing_into(action_sender);
         if let Some(result) = self.scroll_acc.try_flush(u64::MAX) {
             let _ = action_sender.send(ActionEvent {
                 timestamp: current_timestamp_ms(),
@@ -627,19 +660,24 @@ impl WorkerPool {
     /// focus workers stay the respawned index.
     pub fn dispatch(&mut self, event: RawEvent) {
         if ends_typing(&event.event_type) {
-            self.end_typing();
+            self.tell_typing_worker(WorkerMessage::EndTyping);
+        }
+        if is_menu_command(&event) {
+            self.tell_typing_worker(WorkerMessage::MenuCommand);
         }
         let worker_index = self.select_worker(&event);
         self.send_to_worker(worker_index, event);
     }
 
-    /// Tell the typing worker that the typing in a field has ended. With no
-    /// typing worker yet there is no pending `type`; a worker whose channel is
-    /// gone has its buffers drained when it is respawned.
-    fn end_typing(&mut self) {
+    /// Send the typing worker a message that is no event: that the typing in
+    /// a field has ended, or that a menu item was clicked. With no typing
+    /// worker yet there is no pending `type` and no field typed into; a
+    /// worker whose channel is gone has its buffers drained when it is
+    /// respawned.
+    fn tell_typing_worker(&mut self, message: WorkerMessage) {
         let index = self.typing_worker.load(Ordering::SeqCst);
         if let Some(worker) = self.workers.get(index) {
-            let _ = worker.sender.send(WorkerMessage::EndTyping);
+            let _ = worker.sender.send(message);
         }
     }
 
@@ -1539,6 +1577,29 @@ fn is_printable_key(raw: &RawEvent) -> bool {
     is_typing_key_code(raw.key_code) && !meta && ctrl == alt
 }
 
+/// Whether a keystroke is a dead key: a key the keyboard layout of the
+/// foreground window's thread marks as one (the dead-key flag, bit 31 of the
+/// value the keyboard hook read for the key with no modifier). It enters
+/// nothing by itself; its accent goes into the character the next key enters.
+/// The flag is the unmodified key's: a key that is dead only with Shift or
+/// AltGr is not known as one.
+fn is_dead_key(raw: &RawEvent) -> bool {
+    is_printable_key(raw)
+        && super::held_keys::layout_char_of(raw.callback_params[3]) & 0x8000_0000 != 0
+}
+
+/// Whether a keystroke is a paste key: V with Ctrl (with or without Shift), or
+/// Insert with Shift alone. The value change that follows one is the pasted
+/// text. A paste made from a menu has no such key.
+fn is_paste_key(raw: &RawEvent) -> bool {
+    let (ctrl, shift, alt, meta) = raw.modifiers;
+    match raw.key_code {
+        0x56 => ctrl && !alt && !meta,
+        0x2D => shift && !ctrl && !alt && !meta,
+        _ => false,
+    }
+}
+
 /// Whether a virtual-key code is a typing key's: one that enters a character
 /// on some layout. A closed table: the space bar, digits, letters, the numeric
 /// keypad (digits, operators, decimal and separator; with NumLock off the
@@ -1811,8 +1872,9 @@ pub fn worker_loop<B: AccessibilityBackend>(
             }
             Ok(WorkerMessage::EndTyping) => {
                 // In-memory buffer mutation only — no backend calls inside.
-                lock_buffers(&pending).flush_pending_type_only(&action_sender);
+                lock_buffers(&pending).end_typing(&action_sender);
             }
+            Ok(WorkerMessage::MenuCommand) => note_menu_command(&mut state),
             Ok(WorkerMessage::Shutdown) => {
                 // Drain remaining events in the queue. A message that is no
                 // event does not end the drain: the events behind it are the
@@ -1834,8 +1896,9 @@ pub fn worker_loop<B: AccessibilityBackend>(
                             }));
                         }
                         WorkerMessage::EndTyping => {
-                            lock_buffers(&pending).flush_pending_type_only(&action_sender);
+                            lock_buffers(&pending).end_typing(&action_sender);
                         }
+                        WorkerMessage::MenuCommand => note_menu_command(&mut state),
                         WorkerMessage::Flush(ack) => {
                             lock_buffers(&pending).drain_into(&action_sender);
                             let _ = ack.send(worker_index);
@@ -1903,6 +1966,13 @@ struct WorkerState {
     last_focus: Option<(Option<i64>, String)>,
     /// The value of the field typed into last, as last taken for its `type`.
     last_value: Option<LastValue>,
+    /// The field a paste key (see [`is_paste_key`]) was pressed in, or the
+    /// field typed into last when a menu item was clicked (see
+    /// [`note_menu_command`]), until a value change is taken for that field:
+    /// that one is the pasted text, also where it repeats the field's value.
+    /// A program can report the paste after the keys that follow it, so no
+    /// later key ends the wait.
+    pasted_into: Option<LastValue>,
     last_drag_element: Option<ElementDescription>,
     /// The file the last click selected in a file dialog's item view, read
     /// from the dialog at that click, for the click that completes a
@@ -1926,6 +1996,7 @@ impl WorkerState {
         Self {
             last_focus: None,
             last_value: None,
+            pasted_into: None,
             last_drag_element: None,
             file_pick: None,
             typing_focus: None,
@@ -2918,6 +2989,7 @@ fn handle_value_change<B: AccessibilityBackend>(
             context_id,
             pending,
             &mut state.last_value,
+            &mut state.pasted_into,
             window_rect,
             element,
             value,
@@ -3015,6 +3087,7 @@ fn handle_value_change<B: AccessibilityBackend>(
         context_id,
         pending,
         &mut state.last_value,
+        &mut state.pasted_into,
         window_rect,
         element,
         value,
@@ -3031,6 +3104,7 @@ fn record_type_value(
     context_id: Option<i64>,
     pending: &SharedPendingBuffers,
     last_value: &mut Option<LastValue>,
+    pasted_into: &mut Option<LastValue>,
     window_rect: Option<WindowRect>,
     mut element: ElementDescription,
     value: String,
@@ -3052,12 +3126,18 @@ fn record_type_value(
     let mut buffers = lock_buffers(pending);
 
     // A value change that repeats the value just taken for this field, with
-    // no typing key pressed for it, is the same change reported again (a
-    // program that reports one change twice) and adds nothing. With a typing
-    // key buffered it is typing: the person typed the same text over itself.
+    // no typing key and no paste key pressed for it, is the same change
+    // reported again (a program that reports one change twice) and adds
+    // nothing. With a typing key buffered it is typing: the person typed the
+    // same text over itself. The first value change of a field after a paste
+    // key pressed in it is the pasted text: the same text pasted over itself.
     // Only the field typed into last is remembered, so a value the field held
     // in an earlier typing run is never what a later one is compared with.
+    let pasted = pasted_into
+        .take_if(|field| field.is_of(context_id, &element))
+        .is_some();
     let repeats_last = buffers.pending_keys.is_empty()
+        && !pasted
         && last_value
             .as_ref()
             .is_some_and(|last| last.is_of(context_id, &element) && last.value == value);
@@ -3118,6 +3198,34 @@ impl LastValue {
     fn is_of(&self, context_id: Option<i64>, element: &ElementDescription) -> bool {
         self.context_id == context_id
             && same_field_as(&self.selector, self.place.as_deref(), element)
+    }
+}
+
+/// Whether `event` is a click on a menu item. Only a click whose element the
+/// Input_Thread described at the release is known to be one.
+fn is_menu_command(event: &RawEvent) -> bool {
+    matches!(event.event_type, RawEventType::Click)
+        && event
+            .pre_captured_element
+            .as_ref()
+            .is_some_and(|element| element.tag == "MenuItem")
+}
+
+/// A menu item was clicked. A menu's Paste puts text into the field typed
+/// into last with no key pressed, so that field's next value change is taken
+/// as the person's entry, also where it repeats the field's recorded value
+/// (the same text pasted over itself). Which item was clicked is not asked:
+/// its name is in the application's language. An item that changes no text
+/// (Copy) therefore leaves the field waiting, and a repeated report of its
+/// value that comes later is then written as one more `type`.
+fn note_menu_command(state: &mut WorkerState) {
+    if let Some(last) = &state.last_value {
+        state.pasted_into = Some(LastValue {
+            context_id: last.context_id,
+            selector: last.selector.clone(),
+            place: last.place.clone(),
+            value: String::new(),
+        });
     }
 }
 
@@ -3400,6 +3508,9 @@ fn handle_keyboard<B: AccessibilityBackend>(
     // The gap to the moment this worker settled the key's element.
     stamp_described_after(&mut element, raw.timestamp);
     let key_element = element.clone();
+    if is_paste_key(raw) {
+        state.pasted_into = Some(LastValue::of(context_id, &element, ""));
+    }
     state.last_key = Some(LastKey {
         context_id,
         selector: element.selector.clone(),
@@ -3491,6 +3602,11 @@ fn handle_keyboard<B: AccessibilityBackend>(
         // Buffer printable keys — they may be superseded by a type event.
         buffers.pending_keys.push(event);
         buffers.pending_keys_last_timestamp = raw.timestamp;
+        buffers.pending_dead_keys = if is_dead_key(raw) {
+            buffers.waiting_dead_keys() + 1
+        } else {
+            0
+        };
     } else {
         // Control key — flush pending type and pending keys, then emit.
         buffers.flush_pending_type_only(action_sender);
@@ -3658,6 +3774,7 @@ fn write_keys_that_took_no_text(
     action_sender: &mpsc::Sender<ActionEvent>,
 ) {
     if !buffers.pending_keys.is_empty()
+        && buffers.waiting_dead_keys() == 0
         && buffers.pending_keys_last_timestamp > 0
         && debounce_elapsed(now, buffers.pending_keys_last_timestamp, KEY_TEXT_WAIT_MS)
     {
@@ -3977,7 +4094,7 @@ mod tests {
                     Ok(WorkerMessage::Flush(ack)) => {
                         let _ = ack.send(idx);
                     }
-                    Ok(WorkerMessage::EndTyping) => {}
+                    Ok(WorkerMessage::EndTyping) | Ok(WorkerMessage::MenuCommand) => {}
                     Ok(WorkerMessage::Shutdown) | Err(_) => break,
                 }
             })

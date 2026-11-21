@@ -362,7 +362,14 @@ none of them.
 If a value-change event arrives (producing a `type` action), the buffered
 keys are discarded (superseded). If no value-change arrives within 500 ms of
 the last buffered key (non-editable control like Calculator), the keys are
-emitted individually. The `type` itself is held for the field and carried
+emitted individually. A dead key (a key the keyboard layout marks as one, read
+for the key with no modifier) is the exception to that wait: it enters
+nothing by itself, so it stays buffered until the next key or the end of the
+typing decides what it was. Where the character key after it enters text it
+is part of that text; where a key that is no typing key follows, or the
+typing ends, it is written as a `key`, as on the extension. A key that is
+dead only with Shift or AltGr is not known as one and is written after the
+wait; a departure (core CP-18). The `type` itself is held for the field and carried
 forward to each new value, and it is written when the typing in the field
 ends: a key that is no typing key is pressed, a typing key is pressed in
 another element, the pointer is pressed (a click, a right-click or a drag),
@@ -790,12 +797,31 @@ with a caveat):
   last, with no typing key pressed for it (a program that reports one change
   twice) — not written; a value the person types is written each time it is
   typed, also where it equals the one written before (the same text typed
-  over itself, a value undone and typed again). A value set twice to the same
-  text with no typing key (the same text pasted over itself) is one value
-  change the worker cannot tell from a repeated report, and for a password
-  field, whose value is the mask, so is every value change after the first
-  that no text-entering keystroke accompanies (a paste, for example); a
-  departure (core CP-18;
+  over itself, a value undone and typed again), and so is the first value
+  change of a field after a paste key pressed in it (Ctrl+V, Ctrl+Shift+V or
+  Shift+Insert: the same text pasted over itself), also where other keys
+  were pressed before the program reported it; a paste key that pasted
+  nothing leaves the field's next value change taken for its text. A click
+  on a menu item (a left click whose element was described as a menu item at
+  the release, in any window) counts as a paste key pressed in the field
+  typed into last (the same text pasted over itself from the field's context
+  menu or the window's menu), whichever item it is: the item's name is in
+  the application's language and is not read. So after a click on an item
+  that pastes nothing (Save, Copy, an item of another application), a
+  report that repeats that field's value is written as one more `type` the
+  person did not make; a departure (core CP-18), and one from the
+  extension, which writes no entry for a value set again by other means
+  than typing, composing or pasting (core CP-19;
+  [docent#751](https://github.com/Arsarneq/docent/issues/751)). A value set
+  twice to the same text with neither a key nor such a click (a menu that
+  is not exposed as menu items, an item chosen by pressing on the menu bar
+  and releasing on the item, an item that could not be described at the
+  release, a drop) is one value change the worker cannot tell from a
+  repeated report, and for a password field, whose value is the mask, so is
+  every value change after the first that neither a text-entering
+  keystroke, a paste key nor a menu item accompanies; a departure (core
+  CP-18), and for such a paste one from the extension, which writes it
+  (core CP-19;
   [docent#751](https://github.com/Arsarneq/docent/issues/751))
 - A focus on the element of the last focus written (its selector within its
   window; DCP-12) — not written; a departure (core CP-18)
@@ -804,6 +830,28 @@ with a caveat):
   the one the event named, and the later event records where the focus went,
   at its own place, save in the open cases DCP-12 states; a departure (core
   CP-18)
+- A key pressed while an input method composes text (the letters of a
+  romanized reading, Space, the Enter that confirms, Escape, an arrow in the
+  candidate list, Backspace) — written as a `key`, a typing key among them
+  where the field reports no value change for it (a field that reports the
+  composing text as its value has those keys in its `type` instead); the
+  composed text is the field's `type` when it is confirmed, and a
+  composition given up leaves its keys, and no `type` where the field
+  reported no value for it. The keyboard hook is handed each key ahead of the input method, and
+  nothing a program outside the application can read says that a composition
+  is open: measured on Windows 11 with the Japanese Microsoft IME in Notepad
+  and in a WebView2 field, the input method's accessibility events
+  (`EVENT_OBJECT_IME_SHOW`, `_HIDE`, `_CHANGE`,
+  `EVENT_OBJECT_TEXTEDIT_CONVERSIONTARGETCHANGED`) never fired, neither
+  field supported UI Automation's text-edit pattern, and the layout, the
+  input method's open status and its conversion mode changed only when the
+  input method was switched. The extension, which the browser tells, writes
+  none of these keys; a departure (core CP-18), and a difference that comes
+  from the platforms themselves (core CP-19;
+  [docent#744](https://github.com/Arsarneq/docent/issues/744),
+  [docent#237](https://github.com/Arsarneq/docent/issues/237))
+- A focus whose selector equals the worker's last — not written; a departure
+  (core CP-18)
 - A focus or value change on an element the accessibility layer cannot
   describe — not written; the keys buffered for the value change are
   superseded by nothing and are written as keys (DCP-11); a departure (core
