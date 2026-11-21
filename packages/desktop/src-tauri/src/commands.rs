@@ -160,30 +160,50 @@ pub fn list_windows(state: State<'_, AppState>) -> Result<Vec<WindowInfo>, Strin
 pub enum LoadError {
     /// The file could not be read, or held no JSON object, and was moved to
     /// `kept_as` in the same folder. Saving goes on to a new session file.
+    ///
+    /// `state` is what a missing file reads as (`{}` with the credential-store
+    /// keys re-injected), the state the app starts from: starting from it
+    /// rather than from a bare empty state keeps the next save from clearing
+    /// the stored keys (DSH-2's clear branch).
     SetAside {
         path: String,
         kept_as: String,
         reason: String,
+        state: String,
     },
     /// The file could not be read, or held no JSON object, and could not be
     /// moved either. It stays at `path`, and every save is refused for the
-    /// rest of the run so nothing replaces it.
+    /// rest of the run so nothing replaces it. Every later load in the run
+    /// answers with this same error and tries no second move, so the file is
+    /// still where the user was told it is.
     KeptInPlace { path: String, reason: String },
     /// The session file's location could not be found. Every save is refused
     /// for the rest of the run.
     NoLocation { reason: String },
 }
 
+impl LoadError {
+    /// The plain reason the error carries.
+    fn reason(&self) -> &str {
+        match self {
+            LoadError::SetAside { reason, .. }
+            | LoadError::KeptInPlace { reason, .. }
+            | LoadError::NoLocation { reason } => reason,
+        }
+    }
+}
+
 /// The one gate every read and write of the session file passes through.
 ///
 /// It serializes the session file's I/O, and it remembers, for the rest of
 /// the run, that a load left an unreadable file in place: from then on every
-/// save is refused, so the file is never written over. The refusal is never
+/// save is refused, so the file is never written over, and every load answers
+/// with the same error without touching the file again. The refusal is never
 /// lifted while the app runs, since the panel's copy in memory started empty.
 #[derive(Debug, Default)]
 pub struct SessionGuard {
-    /// `Some(reason)` once saves are refused.
-    refused: Mutex<Option<String>>,
+    /// `Some(error)` once saves are refused: the load error that refused them.
+    refused: Mutex<Option<LoadError>>,
 }
 
 impl SessionGuard {
@@ -231,7 +251,8 @@ pub fn load_state_impl(store: &dyn SecretStore, guard: &SessionGuard) -> Result<
 }
 
 /// [`load_from`] under the guard's lock, recording a refusal of every later
-/// save when the file stayed in place or its location is unknown.
+/// save when the file stayed in place or its location is unknown; once
+/// recorded, every load answers with that error and reads nothing.
 fn load_guarded(
     path: Result<PathBuf, String>,
     store: &dyn SecretStore,
@@ -239,12 +260,15 @@ fn load_guarded(
     rename: &dyn Fn(&Path, &Path) -> std::io::Result<()>,
 ) -> Result<String, LoadError> {
     let mut refused = guard.refused.lock().unwrap_or_else(|p| p.into_inner());
+    if let Some(err) = refused.as_ref() {
+        return Err(err.clone());
+    }
     let result = match path {
         Ok(path) => load_from(&path, store, rename),
         Err(reason) => Err(LoadError::NoLocation { reason }),
     };
-    if let Err(LoadError::KeptInPlace { reason, .. } | LoadError::NoLocation { reason }) = &result {
-        refused.get_or_insert_with(|| reason.clone());
+    if let Err(err @ (LoadError::KeptInPlace { .. } | LoadError::NoLocation { .. })) = &result {
+        *refused = Some(err.clone());
     }
     result
 }
@@ -285,6 +309,7 @@ fn load_from(
             path: shown,
             kept_as: kept_as.display().to_string(),
             reason,
+            state: inject_secrets_into_json("{}".to_string(), store),
         }),
         Err(e) => Err(LoadError::KeptInPlace {
             path: shown,
@@ -363,9 +388,10 @@ pub fn save_state_impl(
     guard: &SessionGuard,
 ) -> Result<(), String> {
     let refused = guard.refused.lock().unwrap_or_else(|p| p.into_inner());
-    if let Some(reason) = refused.as_ref() {
+    if let Some(err) = refused.as_ref() {
         return Err(format!(
-            "Not saved: the session file could not be read at startup and is kept as it is ({reason})"
+            "Not saved: the session file could not be read at startup and is kept as it is ({})",
+            err.reason()
         ));
     }
     let sanitized = strip_secrets_from_json(data, store)?;
@@ -1002,19 +1028,32 @@ mod tests {
         }
 
         #[test]
-        fn the_refusal_holds_even_when_a_later_load_reads_the_file() {
+        fn a_later_load_in_the_run_moves_nothing_and_the_refusal_holds() {
             let dir = tempfile::tempdir().unwrap();
             let path = dir.path().join("session.json");
             fs::write(&path, "{cut off").unwrap();
             let guard = SessionGuard::default();
             let _ = load_guarded(Ok(path.clone()), &DisabledStore, &guard, &failing_rename);
 
-            // The file becomes readable later in the run (say, another
-            // program let go of it). The panel's copy in memory started
-            // empty, so a save would still replace the user's data.
-            fs::write(&path, r#"{"projects":[{"project_id":"p1"}]}"#).unwrap();
+            // Another program lets go of the file later in the run, so a
+            // second move would now work. The user was told the file stays
+            // where it is, and the panel's copy in memory started empty, so
+            // a later load moves nothing and the refusal stands.
             let later = load_guarded(Ok(path.clone()), &DisabledStore, &guard, &real_rename);
-            assert!(later.is_ok());
+            assert!(
+                matches!(later, Err(LoadError::KeptInPlace { .. })),
+                "{later:?}"
+            );
+            assert_eq!(
+                fs::read_to_string(&path).unwrap(),
+                "{cut off",
+                "not moved, not changed"
+            );
+            assert_eq!(
+                fs::read_dir(dir.path()).unwrap().count(),
+                1,
+                "nothing set aside"
+            );
             assert!(
                 guard.saves_refused(),
                 "the refusal is never lifted during the run"
@@ -1064,6 +1103,7 @@ mod tests {
                 path: "C:\\a\\session.json".to_string(),
                 kept_as: "C:\\a\\session.unreadable-20261121T171500Z.json".to_string(),
                 reason: "it is not text".to_string(),
+                state: "{}".to_string(),
             };
             let v = serde_json::to_value(&err).unwrap();
             assert_eq!(v["kind"], "set_aside");
@@ -1082,6 +1122,43 @@ mod tests {
             })
             .unwrap();
             assert_eq!(v["kind"], "no_location");
+        }
+
+        /// A credential store holding the dispatch key, as on a machine
+        /// where the user configured one.
+        struct OneKeyStore;
+        impl SecretStore for OneKeyStore {
+            fn set(&self, _: &str, _: &str) -> Result<(), String> {
+                Ok(())
+            }
+            fn get(&self, name: &str) -> Result<Option<String>, String> {
+                Ok((name == "apiKey").then(|| "stored-key".to_string()))
+            }
+            fn delete(&self, _: &str) -> Result<(), String> {
+                Ok(())
+            }
+        }
+
+        #[test]
+        fn a_set_aside_starts_from_the_stored_keys_so_a_save_keeps_them() {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("session.json");
+            fs::write(&path, "{cut off").unwrap();
+
+            let result = load_guarded(
+                Ok(path),
+                &OneKeyStore,
+                &SessionGuard::default(),
+                &real_rename,
+            );
+
+            match result {
+                Err(LoadError::SetAside { state, .. }) => {
+                    let v: serde_json::Value = serde_json::from_str(&state).unwrap();
+                    assert_eq!(v["settings"]["apiKey"], "stored-key", "{state}");
+                }
+                other => panic!("expected SetAside, got {other:?}"),
+            }
         }
 
         #[test]

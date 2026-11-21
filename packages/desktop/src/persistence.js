@@ -123,16 +123,31 @@ export async function loadSessionState(invoke) {
   try {
     json = await invoke('load_state');
   } catch (err) {
-    console.warn('[Docent] The session file could not be used:', err);
-    return { state: emptyState(), problem: loadProblemFrom(err) };
+    console.warn('[Docent] The session file could not be used:', err?.kind ?? err);
+    const problem = loadProblemFrom(err);
+    // A set-aside hands back the state a missing file reads as, with the
+    // credential-store keys in it; starting from that keeps the next save
+    // from clearing them. Without a usable one, saving stops instead.
+    const start = problem.kind === 'set_aside' ? deserializeState(err.state) : null;
+    if (problem.kind === 'set_aside' && start === null) problem.savingStopped = true;
+    return { state: start ? withDefaults(start) : emptyState(), problem };
   }
   const parsed = deserializeState(json);
   if (parsed === null) {
     console.warn('[Docent] The session file is not a JSON object — saving stopped for this run');
     return { state: emptyState(), problem: loadProblemFrom(null) };
   }
-  // Ensure required structure exists, preserving the full shipped shape.
-  const state = {
+  return { state: withDefaults(parsed), problem: null };
+}
+
+/**
+ * The full shipped state shape over a parsed session object, defaults filled.
+ *
+ * @param {Object} parsed
+ * @returns {SessionState}
+ */
+function withDefaults(parsed) {
+  return {
     projects: parsed.projects ?? [],
     // Durable conflict-handling state (baselines/snapshots/reviews/conflicts)
     // for graded sync. Preserved verbatim; the shared loadSyncState normalizes
@@ -148,7 +163,6 @@ export async function loadSessionState(invoke) {
       recordingMode: parsed.settings?.recordingMode ?? 'narration',
     },
   };
-  return { state, problem: null };
 }
 
 /**
@@ -171,6 +185,22 @@ export function loadProblemMessage(problem) {
     'To keep them safe, Docent will not save anything until you restart it, ' +
     'so changes you make now will be lost.'
   );
+}
+
+/**
+ * Words for an error a `load_state` or `save_state` invoke rejected with: a
+ * backend LoadError reads as the startup message does, an Error as its
+ * message, anything else as its text.
+ *
+ * @param {unknown} err
+ * @returns {string}
+ */
+export function loadErrorText(err) {
+  if (typeof err === 'object' && err !== null && typeof err.kind === 'string') {
+    return loadProblemMessage(loadProblemFrom(err));
+  }
+  if (err instanceof Error) return err.message;
+  return String(err);
 }
 
 /**

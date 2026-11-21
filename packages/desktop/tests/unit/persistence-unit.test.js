@@ -20,6 +20,7 @@ import {
   loadSessionState,
   saveSessionState,
   loadProblemMessage,
+  loadErrorText,
 } from '../../src/persistence.js';
 
 // ─── emptyState() ─────────────────────────────────────────────────────────────
@@ -143,16 +144,51 @@ describe('loadSessionState()', () => {
 
   it('starts empty and keeps saving on when the backend set the file aside', async () => {
     const invoke = mock.fn(async () => {
-      throw { kind: 'set_aside', path: PATH, kept_as: KEPT_AS, reason: 'it is not valid JSON' };
+      throw {
+        kind: 'set_aside',
+        path: PATH,
+        kept_as: KEPT_AS,
+        reason: 'it is not valid JSON',
+        state: '{}',
+      };
     });
     const { state, problem } = await loadSessionState(invoke);
-    assert.deepStrictEqual(state, emptyState());
+    assert.deepStrictEqual(state.projects, []);
+    assert.deepStrictEqual(state.settings, emptyState().settings);
     assert.deepStrictEqual(problem, {
       kind: 'set_aside',
       path: PATH,
       keptAs: KEPT_AS,
       savingStopped: false,
     });
+  });
+
+  it('starts from the stored keys the backend handed back with a set-aside', async () => {
+    // The keys live in the credential store, not in the file: starting from a
+    // bare empty state would make the first save clear them.
+    const invoke = mock.fn(async () => {
+      throw {
+        kind: 'set_aside',
+        path: PATH,
+        kept_as: KEPT_AS,
+        reason: 'it is not valid JSON',
+        state: JSON.stringify({ settings: { apiKey: 'stored', syncApiKey: 'stored-sync' } }),
+      };
+    });
+    const { state, problem } = await loadSessionState(invoke);
+    assert.deepStrictEqual(state.projects, []);
+    assert.strictEqual(state.settings.apiKey, 'stored');
+    assert.strictEqual(state.settings.syncApiKey, 'stored-sync');
+    assert.strictEqual(problem.savingStopped, false);
+  });
+
+  it('stops saving when a set-aside comes without a usable starting state', async () => {
+    const invoke = mock.fn(async () => {
+      throw { kind: 'set_aside', path: PATH, kept_as: KEPT_AS, reason: 'r', state: 'not json' };
+    });
+    const { state, problem } = await loadSessionState(invoke);
+    assert.deepStrictEqual(state, emptyState());
+    assert.strictEqual(problem.savingStopped, true);
   });
 
   it('starts empty and stops saving when the backend left the file in place', async () => {
@@ -307,6 +343,31 @@ describe('loadProblemMessage()', () => {
     });
     assert.match(text, /could not read your saved projects/);
     assert.match(text, /will not save anything until you restart it/);
+  });
+});
+
+// ─── loadErrorText() ──────────────────────────────────────────────────────────
+
+describe('loadErrorText()', () => {
+  it('words a rejection of load_state as the startup message does', () => {
+    const err = { kind: 'kept_in_place', path: 'C:\\d\\session.json', reason: 'r' };
+    assert.strictEqual(
+      loadErrorText(err),
+      loadProblemMessage({
+        kind: 'kept_in_place',
+        path: 'C:\\d\\session.json',
+        keptAs: null,
+        savingStopped: true,
+      }),
+    );
+  });
+
+  it('gives an Error its message and anything else its text', () => {
+    assert.strictEqual(loadErrorText(new Error('boom')), 'boom');
+    assert.strictEqual(
+      loadErrorText('Not saved: the session file could not be read'),
+      'Not saved: the session file could not be read',
+    );
   });
 });
 

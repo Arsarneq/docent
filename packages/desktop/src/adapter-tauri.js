@@ -59,6 +59,7 @@ import { validateEndpointUrl as _validateEndpointUrl } from '../shared/dispatch-
 import { setHttpTransport } from '../shared/lib/http-transport.js';
 import { isSensitiveField, SENSITIVE_MASK } from '../shared/lib/field-sensitivity.js';
 import { invoke, listen } from './tauri-bridge.js';
+import { loadErrorText } from './persistence.js';
 
 // ─── Native HTTP transport ──────────────────────────────────────────────
 // The desktop issues sync / dispatch / connection-test requests through the
@@ -576,7 +577,7 @@ const tauriAdapter = {
       state.settings.apiKey = apiKey || null;
       await invoke('save_state', { data: JSON.stringify(state) });
     } catch (err) {
-      throw new Error(`Failed to save settings: ${err.message || err}`, { cause: err });
+      throw new Error(`Failed to save settings: ${loadErrorText(err)}`, { cause: err });
     }
   },
 
@@ -617,7 +618,7 @@ const tauriAdapter = {
 
       await invoke('save_state', { data: JSON.stringify(state) });
     } catch (err) {
-      throw new Error(`Failed to save sync settings: ${err.message || err}`, { cause: err });
+      throw new Error(`Failed to save sync settings: ${loadErrorText(err)}`, { cause: err });
     }
   },
 

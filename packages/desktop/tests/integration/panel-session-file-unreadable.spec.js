@@ -21,15 +21,16 @@ const PATH = 'C:\\Users\\me\\AppData\\Roaming\\com.docent.desktop\\session.json'
 const KEPT_AS =
   'C:\\Users\\me\\AppData\\Roaming\\com.docent.desktop\\session.unreadable-20261121T171500Z.json';
 
-// The rejection a test arms on the page answers the first load only, as the
-// backend does: once the file is moved aside the path is free, and the next
-// load reads it as missing.
+// The rejection a test arms on the page answers as the backend does: a
+// set-aside answers the first load only (the path is free after the move, so
+// the next load reads it as missing), while a file left in place answers every
+// load of the run with the same rejection.
 const server = installTauriMockServer({
   overrides: {
     load_state: `async () => {
       const rejection = window.__loadStateRejection;
       if (rejection) {
-        window.__loadStateRejection = null;
+        if (rejection.kind === 'set_aside') window.__loadStateRejection = null;
         throw rejection;
       }
       return JSON.stringify({ projects: [], settings: {} });
@@ -63,6 +64,7 @@ test.describe('Desktop Panel — a session file the backend could not use', () =
       path: PATH,
       kept_as: KEPT_AS,
       reason: 'it is not valid JSON',
+      state: '{}',
     });
     const dialogs = recordDialogs(page);
 

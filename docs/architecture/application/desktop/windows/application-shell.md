@@ -153,19 +153,23 @@ build takes that path (the capture seam documents those targets'
 **DSH-3.** A session file that exists but cannot be read, or that does not
 hold a JSON object, MUST NOT be written over. `load_state` moves it aside, to
 `session.unreadable-<UTC time>.json` in the same folder, and answers with an
-error that names where it was kept; the panel starts with an empty state and
-tells the user that path, and saving goes on to a new session file. When the
-move fails as well, the file stays where it is, `load_state` answers with an
-error saying so, and `save_state` refuses every save for the rest of the run;
-the panel tells the user that nothing will be saved until the app is
-restarted, and writes nothing itself. The refusal is not lifted during the
-run, even if the file later reads, since the panel's copy in memory started
-empty. `save_state` writes the blob to a temporary file in the same folder,
-flushes it to disk, and renames it over the session file, so a save cut short
-leaves the previous file whole. The two answers reach the frontend as the
-command's error, tagged by `kind` (`set_aside`, `kept_in_place`, or
-`no_location` when the file's location is unknown, which refuses saves too),
-read in [`persistence.js`](../../../../../packages/desktop/src/persistence.js).
+error that names where it was kept and carries the state a missing file reads
+as, the credential-store keys re-injected; the panel starts from that state, so
+its next save keeps the stored keys (DSH-2's clear branch), tells the user the
+path, and saving goes on to a new session file. When the move fails as well,
+the file stays where it is, `load_state` answers with an error saying so, and
+`save_state` refuses every save for the rest of the run; every later
+`load_state` of the run answers with the same error without reading or moving
+the file, so it stays where the user was told it is. The panel tells the user
+that nothing will be saved until the app is restarted, and writes nothing
+itself. The refusal is not lifted during the run, since the panel's copy in
+memory started empty. `save_state` writes the blob to a temporary file in the
+same folder, flushes it to disk, and renames it over the session file, so a
+save cut short leaves the previous file whole. The answers reach the frontend
+as the command's error, tagged by `kind` (`set_aside`, `kept_in_place`, or
+`no_location` when the file's location is unknown, which refuses saves and
+later loads the same way), read in
+[`persistence.js`](../../../../../packages/desktop/src/persistence.js).
 
 ---
 
