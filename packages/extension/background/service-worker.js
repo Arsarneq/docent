@@ -841,6 +841,7 @@ function namesActive(msg) {
   return namesActiveRecording(msg, { projectId: activeProjectId, recordingId: activeRecordingId });
 }
 
+const STATE_NOT_READ = { ok: false, error: 'Stored state could not be read' };
 const PROJECT_NOT_FOUND = { ok: false, error: 'Project not found' };
 const RECORDING_NOT_FOUND = { ok: false, error: 'Recording not found' };
 const NOT_ACTIVE = { ok: false, error: NOT_ACTIVE_RECORDING };
@@ -1037,6 +1038,13 @@ async function reconcileAutoSync() {
  * swallowing the rejection.
  */
 async function runAutoSyncCycle() {
+  // The projects synced are the stored ones, not the empty list of a worker
+  // still reading them, or of one that could not read them.
+  try {
+    await stateRestored;
+  } catch {
+    return;
+  }
   const { serverUrl, apiKey } = await chromeAdapter.loadSyncSettings();
   // No endpoint configured → nothing to sync. (The panel's enable rule forbids
   // turning Auto-Sync on without an endpoint; this is a defensive guard.)
@@ -1159,7 +1167,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
-  handle(message)
+  // A message that woke the worker is read before the stored state is: it
+  // is handled once the projects and the active ids have been restored, or
+  // it would act on an empty list, and the restore would then replace what
+  // it did (#775). Where the stored state could not be read, the worker does
+  // not know its projects: it answers so, and writes nothing over them.
+  stateRestored
+    .then(
+      () => handle(message),
+      () => STATE_NOT_READ,
+    )
     .then((response) => {
       // Fire an Auto-Sync trigger on a local data event: a step commit, a
       // recording close, or a project/recording create/delete, when the
