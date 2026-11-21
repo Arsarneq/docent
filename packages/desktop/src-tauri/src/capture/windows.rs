@@ -5,9 +5,11 @@
 //
 // - **Input_Thread**: Runs `SetWinEventHook` / `SetWindowsHookEx` callbacks
 //   and a message pump. Captures raw event data (coordinates, window handles,
-//   key codes, timestamps) and dispatches `RawEvent`s to workers. Its one
-//   accessibility call is the `ElementFromPoint` pre-capture of clicked
-//   elements (DCP-1); every other accessibility query runs on the workers.
+//   key codes, timestamps) and dispatches `RawEvent`s to workers. It makes no
+//   accessibility call: the `ElementFromPoint` pre-capture of clicked
+//   elements runs on the pre-capture describers, which the mouse hook waits
+//   on for at most a budget set from the system's hook timeout (DCP-1);
+//   every other accessibility query runs on the workers.
 //
 // - **Worker_Pool**: 3 pre-initialised Accessibility_Worker threads, each
 //   with its own COM STA apartment and `IUIAutomation` instance. Workers
@@ -48,19 +50,20 @@ use super::win32_bindings::{
     GetWindow, GetWindowLongW, GetWindowTextW, GetWindowThreadProcessId, IUIAutomation,
     IUIAutomationCondition, IUIAutomationElement, IUIAutomationSelectionPattern, IsWindow,
     IsWindowVisible, LCIDToLocaleName, MapVirtualKeyExW, PeekMessageW, PostThreadMessageW,
-    SetProcessDpiAwarenessContext, SetWinEventHook, SetWindowsHookExW, TranslateMessage,
-    TreeScope_Descendants, TreeScope_Subtree, UnhookWinEvent, UnhookWindowsHookEx, WindowFromPoint,
-    CHILDID_SELF, CLSCTX_ALL, COINIT_APARTMENTTHREADED, COINIT_MULTITHREADED,
-    DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, EVENT_OBJECT_CREATE, EVENT_OBJECT_DESTROY,
-    EVENT_OBJECT_FOCUS, EVENT_OBJECT_SELECTION, EVENT_OBJECT_VALUECHANGE, EVENT_SYSTEM_FOREGROUND,
-    GA_ROOT, GA_ROOTOWNER, GUITHREADINFO, GWL_STYLE, GW_OWNER, HANDLE, HHOOK, HKL, HWINEVENTHOOK,
-    HWND, INVALID_HANDLE_VALUE, KBDLLHOOKSTRUCT, LCID, LLKHF_EXTENDED, LOCALE_ALLOW_NEUTRAL_NAMES,
-    LOCALE_NAME_MAX_LENGTH, LPARAM, LRESULT, MAPVK_VK_TO_CHAR, MSG, MSLLHOOKSTRUCT,
-    MUI_LANGUAGE_NAME, OBJID_WINDOW, PM_NOREMOVE, POINT, PROPERTYID, SM_CXDOUBLECLK,
-    SM_CYDOUBLECLK, UIA_HWND, VK_CONTROL, VK_LWIN, VK_MENU, VK_RWIN, VK_SHIFT, VT_EMPTY,
-    WH_KEYBOARD_LL, WH_MOUSE_LL, WINEVENT_OUTOFCONTEXT, WM_APP, WM_KEYDOWN, WM_LBUTTONDOWN,
-    WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MOUSEHWHEEL, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_NULL, WM_QUIT,
-    WM_RBUTTONDOWN, WM_SYSKEYDOWN, WM_USER, WPARAM, WS_CHILD,
+    RegGetValueW, SetProcessDpiAwarenessContext, SetWinEventHook, SetWindowsHookExW,
+    TranslateMessage, TreeScope_Descendants, TreeScope_Subtree, UnhookWinEvent,
+    UnhookWindowsHookEx, WindowFromPoint, CHILDID_SELF, CLSCTX_ALL, COINIT_APARTMENTTHREADED,
+    COINIT_MULTITHREADED, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, EVENT_OBJECT_CREATE,
+    EVENT_OBJECT_DESTROY, EVENT_OBJECT_FOCUS, EVENT_OBJECT_SELECTION, EVENT_OBJECT_VALUECHANGE,
+    EVENT_SYSTEM_FOREGROUND, GA_ROOT, GA_ROOTOWNER, GUITHREADINFO, GWL_STYLE, GW_OWNER, HANDLE,
+    HHOOK, HKEY_CURRENT_USER, HKL, HWINEVENTHOOK, HWND, INVALID_HANDLE_VALUE, KBDLLHOOKSTRUCT,
+    LCID, LLKHF_EXTENDED, LOCALE_ALLOW_NEUTRAL_NAMES, LOCALE_NAME_MAX_LENGTH, LPARAM, LRESULT,
+    MAPVK_VK_TO_CHAR, MSG, MSLLHOOKSTRUCT, MUI_LANGUAGE_NAME, OBJID_WINDOW, PM_NOREMOVE, POINT,
+    PROPERTYID, RRF_RT_REG_DWORD, RRF_RT_REG_SZ, SM_CXDOUBLECLK, SM_CYDOUBLECLK, UIA_HWND,
+    VK_CONTROL, VK_LWIN, VK_MENU, VK_RWIN, VK_SHIFT, VT_EMPTY, WH_KEYBOARD_LL, WH_MOUSE_LL,
+    WINEVENT_OUTOFCONTEXT, WM_APP, WM_KEYDOWN, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN,
+    WM_MOUSEHWHEEL, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_NULL, WM_QUIT, WM_RBUTTONDOWN, WM_SYSKEYDOWN,
+    WM_USER, WPARAM, WS_CHILD,
 };
 use windows_core::{Error, Interface, BOOL, BSTR, PWSTR};
 
@@ -68,7 +71,11 @@ use super::element_mapping::{
     map_element, truncate_text, LocatorMeasurements, MeasuredIndex, MeasuredPair,
     NativeElementProperties,
 };
+use super::hook_diagnostics;
 use super::language::{names_a_language, parse_multi_string, tag_from_wide};
+use super::pre_capture::{
+    pre_capture_click, Built, PreCapture, Readiness, SessionPreCapture, PROCESS_DESCRIBERS,
+};
 use super::scroll::KeyAttribution;
 use super::timing;
 use super::worker_pool::{
@@ -388,6 +395,10 @@ fn down_dispatch_click_mark(msg: u32) -> i64 {
 // to the dispatch channel, sequence counter, and other per-session state.
 
 thread_local! {
+    /// How many mouse hook calls are running on the Input_Thread, one inside
+    /// another: a call dispatched while the thread waits inside an earlier
+    /// one (`hook_diagnostics`).
+    static INPUT_MOUSE_HOOK_DEPTH: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
     /// Channel sender for dispatching messages to the bridge thread.
     static INPUT_RAW_SENDER: std::cell::RefCell<Option<std::sync::mpsc::Sender<BridgeMessage>>> =
         const { std::cell::RefCell::new(None) };
@@ -465,13 +476,21 @@ thread_local! {
     static INPUT_PID_CACHE: std::cell::RefCell<std::collections::HashMap<u32, bool>> =
         std::cell::RefCell::new(std::collections::HashMap::new());
 
-    /// IUIAutomation instance for pre-capturing click elements in the
-    /// Input_Thread. Used ONLY for `ElementFromPoint` — at left mouse-up on a
-    /// non-drag click, and at right/middle button-down — with a short timeout.
-    /// This ensures the element is captured while the target window is still
-    /// alive (before the click is processed).
-    static INPUT_UIA: std::cell::RefCell<Option<IUIAutomation>> =
-        const { std::cell::RefCell::new(None) };
+    /// The click pre-capture the mouse hook asks (DCP-1): `ElementFromPoint`
+    /// at left mouse-up on a non-drag click and at right/middle button-down,
+    /// run on a pre-capture describer thread and waited on for at most the
+    /// budget set at start from the system's hook timeout
+    /// (`timing::pre_capture_budget_ms`), so the element is described while
+    /// the target window is still alive and no application holds the hook past
+    /// that timeout. A session that could not start it at its start tries
+    /// again at a later click, at most once a second.
+    static INPUT_PRE_CAPTURE: std::cell::RefCell<SessionPreCapture<ClickPreCapture>> =
+        std::cell::RefCell::new(SessionPreCapture::default());
+
+    /// The session's pre-capture budget, set at start from the system's hook
+    /// timeout, for a pre-capture started at a later click.
+    static INPUT_PRE_CAPTURE_BUDGET: std::cell::Cell<Duration> =
+        const { std::cell::Cell::new(Duration::ZERO) };
 
     /// Timestamp of the most recent low-level input event (button press or
     /// release, key press, or wheel). Used to correlate WinEvent callbacks
@@ -836,6 +855,7 @@ impl CaptureLayer for WindowsCapture {
         }
 
         self.active.store(true, Ordering::SeqCst);
+        hook_diagnostics::reset();
         let excluded_pid = self.excluded_pid.clone();
 
         // Each worker signals here once it has finished its (possibly cold)
@@ -1083,6 +1103,13 @@ impl CaptureLayer for WindowsCapture {
         self.pending_directory = None;
         self.action_sender = None;
 
+        // What the mouse hook saw, when it was slow enough to have cost input
+        // (docent#741); the counts stay readable through
+        // `hook_diagnostics::snapshot` until the next start.
+        if let Some(line) = hook_diagnostics::snapshot().report() {
+            eprintln!("{line}");
+        }
+
         Ok(report)
     }
 
@@ -1128,8 +1155,9 @@ impl CaptureLayer for WindowsCapture {
 
 /// The Input_Thread runs the platform's input observation loop (message pump +
 /// hooks). It captures raw event data and dispatches `RawEvent`s to the
-/// worker pool via a channel. Its one accessibility call is the
-/// `ElementFromPoint` pre-capture of clicked elements (DCP-1).
+/// worker pool via a channel. It makes no accessibility call: the mouse hook
+/// asks the pre-capture describers for a clicked element and waits for at
+/// most the budget (DCP-1).
 ///
 /// # Arguments
 ///
@@ -1186,11 +1214,11 @@ fn input_thread_main(
     INPUT_INCLUDED_PID.with(|p| *p.borrow_mut() = Some(included_pid));
     INPUT_FLUSH_REQUESTS.with(|q| *q.borrow_mut() = Some(flush_requests));
 
-    // Create a lightweight IUIAutomation instance for pre-capturing click
-    // elements. Used ONLY for the ElementFromPoint pre-capture (left mouse-up on a non-drag click; right/middle button-down).
-    let input_uia: Option<IUIAutomation> =
-        unsafe { CoCreateInstance(&CUIAutomation, None, CLSCTX_ALL as u32).ok() };
-    INPUT_UIA.with(|u| *u.borrow_mut() = input_uia);
+    // Start the click pre-capture's describers (DCP-1). Without them a click
+    // is dispatched with no element and its worker describes it (DCP-13).
+    let pre_capture = start_click_pre_capture();
+    INPUT_PRE_CAPTURE
+        .with(|p| *p.borrow_mut() = SessionPreCapture::started(pre_capture, Instant::now()));
 
     // Initialize foreground PID with the current foreground window.
     let fg_hwnd = unsafe { GetForegroundWindow() };
@@ -1280,7 +1308,7 @@ fn input_thread_main(
         INPUT_INCLUDED_PID.with(|p| *p.borrow_mut() = None);
         INPUT_FLUSH_REQUESTS.with(|q| *q.borrow_mut() = None);
         INPUT_PID_CACHE.with(|c| c.borrow_mut().clear());
-        INPUT_UIA.with(|u| *u.borrow_mut() = None);
+        end_click_pre_capture();
         INPUT_LAST_INPUT_TIMESTAMP.with(|t| t.set(0));
         INPUT_LAST_INPUT_WINDOW.with(|w| w.set(0));
         INPUT_LAST_KEYBOARD_TIMESTAMP.with(|t| t.set(0));
@@ -1335,7 +1363,7 @@ fn input_thread_main(
     INPUT_MOUSE_DOWN_POS.with(|p| p.set(None));
     INPUT_OPENED_WINDOWS.with(|s| s.borrow_mut().clear());
     INPUT_PID_CACHE.with(|c| c.borrow_mut().clear());
-    INPUT_UIA.with(|u| *u.borrow_mut() = None);
+    end_click_pre_capture();
     INPUT_LAST_INPUT_TIMESTAMP.with(|t| t.set(0));
     INPUT_LAST_INPUT_WINDOW.with(|w| w.set(0));
     INPUT_LAST_KEYBOARD_TIMESTAMP.with(|t| t.set(0));
@@ -1464,23 +1492,175 @@ fn input_forward_flush() {
     }
 }
 
-/// Pre-capture the element at the given screen coordinates using the
-/// Input_Thread's IUIAutomation instance. Returns `Some(ElementDescription)`
-/// if the query succeeds quickly, `None` if it fails or the UIA instance
-/// is not available. Called at left mouse-up on a non-drag click and at
-/// right/middle button-down, so the element is captured while the target
-/// window is guaranteed to still be alive.
-unsafe fn input_pre_capture_element(x: i32, y: i32) -> Option<super::ElementDescription> {
-    INPUT_UIA.with(|u| {
-        let uia = u.borrow();
-        let uia = uia.as_ref()?;
-        let pt = POINT { x, y };
-        let element = uia.ElementFromPoint(pt).ok()?;
-        // Unmeasured by design: this runs inside the low-level mouse hook's
-        // latency budget (Windows silently unhooks slow LL hooks), so the
-        // FindAll-based match measurement is off-limits here. Locator entries
-        // carry values only; the pair ships absent (= not measured).
-        uia_element_to_description_unmeasured(uia, &element)
+/// The click pre-capture: a screen point in, the element there out (`None`
+/// when nothing could be described).
+type ClickPreCapture = PreCapture<(i32, i32), Option<super::ElementDescription>>;
+
+/// A pre-capture describer's accessibility client, in its own multithreaded
+/// apartment (the profile the worker's `init` describes: a client thread
+/// that owns no window and pumps no messages). Fields drop in order: the
+/// client before the apartment is left.
+struct PreCaptureClient {
+    uia: Option<IUIAutomation>,
+    _apartment: Option<ComApartment>,
+}
+
+/// Leaves the COM apartment its thread entered, when dropped.
+struct ComApartment;
+
+impl Drop for ComApartment {
+    fn drop(&mut self) {
+        unsafe { CoUninitialize() };
+    }
+}
+
+/// How long start waits for the first pre-capture describer to build its
+/// accessibility client before going on without waiting further.
+const PRE_CAPTURE_READY_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Read the user's low-level hook timeout setting
+/// (`HKCU\Control Panel\Desktop\LowLevelHooksTimeout`), a `REG_DWORD` or a
+/// `REG_SZ`; [`timing::HookTimeoutSetting::Absent`] when it is neither or
+/// cannot be read.
+fn read_hook_timeout_setting() -> timing::HookTimeoutSetting {
+    let key = windows_core::w!("Control Panel\\Desktop");
+    let value = windows_core::w!("LowLevelHooksTimeout");
+    let mut number: u32 = 0;
+    let mut size = std::mem::size_of::<u32>() as u32;
+    let status = unsafe {
+        RegGetValueW(
+            HKEY_CURRENT_USER,
+            key,
+            value,
+            RRF_RT_REG_DWORD as u32,
+            None,
+            Some((&mut number as *mut u32).cast()),
+            Some(&mut size),
+        )
+    };
+    if status.0 == 0 {
+        return timing::HookTimeoutSetting::Number(number);
+    }
+    let mut text = [0u16; 64];
+    let mut size = std::mem::size_of_val(&text) as u32;
+    let status = unsafe {
+        RegGetValueW(
+            HKEY_CURRENT_USER,
+            key,
+            value,
+            RRF_RT_REG_SZ as u32,
+            None,
+            Some(text.as_mut_ptr().cast()),
+            Some(&mut size),
+        )
+    };
+    if status.0 == 0 {
+        let len = text.iter().position(|&c| c == 0).unwrap_or(text.len());
+        return timing::HookTimeoutSetting::Text(String::from_utf16_lossy(&text[..len]));
+    }
+    timing::HookTimeoutSetting::Absent
+}
+
+/// Start the click pre-capture's describers (DCP-1) with the session's
+/// budget. An error when no describer can be started (the process's
+/// describers at the cap).
+fn spawn_click_pre_capture() -> std::io::Result<ClickPreCapture> {
+    PreCapture::spawn(
+        "docent-pre-capture",
+        INPUT_PRE_CAPTURE_BUDGET.with(|b| b.get()),
+        &PROCESS_DESCRIBERS,
+        || unsafe {
+            let apartment = CoInitializeEx(None, COINIT_MULTITHREADED as u32)
+                .ok()
+                .ok()
+                .map(|()| ComApartment);
+            let uia = apartment.as_ref().and_then(|_| {
+                CoCreateInstance::<_, IUIAutomation>(&CUIAutomation, None, CLSCTX_ALL as u32).ok()
+            });
+            Built {
+                client_built: uia.is_some(),
+                state: PreCaptureClient {
+                    uia,
+                    _apartment: apartment,
+                },
+            }
+        },
+        |client: &PreCaptureClient, (x, y): (i32, i32)| unsafe {
+            let uia = client.uia.as_ref()?;
+            let element = uia.ElementFromPoint(POINT { x, y }).ok()?;
+            // Unmeasured by design: the hook waits on this call, so the
+            // FindAll-based match measurement is off-limits here. Locator
+            // entries carry values only; the pair ships absent (= not
+            // measured).
+            uia_element_to_description_unmeasured(uia, &element)
+        },
+    )
+}
+
+/// Set the session's pre-capture budget from the system's low-level hook
+/// timeout, start the click pre-capture's describers (DCP-1), and wait, for
+/// at most `PRE_CAPTURE_READY_TIMEOUT`, for the first to build its
+/// accessibility client, so the first click is pre-captured. `None`, logged,
+/// when no describer can be started (a later click tries again); a warning
+/// when the wait runs out or the client was not built (the clicks the
+/// pre-capture cannot describe are described by their workers, DCP-13).
+fn start_click_pre_capture() -> Option<ClickPreCapture> {
+    let hook_timeout_ms = timing::hook_timeout_ms(&read_hook_timeout_setting());
+    let budget_ms = timing::pre_capture_budget_ms(hook_timeout_ms);
+    hook_diagnostics::session_bounds(hook_timeout_ms, budget_ms);
+    INPUT_PRE_CAPTURE_BUDGET.with(|b| b.set(Duration::from_millis(budget_ms)));
+    match spawn_click_pre_capture() {
+        Ok(pre_capture) => {
+            match pre_capture.wait_ready(PRE_CAPTURE_READY_TIMEOUT) {
+                Readiness::Built => {}
+                Readiness::ClientNotBuilt => eprintln!(
+                    "[WindowsCapture] Warning: the click pre-capture's accessibility client \
+                     could not be built; clicks are described by the workers"
+                ),
+                Readiness::NotReady => eprintln!(
+                    "[WindowsCapture] Warning: the click pre-capture was not ready within \
+                     {PRE_CAPTURE_READY_TIMEOUT:?}; clicks before it is are described by \
+                     the workers"
+                ),
+            }
+            Some(pre_capture)
+        }
+        Err(e) => {
+            eprintln!(
+                "[WindowsCapture] Warning: the click pre-capture did not start ({e}); \
+                 clicks are described by the workers until a later click starts it"
+            );
+            None
+        }
+    }
+}
+
+/// End the click pre-capture as the input thread ends: store its outcome
+/// counts for the stop report, then drop it. Its describers are never
+/// joined; each ends once its last call returns.
+fn end_click_pre_capture() {
+    if let Some(pre_capture) = INPUT_PRE_CAPTURE.with(|p| p.borrow_mut().take()) {
+        hook_diagnostics::pre_capture_outcomes(pre_capture.counts());
+    }
+}
+
+/// Pre-capture the element at the given screen coordinates, in the process
+/// `pid` (DCP-1): ask a pre-capture describer and wait for at most the
+/// budget. `None` when the answer did not come in time, when that process
+/// still holds a describer, when no describer is free, or when nothing could
+/// be described; the click is dispatched either way, and its worker describes
+/// it when this gave no element. Called at left mouse-up on a non-drag click
+/// and at right/middle button-down, so an answer describes the element while
+/// the target window is still alive. The wait dispatches no message, so no
+/// hook call runs inside it.
+fn input_pre_capture_element(pid: u32, x: i32, y: i32) -> Option<super::ElementDescription> {
+    INPUT_PRE_CAPTURE.with(|p| {
+        let mut session = p.borrow_mut();
+        // A session whose pre-capture could not be started tries again here,
+        // without waiting for the new describer: this ask waits for it within
+        // the budget.
+        let pre = session.for_click(Instant::now(), || spawn_click_pre_capture().ok());
+        pre_capture_click(pre, u64::from(pid), (x, y))
     })
 }
 
@@ -1627,9 +1807,34 @@ fn input_should_keep_event_cached(event_pid: u32, excluded_pid: Option<u32>, hwn
 // Input_Thread WinEvent callback
 // ---------------------------------------------------------------------------
 
-/// WinEvent callback for the Input_Thread. Captures raw event data and
-/// dispatches `RawEvent`s. Performs zero accessibility queries.
+/// WinEvent callback for the Input_Thread: times each call
+/// (`hook_diagnostics`; the mouse hook's calls wait behind it) around
+/// [`input_win_event_handle`].
 unsafe extern "system" fn input_win_event_proc(
+    hook: HWINEVENTHOOK,
+    event: u32,
+    hwnd: HWND,
+    id_object: i32,
+    id_child: i32,
+    id_event_thread: u32,
+    dwms_event_time: u32,
+) {
+    let started = Instant::now();
+    input_win_event_handle(
+        hook,
+        event,
+        hwnd,
+        id_object,
+        id_child,
+        id_event_thread,
+        dwms_event_time,
+    );
+    hook_diagnostics::win_event_returned(started.elapsed());
+}
+
+/// What the WinEvent callback does with one event. Captures raw event data
+/// and dispatches `RawEvent`s. Performs zero accessibility queries.
+unsafe fn input_win_event_handle(
     _hook: HWINEVENTHOOK,
     event: u32,
     hwnd: HWND,
@@ -2072,15 +2277,31 @@ unsafe fn input_press_switch(point_hwnd: HWND, fg_hwnd: HWND, timestamp: u64) {
     });
 }
 
-/// Low-level mouse hook for the Input_Thread. Captures raw mouse data,
-/// performs click-vs-drag classification, and dispatches `RawEvent`s.
-/// Makes the thread's one accessibility call — the `ElementFromPoint`
-/// pre-capture at a click (DCP-1).
+/// Low-level mouse hook for the Input_Thread: times each call and counts how
+/// deep calls run inside one another (`hook_diagnostics`), around
+/// [`input_mouse_ll_handle`], then passes the message on.
 unsafe extern "system" fn input_mouse_ll_proc(
     n_code: i32,
     w_param: WPARAM,
     l_param: LPARAM,
 ) -> LRESULT {
+    let depth = INPUT_MOUSE_HOOK_DEPTH.with(|d| {
+        d.set(d.get() + 1);
+        d.get()
+    });
+    hook_diagnostics::mouse_call_entered(depth);
+    let started = Instant::now();
+    input_mouse_ll_handle(n_code, w_param, l_param);
+    hook_diagnostics::mouse_call_returned(started.elapsed());
+    INPUT_MOUSE_HOOK_DEPTH.with(|d| d.set(d.get() - 1));
+    CallNextHookEx(None, n_code, w_param, l_param)
+}
+
+/// What the low-level mouse hook does with one message. Captures raw mouse
+/// data, performs click-vs-drag classification, and dispatches `RawEvent`s.
+/// Waits, for a bounded time only, on the `ElementFromPoint` pre-capture at a
+/// click (DCP-1).
+unsafe fn input_mouse_ll_handle(n_code: i32, w_param: WPARAM, l_param: LPARAM) {
     if n_code >= 0 && input_is_active() {
         let mouse_struct = &*(l_param.0 as *const MSLLHOOKSTRUCT);
         let msg = w_param.0 as u32;
@@ -2137,6 +2358,7 @@ unsafe extern "system" fn input_mouse_ll_proc(
 
             match msg as i32 {
                 WM_LBUTTONDOWN => {
+                    hook_diagnostics::left_down();
                     // Record the input for correlation.
                     note_input(timestamp, window_handle);
                     // Store mouse-down position for drag detection.
@@ -2160,6 +2382,7 @@ unsafe extern "system" fn input_mouse_ll_proc(
                     input_press_switch(point_hwnd, fg_hwnd, timestamp);
                 }
                 WM_LBUTTONUP => {
+                    hook_diagnostics::left_up();
                     // A release is input too: selections completed at the end
                     // of a long drag correlate with the release, not the press.
                     note_input(timestamp, window_handle);
@@ -2213,8 +2436,8 @@ unsafe extern "system" fn input_mouse_ll_proc(
                         });
                     } else {
                         // Click detected — pre-capture the element while
-                        // the window is guaranteed alive.
-                        let pre_element = input_pre_capture_element(pt.x, pt.y);
+                        // the window is still alive, within the budget.
+                        let pre_element = input_pre_capture_element(pid, pt.x, pt.y);
                         let double = left_press.is_some_and(double_click_completed_by);
                         input_dispatch_raw_event(RawEvent {
                             event_type: RawEventType::Click,
@@ -2242,6 +2465,7 @@ unsafe extern "system" fn input_mouse_ll_proc(
                             held: Vec::new(),
                         });
                         INPUT_LAST_CLICK_TIMESTAMP.with(|t| t.set(timestamp));
+                        hook_diagnostics::left_click_dispatched();
                     }
 
                     INPUT_MOUSE_DOWN_POS.with(|p| p.set(None));
@@ -2300,7 +2524,7 @@ unsafe extern "system" fn input_mouse_ll_proc(
                         // The press activates the window it lands in: its
                         // switch goes before the press, as a left press's.
                         input_press_switch(point_hwnd, fg_hwnd, timestamp);
-                        let pre_element = input_pre_capture_element(pt.x, pt.y);
+                        let pre_element = input_pre_capture_element(pid, pt.x, pt.y);
                         input_dispatch_raw_event(RawEvent {
                             event_type,
                             sequence_id: 0,
@@ -2329,8 +2553,6 @@ unsafe extern "system" fn input_mouse_ll_proc(
             double_click_break_pair();
         }
     }
-
-    CallNextHookEx(None, n_code, w_param, l_param)
 }
 
 /// The modifiers held and the keys that are down now, as a pointer action
@@ -2633,9 +2855,10 @@ pub(crate) unsafe fn uia_element_to_description_in_window(
 
 /// Convert a UIA element to an `ElementDescription` WITHOUT measuring match
 /// statistics — candidate values only, pairs absent (the schema's "not
-/// measured"). Used by the input-hook pre-capture path, which sits in the
-/// system-wide low-level mouse hook: Windows silently unhooks slow LL hooks,
-/// so `FindAll` traversals are off-limits there.
+/// measured"). Used by the click pre-capture's describers, which the
+/// low-level mouse hook waits on for at most a budget below the system's hook
+/// timeout (DCP-1): `FindAll` traversals would spend that budget, so they are
+/// off-limits there.
 pub(crate) unsafe fn uia_element_to_description_unmeasured(
     uia: &IUIAutomation,
     element: &IUIAutomationElement,
