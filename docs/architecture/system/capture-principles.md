@@ -89,15 +89,20 @@ read none in time, and a key the value it took lacks, or text no key carries
 (a paste), can be in no action, departures the desktop capture document
 lists (DCP-9, DCP-13;
 [docent#762](https://github.com/Arsarneq/docent/issues/762)). A difference between platforms is one of two kinds.
-One comes from the platforms themselves and is part of the format: an input
-the platform's own events never deliver to its capture layer, whatever the
-layer listens for, a fact about an input that the platform's events do not
-carry and that no interface of the platform lets the capture layer read at
-any moment from the input until its action is written, or a quantity that is
-each platform's own (CP-16's scroll deltas); the field's documentation states
-it, and for a fact of the second kind names the interface that is missing and
-what the layer tried. A fact the layer could have read at an earlier moment
-is not of that kind, and leaving it out is a departure. Every other difference — an
+One comes from the platforms themselves and is part of the format; the
+field's documentation states it. It is one of three, a closed list:
+
+- an input the platform's own events never deliver to its capture layer,
+  whatever the layer listens for;
+- a fact about an input that the platform's events do not carry and that no
+  interface of the platform lets the capture layer read at any moment from
+  the input until its action is written; the field's documentation also
+  names the interface that is missing and what the layer tried. A fact the
+  layer could have read at an earlier moment than the one it reads at is not
+  of this kind, and leaving it out is a departure;
+- a quantity that is each platform's own (CP-16's scroll deltas).
+
+Every other difference — an
 input both platforms' events deliver, which one records and the other does
 not, or which they record differently — is a departure: a defect, stated as a
 departure in the field's documentation or on the platform's exception list
