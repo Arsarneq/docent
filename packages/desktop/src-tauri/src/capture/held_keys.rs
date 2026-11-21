@@ -89,6 +89,59 @@ pub const fn dead_as_pressed_of(param: i64) -> Option<bool> {
     }
 }
 
+/// What a keyboard layout answered when asked whether a key is a dead key
+/// with a given Shift and AltGr state, kept by the thread that asks so each
+/// question is put to the layout once. The layout's answer depends on an
+/// accent already pending in the system, so it is taken only while none is
+/// pending and then holds for every later press of that key, whatever is
+/// pending by then. One layout at a time: an answer for another layout
+/// clears the rest. A fixed table, so a lookup on the keyboard hook neither
+/// allocates nor locks.
+pub struct DeadKeyAnswers {
+    layout: isize,
+    /// Per key code and modifier state: 0 not asked, 1 no dead key, 2 dead.
+    answers: [u8; 256 * 4],
+}
+
+impl DeadKeyAnswers {
+    pub const fn new() -> Self {
+        Self {
+            layout: 0,
+            answers: [0; 256 * 4],
+        }
+    }
+
+    const fn index(key_code: u32, shift: bool, alt_gr: bool) -> usize {
+        (key_code as usize & 0xFF) * 4 + shift as usize + 2 * alt_gr as usize
+    }
+
+    /// The answer kept for this key on `layout`; `None` where none was taken.
+    pub fn get(&self, layout: isize, key_code: u32, shift: bool, alt_gr: bool) -> Option<bool> {
+        if layout != self.layout {
+            return None;
+        }
+        match self.answers[Self::index(key_code, shift, alt_gr)] {
+            0 => None,
+            answer => Some(answer == 2),
+        }
+    }
+
+    /// Keep `dead` as `layout`'s answer for this key.
+    pub fn learn(&mut self, layout: isize, key_code: u32, shift: bool, alt_gr: bool, dead: bool) {
+        if layout != self.layout {
+            self.layout = layout;
+            self.answers = [0; 256 * 4];
+        }
+        self.answers[Self::index(key_code, shift, alt_gr)] = if dead { 2 } else { 1 };
+    }
+}
+
+impl Default for DeadKeyAnswers {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// What the keyboard hook read of the input method at a key press: whether
 /// one was on for the control that held the keyboard focus, and its
 /// conversion mode, the value the system gave (the session-format document
@@ -550,6 +603,21 @@ mod tests {
             );
         }
         assert_eq!(input_method_param(None), 0);
+        // A layout's answers are kept per key and modifier state, and only
+        // for the layout they were taken from.
+        let mut answers = DeadKeyAnswers::new();
+        assert_eq!(answers.get(7, 0xDB, false, false), None);
+        answers.learn(7, 0xDB, false, false, true);
+        answers.learn(7, 0xDB, false, true, false);
+        assert_eq!(answers.get(7, 0xDB, false, false), Some(true));
+        assert_eq!(answers.get(7, 0xDB, false, true), Some(false));
+        assert_eq!(answers.get(7, 0xDB, true, false), None);
+        assert_eq!(answers.get(7, 0xBA, false, false), None);
+        assert_eq!(answers.get(8, 0xDB, false, false), None);
+        answers.learn(8, 0x45, false, false, false);
+        assert_eq!(answers.get(8, 0x45, false, false), Some(false));
+        assert_eq!(answers.get(7, 0xDB, false, false), None);
+        assert_eq!(answers.get(8, 0xDB, false, false), None);
         // The dead-key read shares the layout character's word and leaves
         // the character, its dead-key flag and the repeat mark as they are.
         let layout = 0x8000_00B4_i64;

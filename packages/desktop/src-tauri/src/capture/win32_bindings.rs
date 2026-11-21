@@ -223,11 +223,6 @@ pub unsafe fn GetGUIThreadInfo(idthread: u32, pgui: *mut GUITHREADINFO) -> windo
     unsafe { GetGUIThreadInfo(idthread, pgui as _) }
 }
 #[inline]
-pub unsafe fn GetKeyState(nvirtkey: i32) -> i16 {
-    windows_core::link!("user32.dll" "system" fn GetKeyState(nvirtkey : i32) -> i16);
-    unsafe { GetKeyState(nvirtkey) }
-}
-#[inline]
 pub unsafe fn GetKeyboardLayout(idthread: u32) -> HKL {
     windows_core::link!("user32.dll" "system" fn GetKeyboardLayout(idthread : u32) -> HKL);
     unsafe { GetKeyboardLayout(idthread) }
