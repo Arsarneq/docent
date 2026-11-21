@@ -903,6 +903,11 @@ impl CaptureLayer for WindowsCapture {
             }
         }
 
+        // The control that holds the keyboard focus as capture starts is
+        // looked at now, on the typing worker, so the first key typed into it
+        // finds it known (docent#761). Nothing is written.
+        pool.look_at_focus();
+
         // Clone the shared sequence counter for the Input_Thread, which assigns
         // a monotonic id to every raw event (docent#139 reorder buffer).
         let sequence_counter = Arc::clone(pool.sequence_counter());
@@ -1391,6 +1396,11 @@ static FOCUS_EPOCH: AtomicU64 = AtomicU64::new(1);
 /// (`AccessibilityBackend::focus_events_dispatched`); `0` before the first.
 /// Process-wide, so the workers read it directly.
 static FOCUS_EVENTS_DISPATCHED: AtomicU64 = AtomicU64::new(0);
+
+/// The key presses the Input_Thread dispatched, numbered per window
+/// (`AccessibilityBackend::keys_dispatched`, docent#761). Process-wide, so the
+/// workers read it directly.
+static KEYS_DISPATCHED: super::worker_pool::KeyNumbers = super::worker_pool::KeyNumbers::new();
 
 /// Count a focus or foreground change a program reported (the low half of
 /// the epoch). One atomic add.
@@ -2670,6 +2680,15 @@ unsafe extern "system" fn input_keyboard_ll_proc(
                     KeyAttribution::NoWindow => 0,
                     _ => focused_control_of_thread(thread_id),
                 };
+                // The key's number among its window's keys, counted here,
+                // where the key is sure to be sent: a worker that read a
+                // field's value takes it only while no later key of the
+                // window was dispatched (docent#761). A key with no window
+                // types into none, and is not numbered.
+                let number = match attribution {
+                    KeyAttribution::NoWindow => 0,
+                    _ => KEYS_DISPATCHED.number(window_handle),
+                };
                 input_dispatch_raw_event(RawEvent {
                     event_type: RawEventType::Keyboard,
                     sequence_id: 0,
@@ -2693,7 +2712,8 @@ unsafe extern "system" fn input_keyboard_ll_proc(
                     // Then the character a punctuation key enters on the
                     // foreground window's layout, read above (docent#691), and
                     // above it whether the key was already down at this
-                    // key-down: a press key repeat generated (docent#696).
+                    // key-down: a press key repeat generated (docent#696),
+                    // and above that the key's number, counted above.
                     // Above the scan code sits the hook's extended mark,
                     // which tells apart two keys that share a key code;
                     // the two together name the physical key (docent#717).
@@ -2711,7 +2731,8 @@ unsafe extern "system" fn input_keyboard_ll_proc(
                                 super::held_keys::KEY_REPEAT_PARAM
                             } else {
                                 0
-                            },
+                            }
+                            | super::worker_pool::key_number_param(number),
                     ],
                     pre_captured_element: None,
                     focus_epoch: 0,
@@ -3818,6 +3839,10 @@ impl AccessibilityBackend for WindowsAccessibilityBackend {
 
     fn focus_events_dispatched(&self) -> u64 {
         FOCUS_EVENTS_DISPATCHED.load(Ordering::SeqCst)
+    }
+
+    fn keys_dispatched(&self, window: i64) -> u64 {
+        KEYS_DISPATCHED.latest(window)
     }
 
     fn is_foreground_window(&self, window_handle: i64) -> bool {
