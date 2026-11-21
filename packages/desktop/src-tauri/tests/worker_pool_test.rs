@@ -4817,7 +4817,7 @@ fn regression_751_a_menu_command_before_any_typing_leaves_the_first_text_one_typ
 }
 
 /// A click whose element is `tag`, as the Input_Thread describes it at the
-/// press.
+/// release.
 fn click_on(tag: &str) -> RawEvent {
     let mut click = make_raw_event(RawEventType::Click, 1234);
     click.sequence_id = 2;
@@ -4842,7 +4842,7 @@ fn regression_751_the_typing_worker_is_told_of_a_click_on_a_menu_item() {
 }
 
 /// A click on anything else, and a click whose element was not described at
-/// the press, is no menu command.
+/// the release, is no menu command.
 #[test]
 fn regression_751_a_click_on_no_menu_item_is_no_menu_command() {
     let plain = make_raw_event(RawEventType::Click, 1234);

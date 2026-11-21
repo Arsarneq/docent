@@ -614,8 +614,11 @@ with a caveat):
   departure (core CP-18)
 - The same text pasted over itself with no paste key (from a menu) —
   written, the browser naming the paste, where the desktop, which knows a
-  paste by its key or by a click on a menu item, writes none for a menu it
-  cannot describe as one; a departure from the desktop (core CP-19;
+  paste by its key or by a click on an element described as a menu item,
+  writes none where it saw neither (the desktop capture document lists the
+  cases), and where the desktop, after a click on a menu item that pasted
+  nothing, writes a repeated report of the field's value as a `type`, the
+  extension writes none; a departure from the desktop (core CP-19;
   [docent#751](https://github.com/Arsarneq/docent/issues/751))
 - A value set again, by other means than typing, composing or pasting, to
   the entry last written for the field since it took the focus or, where

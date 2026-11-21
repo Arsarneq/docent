@@ -645,18 +645,26 @@ with a caveat):
   Shift+Insert: the same text pasted over itself), also where other keys
   were pressed before the program reported it; a paste key that pasted
   nothing leaves the field's next value change taken for its text. A click
-  on a menu item counts as a paste key pressed in the field typed into last
-  (the same text pasted over itself from the field's context menu or the
-  window's menu), whichever item it is: the item's name is in the
-  application's language and is not read, so an item that changes no text
-  leaves the field's next value change taken for an entry too. A value set
-  twice to the same text with neither a key nor a click on an element
-  described as a menu item (a menu that is not exposed as one, a drop) is
-  one value change the worker cannot tell from a repeated report, and for a
-  password field, whose value is the mask, so is every value change after
-  the first that neither a text-entering keystroke, a paste key nor a menu
-  item accompanies; a departure (core CP-18), and for such a paste one from
-  the extension, which writes it (core CP-19;
+  on a menu item (a left click whose element was described as a menu item at
+  the release, in any window) counts as a paste key pressed in the field
+  typed into last (the same text pasted over itself from the field's context
+  menu or the window's menu), whichever item it is: the item's name is in
+  the application's language and is not read. So after a click on an item
+  that pastes nothing (Save, Copy, an item of another application), a
+  report that repeats that field's value is written as one more `type` the
+  person did not make; a departure (core CP-18), and one from the
+  extension, which writes no entry for a value set again by other means
+  than typing, composing or pasting (core CP-19;
+  [docent#751](https://github.com/Arsarneq/docent/issues/751)). A value set
+  twice to the same text with neither a key nor such a click (a menu that
+  is not exposed as menu items, an item chosen by pressing on the menu bar
+  and releasing on the item, an item that could not be described at the
+  release, a drop) is one value change the worker cannot tell from a
+  repeated report, and for a password field, whose value is the mask, so is
+  every value change after the first that neither a text-entering
+  keystroke, a paste key nor a menu item accompanies; a departure (core
+  CP-18), and for such a paste one from the extension, which writes it
+  (core CP-19;
   [docent#751](https://github.com/Arsarneq/docent/issues/751))
 - A focus whose selector equals the worker's last — not written; a departure
   (core CP-18)

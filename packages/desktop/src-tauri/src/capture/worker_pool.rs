@@ -3080,7 +3080,7 @@ impl LastValue {
 }
 
 /// Whether `event` is a click on a menu item. Only a click whose element the
-/// Input_Thread described at the press is known to be one.
+/// Input_Thread described at the release is known to be one.
 fn is_menu_command(event: &RawEvent) -> bool {
     matches!(event.event_type, RawEventType::Click)
         && event
