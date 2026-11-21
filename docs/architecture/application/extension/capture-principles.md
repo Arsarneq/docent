@@ -489,9 +489,11 @@ with a caveat):
   a composition, which the field's `type` records, and a press whose
   composition is given up with no text leaves no record; a departure (core
   CP-18), and one from the desktop, whose keyboard hook is handed each key
-  ahead of the input method and writes the ones that are no typing keys (the
-  Enter that accepts a composition, for example) (core CP-19;
-  [docent#710](https://github.com/Arsarneq/docent/issues/710))
+  ahead of the input method and can read nothing that says a composition is
+  open, so it writes the keys pressed inside one as `key` actions; the
+  composed text is one `type` on both; a difference that comes from the
+  platforms themselves (core CP-19;
+  [docent#744](https://github.com/Arsarneq/docent/issues/744))
 - Character keys pressed in a date or time field whose parts made no value
   (a date left half filled): written as `key` actions, though the field shows
   what was typed. The field has no value for a `type` to carry; a departure

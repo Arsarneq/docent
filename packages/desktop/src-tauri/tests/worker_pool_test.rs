@@ -4734,6 +4734,106 @@ fn regression_751_a_value_change_reported_twice_after_a_paste_is_one_type() {
     assert_eq!(type_values_of(&events), vec!["h"], "got {events:?}");
 }
 
+/// The Danish acute accent key, a dead key: the keyboard hook reads its
+/// accent from the layout with the dead-key flag in bit 31.
+fn dead_key(seq: u64) -> RawEvent {
+    let mut key = layout_key(seq, now_ms(), 0xDD);
+    key.callback_params = [0x0D, 0, 0, 0x8000_0000 | i64::from(u32::from('\u{b4}'))];
+    in_dialog(key)
+}
+
+/// A dead key is text where the character key after it enters text, however
+/// long the person waits between the two: the wait for a value change does
+/// not make it a key, because a dead key enters nothing by itself.
+#[test]
+fn regression_744_a_dead_key_is_text_when_the_next_key_enters_text() {
+    let (backend, scene, _) = MovingFocusBackend::new(file_name_field(""));
+    let harness = WorkerTestHarness::new(backend);
+
+    harness.send_event(dead_key(1));
+    thread::sleep(Duration::from_millis(900));
+    harness.send_event(in_dialog(layout_key(2, now_ms(), 0x45)));
+    {
+        let mut scene = scene.lock().unwrap();
+        scene.element.text = Some("\u{e9}".to_string());
+        scene.element.value = Some("\u{e9}".to_string());
+    }
+    harness.send_event(in_dialog(value_change(3, now_ms(), DIALOG)));
+
+    thread::sleep(Duration::from_millis(900));
+    let events = harness.shutdown();
+
+    assert_eq!(type_values_of(&events), vec!["\u{e9}"], "got {events:?}");
+    assert_eq!(
+        key_names_of(&events),
+        Vec::<String>::new(),
+        "got {events:?}"
+    );
+}
+
+/// A dead key is a `key` where no character follows it: the key that is no
+/// text writes it ahead of itself.
+#[test]
+fn regression_744_a_dead_key_is_a_key_when_no_character_follows() {
+    let (backend, _scene, _) = MovingFocusBackend::new(file_name_field(""));
+    let harness = WorkerTestHarness::new(backend);
+
+    harness.send_event(dead_key(1));
+    thread::sleep(Duration::from_millis(900));
+    harness.send_event(in_dialog(layout_key(2, now_ms(), 0x08)));
+
+    thread::sleep(Duration::from_millis(300));
+    let events = harness.shutdown();
+
+    assert_eq!(
+        key_names_of(&events),
+        vec!["\u{b4}", "Backspace"],
+        "got {events:?}"
+    );
+}
+
+/// A dead key still waiting when the typing ends (a pointer press, a window
+/// change) is written then, ahead of what follows.
+#[test]
+fn regression_744_a_dead_key_waiting_is_written_when_the_typing_ends() {
+    let (backend, _scene, _) = MovingFocusBackend::new(file_name_field(""));
+    let harness = WorkerTestHarness::new(backend);
+
+    harness.send_event(dead_key(1));
+    thread::sleep(Duration::from_millis(900));
+    assert_eq!(
+        key_names_of(&harness.drain_actions()),
+        Vec::<String>::new(),
+        "the dead key waits for the key after it"
+    );
+    harness.event_tx.send(WorkerMessage::EndTyping).unwrap();
+    let written = harness.drain_actions();
+    let _ = harness.shutdown();
+
+    assert_eq!(key_names_of(&written), vec!["\u{b4}"], "got {written:?}");
+}
+
+/// A dead key and the character key after it are both keys where the control
+/// took no text from them.
+#[test]
+fn regression_744_a_dead_key_and_its_character_are_keys_where_no_text_was_taken() {
+    let (backend, _scene, _) = MovingFocusBackend::new(file_name_field(""));
+    let harness = WorkerTestHarness::new(backend);
+
+    harness.send_event(dead_key(1));
+    thread::sleep(Duration::from_millis(150));
+    harness.send_event(in_dialog(layout_key(2, now_ms(), 0x45)));
+    thread::sleep(Duration::from_millis(900));
+    let written = harness.drain_actions();
+    let _ = harness.shutdown();
+
+    assert_eq!(
+        key_names_of(&written),
+        vec!["\u{b4}", "E"],
+        "got {written:?}"
+    );
+}
+
 /// Paste "h" into the dialog's field with the paste key, so the field's last
 /// recorded value is "h".
 fn paste_h_with_the_key(harness: &WorkerTestHarness, scene: &Arc<Mutex<FocusScene>>) {

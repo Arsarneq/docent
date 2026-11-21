@@ -318,7 +318,14 @@ none of them.
 If a value-change event arrives (producing a `type` action), the buffered
 keys are discarded (superseded). If no value-change arrives within 500 ms of
 the last buffered key (non-editable control like Calculator), the keys are
-emitted individually. The `type` itself is held for the field and carried
+emitted individually. A dead key (a key the keyboard layout marks as one, read
+for the key with no modifier) is the exception to that wait: it enters
+nothing by itself, so it stays buffered until the next key or the end of the
+typing decides what it was. Where the character key after it enters text it
+is part of that text; where a key that is no typing key follows, or the
+typing ends, it is written as a `key`, as on the extension. A key that is
+dead only with Shift or AltGr is not known as one and is written after the
+wait; a departure (core CP-18). The `type` itself is held for the field and carried
 forward to each new value, and it is written when the typing in the field
 ends: a key that is no typing key is pressed, a typing key is pressed in
 another element, the pointer is pressed (a click, a right-click or a drag),
@@ -666,6 +673,24 @@ with a caveat):
   CP-18), and for such a paste one from the extension, which writes it
   (core CP-19;
   [docent#751](https://github.com/Arsarneq/docent/issues/751))
+- A key pressed while an input method composes text (the letters of a
+  romanized reading, Space, the Enter that confirms, Escape, an arrow in the
+  candidate list, Backspace) — written as a `key`, a typing key among them
+  where no value change follows it; the composed text is the field's one
+  `type` when it is confirmed, and a composition given up leaves only its
+  keys. The keyboard hook is handed each key ahead of the input method, and
+  nothing a program outside the application can read says that a composition
+  is open: measured on Windows 11 with the Japanese Microsoft IME in Notepad
+  and in a WebView2 field, the input method's accessibility events
+  (`EVENT_OBJECT_IME_SHOW`, `_HIDE`, `_CHANGE`,
+  `EVENT_OBJECT_TEXTEDIT_CONVERSIONTARGETCHANGED`) never fired, neither
+  field supported UI Automation's text-edit pattern, and the layout, the
+  input method's open status and its conversion mode changed only when the
+  input method was switched. The extension, which the browser tells, writes
+  none of these keys; a departure (core CP-18), and a difference that comes
+  from the platforms themselves (core CP-19;
+  [docent#744](https://github.com/Arsarneq/docent/issues/744),
+  [docent#237](https://github.com/Arsarneq/docent/issues/237))
 - A focus whose selector equals the worker's last — not written; a departure
   (core CP-18)
 - A focus or value change on an element the accessibility layer cannot
