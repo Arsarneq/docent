@@ -3623,34 +3623,37 @@ pub(crate) unsafe fn get_process_name_for_hwnd(hwnd: HWND) -> String {
 }
 
 fn get_process_name_for_pid(pid: u32) -> String {
+    process_exe_name(pid).unwrap_or_else(|| format!("pid:{pid}"))
+}
+
+/// The executable file name of the process `pid`, read from the process;
+/// `None` when it cannot be opened or read (it has exited, or access is
+/// refused).
+fn process_exe_name(pid: u32) -> Option<String> {
     use super::win32_bindings::{
         GetModuleFileNameExW, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
     };
 
     unsafe {
-        match valid_handle(OpenProcess(
+        let h = valid_handle(OpenProcess(
             PROCESS_QUERY_LIMITED_INFORMATION as u32,
             false,
             pid,
-        )) {
-            Some(h) => {
-                let mut buf = [0u16; 512];
-                let len =
-                    GetModuleFileNameExW(Some(h), None, PWSTR(buf.as_mut_ptr()), buf.len() as u32);
-                let _ = CloseHandle(h);
-                if len > 0 {
-                    let full_path = String::from_utf16_lossy(&buf[..len as usize]);
-                    full_path
-                        .rsplit('\\')
-                        .next()
-                        .unwrap_or(&full_path)
-                        .to_string()
-                } else {
-                    format!("pid:{pid}")
-                }
-            }
-            None => format!("pid:{pid}"),
+        ))?;
+        let mut buf = [0u16; 512];
+        let len = GetModuleFileNameExW(Some(h), None, PWSTR(buf.as_mut_ptr()), buf.len() as u32);
+        let _ = CloseHandle(h);
+        if len == 0 {
+            return None;
         }
+        let full_path = String::from_utf16_lossy(&buf[..len as usize]);
+        Some(
+            full_path
+                .rsplit('\\')
+                .next()
+                .unwrap_or(&full_path)
+                .to_string(),
+        )
     }
 }
 
@@ -3933,7 +3936,7 @@ impl AccessibilityBackend for WindowsAccessibilityBackend {
     }
 
     fn process_name_of(&self, process_id: u32) -> Option<String> {
-        Some(get_process_name_for_pid(process_id))
+        process_exe_name(process_id)
     }
 
     fn read_file_dialog_path(&self, window_handle: i64) -> Option<(String, String)> {
@@ -4082,6 +4085,24 @@ mod tests {
         assert_eq!(
             super::AccessibilityBackend::process_name_of(&backend, std::process::id()),
             Some(expected)
+        );
+    }
+
+    /// A process that has exited is named by no id: the switch then falls
+    /// back to its window, and never states "pid:<n>" as a name read by id.
+    #[test]
+    fn a_process_that_has_exited_is_named_by_no_id() {
+        let backend = super::WindowsAccessibilityBackend::new();
+        let mut child = std::process::Command::new("cmd")
+            .args(["/C", "exit"])
+            .spawn()
+            .unwrap();
+        let pid = child.id();
+        child.wait().unwrap();
+        drop(child);
+        assert_eq!(
+            super::AccessibilityBackend::process_name_of(&backend, pid),
+            None
         );
     }
 
