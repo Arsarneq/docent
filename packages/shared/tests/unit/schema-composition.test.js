@@ -302,6 +302,21 @@ describe('Schema composition: platform-unique defs land in the composed output',
   });
 });
 
+describe('Schema contract: the input method fields of a key (#237)', () => {
+  // Regression: #237 — the conversion mode is written in 27 bits, so the
+  // schema holds a value to them.
+  // https://github.com/Arsarneq/docent/issues/237
+  it('regression_237_the_conversion_mode_is_held_to_the_bits_the_format_writes', () => {
+    const ajv = new Ajv({ allErrors: true, strict: false });
+    const mode = base.$defs.action_key.properties.input_method_conversion_mode;
+    const validate = ajv.compile(mode);
+    assert.equal(validate(0), true);
+    assert.equal(validate(0x07ffffff), true);
+    assert.equal(validate(0x08000000), false);
+    assert.equal(validate(-1), false);
+  });
+});
+
 describe('Schema contract prose pins', () => {
   it('the navigate url description enumerates exactly the masked query-param set', () => {
     // The url description is the consumer-facing statement of which query

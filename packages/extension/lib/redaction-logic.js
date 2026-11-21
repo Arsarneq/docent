@@ -139,6 +139,9 @@ export function redactSensitive(action) {
     delete action.key;
     delete action.modifiers;
     delete action.repeat;
+    delete action.code;
+    delete action.input_method_open;
+    delete action.input_method_conversion_mode;
     delete action.held_keys;
     action.type = 'type';
     action.value = SENSITIVE_MASK;

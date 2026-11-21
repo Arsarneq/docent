@@ -290,6 +290,23 @@ pub unsafe fn GetSystemMetrics(nindex: i32) -> i32 {
     unsafe { GetSystemMetrics(nindex) }
 }
 #[inline]
+pub unsafe fn GetUserPreferredUILanguages(
+    dwflags: u32,
+    pulnumlanguages: *mut u32,
+    pwszlanguagesbuffer: Option<*mut u16>,
+    pcchlanguagesbuffer: *mut u32,
+) -> windows_core::BOOL {
+    windows_core::link!("kernel32.dll" "system" fn GetUserPreferredUILanguages(dwflags : u32, pulnumlanguages : *mut u32, pwszlanguagesbuffer : *mut u16, pcchlanguagesbuffer : *mut u32) -> windows_core::BOOL);
+    unsafe {
+        GetUserPreferredUILanguages(
+            dwflags,
+            pulnumlanguages as _,
+            pwszlanguagesbuffer.unwrap_or(core::mem::zeroed()) as _,
+            pcchlanguagesbuffer as _,
+        )
+    }
+}
+#[inline]
 pub unsafe fn GetWindow(hwnd: HWND, ucmd: u32) -> HWND {
     windows_core::link!("user32.dll" "system" fn GetWindow(hwnd : HWND, ucmd : u32) -> HWND);
     unsafe { GetWindow(hwnd, ucmd) }
@@ -315,6 +332,11 @@ pub unsafe fn GetWindowThreadProcessId(hwnd: HWND, lpdwprocessid: Option<*mut u3
     unsafe { GetWindowThreadProcessId(hwnd, lpdwprocessid.unwrap_or(core::mem::zeroed()) as _) }
 }
 #[inline]
+pub unsafe fn ImmGetDefaultIMEWnd(param0: HWND) -> HWND {
+    windows_core::link!("imm32.dll" "system" fn ImmGetDefaultIMEWnd(param0 : HWND) -> HWND);
+    unsafe { ImmGetDefaultIMEWnd(param0) }
+}
+#[inline]
 pub unsafe fn IsWindow(hwnd: Option<HWND>) -> windows_core::BOOL {
     windows_core::link!("user32.dll" "system" fn IsWindow(hwnd : HWND) -> windows_core::BOOL);
     unsafe { IsWindow(hwnd.unwrap_or(core::mem::zeroed()) as _) }
@@ -323,6 +345,23 @@ pub unsafe fn IsWindow(hwnd: Option<HWND>) -> windows_core::BOOL {
 pub unsafe fn IsWindowVisible(hwnd: HWND) -> windows_core::BOOL {
     windows_core::link!("user32.dll" "system" fn IsWindowVisible(hwnd : HWND) -> windows_core::BOOL);
     unsafe { IsWindowVisible(hwnd) }
+}
+#[inline]
+pub unsafe fn LCIDToLocaleName(
+    locale: LCID,
+    lpname: Option<windows_core::PWSTR>,
+    cchname: i32,
+    dwflags: u32,
+) -> i32 {
+    windows_core::link!("kernel32.dll" "system" fn LCIDToLocaleName(locale : LCID, lpname : windows_core::PWSTR, cchname : i32, dwflags : u32) -> i32);
+    unsafe {
+        LCIDToLocaleName(
+            locale,
+            lpname.unwrap_or(core::mem::zeroed()) as _,
+            cchname,
+            dwflags,
+        )
+    }
 }
 #[inline]
 pub unsafe fn LoadKeyboardLayoutW<P0>(pwszklid: P0, flags: u32) -> HKL
@@ -416,9 +455,41 @@ pub unsafe fn Process32Next(hsnapshot: HANDLE, lppe: *mut PROCESSENTRY32) -> win
     unsafe { Process32Next(hsnapshot, lppe as _) }
 }
 #[inline]
+pub unsafe fn RegGetValueW<P1, P2>(
+    hkey: HKEY,
+    lpsubkey: P1,
+    lpvalue: P2,
+    dwflags: u32,
+    pdwtype: Option<*mut u32>,
+    pvdata: Option<*mut core::ffi::c_void>,
+    pcbdata: Option<*mut u32>,
+) -> LSTATUS
+where
+    P1: windows_core::Param<windows_core::PCWSTR>,
+    P2: windows_core::Param<windows_core::PCWSTR>,
+{
+    windows_core::link!("advapi32.dll" "system" fn RegGetValueW(hkey : HKEY, lpsubkey : windows_core::PCWSTR, lpvalue : windows_core::PCWSTR, dwflags : u32, pdwtype : *mut u32, pvdata : *mut core::ffi::c_void, pcbdata : *mut u32) -> LSTATUS);
+    unsafe {
+        RegGetValueW(
+            hkey,
+            lpsubkey.param().abi(),
+            lpvalue.param().abi(),
+            dwflags,
+            pdwtype.unwrap_or(core::mem::zeroed()) as _,
+            pvdata.unwrap_or(core::mem::zeroed()) as _,
+            pcbdata.unwrap_or(core::mem::zeroed()) as _,
+        )
+    }
+}
+#[inline]
 pub unsafe fn RegisterClassW(lpwndclass: *const WNDCLASSW) -> ATOM {
     windows_core::link!("user32.dll" "system" fn RegisterClassW(lpwndclass : *const WNDCLASSW) -> ATOM);
     unsafe { RegisterClassW(lpwndclass) }
+}
+#[inline]
+pub unsafe fn RtlGetVersion(lpversioninformation: *mut OSVERSIONINFOW) -> windows_core::NTSTATUS {
+    windows_core::link!("ntdll.dll" "system" fn RtlGetVersion(lpversioninformation : *mut OSVERSIONINFOW) -> windows_core::NTSTATUS);
+    unsafe { RtlGetVersion(lpversioninformation as _) }
 }
 #[inline]
 pub unsafe fn SHGetFileInfoW<P0>(
@@ -458,6 +529,29 @@ pub unsafe fn ScrollWindow(
             yamount,
             lprect.unwrap_or(core::mem::zeroed()) as _,
             lpcliprect.unwrap_or(core::mem::zeroed()) as _,
+        )
+    }
+}
+#[inline]
+pub unsafe fn SendMessageTimeoutW(
+    hwnd: HWND,
+    msg: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+    fuflags: u32,
+    utimeout: u32,
+    lpdwresult: Option<*mut usize>,
+) -> LRESULT {
+    windows_core::link!("user32.dll" "system" fn SendMessageTimeoutW(hwnd : HWND, msg : u32, wparam : WPARAM, lparam : LPARAM, fuflags : u32, utimeout : u32, lpdwresult : *mut usize) -> LRESULT);
+    unsafe {
+        SendMessageTimeoutW(
+            hwnd,
+            msg,
+            wparam,
+            lparam,
+            fuflags,
+            utimeout,
+            lpdwresult.unwrap_or(core::mem::zeroed()) as _,
         )
     }
 }
@@ -528,6 +622,29 @@ pub unsafe fn SetWindowsHookExW(
 pub unsafe fn ShowWindow(hwnd: HWND, ncmdshow: i32) -> windows_core::BOOL {
     windows_core::link!("user32.dll" "system" fn ShowWindow(hwnd : HWND, ncmdshow : i32) -> windows_core::BOOL);
     unsafe { ShowWindow(hwnd, ncmdshow) }
+}
+#[inline]
+pub unsafe fn ToUnicodeEx(
+    wvirtkey: u32,
+    wscancode: u32,
+    lpkeystate: *const u8,
+    pwszbuff: windows_core::PWSTR,
+    cchbuff: i32,
+    wflags: u32,
+    dwhkl: Option<HKL>,
+) -> i32 {
+    windows_core::link!("user32.dll" "system" fn ToUnicodeEx(wvirtkey : u32, wscancode : u32, lpkeystate : *const u8, pwszbuff : windows_core::PWSTR, cchbuff : i32, wflags : u32, dwhkl : HKL) -> i32);
+    unsafe {
+        ToUnicodeEx(
+            wvirtkey,
+            wscancode,
+            lpkeystate,
+            pwszbuff,
+            cchbuff,
+            wflags,
+            dwhkl.unwrap_or(core::mem::zeroed()) as _,
+        )
+    }
 }
 #[inline]
 pub unsafe fn TranslateMessage(lpmsg: *const MSG) -> windows_core::BOOL {
@@ -699,6 +816,10 @@ pub struct HICON(pub *mut core::ffi::c_void);
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub struct HINSTANCE(pub *mut core::ffi::c_void);
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub struct HKEY(pub *mut core::ffi::c_void);
+pub const HKEY_CURRENT_USER: HKEY = HKEY(-2147483647 as _);
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub struct HKL(pub *mut core::ffi::c_void);
@@ -4373,7 +4494,12 @@ pub struct KBDLLHOOKSTRUCT {
 }
 pub const KLF_NOTELLSHELL: i32 = 128;
 pub const LBS_NOTIFY: i32 = 1;
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub struct LCID(pub u32);
 pub const LLKHF_EXTENDED: i32 = 1;
+pub const LOCALE_ALLOW_NEUTRAL_NAMES: i32 = 134217728;
+pub const LOCALE_NAME_MAX_LENGTH: i32 = 85;
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub struct LPARAM(pub isize);
@@ -4383,6 +4509,9 @@ pub type LPOFNHOOKPROC = Option<
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub struct LRESULT(pub isize);
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub struct LSTATUS(pub i32);
 pub const MAPVK_VK_TO_CHAR: i32 = 2;
 pub const MAPVK_VSC_TO_VK: i32 = 1;
 #[repr(C)]
@@ -4404,6 +4533,7 @@ pub struct MSLLHOOKSTRUCT {
     pub time: u32,
     pub dwExtraInfo: usize,
 }
+pub const MUI_LANGUAGE_NAME: i32 = 8;
 pub type NavigateDirection = i32;
 pub const NavigateDirection_FirstChild: NavigateDirection = 3;
 pub const NavigateDirection_LastChild: NavigateDirection = 4;
@@ -4474,6 +4604,21 @@ pub struct OPENFILENAMEW {
     pub dwReserved: u32,
     pub FlagsEx: u32,
 }
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct OSVERSIONINFOW {
+    pub dwOSVersionInfoSize: u32,
+    pub dwMajorVersion: u32,
+    pub dwMinorVersion: u32,
+    pub dwBuildNumber: u32,
+    pub dwPlatformId: u32,
+    pub szCSDVersion: [u16; 128],
+}
+impl Default for OSVERSIONINFOW {
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
 pub type OrientationType = i32;
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -4528,6 +4673,8 @@ pub struct RECT {
     pub right: i32,
     pub bottom: i32,
 }
+pub const RRF_RT_REG_DWORD: i32 = 16;
+pub const RRF_RT_REG_SZ: i32 = 2;
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct SAFEARRAY {
@@ -4593,6 +4740,8 @@ impl Default for SHFILEINFOW {
     }
 }
 pub const SHGFI_DISPLAYNAME: i32 = 512;
+pub const SMTO_ABORTIFHUNG: i32 = 2;
+pub const SMTO_BLOCK: i32 = 1;
 pub const SM_CXDOUBLECLK: i32 = 36;
 pub const SM_CXVIRTUALSCREEN: i32 = 78;
 pub const SM_CYDOUBLECLK: i32 = 37;
@@ -4787,6 +4936,7 @@ pub const WINEVENT_OUTOFCONTEXT: i32 = 0;
 pub const WM_APP: i32 = 32768;
 pub const WM_CLOSE: i32 = 16;
 pub const WM_GETOBJECT: i32 = 61;
+pub const WM_IME_CONTROL: i32 = 643;
 pub const WM_KEYDOWN: i32 = 256;
 pub const WM_KEYUP: i32 = 257;
 pub const WM_LBUTTONDOWN: i32 = 513;

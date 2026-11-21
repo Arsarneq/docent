@@ -9,6 +9,7 @@
   "element_facts": {
     "autocomplete": null,
     "id": "file",
+    "language": "en",
     "name": "attachment",
     "role": null,
     "selector": "#file",

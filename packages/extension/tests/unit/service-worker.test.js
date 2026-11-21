@@ -791,15 +791,42 @@ describe('SERVICE WORKER: a key that enters a character on a sensitive field is 
   const MASK = '••••••••';
   const none = { ctrl: false, shift: false, alt: false, meta: false };
   const card = () => ({ tag: 'INPUT', type: 'text', name: 'card-number', selector: '#card' });
-  const key = (name, element, modifiers = none) => ({
+  const key = (name, element, modifiers = none, code = 'Digit4') => ({
     type: 'key',
     timestamp: 1,
     context_id: 7,
     key: name,
     modifiers,
     repeat: false,
+    code,
     held_keys: [],
     element,
+  });
+
+  it('regression_237_a_character_key_that_becomes_the_masked_type_loses_its_input_method_fields', () => {
+    // The fields belong to a `key` action; the masked `type` is none.
+    const withState = (action) => ({
+      ...action,
+      input_method_open: true,
+      input_method_conversion_mode: 9,
+    });
+    const out = redactSensitive(withState(key('4', card())));
+    assert.equal(out.type, 'type');
+    assert.equal('input_method_open' in out, false);
+    assert.equal('input_method_conversion_mode' in out, false);
+    // A key that stays a key keeps them.
+    const enter = redactSensitive(withState(key('Enter', card(), none, 'NumpadEnter')));
+    assert.equal(enter.input_method_open, true);
+    assert.equal(enter.input_method_conversion_mode, 9);
+  });
+
+  it('regression_717_a_character_key_that_becomes_the_masked_type_loses_its_code', () => {
+    // `code` names the physical key, which says as much as the character.
+    const out = redactSensitive(key('4', card()));
+    assert.equal(out.type, 'type');
+    assert.equal('code' in out, false);
+    // A key that stays a key keeps it.
+    assert.equal(redactSensitive(key('Enter', card(), none, 'NumpadEnter')).code, 'NumpadEnter');
   });
 
   it('regression_702_a_character_key_becomes_the_masked_type_and_loses_its_key_fields', () => {

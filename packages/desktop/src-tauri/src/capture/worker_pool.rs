@@ -16,6 +16,9 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use super::action_mapping::PASSWORD_MASK;
 use super::coordinate;
+use super::held_keys::KEY_EXTENDED_PARAM;
+use super::language::preferred_languages;
+use super::physical_key::physical_key_code;
 use super::scroll::{RawScrollEvent, ScrollAccumulator};
 use super::{
     ActionEvent, ActionPayload, CaptureError, CaptureMode, ElementDescription, HeldKeysAtAction,
@@ -104,13 +107,19 @@ pub struct RawEvent {
     ///
     /// On Windows: `[id_object, id_child, 0, 0]` from `SetWinEventHook`
     /// callbacks, which workers use to determine which sub-element triggered
-    /// the event; `[axis, 0, 0, 0]` from the mouse hook's wheel path, where
+    /// the event, a focus event carrying its number among the focus events
+    /// dispatched in the third slot (see
+    /// [`AccessibilityBackend::focus_events_dispatched`]); `[axis, 0, 0, 0]` from the mouse hook's wheel path, where
     /// 1 = horizontal (read by the scroll arm); `[scan_code, focused_control,
     /// part_focus, layout_char]` from the keyboard hook, all read by the
     /// keyboard arm: `scan_code` is the hook's scan code, for a `VK_PACKET`
     /// keystroke the injected UTF-16 code unit, with the hook's extended mark
     /// for the key in the bit above it
-    /// ([`super::held_keys::KEY_EXTENDED_PARAM`]); `focused_control` the window
+    /// ([`super::held_keys::KEY_EXTENDED_PARAM`]), scan code and mark together
+    /// naming the physical key a `key` action's `code` states, and above the
+    /// mark what the hook read of the input method at the press
+    /// ([`super::held_keys::input_method_param`]; nothing where none was read);
+    /// `focused_control` the window
     /// handle of the control that held the keyboard focus at the key (`0` when
     /// none was read, see `settle_key_on_its_control`); `part_focus` the
     /// number of the latest focus change that named a part of that control
@@ -119,20 +128,24 @@ pub struct RawEvent {
     /// for every other key), with the repeat mark in the bit above it
     /// ([`super::held_keys::KEY_REPEAT_PARAM`]): set on a key-down for a key
     /// that was already down (a press key repeat generated while the key was
-    /// held), clear on the press itself (see [`super::held_keys::HeldKeys`]).
+    /// held), clear on the press itself (see [`super::held_keys::HeldKeys`]),
+    /// and above that the key's number among the keys of its window
+    /// ([`key_number_param`], `0` when not numbered).
     /// `[button, 0, 0, 0]` from the mouse hook's click paths, where
     /// [`CLICK_COMPLETES_DOUBLE_CLICK`] marks the second click of a
     /// double-click (read by the pool's routing and the click arm) and
     /// [`CLICK_IS_MIDDLE_BUTTON`] a middle-button press (read by the click
     /// arm). On other platforms: unused or platform-defined.
     pub callback_params: [i64; 4],
-    /// Pre-captured element description from the Input_Thread.
-    /// For mouse click/right-click events, the Input_Thread may perform a
-    /// quick `ElementFromPoint` query before dispatching. If the query
-    /// succeeds within the timeout, the result is attached here so the
-    /// worker can use it directly — guaranteeing the element is captured
-    /// while the window is still alive. If `None`, the worker performs
-    /// its own query.
+    /// Pre-captured element description, from the click pre-capture the
+    /// mouse hook waited on (DCP-1). For a click, right-click or middle
+    /// press, the hook asks a pre-capture describer for the element at the
+    /// point and waits for at most the budget before dispatching. An answer
+    /// that came in time is attached here, described at the click, before
+    /// the click takes effect, and the worker uses it directly. If `None` —
+    /// no answer in time, an answer that described nothing, or no
+    /// pre-capture running — the worker performs its own query, after the
+    /// click has taken effect (DCP-13).
     pub pre_captured_element: Option<super::ElementDescription>,
     /// The focus epoch when the Input_Thread dispatched this event: a count of
     /// the focus and foreground changes it had seen by then (see
@@ -265,6 +278,21 @@ pub enum WorkerMessage {
     /// channel, so it is processed after every keystroke and value change
     /// dispatched before it.
     EndTyping,
+    /// A menu item was clicked: a command to the field typed into last (its
+    /// Paste, where the menu is the field's own). Sent to the typing worker
+    /// only, behind the [`WorkerMessage::EndTyping`] of the same click.
+    MenuCommand,
+    /// A wheel event was dispatched. The scroll it becomes is written with no
+    /// place in the order of the events, so a key held behind a dead key
+    /// ([`PendingBuffers::key_behind_dead_keys`]) is written now, ahead of
+    /// it. Sent to the typing worker only; with no key held it does nothing.
+    WriteHeldKey,
+    /// Capture started, or a window came to the front: look at the control
+    /// that holds the keyboard focus now, so the first key typed into it finds
+    /// it known and the field's first value is read without waiting on its
+    /// description (docent#761). Sent to the typing worker only; it writes
+    /// nothing.
+    LookAtFocus,
     /// Poison pill — drain remaining events then exit.
     Shutdown,
 }
@@ -319,6 +347,7 @@ fn emit_barrier_sentinel(action_sender: &mpsc::Sender<ActionEvent>, barrier_id: 
         capture_mode: CaptureMode::Accessibility,
         frame_src: None,
         window_rect: None,
+        preferred_languages: None,
         sequence_id: None,
         payload: ActionPayload::BarrierComplete { barrier_id },
     });
@@ -372,6 +401,37 @@ pub struct PendingBuffers {
     pub pending_keys: Vec<ActionEvent>,
     /// Timestamp of the last buffered key (the wait is counted from it).
     pub pending_keys_last_timestamp: u64,
+    /// How many of the last buffered keys are dead keys (see
+    /// [`is_dead_key`]) with no other key behind them. A dead key enters
+    /// nothing by itself, so no value change follows it and the wait says
+    /// nothing about it: it stays buffered until the next key or the end of
+    /// the typing decides what it was. No pending `type` holds its text, so
+    /// a `type` written while it waits does not supersede it.
+    pub pending_dead_keys: usize,
+    /// The typing ended while those dead keys waited behind keys no value
+    /// change had reached: they are keys now, written behind those keys when
+    /// their wait ends, and no key pressed later makes them text.
+    pub dead_keys_are_keys: bool,
+    /// The accent of each dead key waiting at the end of the buffered keys
+    /// ([`dead_key_accent`]), in the order pressed.
+    pub waiting_accents: Vec<Option<char>>,
+    /// What the field held when the first of those dead keys was pressed,
+    /// where it was read then.
+    pub value_at_dead_key: Option<String>,
+    /// A key that is no typing key, pressed behind dead keys that wait and
+    /// held until it is known what they were: a program can enter the bare
+    /// accent as a character with such a key (docent#769). The buffered keys
+    /// are then those dead keys and no other. It is written behind them when
+    /// a value taken for the field decides it, when its wait for one is over,
+    /// or ahead of whatever is written next.
+    pub key_behind_dead_keys: Option<ActionEvent>,
+    /// How many of `pending_keys`, from the first, are written as keys after
+    /// the pending `type`: their value change came, and its value was read after a later key of the
+    /// window had been dispatched, so it was not taken (docent#761). The
+    /// pending `type` keeps the last value read in time, and these keys are
+    /// written after it, as keys, unless a value read in time supersedes
+    /// them.
+    pub keys_after_type: usize,
 }
 
 impl PendingBuffers {
@@ -379,30 +439,232 @@ impl PendingBuffers {
         Self::default()
     }
 
-    /// Flush only the pending type event (if any), emitting it. Used at points
-    /// where a type event must be committed before another action (context
-    /// switch, control key) without touching the key/scroll buffers.
+    /// The typing in a field has ended: write the pending `type` (if any),
+    /// then the keys after its value ([`keys_after_type`](Self::keys_after_type)),
+    /// as keys. The other buffered keys, which no value change has reached
+    /// yet, stay buffered. Used at points where a type event must be
+    /// committed before another action (context switch, control key).
     fn flush_pending_type_only(&mut self, action_sender: &mpsc::Sender<ActionEvent>) {
         flush_pending_type(&mut self.pending_type, action_sender);
+        self.write_keys_after_type(true, action_sender);
+        if self.pending_keys.is_empty() {
+            self.pending_keys_last_timestamp = 0;
+        }
+    }
+
+    /// Write, as keys, the keys after the `type`
+    /// ([`keys_after_type`](Self::keys_after_type)) when `after_type`, which
+    /// are then none; otherwise the keys behind them, which no value change
+    /// has reached. The one place either is taken from the buffer.
+    fn write_keys_after_type(
+        &mut self,
+        after_type: bool,
+        action_sender: &mpsc::Sender<ActionEvent>,
+    ) {
+        let split = self.keys_after_type.min(self.pending_keys.len());
+        let keys = if after_type {
+            self.keys_after_type = 0;
+            self.pending_keys.drain(..split)
+        } else {
+            self.pending_keys.drain(split..)
+        };
+        for event in keys {
+            let _ = action_sender.send(event);
+        }
+    }
+
+    /// Write every buffered key as a key, and behind them the key held
+    /// behind waiting dead keys.
+    fn write_keys(&mut self, action_sender: &mpsc::Sender<ActionEvent>) {
+        flush_pending_keys(&mut self.pending_keys, action_sender);
+        if let Some(key) = self.key_behind_dead_keys.take() {
+            let _ = action_sender.send(key);
+        }
+        self.pending_keys_last_timestamp = 0;
+        self.keys_after_type = 0;
+        self.no_dead_key_waits();
+    }
+
+    /// No dead key waits at the end of the buffered keys any more.
+    fn no_dead_key_waits(&mut self) {
+        self.pending_dead_keys = 0;
+        self.dead_keys_are_keys = false;
+        self.waiting_accents.clear();
+        self.value_at_dead_key = None;
+    }
+
+    /// A typing key was buffered: count it among the waiting dead keys where
+    /// it is one (`dead`, with its `accent` and the field's value read at
+    /// the press), and end their wait where it is none.
+    fn note_buffered_key(&mut self, dead: bool, accent: Option<char>, value: Option<String>) {
+        if !dead {
+            self.pending_dead_keys = 0;
+            self.waiting_accents.clear();
+            self.value_at_dead_key = None;
+            return;
+        }
+        // The key itself is the last buffered one.
+        let waiting = self
+            .pending_dead_keys
+            .min(self.pending_keys.len().saturating_sub(1));
+        if waiting == 0 {
+            self.waiting_accents.clear();
+            self.value_at_dead_key = value;
+        }
+        self.waiting_accents.truncate(waiting);
+        self.waiting_accents.resize(waiting, None);
+        self.waiting_accents.push(accent);
+        self.pending_dead_keys = waiting + 1;
+    }
+
+    /// A value was taken for the field's `type`: discard the waiting dead
+    /// keys whose accent the program entered as a character, which are part
+    /// of that text (docent#769). The program entered one where `value`
+    /// holds the accent more often than the field did `before` the first of
+    /// them was pressed; that many of the dead keys with the accent, from
+    /// the first, are text.
+    ///
+    /// Only where every buffered key is such a dead key and `before` is
+    /// known: text of other keys that no value has reached could hold the
+    /// accent too, and nothing would tell whose it is. The dead keys then
+    /// stay as they are.
+    fn take_dead_keys_entered(&mut self, before: Option<&str>, value: &str) {
+        let waiting = self.undecided_dead_keys();
+        let Some(before) = before else { return };
+        if waiting == 0
+            || waiting != self.pending_keys.len()
+            || waiting != self.waiting_accents.len()
+        {
+            return;
+        }
+        let mut entered: Vec<(char, usize)> = Vec::new();
+        let mut kept_keys = Vec::with_capacity(waiting);
+        let mut kept_accents = Vec::with_capacity(waiting);
+        for (key, accent) in self
+            .pending_keys
+            .drain(..)
+            .zip(self.waiting_accents.drain(..))
+        {
+            let is_text = accent.is_some_and(|accent| {
+                let left = match entered.iter_mut().find(|(known, _)| *known == accent) {
+                    Some((_, left)) => left,
+                    None => {
+                        let gained = value
+                            .matches(accent)
+                            .count()
+                            .saturating_sub(before.matches(accent).count());
+                        entered.push((accent, gained));
+                        &mut entered.last_mut().expect("just pushed").1
+                    }
+                };
+                let text = *left > 0;
+                *left = left.saturating_sub(1);
+                text
+            });
+            if !is_text {
+                kept_keys.push(key);
+                kept_accents.push(accent);
+            }
+        }
+        self.pending_dead_keys = kept_keys.len();
+        self.pending_keys = kept_keys;
+        self.waiting_accents = kept_accents;
+        // The dead keys left wait behind this value: it is what the field
+        // held before any accent of theirs.
+        self.value_at_dead_key = (self.pending_dead_keys > 0).then(|| value.to_string());
+    }
+
+    /// Whether every buffered key was pressed in `element` of `context_id`:
+    /// the field a value was taken for.
+    fn dead_keys_wait_in(&self, context_id: Option<i64>, element: &ElementDescription) -> bool {
+        self.pending_keys.iter().all(|key| {
+            key.context_id == context_id
+                && matches!(&key.payload,
+                    ActionPayload::Key { element: pressed_in, .. } if same_field(pressed_in, element))
+        })
+    }
+
+    /// The key held behind waiting dead keys is written now, behind them:
+    /// what is written next must not come ahead of it.
+    fn write_key_behind_dead_keys(&mut self, action_sender: &mpsc::Sender<ActionEvent>) {
+        if self.key_behind_dead_keys.is_some() {
+            self.write_keys(action_sender);
+        }
+    }
+
+    /// Discard the buffered keys a value read in time made text. A dead key
+    /// waiting at the end of the buffer stays: it enters nothing by itself,
+    /// so the value is the text of the keys before it.
+    fn clear_keys(&mut self) {
+        let waiting = self.waiting_dead_keys();
+        let text_keys = self.pending_keys.len() - waiting;
+        self.pending_keys.drain(..text_keys);
+        self.keys_after_type = 0;
+        if waiting == 0 {
+            self.pending_keys_last_timestamp = 0;
+            self.no_dead_key_waits();
+        }
+    }
+
+    /// The typing in a field has ended: write the pending `type` and the
+    /// keys after it, and settle a dead key still waiting for the key after
+    /// it. No character follows it now, so it is a key; no value change that
+    /// comes later is its own.
+    ///
+    /// Where it is the only key buffered it is written here. Where keys no
+    /// value change has reached are buffered ahead of it, it is written
+    /// behind them, in the order pressed: here where their wait for a value
+    /// change is over at `now`, otherwise when that wait ends
+    /// ([`write_keys_that_took_no_text`]), or behind the `type` their value
+    /// change makes. Writing them here regardless would write a key beside
+    /// its own text.
+    fn end_typing(&mut self, now: u64, action_sender: &mpsc::Sender<ActionEvent>) {
+        self.flush_pending_type_only(action_sender);
+        if self.waiting_dead_keys() == 0 {
+            return;
+        }
+        if self.waiting_dead_keys() == self.pending_keys.len() {
+            self.write_keys(action_sender);
+            return;
+        }
+        self.dead_keys_are_keys = true;
+        write_keys_that_took_no_text(self, now, action_sender);
+    }
+
+    /// How many dead keys at the end of the buffered keys still wait for the
+    /// key after them: none once the end of the typing made them keys.
+    fn undecided_dead_keys(&self) -> usize {
+        if self.dead_keys_are_keys {
+            0
+        } else {
+            self.waiting_dead_keys()
+        }
+    }
+
+    /// How many dead keys wait at the end of the buffered keys.
+    fn waiting_dead_keys(&self) -> usize {
+        self.pending_dead_keys.min(self.pending_keys.len())
+    }
+
+    /// Write the pending `type` and then every buffered key, each once: the
+    /// keys after the `type`, the keys no value change has reached, and a
+    /// dead key waiting at the end of the buffer, which is no part of a
+    /// `type` and is written behind it, as a key.
+    fn drain_typing_into(&mut self, action_sender: &mpsc::Sender<ActionEvent>) {
+        self.flush_pending_type_only(action_sender);
+        self.write_keys(action_sender);
     }
 
     /// Drain all buffered actions, emitting them via `action_sender`.
     ///
-    /// Pending type takes precedence over pending keys (the type value
-    /// supersedes the individual keystrokes), as it does when the typing
-    /// ends. Returns after the buffers are empty. Safe to call more than
-    /// once and from either the worker or the shutdown drainer — whoever calls
-    /// first empties the buffers; subsequent calls are no-ops.
+    /// The pending `type`, then every buffered key, each once: the keys after
+    /// the `type` are not in the `type`'s value, which was read before them, and a key
+    /// no value change has reached yet is not either (docent#761). Returns
+    /// after the buffers are empty. Safe to call more than once and from
+    /// either the worker or the shutdown drainer — whoever calls first
+    /// empties the buffers; subsequent calls are no-ops.
     fn drain_into(&mut self, action_sender: &mpsc::Sender<ActionEvent>) {
-        if self.pending_type.is_some() {
-            // A type event supersedes buffered keys.
-            flush_pending_type(&mut self.pending_type, action_sender);
-            self.pending_keys.clear();
-            self.pending_keys_last_timestamp = 0;
-        } else {
-            flush_pending_keys(&mut self.pending_keys, action_sender);
-            self.pending_keys_last_timestamp = 0;
-        }
+        self.drain_typing_into(action_sender);
         if let Some(result) = self.scroll_acc.try_flush(u64::MAX) {
             let _ = action_sender.send(ActionEvent {
                 timestamp: current_timestamp_ms(),
@@ -410,6 +672,7 @@ impl PendingBuffers {
                 capture_mode: CaptureMode::Accessibility,
                 frame_src: None,
                 window_rect: None,
+                preferred_languages: preferred_languages(),
                 sequence_id: None,
                 payload: ActionPayload::Scroll {
                     element: None,
@@ -446,13 +709,17 @@ type SpawnWorkerFn = Box<
 /// The value of the pool's typing-worker slot while no worker holds the role.
 const NO_TYPING_WORKER: usize = usize::MAX;
 
+/// The value of the pool's focus-worker slot while no worker holds the role.
+const NO_FOCUS_WORKER: usize = usize::MAX;
+
 /// Platform-agnostic worker pool for dispatching raw events to accessibility
 /// worker threads.
 ///
 /// The pool manages a fixed set of workers, assigns monotonic sequence numbers
 /// to events, and routes events using shortest-queue dispatch with one typing
-/// worker for keyboard and value-change events, sticky routing for focus and
-/// selection events, and paired routing for drag events and double-clicks.
+/// worker for keyboard and value-change events, one focus worker for focus
+/// events, sticky routing for selection events, and paired routing for drag
+/// events and double-clicks.
 ///
 /// When a worker panics, the pool detects the failure on the next dispatch
 /// attempt, immediately respawns a replacement worker at the same index, and
@@ -478,9 +745,15 @@ pub struct WorkerPool {
     /// per index. The typing role is not given to one of them while another
     /// worker is available; a respawn clears its index's bit.
     missed_last_barrier: AtomicU64,
-    /// Sticky routing: maps `window_handle` → `worker_index` for focus and
-    /// selection events, so each window's events of those types reach one
-    /// worker and its deduplication holds.
+    /// The focus worker: the one worker every focus event reaches, whatever
+    /// window the event named, so the last focus it compares a focus with is
+    /// the focus before it (docent#735). Chosen like the typing worker, at
+    /// the first focus event, kept across a respawn of its index, and given up
+    /// the same way when a flush barrier finds it unresponsive.
+    /// `NO_FOCUS_WORKER` while none is chosen.
+    focus_worker: AtomicUsize,
+    /// Sticky routing: maps `window_handle` → `worker_index` for selection
+    /// events, so each window's selections reach one worker, in order.
     window_affinity: HashMap<i64, usize>,
     /// Tracks the worker index that received the most recent `DragStart`,
     /// so the corresponding `Drop` event is routed to the same worker.
@@ -551,6 +824,7 @@ impl WorkerPool {
             sequence_counter: Arc::new(AtomicU64::new(0)),
             typing_worker: AtomicUsize::new(NO_TYPING_WORKER),
             missed_last_barrier: AtomicU64::new(0),
+            focus_worker: AtomicUsize::new(NO_FOCUS_WORKER),
             window_affinity: HashMap::new(),
             last_drag_worker: None,
             last_click_worker: None,
@@ -586,8 +860,9 @@ impl WorkerPool {
     /// Routing rules:
     /// - `Keyboard`, `ValueChange` → the typing worker (one worker for all of
     ///   them, whatever the window).
-    /// - `Focus`, `Selection` → sticky routing (same `window_handle` → same
-    ///   worker).
+    /// - `Focus` → the focus worker (one worker for all of them, whatever the
+    ///   window).
+    /// - `Selection` → sticky routing (same `window_handle` → same worker).
     /// - `DragStart`   → shortest-queue worker (index stored for the paired `Drop`).
     /// - `Drop`        → same worker as the most recent `DragStart`.
     /// - `Click`       → shortest-queue worker, or, for a click that completes
@@ -597,23 +872,67 @@ impl WorkerPool {
     /// If the selected worker has disconnected (panicked), it is marked dead
     /// and removed from future dispatch rotation. The event is retried on the
     /// next available worker. Sticky affinity entries pointing to the dead
-    /// worker are cleared so subsequent events are re-routed; the typing
-    /// worker stays the respawned index.
+    /// worker are cleared so subsequent events are re-routed; the typing and
+    /// focus workers stay the respawned index.
     pub fn dispatch(&mut self, event: RawEvent) {
         if ends_typing(&event.event_type) {
-            self.end_typing();
+            self.tell_typing_worker(WorkerMessage::EndTyping);
         }
+        if is_menu_command(&event) {
+            self.tell_typing_worker(WorkerMessage::MenuCommand);
+        }
+        if matches!(event.event_type, RawEventType::Scroll) {
+            self.tell_typing_worker(WorkerMessage::WriteHeldKey);
+        }
+        let comes_to_front = matches!(event.event_type, RawEventType::Foreground);
         let worker_index = self.select_worker(&event);
         self.send_to_worker(worker_index, event);
+        if comes_to_front {
+            self.look_at_focus();
+        }
     }
 
-    /// Tell the typing worker that the typing in a field has ended. With no
-    /// typing worker yet there is no pending `type`; a worker whose channel is
-    /// gone has its buffers drained when it is respawned.
-    fn end_typing(&mut self) {
+    /// Ask the typing worker to look at the control that holds the keyboard
+    /// focus ([`WorkerMessage::LookAtFocus`]): at the start of a capture, and
+    /// whenever a window comes to the front. Choosing the typing worker here
+    /// is what makes the look reach the worker the keys will go to.
+    pub fn look_at_focus(&mut self) {
+        let index = self.typing_worker_index();
+        if let Some(worker) = self.workers.get(index) {
+            let _ = worker.sender.send(WorkerMessage::LookAtFocus);
+        }
+    }
+
+    /// The typing worker, chosen by shortest queue among the workers that
+    /// answered the last flush barrier when none holds the role.
+    fn typing_worker_index(&mut self) -> usize {
+        let current = self.typing_worker.load(Ordering::SeqCst);
+        if current != NO_TYPING_WORKER {
+            return current;
+        }
+        let idx = self.responsive_shortest_queue_worker();
+        self.typing_worker.store(idx, Ordering::SeqCst);
+        idx
+    }
+
+    /// The typing in a field has ended with no event to dispatch: a window
+    /// the recording keeps nothing of (the recorder's own window, or one
+    /// outside the application recorded) came to the front. The `type` held
+    /// is written then, as it is when a recorded window comes to the front
+    /// (docent#768).
+    pub fn end_typing(&mut self) {
+        self.tell_typing_worker(WorkerMessage::EndTyping);
+    }
+
+    /// Send the typing worker a message that is no event: that the typing in
+    /// a field has ended, or that a menu item was clicked. With no typing
+    /// worker yet there is no pending `type` and no field typed into; a
+    /// worker whose channel is gone has its buffers drained when it is
+    /// respawned.
+    fn tell_typing_worker(&mut self, message: WorkerMessage) {
         let index = self.typing_worker.load(Ordering::SeqCst);
         if let Some(worker) = self.workers.get(index) {
-            let _ = worker.sender.send(WorkerMessage::EndTyping);
+            let _ = worker.sender.send(message);
         }
     }
 
@@ -625,25 +944,25 @@ impl WorkerPool {
             // keystrokes that caused it, so the value change supersedes all of
             // them — spread over several workers, each would hold keystrokes
             // the value change's worker never sees.
-            RawEventType::Keyboard | RawEventType::ValueChange => {
-                let current = self.typing_worker.load(Ordering::SeqCst);
-                if current != NO_TYPING_WORKER {
+            RawEventType::Keyboard | RawEventType::ValueChange => self.typing_worker_index(),
+            // Focus: every focus event goes to one worker. A worker describes
+            // the element focused when it gets to the event, which need not
+            // be in the window the event named, and compares it with its last
+            // focus; routed by window, two events of one focus change could
+            // each be compared with a different last focus and both be
+            // written (docent#735).
+            RawEventType::Focus => {
+                let current = self.focus_worker.load(Ordering::SeqCst);
+                if current != NO_FOCUS_WORKER {
                     return current;
                 }
-                let missed = self.missed_last_barrier.load(Ordering::SeqCst);
-                let unresponsive: std::collections::HashSet<usize> = (0..self.workers.len())
-                    .filter(|i| *i < 64 && missed & (1 << i) != 0)
-                    .collect();
-                let idx = self
-                    .pick_worker_excluding(&unresponsive)
-                    .unwrap_or_else(|| self.shortest_queue_worker());
-                self.typing_worker.store(idx, Ordering::SeqCst);
+                let idx = self.responsive_shortest_queue_worker();
+                self.focus_worker.store(idx, Ordering::SeqCst);
                 idx
             }
-            // Sticky routing: consecutive events for the same window go to
-            // the same worker. This ensures per-worker deduplication works
-            // correctly (focus dedup, selection dedup).
-            RawEventType::Focus | RawEventType::Selection => {
+            // Sticky routing: consecutive selections in the same window go to
+            // the same worker, which processes them in order.
+            RawEventType::Selection => {
                 let handle = event.window_handle;
                 if let Some(&idx) = self.window_affinity.get(&handle) {
                     return idx;
@@ -822,8 +1141,9 @@ impl WorkerPool {
         // Clear sticky affinity entries that pointed to the dead worker.
         self.window_affinity.retain(|_, &mut v| v != index);
 
-        // The typing worker keeps its index: the replacement is installed at
-        // that index, so keyboard and value-change events stay together. The
+        // The typing and focus workers keep their index: the replacement is
+        // installed at that index, so keyboard and value-change events stay
+        // together, and so do focus events. The
         // replacement has missed no barrier.
         if index < 64 {
             self.missed_last_barrier
@@ -1020,10 +1340,27 @@ impl WorkerPool {
         if rescue.contains(&typing) {
             self.typing_worker.store(NO_TYPING_WORKER, Ordering::SeqCst);
         }
+        // The focus worker likewise, so focus events after this commit do not
+        // wait behind a wedged accessibility call.
+        let focus = self.focus_worker.load(Ordering::SeqCst);
+        if rescue.contains(&focus) {
+            self.focus_worker.store(NO_FOCUS_WORKER, Ordering::SeqCst);
+        }
 
         let mut rescued: Vec<usize> = rescue.into_iter().collect();
         rescued.sort_unstable();
         rescued
+    }
+
+    /// The shortest-queue worker among those that answered the most recent
+    /// flush barrier, or among all workers when none did.
+    fn responsive_shortest_queue_worker(&self) -> usize {
+        let missed = self.missed_last_barrier.load(Ordering::SeqCst);
+        let unresponsive: std::collections::HashSet<usize> = (0..self.workers.len())
+            .filter(|i| *i < 64 && missed & (1 << i) != 0)
+            .collect();
+        self.pick_worker_excluding(&unresponsive)
+            .unwrap_or_else(|| self.shortest_queue_worker())
     }
 
     /// Find the worker with the shortest queue.
@@ -1085,6 +1422,24 @@ pub trait AccessibilityBackend: Send + 'static {
         0
     }
 
+    /// The number of the latest focus event the Input_Thread dispatched,
+    /// counted from 1; each focus event carries its own number
+    /// ([`RawEvent::callback_params`]). While the two are equal, no later
+    /// focus event has been dispatched, so no later event records the focus.
+    /// A platform that does not number its focus events returns `0` always.
+    fn focus_events_dispatched(&self) -> u64 {
+        0
+    }
+
+    /// The number of the latest key press the Input_Thread dispatched in
+    /// `window`; each keystroke carries its own number
+    /// ([`RawEvent::callback_params`], see [`KeyNumbers`]). While the two are
+    /// equal, no later key of that window has been dispatched. A platform
+    /// that numbers no keys returns `0` always, and its keystrokes carry `0`.
+    fn keys_dispatched(&self, _window: i64) -> u64 {
+        0
+    }
+
     /// Whether `window_handle`'s top-level window is the foreground window
     /// right now. The focused element belongs to the foreground window, so an
     /// event's window that is no longer in front (closed, or left for another
@@ -1134,11 +1489,33 @@ pub trait AccessibilityBackend: Send + 'static {
         None
     }
 
+    /// Whether the window `control` answers a message within
+    /// [`PROMPT_ANSWER_MS`] (a program not hung). Asked before the look ahead
+    /// of the keys ([`WorkerMessage::LookAtFocus`]), which no key waits on, so
+    /// a program that answers late is not described then. A platform that
+    /// cannot ask answers `true`.
+    fn answers_promptly(&self, _control: i64) -> bool {
+        true
+    }
+
+    /// The id of the process that owns `window_handle`; `0` where unknown.
+    fn process_id_of(&self, _window_handle: i64) -> u32 {
+        0
+    }
+
     /// Get the window title for a window handle.
     fn window_title(&self, window_handle: i64) -> String;
 
     /// Get the process name for a window handle.
     fn process_name(&self, window_handle: i64) -> String;
+
+    /// The name [`process_name`](Self::process_name) gives a window of the
+    /// process `process_id`, read from the process itself, so it names the
+    /// process after the window has closed; `None` where the platform cannot
+    /// name a process by its id.
+    fn process_name_of(&self, _process_id: u32) -> Option<String> {
+        None
+    }
 
     /// Read a file dialog path from the given window: the dialog itself or
     /// any window inside it (a click names the control under the pointer).
@@ -1279,6 +1656,7 @@ fn strip_identity_claims(element: &mut ElementDescription) {
     element.size_of_set = None;
     element.level = None;
     element.framework_id = None;
+    element.language = None;
     element.described_after_ms = None;
 }
 
@@ -1477,6 +1855,59 @@ fn is_printable_key(raw: &RawEvent) -> bool {
     is_typing_key_code(raw.key_code) && !meta && ctrl == alt
 }
 
+/// Whether a keystroke is a dead key: it enters nothing by itself; its accent
+/// goes into the character the next key enters.
+///
+/// Where the keyboard hook asked the layout about the key as pressed, with
+/// the modifiers held ([`super::held_keys::dead_as_pressed_of`]), the answer
+/// is the layout's: a key dead with Shift or AltGr is a dead key, and a key
+/// dead only without them is none when pressed with one.
+///
+/// Where the hook did not ask, what is known is the dead-key flag of the
+/// unmodified key (bit 31 of the layout character). It counts for a press
+/// with neither Shift nor AltGr (Ctrl and Alt together); with one of them the
+/// key is taken for an ordinary one.
+fn is_dead_key(raw: &RawEvent) -> bool {
+    if !is_printable_key(raw) {
+        return false;
+    }
+    if let Some(read) = super::held_keys::dead_as_pressed_of(raw.callback_params[3]) {
+        return matches!(read, super::held_keys::AsPressed::DeadKey { .. });
+    }
+    let (ctrl, shift, alt, _meta) = raw.modifiers;
+    !shift
+        && !(ctrl && alt)
+        && super::held_keys::layout_char_of(raw.callback_params[3]) & 0x8000_0000 != 0
+}
+
+/// The accent a dead key carries: the character a program enters for it
+/// where no character takes the accent (the key pressed twice, or a key that
+/// is no typing key behind it). The layout's answer for the key as pressed
+/// where the hook asked, otherwise the layout character of the unmodified
+/// key. `None` for a key that is no dead key and where the layout named none.
+fn dead_key_accent(raw: &RawEvent) -> Option<char> {
+    if !is_dead_key(raw) {
+        return None;
+    }
+    let code = match super::held_keys::dead_as_pressed_of(raw.callback_params[3]) {
+        Some(super::held_keys::AsPressed::DeadKey { accent }) => u32::from(accent),
+        _ => super::held_keys::layout_char_of(raw.callback_params[3]) & 0xFFFF,
+    };
+    char::from_u32(code).filter(|accent| *accent != '\0')
+}
+
+/// Whether a keystroke is a paste key: V with Ctrl (with or without Shift), or
+/// Insert with Shift alone. The value change that follows one is the pasted
+/// text. A paste made from a menu has no such key.
+fn is_paste_key(raw: &RawEvent) -> bool {
+    let (ctrl, shift, alt, meta) = raw.modifiers;
+    match raw.key_code {
+        0x56 => ctrl && !alt && !meta,
+        0x2D => shift && !ctrl && !alt && !meta,
+        _ => false,
+    }
+}
+
 /// Whether a virtual-key code is a typing key's: one that enters a character
 /// on some layout. A closed table: the space bar, digits, letters, the numeric
 /// keypad (digits, operators, decimal and separator; with NumLock off the
@@ -1572,6 +2003,26 @@ pub fn key_may_move_focus(key_code: u32, modifiers: (bool, bool, bool, bool)) ->
 /// [`RawEvent::callback_params`]).
 fn is_repeat(raw: &RawEvent) -> bool {
     raw.callback_params[3] & super::held_keys::KEY_REPEAT_PARAM != 0
+}
+
+/// The physical key of a keystroke, by its W3C UI Events `code` value, from the
+/// hook's scan code and extended mark (the first callback parameter; see
+/// [`RawEvent::callback_params`]). An injected character has none: what it
+/// carries in the scan code's place is its code unit.
+fn physical_key_of(raw: &RawEvent) -> Option<&'static str> {
+    if raw.key_code == VK_PACKET {
+        return None;
+    }
+    let params = raw.callback_params[0];
+    // The low half is the hook's scan code, a 32-bit value.
+    physical_key_code(params as u32, params & KEY_EXTENDED_PARAM != 0)
+}
+
+/// What the keyboard hook read of the input method at a keystroke (the fourth
+/// callback parameter, above the repeat mark; see
+/// [`RawEvent::callback_params`]), as the `key` action states it.
+fn input_method_at(raw: &RawEvent) -> super::InputMethodAtKey {
+    super::held_keys::input_method_of(raw.callback_params[0]).into()
 }
 
 /// The key names that enter no character: editing, navigation, lock, system
@@ -1729,7 +2180,22 @@ pub fn worker_loop<B: AccessibilityBackend>(
             }
             Ok(WorkerMessage::EndTyping) => {
                 // In-memory buffer mutation only — no backend calls inside.
-                lock_buffers(&pending).flush_pending_type_only(&action_sender);
+                lock_buffers(&pending).end_typing(current_timestamp_ms(), &action_sender);
+            }
+            Ok(WorkerMessage::MenuCommand) => note_menu_command(&mut state),
+            Ok(WorkerMessage::WriteHeldKey) => {
+                // In-memory buffer mutation only — no backend calls inside.
+                lock_buffers(&pending).write_key_behind_dead_keys(&action_sender);
+            }
+            Ok(WorkerMessage::LookAtFocus) => {
+                // Backend calls only; the buffers are not touched.
+                let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    look_at_focused_control(
+                        &backend,
+                        &mut state.controls,
+                        excluded_pid.load(Ordering::SeqCst),
+                    );
+                }));
             }
             Ok(WorkerMessage::Shutdown) => {
                 // Drain remaining events in the queue. A message that is no
@@ -1752,8 +2218,15 @@ pub fn worker_loop<B: AccessibilityBackend>(
                             }));
                         }
                         WorkerMessage::EndTyping => {
-                            lock_buffers(&pending).flush_pending_type_only(&action_sender);
+                            lock_buffers(&pending)
+                                .end_typing(current_timestamp_ms(), &action_sender);
                         }
+                        WorkerMessage::MenuCommand => note_menu_command(&mut state),
+                        WorkerMessage::WriteHeldKey => {
+                            lock_buffers(&pending).write_key_behind_dead_keys(&action_sender);
+                        }
+                        // No key follows a stop: nothing to look at.
+                        WorkerMessage::LookAtFocus => {}
                         WorkerMessage::Flush(ack) => {
                             lock_buffers(&pending).drain_into(&action_sender);
                             let _ = ack.send(worker_index);
@@ -1778,6 +2251,7 @@ pub fn worker_loop<B: AccessibilityBackend>(
                         capture_mode: CaptureMode::Accessibility,
                         frame_src: None,
                         window_rect: None,
+                        preferred_languages: preferred_languages(),
                         sequence_id: None,
                         payload: ActionPayload::Scroll {
                             element: None,
@@ -1816,8 +2290,17 @@ pub fn worker_loop<B: AccessibilityBackend>(
 /// separately in [`PendingBuffers`] behind a shared lock, so they survive a
 /// detach — see that type's docs.
 struct WorkerState {
-    last_focus_selector: String,
-    last_value_map: HashMap<String, String>,
+    /// The focus last written: its context and its element's selector.
+    last_focus: Option<(Option<i64>, String)>,
+    /// The value of the field typed into last, as last taken for its `type`.
+    last_value: Option<LastValue>,
+    /// The field a paste key (see [`is_paste_key`]) was pressed in, or the
+    /// field typed into last when a menu item was clicked (see
+    /// [`note_menu_command`]), until a value change is taken for that field:
+    /// that one is the pasted text, also where it repeats the field's value.
+    /// A program can report the paste after the keys that follow it, so no
+    /// later key ends the wait.
+    pasted_into: Option<LastValue>,
     last_drag_element: Option<ElementDescription>,
     /// The file the last click selected in a file dialog's item view, read
     /// from the dialog at that click, for the click that completes a
@@ -1839,8 +2322,9 @@ struct WorkerState {
 impl WorkerState {
     fn new() -> Self {
         Self {
-            last_focus_selector: String::new(),
-            last_value_map: HashMap::new(),
+            last_focus: None,
+            last_value: None,
+            pasted_into: None,
             last_drag_element: None,
             file_pick: None,
             typing_focus: None,
@@ -1874,12 +2358,19 @@ struct LastKey {
     context_id: Option<i64>,
     /// Empty when the key named no element.
     selector: String,
+    /// The element's place under its window (see [`same_field`]), where the
+    /// description knew it.
+    place: Option<String>,
     /// `WorkerState::mark_seq` of the description the element came from;
     /// `None` when the key named no element, or was recorded on its control.
     mark: Option<u64>,
     /// The window handle of the control the key was recorded on (see
     /// [`settle_key_on_its_control`]); `0` when it was described by focus.
     control: i64,
+    /// The key's window, as the Input_Thread attributed it, and its number
+    /// among that window's keys (see [`KeyNumbers`]); `0` when not numbered.
+    window: i64,
+    number: u64,
 }
 
 /// A control keys were pressed in: a window handle that held the keyboard
@@ -1920,6 +2411,13 @@ fn key_control(raw: &RawEvent) -> i64 {
     } else {
         0
     }
+}
+
+/// The number the Input_Thread gave this focus event among the focus events
+/// it dispatched (`callback_params[2]`, see
+/// [`AccessibilityBackend::focus_events_dispatched`]); `0` when not numbered.
+fn focus_event_number(raw: &RawEvent) -> u64 {
+    raw.callback_params[2] as u64
 }
 
 /// The number of the latest focus change that named a part of this key's
@@ -1982,6 +2480,157 @@ impl PartFocusNote {
             .iter()
             .find(|(w, _)| *w == window)
             .map_or(self.pushed_out, |(_, number)| *number)
+    }
+}
+
+/// The key presses the Input_Thread dispatched, numbered per window
+/// (docent#761): each keystroke carries its number
+/// ([`key_number_param`]), and a worker that has read a field's value asks
+/// for the number of the window's latest key ([`AccessibilityBackend::keys_dispatched`]).
+/// While the two are equal, no later key of that window was dispatched, so
+/// the program had received no later key when it answered the read.
+///
+/// Numbers are per window because a key goes to the focus of the window it
+/// was pressed in: a key pressed in another window cannot reach the field,
+/// so it makes no read of the field late, where one count for all windows
+/// would. They are taken
+/// from one count for every window, so a number never comes back for a
+/// window that was let go and noted again. Written by the
+/// Input_Thread only, read by the workers with no lock: a window being
+/// replaced in its slot can only answer a later number than its own, and a
+/// window not remembered answers [`KeyNumbers::NOT_REMEMBERED`], which is no
+/// key's number. Both make a read not count, never the other way round.
+#[derive(Debug)]
+pub struct KeyNumbers {
+    last: AtomicU64,
+    slots: [KeySlot; KeyNumbers::WINDOWS],
+}
+
+#[derive(Debug)]
+struct KeySlot {
+    window: std::sync::atomic::AtomicI64,
+    latest: AtomicU64,
+}
+
+/// The bits a key number takes (see [`key_number_param`]).
+const KEY_NUMBER_MASK: u64 = (1 << 30) - 1;
+
+/// Where a key number sits in a keystroke's `callback_params[3]`: the bit
+/// above the repeat mark, which sits above the layout character.
+///
+/// | bits  | holds                                                  |
+/// |-------|--------------------------------------------------------|
+/// | 0–31  | the layout character ([`super::held_keys::layout_char_of`]), with the dead-key read in bits 16 to 30 |
+/// | 32    | the repeat mark ([`super::held_keys::KEY_REPEAT_PARAM`]) |
+/// | 33–62 | the key number ([`KEY_NUMBER_MASK`])                   |
+/// | 63    | clear: the parameter stays a positive `i64`            |
+const KEY_NUMBER_SHIFT: u32 = super::held_keys::KEY_REPEAT_PARAM.trailing_zeros() + 1;
+
+const _: () = assert!(
+    KEY_NUMBER_SHIFT + KEY_NUMBER_MASK.count_ones() <= 63,
+    "a key number fits below the sign bit"
+);
+
+impl KeyNumbers {
+    /// How many windows are remembered.
+    pub const WINDOWS: usize = 16;
+
+    /// What [`latest`](Self::latest) answers for a window it does not
+    /// remember: no key's number.
+    pub const NOT_REMEMBERED: u64 = u64::MAX;
+
+    pub const fn new() -> Self {
+        Self {
+            last: AtomicU64::new(0),
+            slots: [const {
+                KeySlot {
+                    window: std::sync::atomic::AtomicI64::new(0),
+                    latest: AtomicU64::new(0),
+                }
+            }; KeyNumbers::WINDOWS],
+        }
+    }
+
+    /// Number a key press dispatched in `window` and return its number, never
+    /// `0` (which stands for a key not numbered). Called on the Input_Thread
+    /// only.
+    pub fn number(&self, window: i64) -> u64 {
+        let mut number = 0;
+        while number == 0 {
+            number = (self.last.fetch_add(1, Ordering::SeqCst) + 1) & KEY_NUMBER_MASK;
+        }
+        let slot = match self
+            .slots
+            .iter()
+            .find(|s| s.window.load(Ordering::SeqCst) == window)
+        {
+            Some(slot) => slot,
+            // The window whose latest key is the oldest is let go (a slot
+            // never used holds `0`, older than every number).
+            None => self
+                .slots
+                .iter()
+                .min_by_key(|s| s.latest.load(Ordering::SeqCst))
+                .expect("KeyNumbers has slots"),
+        };
+        // The number before the window: a reader that finds the window finds
+        // its number or a later one.
+        slot.latest.store(number, Ordering::SeqCst);
+        slot.window.store(window, Ordering::SeqCst);
+        number
+    }
+
+    /// The number a keystroke of key `vk` in `window` carries: a key that
+    /// can change a field's text is numbered ([`number`](Self::number)); a
+    /// Shift, Control or Alt key changes no text, so it carries the number of
+    /// the window's latest key and moves nothing for a read of that window
+    /// (a window not remembered numbers it, as its first key). Called on the
+    /// Input_Thread only.
+    pub fn for_key(&self, window: i64, vk: u32) -> u64 {
+        match self.latest(window) {
+            latest if !numbers_key(vk) && latest != Self::NOT_REMEMBERED => latest,
+            _ => self.number(window),
+        }
+    }
+
+    /// The number of the latest key dispatched in `window`;
+    /// [`NOT_REMEMBERED`](Self::NOT_REMEMBERED) when the window is not
+    /// remembered.
+    pub fn latest(&self, window: i64) -> u64 {
+        self.slots
+            .iter()
+            .find(|s| s.window.load(Ordering::SeqCst) == window)
+            .map_or(Self::NOT_REMEMBERED, |s| s.latest.load(Ordering::SeqCst))
+    }
+}
+
+impl Default for KeyNumbers {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Whether a keystroke of key `vk` is numbered among its window's keys (see
+/// [`KeyNumbers::for_key`]): every key but Shift, Control and Alt, generic
+/// (`0x10`–`0x12`) or left and right (`0xA0`–`0xA5`).
+pub const fn numbers_key(vk: u32) -> bool {
+    !matches!(vk, 0x10..=0x12 | 0xA0..=0xA5)
+}
+
+/// A key number as a keystroke's `callback_params[3]` carries it, to be
+/// or-ed with the layout character and the repeat mark.
+pub const fn key_number_param(number: u64) -> i64 {
+    ((number & KEY_NUMBER_MASK) as i64) << KEY_NUMBER_SHIFT
+}
+
+/// The number the Input_Thread gave this keystroke among the keys of its
+/// window (see [`KeyNumbers`]); `0` when not numbered, and for every event
+/// that is no keystroke.
+fn key_number_of(raw: &RawEvent) -> u64 {
+    if matches!(raw.event_type, RawEventType::Keyboard) {
+        ((raw.callback_params[3] >> KEY_NUMBER_SHIFT) as u64) & KEY_NUMBER_MASK
+    } else {
+        0
     }
 }
 
@@ -2194,6 +2843,28 @@ fn settle_key_on_its_control<B: AccessibilityBackend>(
         }
     }
     let title = title.unwrap_or_else(|| backend.window_title(raw.window_handle));
+    describe_and_note_control(
+        backend,
+        controls,
+        control,
+        KnownControl {
+            element: None,
+            epoch: raw.focus_epoch,
+            part_focus: key_part_focus(raw),
+            title,
+        },
+    )
+}
+
+/// Describe the control with window handle `control` and note it as `known`
+/// says, with the description; the element it is, `None` for a window that
+/// holds other elements and for a control gone, which is not noted.
+fn describe_and_note_control<B: AccessibilityBackend>(
+    backend: &B,
+    controls: &mut HashMap<i64, KnownControl>,
+    control: i64,
+    known: KnownControl,
+) -> Option<ElementDescription> {
     let element = match backend.describe_control(control) {
         ControlLook::Own(element) => Some(*element),
         ControlLook::Shared => None,
@@ -2206,12 +2877,66 @@ fn settle_key_on_its_control<B: AccessibilityBackend>(
         control,
         KnownControl {
             element: element.clone(),
-            epoch: raw.focus_epoch,
-            part_focus: key_part_focus(raw),
-            title,
+            ..known
         },
     );
     element
+}
+
+/// How long the look ahead of the keys waits for the focused control's
+/// window to answer before it leaves the control to its first key (see
+/// [`AccessibilityBackend::answers_promptly`]).
+pub const PROMPT_ANSWER_MS: u32 = 50;
+
+/// A [`KnownControl::part_focus`] no keystroke carries: a control looked at
+/// ahead of its keys has what it is looked at again, with no description, at
+/// its first key.
+const LOOKED_AT_AHEAD: i64 = i64::MIN;
+
+/// Look at the control that holds the keyboard focus now, ahead of any key
+/// typed into it ([`WorkerMessage::LookAtFocus`]), and note it under the
+/// focus epoch read before the look: a key under the same count of the
+/// person's takes it as [`settle_key_on_its_control`] takes a control it
+/// looked at itself, after one look at what the control is
+/// ([`LOOKED_AT_AHEAD`]), which needs no description. A control already
+/// known, a platform that counts no focus changes (whose keys are never
+/// settled on their control) and no focused control leave nothing to do;
+/// nor does a control of the excluded process (`excluded_pid`), or one whose
+/// window does not answer promptly
+/// ([`AccessibilityBackend::answers_promptly`]): no key waits on this look,
+/// and the control's first key looks at it itself.
+fn look_at_focused_control<B: AccessibilityBackend>(
+    backend: &B,
+    controls: &mut HashMap<i64, KnownControl>,
+    excluded_pid: u32,
+) {
+    let epoch = backend.focus_epoch();
+    if epoch == 0 {
+        return;
+    }
+    let control = backend.focused_control();
+    if control == 0 || controls.contains_key(&control) {
+        return;
+    }
+    let window = backend.root_window_handle(control);
+    if excluded_pid != 0 && backend.process_id_of(window) == excluded_pid {
+        return;
+    }
+    if !backend.answers_promptly(control) {
+        return;
+    }
+    let title = backend.window_title(window);
+    describe_and_note_control(
+        backend,
+        controls,
+        control,
+        KnownControl {
+            element: None,
+            epoch,
+            part_focus: LOOKED_AT_AHEAD,
+            title,
+        },
+    );
 }
 
 /// The element remembered for `raw`'s window and focus epoch, if any. Epoch
@@ -2328,6 +3053,14 @@ fn process_raw_event<B: AccessibilityBackend>(
     if ends_typing(&raw.event_type) {
         lock_buffers(pending).flush_pending_type_only(action_sender);
     }
+    // A key held behind dead keys is written ahead of this event's action. A
+    // value change is what it waits for, and a key settles it itself.
+    if !matches!(
+        raw.event_type,
+        RawEventType::ValueChange | RawEventType::Keyboard
+    ) {
+        lock_buffers(pending).write_key_behind_dead_keys(action_sender);
+    }
 
     match &raw.event_type {
         RawEventType::Click => {
@@ -2358,7 +3091,7 @@ fn process_raw_event<B: AccessibilityBackend>(
                 backend,
                 action_sender,
                 context_id,
-                &mut state.last_focus_selector,
+                &mut state.last_focus,
                 window_rect.clone(),
             );
         }
@@ -2377,9 +3110,7 @@ fn process_raw_event<B: AccessibilityBackend>(
             // element could not be described supersedes nothing: the keys are
             // then the only record of the typing.
             if described {
-                let mut buffers = lock_buffers(pending);
-                buffers.pending_keys.clear();
-                buffers.pending_keys_last_timestamp = 0;
+                lock_buffers(pending).clear_keys();
             }
         }
         RawEventType::Selection => {
@@ -2410,6 +3141,7 @@ fn process_raw_event<B: AccessibilityBackend>(
                 capture_mode: CaptureMode::Accessibility,
                 frame_src: None,
                 window_rect: window_rect.clone(),
+                preferred_languages: preferred_languages(),
                 sequence_id: Some(raw.sequence_id),
                 payload: ActionPayload::ContextOpen {
                     // The pipeline does not observe which window caused this
@@ -2430,6 +3162,7 @@ fn process_raw_event<B: AccessibilityBackend>(
                 capture_mode: CaptureMode::Accessibility,
                 frame_src: None,
                 window_rect: window_rect.clone(),
+                preferred_languages: preferred_languages(),
                 sequence_id: Some(raw.sequence_id),
                 payload: ActionPayload::ContextClose {
                     window_closing: true,
@@ -2453,6 +3186,7 @@ fn process_raw_event<B: AccessibilityBackend>(
                     capture_mode: CaptureMode::Accessibility,
                     frame_src: None,
                     window_rect: window_rect.clone(),
+                    preferred_languages: preferred_languages(),
                     sequence_id: Some(raw.sequence_id),
                     payload: ActionPayload::Scroll {
                         element: None,
@@ -2573,19 +3307,20 @@ fn handle_click<B: AccessibilityBackend>(
     let previous_pick = file_pick.take();
 
     // Priority chain for element resolution:
-    // 1. Pre-captured element from Input_Thread (window guaranteed alive)
+    // 1. Pre-captured element, described at the click within the hook's
+    //    budget (DCP-1), before the click took effect
     // 2. Worker's own ElementFromPoint query
     // 3. Option D: if the window closed between capture and query,
     //    use the window title from the original HWND
     let (capture_mode, mut element_desc) = if let Some(ref pre) = raw.pre_captured_element {
-        // Input_Thread already captured the element — use it directly.
+        // The pre-capture described the element at the click — use it.
         let mode = if pre.tag == "Window" || pre.tag == "Pane" {
             CaptureMode::Coordinate
         } else {
             CaptureMode::Accessibility
         };
         let mut el = pre.clone();
-        // Described inside the input hook, at the event itself.
+        // Described at the click, while the hook waited on it.
         el.described_after_ms = Some(0);
         (mode, el)
     } else {
@@ -2643,6 +3378,7 @@ fn handle_click<B: AccessibilityBackend>(
         capture_mode,
         frame_src: None,
         window_rect: window_rect.clone(),
+        preferred_languages: preferred_languages(),
         sequence_id: Some(raw.sequence_id),
         payload,
     });
@@ -2689,6 +3425,7 @@ fn handle_click<B: AccessibilityBackend>(
             capture_mode: CaptureMode::Accessibility,
             frame_src: None,
             window_rect: pick.window_rect,
+            preferred_languages: preferred_languages(),
             sequence_id: Some(raw.sequence_id),
             payload: ActionPayload::FileDialog {
                 dialog_type: pick.dialog_type,
@@ -2708,13 +3445,23 @@ fn handle_focus<B: AccessibilityBackend>(
     backend: &B,
     action_sender: &mpsc::Sender<ActionEvent>,
     context_id: Option<i64>,
-    last_focus_selector: &mut String,
+    last_focus: &mut Option<(Option<i64>, String)>,
     window_rect: Option<WindowRect>,
 ) {
     let (mut element, element_window) = match backend.focused_element_in_window() {
         Some(found) => found,
         None => return, // Can't resolve focused element — skip.
     };
+    // A focus event dispatched after this one means the element described
+    // now need not be the one this event named, and the later event records
+    // the focus at its own place in the recording (docent#735). Read after
+    // the description, so an event dispatched during it counts. Only focus
+    // events actually dispatched count: a focus change the Input_Thread
+    // filters out sends no event that would record the focus instead.
+    let number = focus_event_number(raw);
+    if number != 0 && backend.focus_events_dispatched() != number {
+        return;
+    }
     stamp_described_after(&mut element, raw.timestamp);
     // The element is the one focused when it is described, which need not be
     // in the window the focus event named: a dialog that closed as the focus
@@ -2727,11 +3474,13 @@ fn handle_focus<B: AccessibilityBackend>(
         (context_id, window_rect)
     };
 
-    // Focus deduplication: skip if same selector as last focus event.
-    if element.selector == *last_focus_selector {
+    // Focus deduplication: skip the element of the last focus written, its
+    // selector within its window.
+    let key = (context_id, element.selector.clone());
+    if last_focus.as_ref() == Some(&key) {
         return;
     }
-    *last_focus_selector = element.selector.clone();
+    *last_focus = Some(key);
 
     let _ = action_sender.send(ActionEvent {
         timestamp: raw.timestamp,
@@ -2739,6 +3488,7 @@ fn handle_focus<B: AccessibilityBackend>(
         capture_mode: CaptureMode::Accessibility,
         frame_src: None,
         window_rect,
+        preferred_languages: preferred_languages(),
         sequence_id: Some(raw.sequence_id),
         payload: ActionPayload::Focus { element },
     });
@@ -2787,6 +3537,10 @@ fn handle_value_change<B: AccessibilityBackend>(
             PASSWORD_MASK.to_string()
         } else {
             match backend.control_value(key_control) {
+                Some(_) if !read_in_time(last_key, backend) => {
+                    keep_keys_after_late_read(pending);
+                    return false;
+                }
                 Some(value) => {
                     element.text = Some(value.clone());
                     value
@@ -2803,7 +3557,8 @@ fn handle_value_change<B: AccessibilityBackend>(
             action_sender,
             context_id,
             pending,
-            &mut state.last_value_map,
+            &mut state.last_value,
+            &mut state.pasted_into,
             window_rect,
             element,
             value,
@@ -2828,7 +3583,7 @@ fn handle_value_change<B: AccessibilityBackend>(
         keep_keys_of_dropped_value_change(pending, action_sender);
         return false;
     }
-    let key_selector = last_key.map(|k| k.selector.clone());
+    let key_field = last_key.map(|k| (k.selector.clone(), k.place.clone()));
     let described = describe_focused_for(raw, backend, &mut state.mark_seq);
     let Some(FocusedNow {
         element: Some(element),
@@ -2843,7 +3598,10 @@ fn handle_value_change<B: AccessibilityBackend>(
         keep_keys_of_dropped_value_change(pending, action_sender);
         return false;
     };
-    if same_as_key.is_none() && key_selector.is_some_and(|s| s != element.selector) {
+    if same_as_key.is_none()
+        && key_field
+            .is_some_and(|(selector, place)| !same_field_as(&selector, place.as_deref(), &element))
+    {
         if let Some(k) = state.last_key.as_mut() {
             k.mark = None;
         }
@@ -2859,6 +3617,7 @@ fn handle_value_change<B: AccessibilityBackend>(
     {
         k.mark = Some(state.mark_seq);
         k.selector = element.selector.clone();
+        k.place = element.place_in_window.clone();
     }
     if focus_stands {
         state.typing_focus = Some(TypingFocus {
@@ -2871,7 +3630,7 @@ fn handle_value_change<B: AccessibilityBackend>(
         // The remembered element, described again.
         if f.context_id == context_id
             && f.epoch == raw.focus_epoch
-            && f.element.selector == element.selector
+            && same_field(&f.element, &element)
         {
             f.mark = state.mark_seq;
         }
@@ -2883,6 +3642,18 @@ fn handle_value_change<B: AccessibilityBackend>(
         // The value, never the text: the text of a field that holds nothing
         // is its name, which nobody typed.
         match element.value.clone() {
+            Some(_)
+                if !read_in_time(
+                    state
+                        .last_key
+                        .as_ref()
+                        .filter(|k| k.context_id == context_id),
+                    backend,
+                ) =>
+            {
+                keep_keys_after_late_read(pending);
+                return false;
+            }
             Some(value) => value,
             None => {
                 // The element has no value: no `type`.
@@ -2896,7 +3667,8 @@ fn handle_value_change<B: AccessibilityBackend>(
         action_sender,
         context_id,
         pending,
-        &mut state.last_value_map,
+        &mut state.last_value,
+        &mut state.pasted_into,
         window_rect,
         element,
         value,
@@ -2912,7 +3684,8 @@ fn record_type_value(
     action_sender: &mpsc::Sender<ActionEvent>,
     context_id: Option<i64>,
     pending: &SharedPendingBuffers,
-    last_value_map: &mut HashMap<String, String>,
+    last_value: &mut Option<LastValue>,
+    pasted_into: &mut Option<LastValue>,
     window_rect: Option<WindowRect>,
     mut element: ElementDescription,
     value: String,
@@ -2930,18 +3703,49 @@ fn record_type_value(
     // matching timestamp) is what the coalesced type action exports.
     stamp_described_after(&mut element, raw.timestamp);
 
-    // Value-change deduplication: skip if value unchanged for this element.
-    // (last_value_map is dedup state — stays thread-local in WorkerState.)
-    let value_key = last_value_key(context_id, &element.selector);
-    if let Some(last_val) = last_value_map.get(&value_key) {
-        if *last_val == value {
-            return true;
-        }
-    }
-    last_value_map.insert(value_key, value.clone());
-
     // In-memory buffer mutation only — short lock, no backend calls inside.
     let mut buffers = lock_buffers(pending);
+
+    // A value change that repeats the value just taken for this field, with
+    // no typing key and no paste key pressed for it, is the same change
+    // reported again (a program that reports one change twice) and adds
+    // nothing. With a typing key buffered it is typing: the person typed the
+    // same text over itself. A dead key waiting for the key after it is no
+    // such key: it enters nothing by itself. The first value change of a field after a paste
+    // key pressed in it is the pasted text: the same text pasted over itself.
+    // Only the field typed into last is remembered, so a value the field held
+    // in an earlier typing run is never what a later one is compared with.
+    let pasted = pasted_into
+        .take_if(|field| field.is_of(context_id, &element))
+        .is_some();
+    let repeats_last = buffers.pending_keys.len() == buffers.waiting_dead_keys()
+        && !pasted
+        && last_value
+            .as_ref()
+            .is_some_and(|last| last.is_of(context_id, &element) && last.value == value);
+    if repeats_last {
+        return true;
+    }
+    // Dead keys that wait in this field and whose accent the program entered
+    // are part of this text. What the field held before them is the value
+    // read at the first of them, or else the value last taken for the field.
+    // A password field's value is its mask and says nothing, and a value
+    // taken for another field says nothing about dead keys pressed in theirs.
+    if !is_password && buffers.dead_keys_wait_in(context_id, &element) {
+        let before = buffers.value_at_dead_key.take().or_else(|| {
+            last_value
+                .as_ref()
+                .filter(|last| last.is_of(context_id, &element))
+                .map(|last| last.value.clone())
+        });
+        buffers.take_dead_keys_entered(before.as_deref(), &value);
+    }
+    // The key held behind dead keys ended the typing before this value: the
+    // dead keys still buffered entered nothing and are keys, and it is
+    // written behind them, ahead of the `type` this value starts.
+    buffers.write_key_behind_dead_keys(action_sender);
+    *last_value = Some(LastValue::of(context_id, &element, &value));
+
     buffer_type_value(
         &mut buffers,
         action_sender,
@@ -2953,6 +3757,33 @@ fn record_type_value(
         window_rect,
     );
     true
+}
+
+/// Whether a value just read for a value change was read in time: no key of
+/// the window was dispatched after the last key before the value change, so
+/// the program had received no later key when it answered (docent#761). A
+/// value read later can hold what later keys did (the Backspace that ended
+/// the typing, the space after it), which the person did not have when the
+/// typing ended; it is not taken. A key not numbered (`0`) counts every read,
+/// as does a value change with no key before it.
+///
+/// A value read in time holds no key after the last key, but it need not
+/// hold that key itself: the program can have raised the value change for an
+/// earlier key and not yet applied the last one. Nothing tells the two apart
+/// (docent#762).
+fn read_in_time<B: AccessibilityBackend>(last_key: Option<&LastKey>, backend: &B) -> bool {
+    match last_key {
+        Some(key) if key.number != 0 => backend.keys_dispatched(key.window) == key.number,
+        _ => true,
+    }
+}
+
+/// A value read too late is not taken: the pending `type` keeps the last
+/// value read in time, and the keys buffered now are the keys after it, to
+/// be written as keys unless a value read in time supersedes them.
+fn keep_keys_after_late_read(pending: &SharedPendingBuffers) {
+    let mut buffers = lock_buffers(pending);
+    buffers.keys_after_type = buffers.pending_keys.len();
 }
 
 /// A value change that is no `type` supersedes no keystroke. A `type` already
@@ -2968,11 +3799,79 @@ fn keep_keys_of_dropped_value_change(
     }
 }
 
-/// The key an element's last recorded value is kept under: its selector within
-/// its window. Two windows can hold elements with equal selectors (two
-/// documents of one application), and each has its own last value.
-fn last_value_key(context_id: Option<i64>, selector: &str) -> String {
-    format!("{}\u{1f}{selector}", context_id.unwrap_or(0))
+/// The value last taken for a field's `type`, and the field it was taken for.
+/// One is kept: that of the field typed into last. It tells a value change
+/// reported twice from typing (see [`record_type_value`]).
+struct LastValue {
+    context_id: Option<i64>,
+    selector: String,
+    place: Option<String>,
+    value: String,
+}
+
+impl LastValue {
+    fn of(context_id: Option<i64>, element: &ElementDescription, value: &str) -> Self {
+        Self {
+            context_id,
+            selector: element.selector.clone(),
+            place: element.place_in_window.clone(),
+            value: value.to_string(),
+        }
+    }
+
+    /// Whether `element` of the window `context_id` is the field it was taken
+    /// for. Two windows can hold elements with equal selectors (two documents
+    /// of one application), and they are two fields.
+    fn is_of(&self, context_id: Option<i64>, element: &ElementDescription) -> bool {
+        self.context_id == context_id
+            && same_field_as(&self.selector, self.place.as_deref(), element)
+    }
+}
+
+/// Whether `event` is a click on a menu item. Only a click whose element the
+/// Input_Thread described at the release is known to be one.
+fn is_menu_command(event: &RawEvent) -> bool {
+    matches!(event.event_type, RawEventType::Click)
+        && event
+            .pre_captured_element
+            .as_ref()
+            .is_some_and(|element| element.tag == "MenuItem")
+}
+
+/// A menu item was clicked. A menu's Paste puts text into the field typed
+/// into last with no key pressed, so that field's next value change is taken
+/// as the person's entry, also where it repeats the field's recorded value
+/// (the same text pasted over itself). Which item was clicked is not asked:
+/// its name is in the application's language. An item that changes no text
+/// (Copy) therefore leaves the field waiting, and a repeated report of its
+/// value that comes later is then written as one more `type`.
+fn note_menu_command(state: &mut WorkerState) {
+    if let Some(last) = &state.last_value {
+        state.pasted_into = Some(LastValue {
+            context_id: last.context_id,
+            selector: last.selector.clone(),
+            place: last.place.clone(),
+            value: String::new(),
+        });
+    }
+}
+
+/// Whether two descriptions read in one window are of the same element.
+///
+/// The selector holds the window's title, and a title changes while the
+/// element stays (an editor adds or drops its "modified" mark while the
+/// person types), so where both descriptions know their place under the
+/// window, the place decides. Where one does not, the selectors do.
+fn same_field(a: &ElementDescription, b: &ElementDescription) -> bool {
+    same_field_as(&a.selector, a.place_in_window.as_deref(), b)
+}
+
+/// [`same_field`], for an element remembered by its selector and its place.
+fn same_field_as(selector: &str, place: Option<&str>, element: &ElementDescription) -> bool {
+    match (place, element.place_in_window.as_deref()) {
+        (Some(a_place), Some(b_place)) => a_place == b_place,
+        _ => selector == element.selector,
+    }
 }
 
 /// Start the pending type event for `element`, or carry the one already
@@ -2995,9 +3894,8 @@ fn buffer_type_value(
 ) {
     // The pending type is this element's when it names the same selector in the
     // same window; a type pending for any other element is flushed first.
-    let same_element = |pt: &PendingTypeEvent| {
-        pt.context_id == context_id && pt.element.selector == element.selector
-    };
+    let same_element =
+        |pt: &PendingTypeEvent| pt.context_id == context_id && same_field(&pt.element, &element);
     if buffers
         .pending_type
         .as_ref()
@@ -3097,6 +3995,7 @@ fn handle_selection<B: AccessibilityBackend>(
         capture_mode: CaptureMode::Accessibility,
         frame_src: None,
         window_rect,
+        preferred_languages: preferred_languages(),
         sequence_id: Some(raw.sequence_id),
         payload: ActionPayload::Select {
             element: final_element,
@@ -3145,10 +4044,13 @@ fn handle_keyboard<B: AccessibilityBackend>(
             capture_mode: CaptureMode::Accessibility,
             frame_src: None,
             window_rect: None,
+            preferred_languages: preferred_languages(),
             sequence_id: Some(raw.sequence_id),
             payload: ActionPayload::Key {
                 key,
                 modifiers: modifiers_of(raw),
+                code: physical_key_of(raw),
+                input_method: input_method_at(raw),
                 repeat: is_repeat(raw),
                 held: held_at(raw),
                 element,
@@ -3156,7 +4058,7 @@ fn handle_keyboard<B: AccessibilityBackend>(
         };
         let mut buffers = lock_buffers(pending);
         buffers.flush_pending_type_only(action_sender);
-        flush_pending_keys(&mut buffers.pending_keys, action_sender);
+        buffers.write_keys(action_sender);
         let _ = action_sender.send(event);
         return;
     }
@@ -3208,6 +4110,7 @@ fn handle_keyboard<B: AccessibilityBackend>(
     // `unknowable`: nothing can be said about the element the key went to.
     // Its window is gone, the window gave no focused element, or the person
     // moved the focus (a click, a focus-moving key) before this description.
+    let described_now = on_control.is_none() && remembered.is_none();
     let (mut element, mark, unknowable) = match (on_control, remembered) {
         (Some(element), _) => (element, None, false),
         (None, Some((element, mark))) => (element, Some(mark), false),
@@ -3232,14 +4135,19 @@ fn handle_keyboard<B: AccessibilityBackend>(
     };
     // The gap to the moment this worker settled the key's element.
     stamp_described_after(&mut element, raw.timestamp);
-    let key_selector = element.selector.clone();
+    let key_element = element.clone();
+    if is_paste_key(raw) {
+        state.pasted_into = Some(LastValue::of(context_id, &element, ""));
+    }
     state.last_key = Some(LastKey {
         context_id,
-        selector: key_selector.clone(),
+        selector: element.selector.clone(),
+        place: element.place_in_window.clone(),
         mark,
         control,
+        window: raw.window_handle,
+        number: key_number_of(raw),
     });
-    let last_value_map = &mut state.last_value_map;
 
     // Typing into a password field is its masked type, never a key: a key is
     // named by the character it carries, and a buffered key is written as
@@ -3255,16 +4163,12 @@ fn handle_keyboard<B: AccessibilityBackend>(
     if (element.element_type.as_deref() == Some("password") || unknowable)
         && enters_text_in_password_field(raw, &key)
     {
-        last_value_map.insert(
-            last_value_key(context_id, &element.selector),
-            PASSWORD_MASK.to_string(),
-        );
+        state.last_value = Some(LastValue::of(context_id, &element, PASSWORD_MASK));
         let mut buffers = lock_buffers(pending);
         // Keys still buffered were typed into another control, one that
         // reported no value change; write them before this type starts, so no
         // later flush counts them superseded by it.
-        flush_pending_keys(&mut buffers.pending_keys, action_sender);
-        buffers.pending_keys_last_timestamp = 0;
+        buffers.write_keys(action_sender);
         buffer_type_value(
             &mut buffers,
             action_sender,
@@ -3281,6 +4185,19 @@ fn handle_keyboard<B: AccessibilityBackend>(
     // A typing key waits for the value change that would make it text, except
     // on a control that takes no typed text, where it is a key at once.
     let buffered = is_printable_key(raw) && !takes_no_typed_text(&element);
+    // What the field holds at a dead key, where it was read for this key:
+    // from its control, or with an element described just now. An element
+    // remembered from an earlier key holds an earlier value and gives none.
+    let dead = buffered && is_dead_key(raw);
+    let value_at_dead_key = if !dead {
+        None
+    } else if control != 0 {
+        backend.control_value(control)
+    } else if described_now {
+        element.value.clone()
+    } else {
+        None
+    };
 
     let event = ActionEvent {
         timestamp: raw.timestamp,
@@ -3288,11 +4205,14 @@ fn handle_keyboard<B: AccessibilityBackend>(
         capture_mode: CaptureMode::Accessibility,
         frame_src: None,
         window_rect,
+        preferred_languages: preferred_languages(),
         sequence_id: Some(raw.sequence_id),
         payload: ActionPayload::Key {
             key: key.clone(),
             modifiers: modifiers_of(raw),
             repeat: is_repeat(raw),
+            code: physical_key_of(raw),
+            input_method: input_method_at(raw),
             held: held_at(raw),
             element,
         },
@@ -3307,7 +4227,7 @@ fn handle_keyboard<B: AccessibilityBackend>(
         if buffers
             .pending_type
             .as_ref()
-            .is_some_and(|pt| pt.context_id != context_id || pt.element.selector != key_selector)
+            .is_some_and(|pt| pt.context_id != context_id || !same_field(&pt.element, &key_element))
         {
             buffers.flush_pending_type_only(action_sender);
         }
@@ -3317,18 +4237,45 @@ fn handle_keyboard<B: AccessibilityBackend>(
         if buffers.pending_keys.iter().any(|pending_key| {
             pending_key.context_id != context_id
                 || !matches!(&pending_key.payload,
-                    ActionPayload::Key { element, .. } if element.selector == key_selector)
+                    ActionPayload::Key { element, .. } if same_field(element, &key_element))
         }) {
-            flush_pending_keys(&mut buffers.pending_keys, action_sender);
+            buffers.write_keys(action_sender);
         }
+        // A dead key the end of the typing made a key is no part of the text
+        // this key enters: it and the keys ahead of it are written now, in
+        // the order pressed.
+        if buffers.dead_keys_are_keys {
+            buffers.write_keys(action_sender);
+        }
+        // Dead keys with a key held behind them got no value for it: they
+        // and it are keys, ahead of this one.
+        buffers.write_key_behind_dead_keys(action_sender);
         // Buffer printable keys — they may be superseded by a type event.
         buffers.pending_keys.push(event);
         buffers.pending_keys_last_timestamp = raw.timestamp;
+        buffers.note_buffered_key(dead, dead_key_accent(raw), value_at_dead_key);
     } else {
         // Control key — flush pending type and pending keys, then emit.
         buffers.flush_pending_type_only(action_sender);
-        flush_pending_keys(&mut buffers.pending_keys, action_sender);
-        let _ = action_sender.send(event);
+        // Behind dead keys that wait in this field, with no other key
+        // buffered, the key is held with them: a value the field reports for
+        // it says whether the program entered their accent as text.
+        let waiting = buffers.undecided_dead_keys();
+        let behind_dead_keys = waiting > 0
+            && waiting == buffers.pending_keys.len()
+            && buffers.key_behind_dead_keys.is_none()
+            && buffers.pending_keys.iter().all(|dead_key| {
+                dead_key.context_id == context_id
+                    && matches!(&dead_key.payload,
+                        ActionPayload::Key { element, .. } if same_field(element, &key_element))
+            });
+        if behind_dead_keys {
+            buffers.key_behind_dead_keys = Some(event);
+            buffers.pending_keys_last_timestamp = raw.timestamp;
+        } else {
+            buffers.write_keys(action_sender);
+            let _ = action_sender.send(event);
+        }
     }
 }
 
@@ -3344,7 +4291,16 @@ fn handle_foreground<B: AccessibilityBackend>(
     window_rect: Option<WindowRect>,
 ) {
     let title = backend.window_title(raw.window_handle);
-    let source = backend.process_name(raw.window_handle);
+    // The process the Input_Thread read with the event, while the window was
+    // there: a window can close before a worker gets to its switch, and then
+    // it names no process (docent#761). The window names it where the
+    // process cannot be named by its id. An exited process's id can be
+    // reused: a process started under it before the switch is read would
+    // be named instead.
+    let source = Some(raw.process_id)
+        .filter(|pid| *pid != 0)
+        .and_then(|pid| backend.process_name_of(pid))
+        .unwrap_or_else(|| backend.process_name(raw.window_handle));
 
     let _ = action_sender.send(ActionEvent {
         timestamp: raw.timestamp,
@@ -3352,6 +4308,7 @@ fn handle_foreground<B: AccessibilityBackend>(
         capture_mode: CaptureMode::Accessibility,
         frame_src: None,
         window_rect,
+        preferred_languages: preferred_languages(),
         sequence_id: Some(raw.sequence_id),
         payload: ActionPayload::ContextSwitch {
             source,
@@ -3388,6 +4345,7 @@ fn handle_drag_start<B: AccessibilityBackend>(
         capture_mode: CaptureMode::Accessibility,
         frame_src: None,
         window_rect,
+        preferred_languages: preferred_languages(),
         sequence_id: Some(raw.sequence_id),
         payload: ActionPayload::DragStart {
             modifiers: modifiers_of(raw),
@@ -3422,6 +4380,7 @@ fn handle_drop<B: AccessibilityBackend>(
         capture_mode: CaptureMode::Accessibility,
         frame_src: None,
         window_rect,
+        preferred_languages: preferred_languages(),
         sequence_id: Some(raw.sequence_id),
         payload: ActionPayload::Drop {
             x: raw.screen_x as f64,
@@ -3452,6 +4411,7 @@ fn flush_pending_type(
             capture_mode: CaptureMode::Accessibility,
             frame_src: None,
             window_rect: pt.window_rect,
+            preferred_languages: preferred_languages(),
             sequence_id: Some(pt.sequence_id),
             payload: ActionPayload::Type {
                 element: pt.element,
@@ -3486,12 +4446,28 @@ fn write_keys_that_took_no_text(
     now: u64,
     action_sender: &mpsc::Sender<ActionEvent>,
 ) {
-    if !buffers.pending_keys.is_empty()
+    // The keys after the `type` (a value read too late) did take text: their value
+    // change came. They wait for the end of the typing, or for a value read
+    // in time that makes them part of the `type` (docent#761); the keys
+    // behind them that no value change reached are written as any are.
+    // While a dead key waits for the key after it, the wait writes nothing;
+    // one the end of the typing made a key is written with the others.
+    // Dead keys with a key held behind them: no value came for that key
+    // within the wait, so the program entered nothing and all are keys.
+    if buffers.key_behind_dead_keys.is_some()
+        && debounce_elapsed(now, buffers.pending_keys_last_timestamp, KEY_TEXT_WAIT_MS)
+    {
+        buffers.write_keys(action_sender);
+        return;
+    }
+    if buffers.pending_keys.len() > buffers.keys_after_type
+        && buffers.undecided_dead_keys() == 0
         && buffers.pending_keys_last_timestamp > 0
         && debounce_elapsed(now, buffers.pending_keys_last_timestamp, KEY_TEXT_WAIT_MS)
     {
-        flush_pending_keys(&mut buffers.pending_keys, action_sender);
+        buffers.write_keys_after_type(false, action_sender);
         buffers.pending_keys_last_timestamp = 0;
+        buffers.no_dead_key_waits();
     }
 }
 
@@ -3557,6 +4533,7 @@ mod tests {
             capture_mode: CaptureMode::Accessibility,
             frame_src: None,
             window_rect: None,
+            preferred_languages: preferred_languages(),
             sequence_id: Some(1),
             payload: ActionPayload::Key {
                 key: key.to_string(),
@@ -3567,6 +4544,8 @@ mod tests {
                     meta: false,
                 },
                 repeat: false,
+                code: None,
+                input_method: Default::default(),
                 held: HeldKeysAtAction::default(),
                 element: ElementDescription {
                     tag: "Edit".to_string(),
@@ -3773,6 +4752,19 @@ mod tests {
         // call would hold every later keystroke behind it, so the barrier that
         // finds it unresponsive frees the role and the next keystroke goes to
         // a worker that answers.
+        a_role_is_given_up_at_a_missed_barrier(RawEventType::Keyboard);
+    }
+
+    #[test]
+    fn a_focus_worker_that_misses_the_flush_barrier_gives_the_role_up() {
+        // Every focus event follows one worker (docent#735); the role is
+        // freed like the typing worker's.
+        a_role_is_given_up_at_a_missed_barrier(RawEventType::Focus);
+    }
+
+    /// Worker 0 takes the first event of `event_type` and wedges; after a
+    /// barrier it misses, the next such event reaches worker 1.
+    fn a_role_is_given_up_at_a_missed_barrier(event_type: RawEventType) {
         let received: Arc<Mutex<Vec<usize>>> = Arc::new(Mutex::new(Vec::new()));
         let (action_tx, _action_rx) = mpsc::channel::<ActionEvent>();
         let seen = Arc::clone(&received);
@@ -3790,13 +4782,16 @@ mod tests {
                     Ok(WorkerMessage::Flush(ack)) => {
                         let _ = ack.send(idx);
                     }
-                    Ok(WorkerMessage::EndTyping) => {}
+                    Ok(WorkerMessage::EndTyping)
+                    | Ok(WorkerMessage::MenuCommand)
+                    | Ok(WorkerMessage::WriteHeldKey)
+                    | Ok(WorkerMessage::LookAtFocus) => {}
                     Ok(WorkerMessage::Shutdown) | Err(_) => break,
                 }
             })
         });
         let key = || RawEvent {
-            event_type: RawEventType::Keyboard,
+            event_type: event_type.clone(),
             sequence_id: 0,
             timestamp: 1,
             screen_x: 0,
@@ -3822,10 +4817,42 @@ mod tests {
         assert_eq!(
             *received.lock().unwrap(),
             vec![0, 1],
-            "worker 0 took the first keystroke and wedged with nothing queued \
-             behind it; after the barrier the next keystroke reaches worker 1"
+            "worker 0 took the first event and wedged with nothing queued \
+             behind it; after the barrier the next one reaches worker 1"
         );
         pool.shutdown_with_timeout(Duration::from_millis(200));
+    }
+
+    #[test]
+    fn dead_keys_are_made_text_only_by_a_value_of_their_own_field() {
+        // A value taken for another field, or in another window, says nothing
+        // about dead keys that wait in theirs: the accent it holds is not
+        // theirs.
+        let field = |selector: &str| ElementDescription {
+            tag: "Edit".to_string(),
+            selector: selector.to_string(),
+            ..Default::default()
+        };
+        let mut buffers = PendingBuffers::new();
+        buffers.pending_keys = vec![key_event("\u{b4}")];
+        buffers.note_buffered_key(true, Some('\u{b4}'), Some(String::new()));
+        assert!(buffers.dead_keys_wait_in(Some(42), &field("win > edit")));
+        assert!(!buffers.dead_keys_wait_in(Some(42), &field("win > other")));
+        assert!(!buffers.dead_keys_wait_in(Some(7), &field("win > edit")));
+
+        // In their own field the accent gained makes them text, once each.
+        buffers.pending_keys.push(key_event("\u{b4}"));
+        buffers.note_buffered_key(true, Some('\u{b4}'), None);
+        buffers.pending_keys.push(key_event("\u{b4}"));
+        buffers.note_buffered_key(true, Some('\u{b4}'), None);
+        let before = buffers.value_at_dead_key.take();
+        buffers.take_dead_keys_entered(before.as_deref(), "\u{b4}\u{b4}");
+        assert_eq!(buffers.pending_keys.len(), 1);
+        assert_eq!(buffers.waiting_dead_keys(), 1);
+        assert_eq!(buffers.value_at_dead_key.as_deref(), Some("\u{b4}\u{b4}"));
+        // With what the field held before not known, nothing is decided.
+        buffers.take_dead_keys_entered(None, "\u{b4}\u{b4}\u{b4}");
+        assert_eq!(buffers.pending_keys.len(), 1);
     }
 
     #[test]
@@ -4402,5 +5429,98 @@ mod tests {
         raw.callback_params[3] = 0;
         assert_eq!(key_name(&raw), "VK_0xE2");
         assert!(is_printable_key(&raw));
+    }
+
+    // -- keys numbered per window (docent#761) -------------------------------
+
+    /// Each window answers the number of its own latest key, from one count,
+    /// so a key in another window moves nothing for it; a number is never 0.
+    #[test]
+    fn keys_are_numbered_per_window_from_one_count() {
+        let keys = KeyNumbers::new();
+        assert_eq!(keys.latest(7), KeyNumbers::NOT_REMEMBERED);
+        let first = keys.number(7);
+        assert_ne!(first, 0);
+        assert_eq!(keys.latest(7), first);
+        let other = keys.number(8);
+        assert!(other > first);
+        assert_eq!(keys.latest(7), first, "a key in another window");
+        let second = keys.number(7);
+        assert!(second > other);
+        assert_eq!(keys.latest(7), second);
+        assert_eq!(keys.latest(8), other);
+    }
+
+    /// A window let go answers no key's number, so a read checked against it
+    /// is not taken; noted again, it answers its new latest key.
+    #[test]
+    fn a_window_let_go_answers_no_keys_number() {
+        let keys = KeyNumbers::new();
+        let first = keys.number(1);
+        for window in 2..=KeyNumbers::WINDOWS as i64 + 1 {
+            keys.number(window);
+        }
+        assert_eq!(keys.latest(1), KeyNumbers::NOT_REMEMBERED);
+        let again = keys.number(1);
+        assert!(again > first);
+        assert_eq!(keys.latest(1), again);
+    }
+
+    /// Shift, Control and Alt change no text: their keystrokes carry the
+    /// window's latest number and move nothing for a read of the window; a
+    /// window with no key yet numbers its first, whatever the key.
+    #[test]
+    fn a_shift_control_or_alt_key_moves_no_windows_count() {
+        let keys = KeyNumbers::new();
+        let first = keys.for_key(3, 0xA0);
+        assert_ne!(first, 0, "a window's first key is numbered");
+        let a = keys.for_key(3, u32::from(b'A'));
+        assert!(a > first);
+        for vk in [0x10, 0x11, 0x12, 0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5] {
+            assert_eq!(keys.for_key(3, vk), a, "key {vk:#x}");
+        }
+        assert_eq!(keys.latest(3), a);
+        for vk in [0x08, 0x09, 0x0D, 0x14, 0x20, 0x5B, u32::from(b'B')] {
+            assert!(numbers_key(vk), "key {vk:#x}");
+        }
+        assert!(keys.for_key(3, u32::from(b'B')) > a);
+    }
+
+    /// The window let go is the one whose latest key is the oldest: a window
+    /// typed into again keeps its place, whatever order the windows came in.
+    #[test]
+    fn the_window_let_go_is_the_one_with_the_oldest_key() {
+        let keys = KeyNumbers::new();
+        for window in 1..=KeyNumbers::WINDOWS as i64 {
+            keys.number(window);
+        }
+        let again = keys.number(1);
+        keys.number(KeyNumbers::WINDOWS as i64 + 1);
+        assert_eq!(keys.latest(1), again, "typed into again, kept");
+        assert_eq!(keys.latest(2), KeyNumbers::NOT_REMEMBERED, "the oldest");
+        for window in 3..=KeyNumbers::WINDOWS as i64 + 1 {
+            assert_ne!(keys.latest(window), KeyNumbers::NOT_REMEMBERED);
+        }
+    }
+
+    /// The number rides above the layout character and the repeat mark
+    /// without touching either, and only a keystroke carries one.
+    #[test]
+    fn a_key_number_rides_beside_the_layout_character_and_the_repeat_mark() {
+        let mut raw = control_key_raw_event(0xBA, 1);
+        raw.callback_params[3] = i64::from(';' as u32)
+            | crate::capture::held_keys::KEY_REPEAT_PARAM
+            | key_number_param(5);
+        assert_eq!(key_number_of(&raw), 5);
+        assert!(is_repeat(&raw));
+        assert_eq!(
+            crate::capture::held_keys::layout_char_of(raw.callback_params[3]),
+            ';' as u32
+        );
+        raw.callback_params[3] = i64::from(u32::MAX) | key_number_param(KEY_NUMBER_MASK);
+        assert_eq!(key_number_of(&raw), KEY_NUMBER_MASK);
+        assert!(!is_repeat(&raw));
+        raw.event_type = RawEventType::ValueChange;
+        assert_eq!(key_number_of(&raw), 0);
     }
 }

@@ -163,6 +163,7 @@ const IDENTITY_FACT_FIELDS = [
   'size_of_set',
   'level',
   'framework_id',
+  'language',
   'described_after_ms',
 ];
 
@@ -200,6 +201,16 @@ export const PREDICATES = [
       }
       return null;
     },
+  },
+  {
+    id: 'key-input-method-pair',
+    class: 'fail',
+    title: "a key's conversion mode stands beside the open status it was read with",
+    appliesTo: (a) => a.type === 'key' && 'input_method_conversion_mode' in a,
+    check: (a) =>
+      'input_method_open' in a
+        ? null
+        : 'key carries input_method_conversion_mode without input_method_open',
   },
   {
     id: 'coordinate-geometry',

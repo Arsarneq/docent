@@ -378,6 +378,47 @@ describe('Schema validation: extension locators[]', () => {
 
 // ─── Negative Tests ───────────────────────────────────────────────────────────
 
+describe('Schema validation: extension language facts (docent#142)', () => {
+  function exportWithLanguage({ language, preferred } = {}) {
+    const data = exportWithLocators([
+      { strategy: 'id', value: 'submit-btn', match_count: 1, match_index: 0 },
+    ]);
+    const action = data.recordings[0].steps[0].actions[0];
+    if (language !== undefined) action.element.language = language;
+    if (preferred !== undefined) action.preferred_languages = preferred;
+    return data;
+  }
+
+  it('accepts an element language and an action preference list', () => {
+    const data = exportWithLanguage({ language: 'da', preferred: ['da-DK', 'en-US'] });
+    assert.ok(validateExtension(data), `Failed:\n${formatErrors(validateExtension)}`);
+  });
+
+  it('accepts an empty element language (the attribute as written)', () => {
+    const data = exportWithLanguage({ language: '' });
+    assert.ok(validateExtension(data), `Failed:\n${formatErrors(validateExtension)}`);
+  });
+
+  it('accepts null for both (none declared, none read)', () => {
+    const data = exportWithLanguage({ language: null, preferred: null });
+    assert.ok(validateExtension(data), `Failed:\n${formatErrors(validateExtension)}`);
+  });
+
+  it('accepts a file that states neither (older recordings)', () => {
+    const data = exportWithLanguage();
+    assert.ok(validateExtension(data), `Failed:\n${formatErrors(validateExtension)}`);
+  });
+
+  it('rejects a non-string element language', () => {
+    assert.ok(!validateExtension(exportWithLanguage({ language: 5 })));
+  });
+
+  it('rejects a preference list that is not an array of strings', () => {
+    assert.ok(!validateExtension(exportWithLanguage({ preferred: 'da-DK' })));
+    assert.ok(!validateExtension(exportWithLanguage({ preferred: [5] })));
+  });
+});
+
 describe('Schema validation: extension negative tests', () => {
   it('rejects missing project field', () => {
     const valid = validateExtension({ recordings: [] });

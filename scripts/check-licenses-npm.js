@@ -45,6 +45,7 @@ export const INSTALL_ROOTS = [
   '.',
   'packages/extension/tests/e2e',
   'packages/desktop/tests/integration',
+  'packages/desktop/tests/e2e',
   'reference-implementations/control-client',
   'reference-implementations/mcp-server',
 ];

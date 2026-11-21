@@ -174,6 +174,8 @@ fn arb_native_event() -> impl Strategy<Value = NativeEvent> {
                     key,
                     modifiers,
                     repeat,
+                    code: None,
+                    input_method: Default::default(),
                     held,
                     element,
                 }

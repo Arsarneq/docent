@@ -11,6 +11,7 @@ This area is documentation _about_ the suites: what each covers and the doctrine
 - [Test strategy — mutation testing](strategy/mutation.md): the weekly mutation-score signal (Stryker for JavaScript, cargo-mutants for Rust), what is mutated and why, and the ratchet-not-fixed-bar thresholds.
 - [Unit tests — JavaScript](unit.md): the shared, desktop, and extension unit trees, with what each suite covers, file by file, and the discovery shape they share.
 - [End-to-end tests — extension](e2e.md): the extension's Playwright suite (real Chrome, real input), covering the capture specs plus the panel, service-worker, and sync flows, and the harness contract they run under (frame readiness, one-worker serialization, retries, settle waits).
+- [End-to-end tests — desktop](e2e/desktop.md): the desktop app's suite on Windows: the built app, its panel driven over WebView2's DevTools port, other programs and dialogs given real keyboard input, and the file it exports.
 - [Desktop Rust tests](desktop-rust.md): the Tauri crate's cargo suite, covering the in-module unit tests, the test binaries (property tests included), the real-input integration suite, and how each test classifies itself for CI.
 - [Desktop integration tests](integration/desktop.md): the Playwright suite that drives the built desktop frontend against a mocked Tauri backend.
 - [Manual tests — extension](manual/extension.md): the retired manual capture scenarios, each mapped to the automated test that replaced it.
@@ -22,5 +23,5 @@ This area is documentation _about_ the suites: what each covers and the doctrine
 Named here so every future test doc has an obvious home. A folder is created only when its first real doc lands (no empty directories, the same anti-scaffolding rule as the [documentation map](../README.md)):
 
 - `integration/<surface>.md`: a new surface's integration suite slots in beside [`integration/desktop.md`](integration/desktop.md).
-- `e2e/<surface>/`: the flat `e2e.md` splits per surface if a second surface's end-to-end suite is documented. The extension is the only one today.
+- `e2e/<surface>.md`: each surface's end-to-end suite has its page here. The desktop's is [`e2e/desktop.md`](e2e/desktop.md); the extension's flat `e2e.md` moves to `e2e/extension.md` in a change of its own.
 - `manual/<surface>.md`: a new capture surface's manual history slots in beside `extension.md` and `windows.md` (e.g. `manual/linux.md` if Arsarneq/docent#84 lands).

@@ -28,6 +28,7 @@
               "element": {
                 "autocomplete": null,
                 "id": "scrollbox",
+                "language": "en",
                 "locators": [
                   {
                     "match_count": 1,
@@ -69,6 +70,7 @@
                 "type": null
               },
               "frame_src": null,
+              "preferred_languages": ["en-US"],
               "scroll_left": 0,
               "scroll_top": 400,
               "timestamp": 1783348358766,

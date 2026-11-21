@@ -13,7 +13,7 @@ Each platform's published JSON Schema under [`schemas/dist/`](../schemas/dist/) 
 
 ## Test gating and the version PR
 
-Publishing is **gated on a green test suite**. Each publish workflow first calls the reusable test suite ([`test.yml`](workflows/test.yml)) for the release commit. The call is scoped to that platform's jobs plus the shared/common ones (lint, audit, unit tests, the reference server, the reference control client and the reference MCP server), so a failure on the _other_ platform can't block this release. The publish job runs only if every CI job passes: a release can never publish with red tests.
+Publishing is **gated on a green test suite**. Each publish workflow first calls the reusable test suite ([`test.yml`](workflows/test.yml)) for the release commit. The call is scoped to that platform's jobs plus the shared/common ones (lint, audit, unit tests, the reference server, the reference control client and the reference MCP server), so a failure on the _other_ platform can't block this release. One desktop job is outside the call for now: `desktop-e2e-tests` runs on pushes and pull requests only, until it has a green week on `main` ([CI guide](../docs/guides/ci.md#path-filtered-test-jobs)). The publish job runs only if every CI job passes: a release can never publish with red tests.
 
 Before building, the publish job then verifies that the released commit is current `main` HEAD, so it ships **exactly the tree the suite tested**, not a `main` that advanced mid-run. **Cut releases from `main` HEAD;** if `main` has moved on since the tag, the publish fails fast and you re-tag. (This `main`-HEAD guard is **final-release-only**: a [pre-release](#pre-release-rc-builds) builds its tagged commit directly.)
 

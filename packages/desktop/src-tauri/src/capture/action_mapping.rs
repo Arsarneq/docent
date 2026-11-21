@@ -8,9 +8,10 @@
 //
 // Governance declared in scripts/area-map.json (see its declared-governance entry): the actions mapped here are .docent.json fields; the per-platform schemas are authoritative for field semantics.
 
+use super::language::preferred_languages;
 use super::{
-    ActionEvent, ActionPayload, CaptureMode, ElementDescription, HeldKeysAtAction, Modifiers,
-    WindowRect,
+    ActionEvent, ActionPayload, CaptureMode, ElementDescription, HeldKeysAtAction,
+    InputMethodAtKey, Modifiers, WindowRect,
 };
 
 // ---------------------------------------------------------------------------
@@ -72,6 +73,10 @@ pub enum NativeEvent {
         modifiers: Modifiers,
         /// Whether key repeat generated this press while the key was held.
         repeat: bool,
+        /// The physical key, by its W3C UI Events `code` value, where known.
+        code: Option<&'static str>,
+        /// What was read of the input method at the press.
+        input_method: InputMethodAtKey,
         /// The other keys that were down at the press.
         held: HeldKeysAtAction,
         element: ElementDescription,
@@ -215,12 +220,16 @@ pub fn map_event(
             key,
             modifiers,
             repeat,
+            code,
+            input_method,
             held,
             element,
         } => ActionPayload::Key {
             key: key.clone(),
             modifiers: modifiers.clone(),
             repeat: *repeat,
+            code: *code,
+            input_method: *input_method,
             held: held.clone(),
             element: element.clone(),
         },
@@ -295,6 +304,7 @@ pub fn map_event(
         capture_mode,
         frame_src: None, // Always null for desktop actions
         window_rect,
+        preferred_languages: preferred_languages(),
         sequence_id: None,
         payload,
     }
@@ -455,6 +465,11 @@ mod tests {
             key: "Enter".to_string(),
             modifiers: mods.clone(),
             repeat: true,
+            code: Some("NumpadEnter"),
+            input_method: InputMethodAtKey {
+                input_method_open: Some(true),
+                input_method_conversion_mode: Some(9),
+            },
             held: test_held(),
             element: test_element(),
         };
@@ -465,9 +480,16 @@ mod tests {
                 key,
                 modifiers,
                 repeat,
+                code,
                 ..
             } => {
                 assert!(*repeat, "the repeat mark is carried over");
+                assert_eq!(*code, Some("NumpadEnter"), "the physical key too");
+                assert_eq!(
+                    serde_json::to_value(&action.payload).unwrap()["input_method_open"],
+                    serde_json::json!(true),
+                    "and what was read of the input method"
+                );
                 assert_eq!(key, "Enter");
                 assert!(modifiers.ctrl);
             }

@@ -767,6 +767,35 @@ test.describe('Form Submit Change Suppression', () => {
     expect(actions.map((a) => a.type)).toEqual(['click']);
   });
 
+  // The same holds where the browser sends no `change`: the entry typed again
+  // equals what the field held, and the field loses the focus to the press.
+  test('regression_736_an_entry_typed_again_is_not_written_at_a_same_form_submit_press', async ({
+    testPage,
+    serviceWorker,
+  }) => {
+    await setTestContent(
+      testPage,
+      /* html */ `<!DOCTYPE html>
+<html><body>
+  <form id="form" onsubmit="return false;">
+    <input id="input" type="text" value="h">
+    <button id="submit" type="submit">Submit</button>
+  </form>
+</body></html>`,
+    );
+    await testPage.waitForTimeout(200);
+    await testPage.click('#input');
+    await testPage.keyboard.press('Control+a');
+    await clearPendingActions(serviceWorker);
+
+    await testPage.keyboard.type('h');
+    await testPage.click('#submit');
+    await waitForActionsToSettle(serviceWorker, testPage);
+
+    const actions = await getPendingActions(serviceWorker);
+    expect(actions.map((a) => a.type)).toEqual(['click']);
+  });
+
   test('change event from non-submit blur is NOT suppressed', async ({
     testPage,
     serviceWorker,

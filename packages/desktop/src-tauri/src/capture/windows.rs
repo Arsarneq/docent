@@ -5,9 +5,11 @@
 //
 // - **Input_Thread**: Runs `SetWinEventHook` / `SetWindowsHookEx` callbacks
 //   and a message pump. Captures raw event data (coordinates, window handles,
-//   key codes, timestamps) and dispatches `RawEvent`s to workers. Its one
-//   accessibility call is the `ElementFromPoint` pre-capture of clicked
-//   elements (DCP-1); every other accessibility query runs on the workers.
+//   key codes, timestamps) and dispatches `RawEvent`s to workers. It makes no
+//   accessibility call: the `ElementFromPoint` pre-capture of clicked
+//   elements runs on the pre-capture describers, which the mouse hook waits
+//   on for at most a budget set from the system's hook timeout (DCP-1);
+//   every other accessibility query runs on the workers.
 //
 // - **Worker_Pool**: 3 pre-initialised Accessibility_Worker threads, each
 //   with its own COM STA apartment and `IUIAutomation` instance. Workers
@@ -33,39 +35,48 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use super::uia_core_api::{
     UIA_AutomationIdPropertyId, UIA_ClassNamePropertyId, UIA_ControlTypePropertyId,
-    UIA_FrameworkIdPropertyId, UIA_IsControlElementPropertyId, UIA_IsKeyboardFocusablePropertyId,
-    UIA_IsPasswordPropertyId, UIA_LabeledByPropertyId, UIA_LevelPropertyId,
-    UIA_LocalizedControlTypePropertyId, UIA_NamePropertyId, UIA_NativeWindowHandlePropertyId,
-    UIA_PositionInSetPropertyId, UIA_SelectionPatternId, UIA_SizeOfSetPropertyId,
-    UIA_ToolBarControlTypeId, UIA_ValueValuePropertyId,
+    UIA_CulturePropertyId, UIA_FrameworkIdPropertyId, UIA_IsControlElementPropertyId,
+    UIA_IsKeyboardFocusablePropertyId, UIA_IsPasswordPropertyId, UIA_LabeledByPropertyId,
+    UIA_LevelPropertyId, UIA_LocalizedControlTypePropertyId, UIA_NamePropertyId,
+    UIA_NativeWindowHandlePropertyId, UIA_PositionInSetPropertyId, UIA_SelectionPatternId,
+    UIA_SizeOfSetPropertyId, UIA_ToolBarControlTypeId, UIA_ValueValuePropertyId,
 };
 use super::variant::Variant;
 use super::win32_bindings::{
     CUIAutomation, CallNextHookEx, CloseHandle, CoCreateInstance, CoInitializeEx, CoUninitialize,
     DispatchMessageW, EnumWindows, GetAncestor, GetAsyncKeyState, GetClassNameW,
     GetCurrentThreadId, GetDoubleClickTime, GetForegroundWindow, GetGUIThreadInfo,
-    GetKeyboardLayout, GetMessageW, GetParent, GetSystemMetrics, GetWindow, GetWindowLongW,
-    GetWindowTextW, GetWindowThreadProcessId, IUIAutomation, IUIAutomationCondition,
-    IUIAutomationElement, IUIAutomationSelectionPattern, IsWindow, IsWindowVisible,
-    MapVirtualKeyExW, PeekMessageW, PostThreadMessageW, SetProcessDpiAwarenessContext,
-    SetWinEventHook, SetWindowsHookExW, TranslateMessage, TreeScope_Descendants, TreeScope_Subtree,
-    UnhookWinEvent, UnhookWindowsHookEx, WindowFromPoint, CHILDID_SELF, CLSCTX_ALL,
-    COINIT_APARTMENTTHREADED, COINIT_MULTITHREADED, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
-    EVENT_OBJECT_CREATE, EVENT_OBJECT_DESTROY, EVENT_OBJECT_FOCUS, EVENT_OBJECT_SELECTION,
-    EVENT_OBJECT_VALUECHANGE, EVENT_SYSTEM_FOREGROUND, GA_ROOT, GA_ROOTOWNER, GUITHREADINFO,
-    GWL_STYLE, GW_OWNER, HANDLE, HHOOK, HKL, HWINEVENTHOOK, HWND, INVALID_HANDLE_VALUE,
-    KBDLLHOOKSTRUCT, LLKHF_EXTENDED, LPARAM, LRESULT, MAPVK_VK_TO_CHAR, MSG, MSLLHOOKSTRUCT,
-    OBJID_WINDOW, PM_NOREMOVE, POINT, PROPERTYID, SM_CXDOUBLECLK, SM_CYDOUBLECLK, UIA_HWND,
-    VK_CONTROL, VK_LWIN, VK_MENU, VK_RWIN, VK_SHIFT, VT_EMPTY, WH_KEYBOARD_LL, WH_MOUSE_LL,
-    WINEVENT_OUTOFCONTEXT, WM_APP, WM_KEYDOWN, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN,
-    WM_MOUSEHWHEEL, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_NULL, WM_QUIT, WM_RBUTTONDOWN, WM_SYSKEYDOWN,
-    WM_USER, WPARAM, WS_CHILD,
+    GetKeyboardLayout, GetMessageW, GetParent, GetSystemMetrics, GetUserPreferredUILanguages,
+    GetWindow, GetWindowLongW, GetWindowTextW, GetWindowThreadProcessId, IUIAutomation,
+    IUIAutomationCondition, IUIAutomationElement, IUIAutomationSelectionPattern,
+    ImmGetDefaultIMEWnd, IsWindow, IsWindowVisible, LCIDToLocaleName, MapVirtualKeyExW,
+    PeekMessageW, PostThreadMessageW, RegGetValueW, SendMessageTimeoutW,
+    SetProcessDpiAwarenessContext, SetWinEventHook, SetWindowsHookExW, TranslateMessage,
+    TreeScope_Descendants, TreeScope_Subtree, UnhookWinEvent, UnhookWindowsHookEx, WindowFromPoint,
+    CHILDID_SELF, CLSCTX_ALL, COINIT_APARTMENTTHREADED, COINIT_MULTITHREADED,
+    DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, EVENT_OBJECT_CREATE, EVENT_OBJECT_DESTROY,
+    EVENT_OBJECT_FOCUS, EVENT_OBJECT_SELECTION, EVENT_OBJECT_VALUECHANGE, EVENT_SYSTEM_FOREGROUND,
+    GA_ROOT, GA_ROOTOWNER, GUITHREADINFO, GWL_STYLE, GW_OWNER, HANDLE, HHOOK, HKEY_CURRENT_USER,
+    HKL, HWINEVENTHOOK, HWND, INVALID_HANDLE_VALUE, KBDLLHOOKSTRUCT, LCID, LLKHF_EXTENDED,
+    LOCALE_ALLOW_NEUTRAL_NAMES, LOCALE_NAME_MAX_LENGTH, LPARAM, LRESULT, MAPVK_VK_TO_CHAR, MSG,
+    MSLLHOOKSTRUCT, MUI_LANGUAGE_NAME, OBJID_WINDOW, PM_NOREMOVE, POINT, PROPERTYID,
+    RRF_RT_REG_DWORD, RRF_RT_REG_SZ, SMTO_ABORTIFHUNG, SMTO_BLOCK, SM_CXDOUBLECLK, SM_CYDOUBLECLK,
+    UIA_HWND, VK_CONTROL, VK_LWIN, VK_MENU, VK_RWIN, VK_SHIFT, VT_EMPTY, WH_KEYBOARD_LL,
+    WH_MOUSE_LL, WINEVENT_OUTOFCONTEXT, WM_APP, WM_IME_CONTROL, WM_KEYDOWN, WM_LBUTTONDOWN,
+    WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MOUSEHWHEEL, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_NULL, WM_QUIT,
+    WM_RBUTTONDOWN, WM_SYSKEYDOWN, WM_USER, WPARAM, WS_CHILD,
 };
+use super::win32_bindings::{RtlGetVersion, ToUnicodeEx, OSVERSIONINFOW};
 use windows_core::{Error, Interface, BOOL, BSTR, PWSTR};
 
 use super::element_mapping::{
     map_element, truncate_text, LocatorMeasurements, MeasuredIndex, MeasuredPair,
     NativeElementProperties,
+};
+use super::hook_diagnostics;
+use super::language::{names_a_language, parse_multi_string, tag_from_wide};
+use super::pre_capture::{
+    pre_capture_click, Built, PreCapture, Readiness, SessionPreCapture, PROCESS_DESCRIBERS,
 };
 use super::scroll::KeyAttribution;
 use super::timing;
@@ -102,6 +113,9 @@ enum BridgeMessage {
         barrier_id: u64,
         done: std::sync::mpsc::Sender<Vec<usize>>,
     },
+    /// A window the recording keeps nothing of came to the front, away from
+    /// the field typed into (docent#768). FIFO-ordered behind the keys already sent.
+    TypingEnded,
 }
 
 /// A pending commit-barrier request handed from the command thread to the
@@ -386,6 +400,10 @@ fn down_dispatch_click_mark(msg: u32) -> i64 {
 // to the dispatch channel, sequence counter, and other per-session state.
 
 thread_local! {
+    /// How many mouse hook calls are running on the Input_Thread, one inside
+    /// another: a call dispatched while the thread waits inside an earlier
+    /// one (`hook_diagnostics`).
+    static INPUT_MOUSE_HOOK_DEPTH: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
     /// Channel sender for dispatching messages to the bridge thread.
     static INPUT_RAW_SENDER: std::cell::RefCell<Option<std::sync::mpsc::Sender<BridgeMessage>>> =
         const { std::cell::RefCell::new(None) };
@@ -411,6 +429,11 @@ thread_local! {
     /// Shared included PID for target app filtering. 0 means capture all.
     static INPUT_INCLUDED_PID: std::cell::RefCell<Option<Arc<AtomicU32>>> =
         const { std::cell::RefCell::new(None) };
+
+    /// What the foreground layout answered about its dead keys, asked once
+    /// per key and modifier state ([`foreground_dead_as_pressed`]).
+    static INPUT_DEAD_KEY_ANSWERS: std::cell::RefCell<super::held_keys::DeadKeyAnswers> =
+        const { std::cell::RefCell::new(super::held_keys::DeadKeyAnswers::new()) };
 
     /// PID of the current foreground window. Updated on EVENT_SYSTEM_FOREGROUND.
     /// Events from non-foreground processes are filtered out.
@@ -463,13 +486,26 @@ thread_local! {
     static INPUT_PID_CACHE: std::cell::RefCell<std::collections::HashMap<u32, bool>> =
         std::cell::RefCell::new(std::collections::HashMap::new());
 
-    /// IUIAutomation instance for pre-capturing click elements in the
-    /// Input_Thread. Used ONLY for `ElementFromPoint` — at left mouse-up on a
-    /// non-drag click, and at right/middle button-down — with a short timeout.
-    /// This ensures the element is captured while the target window is still
-    /// alive (before the click is processed).
-    static INPUT_UIA: std::cell::RefCell<Option<IUIAutomation>> =
-        const { std::cell::RefCell::new(None) };
+    /// The click pre-capture the mouse hook asks (DCP-1): `ElementFromPoint`
+    /// at left mouse-up on a non-drag click and at right/middle button-down,
+    /// run on a pre-capture describer thread and waited on for at most the
+    /// budget set at start from the system's hook timeout
+    /// (`timing::pre_capture_budget_ms`), so the element is described while
+    /// the target window is still alive and no application holds the hook past
+    /// that timeout. A session that could not start it at its start tries
+    /// again at a later click, at most once a second.
+    static INPUT_PRE_CAPTURE: std::cell::RefCell<SessionPreCapture<ClickPreCapture>> =
+        std::cell::RefCell::new(SessionPreCapture::default());
+
+    /// The session's pre-capture budget, set at start from the system's hook
+    /// timeout, for a pre-capture started at a later click.
+    static INPUT_PRE_CAPTURE_BUDGET: std::cell::Cell<Duration> =
+        const { std::cell::Cell::new(Duration::ZERO) };
+    /// How long the keyboard hook waits for each answer of a key press's
+    /// input-method read, set at the session's start from the system's hook
+    /// timeout (`timing::input_method_read_timeout_ms`); 0 until then, and
+    /// where the hook does not read.
+    static INPUT_METHOD_QUESTION_LIMIT_MS: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
 
     /// Timestamp of the most recent low-level input event (button press or
     /// release, key press, or wheel). Used to correlate WinEvent callbacks
@@ -834,6 +870,7 @@ impl CaptureLayer for WindowsCapture {
         }
 
         self.active.store(true, Ordering::SeqCst);
+        hook_diagnostics::reset();
         let excluded_pid = self.excluded_pid.clone();
 
         // Each worker signals here once it has finished its (possibly cold)
@@ -881,6 +918,11 @@ impl CaptureLayer for WindowsCapture {
             }
         }
 
+        // The control that holds the keyboard focus as capture starts is
+        // looked at now, on the typing worker, so the first key typed into it
+        // finds it known (docent#761). Nothing is written.
+        pool.look_at_focus();
+
         // Clone the shared sequence counter for the Input_Thread, which assigns
         // a monotonic id to every raw event (docent#139 reorder buffer).
         let sequence_counter = Arc::clone(pool.sequence_counter());
@@ -908,6 +950,7 @@ impl CaptureLayer for WindowsCapture {
                         let wedged = pool.flush_all(barrier_id, FLUSH_BARRIER_TIMEOUT);
                         let _ = done.send(wedged);
                     }
+                    BridgeMessage::TypingEnded => pool.end_typing(),
                 }
             }
             // Channel closed (input thread dropped raw_tx) — return pool for shutdown.
@@ -1081,6 +1124,13 @@ impl CaptureLayer for WindowsCapture {
         self.pending_directory = None;
         self.action_sender = None;
 
+        // What the mouse hook saw, when it was slow enough to have cost input
+        // (docent#741); the counts stay readable through
+        // `hook_diagnostics::snapshot` until the next start.
+        if let Some(line) = hook_diagnostics::snapshot().report() {
+            eprintln!("{line}");
+        }
+
         Ok(report)
     }
 
@@ -1126,8 +1176,9 @@ impl CaptureLayer for WindowsCapture {
 
 /// The Input_Thread runs the platform's input observation loop (message pump +
 /// hooks). It captures raw event data and dispatches `RawEvent`s to the
-/// worker pool via a channel. Its one accessibility call is the
-/// `ElementFromPoint` pre-capture of clicked elements (DCP-1).
+/// worker pool via a channel. It makes no accessibility call: the mouse hook
+/// asks the pre-capture describers for a clicked element and waits for at
+/// most the budget (DCP-1).
 ///
 /// # Arguments
 ///
@@ -1184,11 +1235,11 @@ fn input_thread_main(
     INPUT_INCLUDED_PID.with(|p| *p.borrow_mut() = Some(included_pid));
     INPUT_FLUSH_REQUESTS.with(|q| *q.borrow_mut() = Some(flush_requests));
 
-    // Create a lightweight IUIAutomation instance for pre-capturing click
-    // elements. Used ONLY for the ElementFromPoint pre-capture (left mouse-up on a non-drag click; right/middle button-down).
-    let input_uia: Option<IUIAutomation> =
-        unsafe { CoCreateInstance(&CUIAutomation, None, CLSCTX_ALL as u32).ok() };
-    INPUT_UIA.with(|u| *u.borrow_mut() = input_uia);
+    // Start the click pre-capture's describers (DCP-1). Without them a click
+    // is dispatched with no element and its worker describes it (DCP-13).
+    let pre_capture = start_click_pre_capture();
+    INPUT_PRE_CAPTURE
+        .with(|p| *p.borrow_mut() = SessionPreCapture::started(pre_capture, Instant::now()));
 
     // Initialize foreground PID with the current foreground window.
     let fg_hwnd = unsafe { GetForegroundWindow() };
@@ -1278,7 +1329,7 @@ fn input_thread_main(
         INPUT_INCLUDED_PID.with(|p| *p.borrow_mut() = None);
         INPUT_FLUSH_REQUESTS.with(|q| *q.borrow_mut() = None);
         INPUT_PID_CACHE.with(|c| c.borrow_mut().clear());
-        INPUT_UIA.with(|u| *u.borrow_mut() = None);
+        end_click_pre_capture();
         INPUT_LAST_INPUT_TIMESTAMP.with(|t| t.set(0));
         INPUT_LAST_INPUT_WINDOW.with(|w| w.set(0));
         INPUT_LAST_KEYBOARD_TIMESTAMP.with(|t| t.set(0));
@@ -1333,7 +1384,7 @@ fn input_thread_main(
     INPUT_MOUSE_DOWN_POS.with(|p| p.set(None));
     INPUT_OPENED_WINDOWS.with(|s| s.borrow_mut().clear());
     INPUT_PID_CACHE.with(|c| c.borrow_mut().clear());
-    INPUT_UIA.with(|u| *u.borrow_mut() = None);
+    end_click_pre_capture();
     INPUT_LAST_INPUT_TIMESTAMP.with(|t| t.set(0));
     INPUT_LAST_INPUT_WINDOW.with(|w| w.set(0));
     INPUT_LAST_KEYBOARD_TIMESTAMP.with(|t| t.set(0));
@@ -1356,6 +1407,16 @@ fn input_thread_main(
 /// keystroke or value change (`AccessibilityBackend::focus_epoch`). Starts at
 /// 1; 0 means "not counted". Process-wide, so the workers read it directly.
 static FOCUS_EPOCH: AtomicU64 = AtomicU64::new(1);
+
+/// The number of the latest focus event the Input_Thread dispatched
+/// (`AccessibilityBackend::focus_events_dispatched`); `0` before the first.
+/// Process-wide, so the workers read it directly.
+static FOCUS_EVENTS_DISPATCHED: AtomicU64 = AtomicU64::new(0);
+
+/// The key presses the Input_Thread dispatched, numbered per window
+/// (`AccessibilityBackend::keys_dispatched`, docent#761). Process-wide, so the
+/// workers read it directly.
+static KEYS_DISPATCHED: super::worker_pool::KeyNumbers = super::worker_pool::KeyNumbers::new();
 
 /// Count a focus or foreground change a program reported (the low half of
 /// the epoch). One atomic add.
@@ -1441,6 +1502,29 @@ fn input_send_raw_event(mut event: RawEvent) {
     });
 }
 
+/// What the Input_Thread does with a window event the scope filters drop:
+/// nothing is written for it, and a dropped window that comes to the front
+/// (`EVENT_SYSTEM_FOREGROUND`) has taken the keyboard from the field typed
+/// into, so the pool is told the typing has ended. Without this the field's
+/// `type` waited for the next key or click in a recorded window, and text
+/// typed last in a step was not in the step when the person went to the
+/// recorder's panel to complete it (docent#768).
+///
+/// A pointer press on a dropped window is no such end by itself: a window
+/// that takes no focus (an on-screen keyboard, the emoji panel) leaves the
+/// person typing in the field. Any other window event of a dropped window
+/// tells the pool nothing.
+fn input_dropped_window_event(event: u32) {
+    if event != EVENT_SYSTEM_FOREGROUND as u32 {
+        return;
+    }
+    INPUT_RAW_SENDER.with(|s| {
+        if let Some(sender) = s.borrow().as_ref() {
+            let _ = sender.send(BridgeMessage::TypingEnded);
+        }
+    });
+}
+
 /// Forward a pending commit-barrier request (docent#298) onto the Input_Thread's
 /// own bridge sender. Called from the message pump on `WM_APP_FLUSH`, so the
 /// resulting [`BridgeMessage::Flush`] is FIFO-ordered behind every raw event the
@@ -1457,23 +1541,178 @@ fn input_forward_flush() {
     }
 }
 
-/// Pre-capture the element at the given screen coordinates using the
-/// Input_Thread's IUIAutomation instance. Returns `Some(ElementDescription)`
-/// if the query succeeds quickly, `None` if it fails or the UIA instance
-/// is not available. Called at left mouse-up on a non-drag click and at
-/// right/middle button-down, so the element is captured while the target
-/// window is guaranteed to still be alive.
-unsafe fn input_pre_capture_element(x: i32, y: i32) -> Option<super::ElementDescription> {
-    INPUT_UIA.with(|u| {
-        let uia = u.borrow();
-        let uia = uia.as_ref()?;
-        let pt = POINT { x, y };
-        let element = uia.ElementFromPoint(pt).ok()?;
-        // Unmeasured by design: this runs inside the low-level mouse hook's
-        // latency budget (Windows silently unhooks slow LL hooks), so the
-        // FindAll-based match measurement is off-limits here. Locator entries
-        // carry values only; the pair ships absent (= not measured).
-        uia_element_to_description_unmeasured(uia, &element)
+/// The click pre-capture: a screen point in, the element there out (`None`
+/// when nothing could be described).
+type ClickPreCapture = PreCapture<(i32, i32), Option<super::ElementDescription>>;
+
+/// A pre-capture describer's accessibility client, in its own multithreaded
+/// apartment (the profile the worker's `init` describes: a client thread
+/// that owns no window and pumps no messages). Fields drop in order: the
+/// client before the apartment is left.
+struct PreCaptureClient {
+    uia: Option<IUIAutomation>,
+    _apartment: Option<ComApartment>,
+}
+
+/// Leaves the COM apartment its thread entered, when dropped.
+struct ComApartment;
+
+impl Drop for ComApartment {
+    fn drop(&mut self) {
+        unsafe { CoUninitialize() };
+    }
+}
+
+/// How long start waits for the first pre-capture describer to build its
+/// accessibility client before going on without waiting further.
+const PRE_CAPTURE_READY_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Read the user's low-level hook timeout setting
+/// (`HKCU\Control Panel\Desktop\LowLevelHooksTimeout`), a `REG_DWORD` or a
+/// `REG_SZ`; [`timing::HookTimeoutSetting::Absent`] when it is neither or
+/// cannot be read.
+fn read_hook_timeout_setting() -> timing::HookTimeoutSetting {
+    let key = windows_core::w!("Control Panel\\Desktop");
+    let value = windows_core::w!("LowLevelHooksTimeout");
+    let mut number: u32 = 0;
+    let mut size = std::mem::size_of::<u32>() as u32;
+    let status = unsafe {
+        RegGetValueW(
+            HKEY_CURRENT_USER,
+            key,
+            value,
+            RRF_RT_REG_DWORD as u32,
+            None,
+            Some((&mut number as *mut u32).cast()),
+            Some(&mut size),
+        )
+    };
+    if status.0 == 0 {
+        return timing::HookTimeoutSetting::Number(number);
+    }
+    let mut text = [0u16; 64];
+    let mut size = std::mem::size_of_val(&text) as u32;
+    let status = unsafe {
+        RegGetValueW(
+            HKEY_CURRENT_USER,
+            key,
+            value,
+            RRF_RT_REG_SZ as u32,
+            None,
+            Some(text.as_mut_ptr().cast()),
+            Some(&mut size),
+        )
+    };
+    if status.0 == 0 {
+        let len = text.iter().position(|&c| c == 0).unwrap_or(text.len());
+        return timing::HookTimeoutSetting::Text(String::from_utf16_lossy(&text[..len]));
+    }
+    timing::HookTimeoutSetting::Absent
+}
+
+/// Start the click pre-capture's describers (DCP-1) with the session's
+/// budget. An error when no describer can be started (the process's
+/// describers at the cap).
+fn spawn_click_pre_capture() -> std::io::Result<ClickPreCapture> {
+    PreCapture::spawn(
+        "docent-pre-capture",
+        INPUT_PRE_CAPTURE_BUDGET.with(|b| b.get()),
+        &PROCESS_DESCRIBERS,
+        || unsafe {
+            let apartment = CoInitializeEx(None, COINIT_MULTITHREADED as u32)
+                .ok()
+                .ok()
+                .map(|()| ComApartment);
+            let uia = apartment.as_ref().and_then(|_| {
+                CoCreateInstance::<_, IUIAutomation>(&CUIAutomation, None, CLSCTX_ALL as u32).ok()
+            });
+            Built {
+                client_built: uia.is_some(),
+                state: PreCaptureClient {
+                    uia,
+                    _apartment: apartment,
+                },
+            }
+        },
+        |client: &PreCaptureClient, (x, y): (i32, i32)| unsafe {
+            let uia = client.uia.as_ref()?;
+            let element = uia.ElementFromPoint(POINT { x, y }).ok()?;
+            // Unmeasured by design: the hook waits on this call, so the
+            // FindAll-based match measurement is off-limits here. Locator
+            // entries carry values only; the pair ships absent (= not
+            // measured).
+            uia_element_to_description_unmeasured(uia, &element)
+        },
+    )
+}
+
+/// Set the session's pre-capture budget and the time limit of the keyboard
+/// hook's questions to an input-method window from the system's low-level
+/// hook timeout, start the click pre-capture's describers (DCP-1), and wait, for
+/// at most `PRE_CAPTURE_READY_TIMEOUT`, for the first to build its
+/// accessibility client, so the first click is pre-captured. `None`, logged,
+/// when no describer can be started (a later click tries again); a warning
+/// when the wait runs out or the client was not built (the clicks the
+/// pre-capture cannot describe are described by their workers, DCP-13).
+fn start_click_pre_capture() -> Option<ClickPreCapture> {
+    let hook_timeout_ms = timing::hook_timeout_ms(&read_hook_timeout_setting());
+    let budget_ms = timing::pre_capture_budget_ms(hook_timeout_ms);
+    let question_limit_ms = timing::input_method_read_timeout_ms(hook_timeout_ms);
+    hook_diagnostics::session_bounds(hook_timeout_ms, budget_ms, question_limit_ms);
+    INPUT_PRE_CAPTURE_BUDGET.with(|b| b.set(Duration::from_millis(budget_ms)));
+    INPUT_METHOD_QUESTION_LIMIT_MS.with(|t| t.set(question_limit_ms as u32));
+    match spawn_click_pre_capture() {
+        Ok(pre_capture) => {
+            match pre_capture.wait_ready(PRE_CAPTURE_READY_TIMEOUT) {
+                Readiness::Built => {}
+                Readiness::ClientNotBuilt => eprintln!(
+                    "[WindowsCapture] Warning: the click pre-capture's accessibility client \
+                     could not be built; clicks are described by the workers"
+                ),
+                Readiness::NotReady => eprintln!(
+                    "[WindowsCapture] Warning: the click pre-capture was not ready within \
+                     {PRE_CAPTURE_READY_TIMEOUT:?}; clicks before it is are described by \
+                     the workers"
+                ),
+            }
+            Some(pre_capture)
+        }
+        Err(e) => {
+            eprintln!(
+                "[WindowsCapture] Warning: the click pre-capture did not start ({e}); \
+                 clicks are described by the workers until a later click starts it"
+            );
+            None
+        }
+    }
+}
+
+/// End the click pre-capture as the input thread ends: store its outcome
+/// counts for the stop report, then drop it. Its describers are never
+/// joined; each ends once its last call returns.
+fn end_click_pre_capture() {
+    if let Some(pre_capture) = INPUT_PRE_CAPTURE.with(|p| p.borrow_mut().take()) {
+        hook_diagnostics::pre_capture_outcomes(pre_capture.counts());
+    }
+}
+
+/// Pre-capture the element at the given screen coordinates, in the process
+/// `pid` (DCP-1): ask a pre-capture describer and wait for at most the
+/// budget. `None` when the answer did not come in time, when that process
+/// still holds a describer, when no describer is free, or when nothing could
+/// be described; the click is dispatched either way, and its worker describes
+/// it when this gave no element. Called at left mouse-up on a non-drag click
+/// and at right/middle button-down, so an answer describes the element while
+/// the target window is still alive. The wait dispatches no message, so no
+/// hook call runs inside it.
+fn input_pre_capture_element(pid: u32, x: i32, y: i32) -> Option<super::ElementDescription> {
+    INPUT_PRE_CAPTURE.with(|p| {
+        let mut session = p.borrow_mut();
+        // A session whose pre-capture could not be started tries again here,
+        // without waiting for the new describer: this ask waits for it within
+        // the budget.
+        let pre = session.for_click(Instant::now(), || spawn_click_pre_capture().ok());
+        pre_capture_click(pre, u64::from(pid), (x, y))
     })
 }
 
@@ -1620,9 +1859,34 @@ fn input_should_keep_event_cached(event_pid: u32, excluded_pid: Option<u32>, hwn
 // Input_Thread WinEvent callback
 // ---------------------------------------------------------------------------
 
-/// WinEvent callback for the Input_Thread. Captures raw event data and
-/// dispatches `RawEvent`s. Performs zero accessibility queries.
+/// WinEvent callback for the Input_Thread: times each call
+/// (`hook_diagnostics`; the mouse hook's calls wait behind it) around
+/// [`input_win_event_handle`].
 unsafe extern "system" fn input_win_event_proc(
+    hook: HWINEVENTHOOK,
+    event: u32,
+    hwnd: HWND,
+    id_object: i32,
+    id_child: i32,
+    id_event_thread: u32,
+    dwms_event_time: u32,
+) {
+    let started = Instant::now();
+    input_win_event_handle(
+        hook,
+        event,
+        hwnd,
+        id_object,
+        id_child,
+        id_event_thread,
+        dwms_event_time,
+    );
+    hook_diagnostics::win_event_returned(started.elapsed());
+}
+
+/// What the WinEvent callback does with one event. Captures raw event data
+/// and dispatches `RawEvent`s. Performs zero accessibility queries.
+unsafe fn input_win_event_handle(
     _hook: HWINEVENTHOOK,
     event: u32,
     hwnd: HWND,
@@ -1656,6 +1920,7 @@ unsafe extern "system" fn input_win_event_proc(
 
     // PID exclusion check (cached — covers both PID tree and ownership).
     if !input_should_keep_event_cached(process_id, excluded, hwnd) {
+        input_dropped_window_event(event);
         return;
     }
 
@@ -1851,7 +2116,14 @@ unsafe extern "system" fn input_win_event_proc(
                 key_code: 0,
                 modifiers: (false, false, false, false),
                 scroll_delta: 0.0,
-                callback_params: [id_object as i64, id_child as i64, 0, 0],
+                // The event's number among the focus events dispatched,
+                // counted here, where the event is sure to be sent.
+                callback_params: [
+                    id_object as i64,
+                    id_child as i64,
+                    (FOCUS_EVENTS_DISPATCHED.fetch_add(1, Ordering::SeqCst) + 1) as i64,
+                    0,
+                ],
                 pre_captured_element: None,
                 focus_epoch: 0,
                 held: Vec::new(),
@@ -2058,15 +2330,31 @@ unsafe fn input_press_switch(point_hwnd: HWND, fg_hwnd: HWND, timestamp: u64) {
     });
 }
 
-/// Low-level mouse hook for the Input_Thread. Captures raw mouse data,
-/// performs click-vs-drag classification, and dispatches `RawEvent`s.
-/// Makes the thread's one accessibility call — the `ElementFromPoint`
-/// pre-capture at a click (DCP-1).
+/// Low-level mouse hook for the Input_Thread: times each call and counts how
+/// deep calls run inside one another (`hook_diagnostics`), around
+/// [`input_mouse_ll_handle`], then passes the message on.
 unsafe extern "system" fn input_mouse_ll_proc(
     n_code: i32,
     w_param: WPARAM,
     l_param: LPARAM,
 ) -> LRESULT {
+    let depth = INPUT_MOUSE_HOOK_DEPTH.with(|d| {
+        d.set(d.get() + 1);
+        d.get()
+    });
+    hook_diagnostics::mouse_call_entered(depth);
+    let started = Instant::now();
+    input_mouse_ll_handle(n_code, w_param, l_param);
+    hook_diagnostics::mouse_call_returned(started.elapsed());
+    INPUT_MOUSE_HOOK_DEPTH.with(|d| d.set(d.get() - 1));
+    CallNextHookEx(None, n_code, w_param, l_param)
+}
+
+/// What the low-level mouse hook does with one message. Captures raw mouse
+/// data, performs click-vs-drag classification, and dispatches `RawEvent`s.
+/// Waits, for a bounded time only, on the `ElementFromPoint` pre-capture at a
+/// click (DCP-1).
+unsafe fn input_mouse_ll_handle(n_code: i32, w_param: WPARAM, l_param: LPARAM) {
     if n_code >= 0 && input_is_active() {
         let mouse_struct = &*(l_param.0 as *const MSLLHOOKSTRUCT);
         let msg = w_param.0 as u32;
@@ -2123,6 +2411,7 @@ unsafe extern "system" fn input_mouse_ll_proc(
 
             match msg as i32 {
                 WM_LBUTTONDOWN => {
+                    hook_diagnostics::left_down();
                     // Record the input for correlation.
                     note_input(timestamp, window_handle);
                     // Store mouse-down position for drag detection.
@@ -2146,6 +2435,7 @@ unsafe extern "system" fn input_mouse_ll_proc(
                     input_press_switch(point_hwnd, fg_hwnd, timestamp);
                 }
                 WM_LBUTTONUP => {
+                    hook_diagnostics::left_up();
                     // A release is input too: selections completed at the end
                     // of a long drag correlate with the release, not the press.
                     note_input(timestamp, window_handle);
@@ -2199,8 +2489,8 @@ unsafe extern "system" fn input_mouse_ll_proc(
                         });
                     } else {
                         // Click detected — pre-capture the element while
-                        // the window is guaranteed alive.
-                        let pre_element = input_pre_capture_element(pt.x, pt.y);
+                        // the window is still alive, within the budget.
+                        let pre_element = input_pre_capture_element(pid, pt.x, pt.y);
                         let double = left_press.is_some_and(double_click_completed_by);
                         input_dispatch_raw_event(RawEvent {
                             event_type: RawEventType::Click,
@@ -2228,6 +2518,7 @@ unsafe extern "system" fn input_mouse_ll_proc(
                             held: Vec::new(),
                         });
                         INPUT_LAST_CLICK_TIMESTAMP.with(|t| t.set(timestamp));
+                        hook_diagnostics::left_click_dispatched();
                     }
 
                     INPUT_MOUSE_DOWN_POS.with(|p| p.set(None));
@@ -2286,7 +2577,7 @@ unsafe extern "system" fn input_mouse_ll_proc(
                         // The press activates the window it lands in: its
                         // switch goes before the press, as a left press's.
                         input_press_switch(point_hwnd, fg_hwnd, timestamp);
-                        let pre_element = input_pre_capture_element(pt.x, pt.y);
+                        let pre_element = input_pre_capture_element(pid, pt.x, pt.y);
                         input_dispatch_raw_event(RawEvent {
                             event_type,
                             sequence_id: 0,
@@ -2315,8 +2606,6 @@ unsafe extern "system" fn input_mouse_ll_proc(
             double_click_break_pair();
         }
     }
-
-    CallNextHookEx(None, n_code, w_param, l_param)
 }
 
 /// The modifiers held and the keys that are down now, as a pointer action
@@ -2408,6 +2697,12 @@ unsafe extern "system" fn input_keyboard_ll_proc(
 
             if attribution != KeyAttribution::Dropped {
                 let layout_char = foreground_layout_char(kb_struct.vkCode, thread_id);
+                let dead_as_pressed = foreground_dead_as_pressed(
+                    kb_struct.vkCode,
+                    kb_struct.scanCode,
+                    modifiers,
+                    thread_id,
+                );
                 let timestamp = current_timestamp_ms();
                 let foreground_handle = hwnd.0 as i64;
                 let (window_handle, process_id) = match attribution {
@@ -2434,6 +2729,24 @@ unsafe extern "system" fn input_keyboard_ll_proc(
                     KeyAttribution::NoWindow => 0,
                     _ => focused_control_of_thread(thread_id),
                 };
+                // What the input method of that control says of itself at
+                // this press, before the key takes effect; none for a key
+                // with no window.
+                let input_method = match attribution {
+                    KeyAttribution::NoWindow => None,
+                    _ => input_method_state_of(control, hwnd),
+                };
+                // The key's number among its window's keys, counted here,
+                // where the key is sure to be sent: a worker that read a
+                // field's value takes it only while no later key of the
+                // window was dispatched (docent#761). A key with no window
+                // types into none, and is not numbered; a Shift, Control or
+                // Alt key changes no text, and carries the window's latest
+                // number.
+                let number = match attribution {
+                    KeyAttribution::NoWindow => 0,
+                    _ => KEYS_DISPATCHED.for_key(window_handle, kb_struct.vkCode),
+                };
                 input_dispatch_raw_event(RawEvent {
                     event_type: RawEventType::Keyboard,
                     sequence_id: 0,
@@ -2455,26 +2768,35 @@ unsafe extern "system" fn input_keyboard_ll_proc(
                     // And the number of the latest focus change that named a
                     // part of that control, from this thread's own note.
                     // Then the character a punctuation key enters on the
-                    // foreground window's layout, read above (docent#691), and
+                    // foreground window's layout, read above (docent#691),
+                    // with whether the key is a dead key as pressed
+                    // (docent#769), and
                     // above it whether the key was already down at this
-                    // key-down: a press key repeat generated (docent#696).
+                    // key-down: a press key repeat generated (docent#696),
+                    // and above that the key's number, counted above.
                     // Above the scan code sits the hook's extended mark,
-                    // which tells apart two keys that share a key code.
+                    // which tells apart two keys that share a key code;
+                    // the two together name the physical key (docent#717).
+                    // Above that mark sits what was read of the input method
+                    // (docent#237).
                     callback_params: [
                         i64::from(kb_struct.scanCode)
                             | if kb_struct.flags & LLKHF_EXTENDED as u32 != 0 {
                                 super::held_keys::KEY_EXTENDED_PARAM
                             } else {
                                 0
-                            },
+                            }
+                            | super::held_keys::input_method_param(input_method),
                         control,
                         INPUT_PART_FOCUS.with(|note| note.borrow().of(control)),
                         i64::from(layout_char)
+                            | super::held_keys::dead_as_pressed_param(dead_as_pressed)
                             | if repeat {
                                 super::held_keys::KEY_REPEAT_PARAM
                             } else {
                                 0
-                            },
+                            }
+                            | super::worker_pool::key_number_param(number),
                     ],
                     pre_captured_element: None,
                     focus_epoch: 0,
@@ -2493,6 +2815,89 @@ unsafe extern "system" fn input_keyboard_ll_proc(
     CallNextHookEx(None, n_code, w_param, l_param)
 }
 
+/// The `WM_IME_CONTROL` command that asks an input-method window whether its
+/// input method is on (`IMC_GETOPENSTATUS`).
+const IMC_GETOPENSTATUS: usize = 0x0005;
+/// The `WM_IME_CONTROL` command that asks an input-method window for its
+/// conversion mode (`IMC_GETCONVERSIONMODE`).
+const IMC_GETCONVERSIONMODE: usize = 0x0001;
+
+/// What the input method says of itself for the control `control` (the
+/// control that holds the keyboard focus; the foreground window `foreground`
+/// where none was read): whether it is on, and its conversion mode. `None`
+/// where the window has no input-method window, where that window gave no
+/// answer to the first ask within the session's time limit
+/// (`timing::input_method_read_timeout_ms`) or refused it, or where that
+/// limit is 0.
+///
+/// Called on the keyboard hook. The input-method window belongs to the
+/// program's own thread, which has to answer, so each of the two asks waits
+/// for at most the time limit and gives up at once on a thread the system
+/// knows to be hung; which is asked when, and what stands where one gets no
+/// answer, is [`super::held_keys::read_input_method`]'s to state. The wait
+/// dispatches no message to this thread (`SMTO_BLOCK`), so no hook call runs
+/// inside it.
+unsafe fn input_method_state_of(
+    control: i64,
+    foreground: HWND,
+) -> Option<super::held_keys::InputMethodState> {
+    use super::held_keys::InputMethodQuestion;
+    use hook_diagnostics::InputMethodReadOutcome;
+    let timeout_ms = INPUT_METHOD_QUESTION_LIMIT_MS.with(|t| t.get());
+    if timeout_ms == 0 {
+        return None;
+    }
+    let started = Instant::now();
+    let window = if control != 0 {
+        HWND(control as *mut core::ffi::c_void)
+    } else {
+        foreground
+    };
+    let input_method_window = if window.0.is_null() {
+        window
+    } else {
+        ImmGetDefaultIMEWnd(window)
+    };
+    if input_method_window.0.is_null() {
+        hook_diagnostics::input_method_read(started.elapsed(), InputMethodReadOutcome::NoWindow);
+        return None;
+    }
+    let state = super::held_keys::read_input_method(|question| {
+        let command = match question {
+            InputMethodQuestion::OpenStatus => IMC_GETOPENSTATUS,
+            InputMethodQuestion::ConversionMode => IMC_GETCONVERSIONMODE,
+        };
+        ask_input_method(input_method_window, command, timeout_ms)
+    });
+    let outcome = match state {
+        None => InputMethodReadOutcome::NoAnswer,
+        Some(state) if state.conversion_mode.is_none() => InputMethodReadOutcome::OpenStatusAlone,
+        Some(_) => InputMethodReadOutcome::Answered,
+    };
+    hook_diagnostics::input_method_read(started.elapsed(), outcome);
+    state
+}
+
+/// Ask an input-method window one `WM_IME_CONTROL` question; `None` when no
+/// answer came within the time limit, or the message was refused.
+unsafe fn ask_input_method(
+    input_method_window: HWND,
+    command: usize,
+    timeout_ms: u32,
+) -> Option<usize> {
+    let mut answer = 0usize;
+    let sent = SendMessageTimeoutW(
+        input_method_window,
+        WM_IME_CONTROL as u32,
+        WPARAM(command),
+        LPARAM(0),
+        (SMTO_ABORTIFHUNG | SMTO_BLOCK) as u32,
+        timeout_ms,
+        Some(&mut answer),
+    );
+    (sent.0 != 0).then_some(answer)
+}
+
 /// What the keyboard layout of the foreground window's thread (`thread_id`,
 /// the thread `GetWindowThreadProcessId` names) gives punctuation key `vk`,
 /// for the worker to name the key by (`worker_pool::punctuation_key_name`
@@ -2506,6 +2911,151 @@ unsafe fn foreground_layout_char(vk: u32, thread_id: u32) -> u32 {
         return 0;
     }
     layout_char(vk, GetKeyboardLayout(thread_id))
+}
+
+/// Whether this Windows honors the flag that makes `ToUnicodeEx` leave the
+/// keyboard state as it is (flag 4: Windows 10 version 1607, build 14393, and
+/// later). Without it the call takes the pending accent of a dead key, in the
+/// application typed into too, so the layout is not asked there. Read once.
+fn layout_read_leaves_key_state() -> bool {
+    static HONORED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *HONORED.get_or_init(|| {
+        let mut version = OSVERSIONINFOW {
+            dwOSVersionInfoSize: std::mem::size_of::<OSVERSIONINFOW>() as u32,
+            ..Default::default()
+        };
+        // SAFETY: a sized, writable version structure of this frame.
+        let status = unsafe { RtlGetVersion(&mut version) };
+        status.is_ok() && windows_build_honors_flag(version.dwMajorVersion, version.dwBuildNumber)
+    })
+}
+
+/// Whether a Windows of this major version and build honors `ToUnicodeEx`'s
+/// flag 4: Windows 10 from build 14393 on.
+const fn windows_build_honors_flag(major: u32, build: u32) -> bool {
+    major > 10 || (major == 10 && build >= 14393)
+}
+
+/// Whether typing key `vk` (scan code `scan_code`) is a dead key as pressed,
+/// with `modifiers` (Ctrl, Shift, Alt, Meta) held, on the keyboard layout of
+/// the foreground window's thread (`thread_id`): `None` where it is not known
+/// (no thread or layout, a key that is no typing key, an injected character,
+/// a shortcut modifier held, neither Shift nor AltGr held, a Windows that
+/// does not honor the flag below, or a key pressed while an accent is pending
+/// before the layout was asked about it, see below).
+///
+/// The layout is asked with `ToUnicodeEx` and its flag 4, which leaves the
+/// keyboard state as it is: measured on Windows 10 (19045) from a low-level
+/// keyboard hook, dead keys in the application typed into compose as with no
+/// call at all, where the same call with no flag breaks every one of them
+/// (docent#769).
+///
+/// The answer depends on an accent already pending, and the accent pending
+/// when the hook runs is the one the application has got to, not the one the
+/// keys pressed so far will leave. So the layout is asked only while nothing
+/// is pending ([`layout_has_no_accent_pending`], checked before and after),
+/// and its answer is kept for the layout ([`INPUT_DEAD_KEY_ANSWERS`]): what a
+/// key is with given modifiers is then the same at every press, however far
+/// behind the application is. CapsLock is no part of the question.
+///
+/// Called on the keyboard hook: three user32 reads until the layout has
+/// answered for a key with given modifiers and none after, no accessibility call,
+/// lock or allocation.
+unsafe fn foreground_dead_as_pressed(
+    vk: u32,
+    scan_code: u32,
+    modifiers: (bool, bool, bool, bool),
+    thread_id: u32,
+) -> Option<super::held_keys::AsPressed> {
+    let (ctrl, shift, alt, meta) = modifiers;
+    // Ctrl and Alt together are AltGr; either alone, or Meta, is a shortcut,
+    // which enters no text and is asked nothing.
+    if thread_id == 0
+        || meta
+        || ctrl != alt
+        || vk == super::worker_pool::VK_PACKET
+        || !super::worker_pool::is_typing_key_code(vk)
+        || !layout_read_leaves_key_state()
+    {
+        return None;
+    }
+    let alt_gr = ctrl && alt;
+    // A press with neither is the layout's own mark for the key, which the
+    // worker has already and which depends on nothing pending.
+    if !shift && !alt_gr {
+        return None;
+    }
+    let hkl = GetKeyboardLayout(thread_id);
+    let layout = hkl.0 as isize;
+    if let Some(kept) = INPUT_DEAD_KEY_ANSWERS.with(|a| a.borrow().get(layout, vk, shift, alt_gr)) {
+        return Some(kept);
+    }
+    let dead = dead_as_pressed(vk, scan_code, shift, alt_gr, hkl)?;
+    INPUT_DEAD_KEY_ANSWERS.with(|a| a.borrow_mut().learn(layout, vk, shift, alt_gr, dead));
+    Some(dead)
+}
+
+/// `ToUnicodeEx`: the keyboard state is not changed.
+const LEAVE_KEY_STATE: u32 = 4;
+
+/// Whether no accent of a dead key is pending for `hkl` right now: the layout
+/// answers Enter with the one carriage return. With an accent pending it
+/// answers with the accent as well, or with something else.
+unsafe fn layout_has_no_accent_pending(hkl: HKL) -> bool {
+    let state = [0u8; 256];
+    let mut entered = [0u16; 8];
+    let answer = ToUnicodeEx(
+        0x0D,
+        0x1C,
+        state.as_ptr(),
+        windows_core::PWSTR(entered.as_mut_ptr()),
+        entered.len() as i32,
+        LEAVE_KEY_STATE,
+        Some(hkl),
+    );
+    answer == 1 && entered[0] == 0x0D
+}
+
+/// What layout `hkl` answers for the key with Shift or AltGr held: whether it
+/// is a dead key, and the accent it names for one. `None` for no layout, and where an accent is pending before
+/// or after the question, since the answer then says what the key does to
+/// that accent and not what the key is.
+unsafe fn dead_as_pressed(
+    vk: u32,
+    scan_code: u32,
+    shift: bool,
+    alt_gr: bool,
+    hkl: HKL,
+) -> Option<super::held_keys::AsPressed> {
+    use super::held_keys::AsPressed;
+    if hkl.0.is_null() || !layout_has_no_accent_pending(hkl) {
+        return None;
+    }
+    let mut state = [0u8; 256];
+    if shift {
+        state[0x10] = 0x80;
+    }
+    if alt_gr {
+        state[0x11] = 0x80;
+        state[0x12] = 0x80;
+    }
+    let mut entered = [0u16; 8];
+    // A negative answer is a dead key, with its accent in the buffer.
+    let answer = ToUnicodeEx(
+        vk,
+        scan_code,
+        state.as_ptr(),
+        windows_core::PWSTR(entered.as_mut_ptr()),
+        entered.len() as i32,
+        LEAVE_KEY_STATE,
+        Some(hkl),
+    );
+    let read = if answer < 0 {
+        AsPressed::DeadKey { accent: entered[0] }
+    } else {
+        AsPressed::NoDeadKey
+    };
+    layout_has_no_accent_pending(hkl).then_some(read)
 }
 
 /// The character `vk` enters with no modifier on keyboard layout `hkl`, with
@@ -2618,9 +3168,10 @@ pub(crate) unsafe fn uia_element_to_description_in_window(
 
 /// Convert a UIA element to an `ElementDescription` WITHOUT measuring match
 /// statistics — candidate values only, pairs absent (the schema's "not
-/// measured"). Used by the input-hook pre-capture path, which sits in the
-/// system-wide low-level mouse hook: Windows silently unhooks slow LL hooks,
-/// so `FindAll` traversals are off-limits there.
+/// measured"). Used by the click pre-capture's describers, which the
+/// low-level mouse hook waits on for at most a budget below the system's hook
+/// timeout (DCP-1): `FindAll` traversals would spend that budget, so they are
+/// off-limits there.
 pub(crate) unsafe fn uia_element_to_description_unmeasured(
     uia: &IUIAutomation,
     element: &IUIAutomationElement,
@@ -2659,7 +3210,7 @@ unsafe fn gather_native_properties(
     let size_of_set = get_i32_property(element, UIA_SizeOfSetPropertyId);
     let level = get_i32_property(element, UIA_LevelPropertyId);
 
-    let (tree_path, window_root_offset, window_root, window_handle) =
+    let (tree_path, window_root_offset, window_root, window_handle, language) =
         build_tree_path_with_root(uia, element);
 
     let props = NativeElementProperties {
@@ -2672,6 +3223,7 @@ unsafe fn gather_native_properties(
         tree_path,
         class_name,
         framework_id,
+        language,
         labeled_by,
         position_in_set,
         size_of_set,
@@ -2870,6 +3422,61 @@ unsafe fn get_is_password(element: &IUIAutomationElement) -> bool {
     is_password_value(property_value(element, UIA_IsPasswordPropertyId).as_ref())
 }
 
+/// The language a UIA element reports for itself: its Culture property (a
+/// locale identifier, `VT_I4`) as the locale name Windows gives that
+/// identifier. `""` when the element reports none (the property's default, 0),
+/// when the identifier names no language of its own ([`names_a_language`]),
+/// and when either call fails. A
+/// language-only identifier keeps its language-only name (`en`, not a
+/// regional default).
+unsafe fn get_culture_tag(element: &IUIAutomationElement) -> String {
+    let lcid = get_i32_property(element, UIA_CulturePropertyId) as u32;
+    if !names_a_language(lcid) {
+        return String::new();
+    }
+    let mut name = [0u16; LOCALE_NAME_MAX_LENGTH as usize];
+    let written = LCIDToLocaleName(
+        LCID(lcid),
+        Some(PWSTR(name.as_mut_ptr())),
+        LOCALE_NAME_MAX_LENGTH,
+        LOCALE_ALLOW_NEUTRAL_NAMES as u32,
+    );
+    if written <= 0 {
+        return String::new();
+    }
+    tag_from_wide(&name).unwrap_or_default()
+}
+
+/// The user's preferred UI languages as Windows lists them, most preferred
+/// first, as language names (`da-DK`). `None` when Windows could not be read.
+/// Asked twice: once for the size of the list, once for the list.
+pub(crate) fn read_preferred_ui_languages() -> Option<Vec<String>> {
+    let mut count = 0u32;
+    let mut length = 0u32;
+    // SAFETY: a null buffer with a zero length asks only for the length; the
+    // out-pointers are live locals.
+    let sized = unsafe {
+        GetUserPreferredUILanguages(MUI_LANGUAGE_NAME as u32, &mut count, None, &mut length)
+    };
+    if !sized.as_bool() || length == 0 {
+        return None;
+    }
+    let mut buffer = vec![0u16; length as usize];
+    // SAFETY: `buffer` holds `length` units, the length the call is told.
+    let read = unsafe {
+        GetUserPreferredUILanguages(
+            MUI_LANGUAGE_NAME as u32,
+            &mut count,
+            Some(buffer.as_mut_ptr()),
+            &mut length,
+        )
+    };
+    if !read.as_bool() {
+        return None;
+    }
+    Some(parse_multi_string(&buffer))
+}
+
 /// Resolve the top-level (GA_ROOT) window handle for a native window handle
 /// reported by UIA. Returns 0 when unresolvable.
 unsafe fn top_level_hwnd(native_hwnd: i32) -> i64 {
@@ -2900,8 +3507,8 @@ unsafe fn top_level_hwnd(native_hwnd: i32) -> i64 {
 /// scope. When no hwnd-backed node is seen within the walk cap, the offset
 /// and scope are `None` — locator measurement is skipped and the `tree_path`
 /// entry is omitted, so the recorded value never contradicts the schema's
-/// "from the window root". The top-level handle itself is returned last (`0`
-/// when none was seen).
+/// "from the window root". The top-level handle itself is returned fourth (`0`
+/// when none was seen), and the declared language last (empty when none).
 unsafe fn build_tree_path_with_root(
     uia: &IUIAutomation,
     element: &IUIAutomationElement,
@@ -2910,6 +3517,7 @@ unsafe fn build_tree_path_with_root(
     Option<usize>,
     Option<IUIAutomationElement>,
     i64,
+    String,
 ) {
     let mut path = Vec::new();
     // Pre-reverse index of the node identified as the top-level window.
@@ -2944,6 +3552,13 @@ unsafe fn build_tree_path_with_root(
     if note_node(element) {
         root_pre_index = Some(0);
     }
+    // The language of the nearest node, from the element up to its top-level
+    // window, that reports one. Once the window root is found, nodes above it
+    // are not asked: the desktop is not part of the application. An ancestor's
+    // answer counts only when the walk confirmed the window root, since
+    // without one nothing shows the ancestor was inside the window.
+    let own_language = get_culture_tag(element);
+    let mut inherited_language = String::new();
 
     let walker = uia.ControlViewWalker().ok();
 
@@ -2962,8 +3577,12 @@ unsafe fn build_tree_path_with_root(
                         format!("{parent_tag}:{parent_name}")
                     };
                     path.push(seg);
+                    let within_window = root_pre_index.is_none();
                     if note_node(&parent) && root_pre_index.is_none() {
                         root_pre_index = Some(path.len() - 1);
+                    }
+                    if within_window && own_language.is_empty() && inherited_language.is_empty() {
+                        inherited_language = get_culture_tag(&parent);
                     }
                     current = parent;
                 }
@@ -2985,7 +3604,15 @@ unsafe fn build_tree_path_with_root(
         None
     };
 
-    (path, window_root_offset, window_root, root_hwnd)
+    let language = if !own_language.is_empty() {
+        own_language
+    } else if root_pre_index.is_some() {
+        inherited_language
+    } else {
+        String::new()
+    };
+
+    (path, window_root_offset, window_root, root_hwnd, language)
 }
 
 // ---------------------------------------------------------------------------
@@ -3288,34 +3915,37 @@ pub(crate) unsafe fn get_process_name_for_hwnd(hwnd: HWND) -> String {
 }
 
 fn get_process_name_for_pid(pid: u32) -> String {
+    process_exe_name(pid).unwrap_or_else(|| format!("pid:{pid}"))
+}
+
+/// The executable file name of the process `pid`, read from the process;
+/// `None` when it cannot be opened or read (it has exited, or access is
+/// refused).
+fn process_exe_name(pid: u32) -> Option<String> {
     use super::win32_bindings::{
         GetModuleFileNameExW, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
     };
 
     unsafe {
-        match valid_handle(OpenProcess(
+        let h = valid_handle(OpenProcess(
             PROCESS_QUERY_LIMITED_INFORMATION as u32,
             false,
             pid,
-        )) {
-            Some(h) => {
-                let mut buf = [0u16; 512];
-                let len =
-                    GetModuleFileNameExW(Some(h), None, PWSTR(buf.as_mut_ptr()), buf.len() as u32);
-                let _ = CloseHandle(h);
-                if len > 0 {
-                    let full_path = String::from_utf16_lossy(&buf[..len as usize]);
-                    full_path
-                        .rsplit('\\')
-                        .next()
-                        .unwrap_or(&full_path)
-                        .to_string()
-                } else {
-                    format!("pid:{pid}")
-                }
-            }
-            None => format!("pid:{pid}"),
+        ))?;
+        let mut buf = [0u16; 512];
+        let len = GetModuleFileNameExW(Some(h), None, PWSTR(buf.as_mut_ptr()), buf.len() as u32);
+        let _ = CloseHandle(h);
+        if len == 0 {
+            return None;
         }
+        let full_path = String::from_utf16_lossy(&buf[..len as usize]);
+        Some(
+            full_path
+                .rsplit('\\')
+                .next()
+                .unwrap_or(&full_path)
+                .to_string(),
+        )
     }
 }
 
@@ -3502,6 +4132,14 @@ impl AccessibilityBackend for WindowsAccessibilityBackend {
         FOCUS_EPOCH.load(Ordering::SeqCst)
     }
 
+    fn focus_events_dispatched(&self) -> u64 {
+        FOCUS_EVENTS_DISPATCHED.load(Ordering::SeqCst)
+    }
+
+    fn keys_dispatched(&self, window: i64) -> u64 {
+        KEYS_DISPATCHED.latest(window)
+    }
+
     fn is_foreground_window(&self, window_handle: i64) -> bool {
         if window_handle == 0 {
             return false;
@@ -3587,6 +4225,36 @@ impl AccessibilityBackend for WindowsAccessibilityBackend {
     fn process_name(&self, window_handle: i64) -> String {
         let hwnd = HWND(window_handle as *mut _);
         unsafe { get_process_name_for_hwnd(hwnd) }
+    }
+
+    fn process_name_of(&self, process_id: u32) -> Option<String> {
+        process_exe_name(process_id)
+    }
+
+    fn process_id_of(&self, window_handle: i64) -> u32 {
+        let mut process_id = 0u32;
+        unsafe {
+            GetWindowThreadProcessId(HWND(window_handle as *mut _), Some(&mut process_id));
+        }
+        process_id
+    }
+
+    /// A `WM_NULL` sent to the control's own window, which its thread
+    /// answers once it is back at its message loop; a thread the system
+    /// already counts as hung is not waited on at all.
+    fn answers_promptly(&self, control: i64) -> bool {
+        unsafe {
+            SendMessageTimeoutW(
+                HWND(control as *mut _),
+                WM_NULL as u32,
+                WPARAM(0),
+                LPARAM(0),
+                SMTO_ABORTIFHUNG as u32,
+                super::worker_pool::PROMPT_ANSWER_MS,
+                None,
+            )
+            .0 != 0
+        }
     }
 
     fn read_file_dialog_path(&self, window_handle: i64) -> Option<(String, String)> {
@@ -3722,6 +4390,40 @@ mod tests {
     };
     use crate::capture::worker_pool::{is_punctuation_key, punctuation_key_name};
 
+    // -- a process named by its id (docent#761) -------------------------------
+
+    /// A process is named by its id as its windows are named, with no window
+    /// needed: the name a context switch states when its window closed before
+    /// a worker got to it. The test process names itself.
+    #[test]
+    fn a_process_is_named_by_its_id_as_its_windows_are() {
+        let backend = super::WindowsAccessibilityBackend::new();
+        let exe = std::env::current_exe().unwrap();
+        let expected = exe.file_name().unwrap().to_string_lossy().into_owned();
+        assert_eq!(
+            super::AccessibilityBackend::process_name_of(&backend, std::process::id()),
+            Some(expected)
+        );
+    }
+
+    /// A process that has exited is named by no id: the switch then falls
+    /// back to its window, and never states "pid:<n>" as a name read by id.
+    #[test]
+    fn a_process_that_has_exited_is_named_by_no_id() {
+        let backend = super::WindowsAccessibilityBackend::new();
+        let mut child = std::process::Command::new("cmd")
+            .args(["/C", "exit"])
+            .spawn()
+            .unwrap();
+        let pid = child.id();
+        child.wait().unwrap();
+        drop(child);
+        assert_eq!(
+            super::AccessibilityBackend::process_name_of(&backend, pid),
+            None
+        );
+    }
+
     // -- a punctuation key's layout character (docent#691) --------------------
 
     /// A keyboard layout loaded for a test, by its layout id, and unloaded
@@ -3780,7 +4482,93 @@ mod tests {
         }
     }
 
+    /// The Danish layout asked about a key as pressed: the acute key is dead
+    /// alone and with Shift (grave) and enters `|` with AltGr; the diaeresis
+    /// key is dead alone, with Shift (circumflex) and with AltGr (tilde); a
+    /// letter is none. Asking leaves the keyboard state as it is, so the same
+    /// question gets the same answer twice and no accent is pending after.
+    /// While an accent is pending the layout is not asked: its answer would
+    /// say what the key does to the accent (docent#769).
     #[test]
+    #[serial_test::serial(danish_layout)]
+    fn regression_769_the_danish_layout_says_which_keys_are_dead_as_pressed() {
+        if !super::layout_read_leaves_key_state() {
+            return; // a Windows before 10.0.14393: the layout is not asked
+        }
+        use crate::capture::held_keys::AsPressed;
+        let danish = LoadedLayout::load("00000406", 0x0406);
+        let acute = danish.vk_at(0x0D);
+        let diaeresis = danish.vk_at(0x1B);
+        let e = danish.vk_at(0x12);
+        let ask = |vk, scan, shift, alt_gr| {
+            // SAFETY: a read of a loaded layout's tables that leaves the key state.
+            unsafe { super::dead_as_pressed(vk, scan, shift, alt_gr, danish.hkl) }
+        };
+        let dead = |accent: char| {
+            Some(AsPressed::DeadKey {
+                accent: accent as u16,
+            })
+        };
+        for _ in 0..2 {
+            assert_eq!(ask(acute, 0x0D, false, false), dead('\u{b4}'));
+            assert_eq!(ask(acute, 0x0D, true, false), dead('\u{60}'));
+            assert_eq!(ask(acute, 0x0D, false, true), Some(AsPressed::NoDeadKey));
+            assert_eq!(ask(diaeresis, 0x1B, false, false), dead('\u{a8}'));
+            assert_eq!(ask(diaeresis, 0x1B, true, false), dead('\u{5e}'));
+            assert_eq!(ask(diaeresis, 0x1B, false, true), dead('\u{7e}'));
+            assert_eq!(ask(e, 0x12, false, false), Some(AsPressed::NoDeadKey));
+        }
+        // SAFETY: reads of a loaded layout's tables.
+        assert!(unsafe { super::layout_has_no_accent_pending(danish.hkl) });
+        assert_eq!(
+            unsafe { super::dead_as_pressed(acute, 0x0D, false, false, HKL(std::ptr::null_mut())) },
+            None
+        );
+
+        // An accent made pending (the same read with no flag takes the key
+        // into the keyboard state): nothing is answered until it is gone.
+        let state = [0u8; 256];
+        let mut entered = [0u16; 8];
+        let press = |vk, scan, entered: &mut [u16; 8]| {
+            // SAFETY: a keyboard-state read of this thread; the accent it
+            // leaves pending is taken out again below.
+            unsafe {
+                super::ToUnicodeEx(
+                    vk,
+                    scan,
+                    state.as_ptr(),
+                    windows_core::PWSTR(entered.as_mut_ptr()),
+                    8,
+                    0,
+                    Some(danish.hkl),
+                )
+            }
+        };
+        assert!(
+            press(acute, 0x0D, &mut entered) < 0,
+            "the acute key is dead"
+        );
+        let pending = unsafe { super::layout_has_no_accent_pending(danish.hkl) };
+        let answered = ask(e, 0x12, false, false);
+        // Enter takes the accent out again, whatever the asserts below find.
+        press(0x0D, 0x1C, &mut entered);
+        assert!(!pending, "an accent is pending after the dead key");
+        assert_eq!(answered, None, "the layout is not asked while one is");
+        assert!(unsafe { super::layout_has_no_accent_pending(danish.hkl) });
+        assert_eq!(ask(e, 0x12, false, false), Some(AsPressed::NoDeadKey));
+    }
+
+    #[test]
+    fn regression_769_the_layout_is_asked_only_where_windows_leaves_the_key_state() {
+        assert!(!super::windows_build_honors_flag(6, 9600));
+        assert!(!super::windows_build_honors_flag(10, 10586));
+        assert!(super::windows_build_honors_flag(10, 14393));
+        assert!(super::windows_build_honors_flag(10, 19045));
+        assert!(super::windows_build_honors_flag(11, 0));
+    }
+
+    #[test]
+    #[serial_test::serial(danish_layout)]
     fn layout_char_reads_what_the_danish_layout_gives_a_punctuation_key() {
         let danish = LoadedLayout::load("00000406", 0x0406);
         // VK_OEM_PLUS, the key right of 0, enters `+` (`=` on the US layout).
@@ -3961,6 +4749,10 @@ mod tests {
         RawEventType, CLICK_IS_MIDDLE_BUTTON, DRAG_THRESHOLD_PX, HWND, INPUT_INCLUDED_PID,
         INPUT_PID_CACHE, POINT, WM_LBUTTONDOWN, WM_MBUTTONDOWN, WM_MOUSEWHEEL, WM_RBUTTONDOWN,
     };
+    use super::{
+        input_dropped_window_event, BridgeMessage, EVENT_OBJECT_FOCUS, EVENT_OBJECT_VALUECHANGE,
+        EVENT_SYSTEM_FOREGROUND, INPUT_RAW_SENDER,
+    };
     use std::cell::{Cell, RefCell};
     use std::collections::HashMap;
 
@@ -3969,6 +4761,23 @@ mod tests {
     const OTHER_APP: u32 = 777; // some other running application
     const DOCENT: u32 = 1001; // Docent's own process (the excluded one)
     const DIALOG_HOST: u32 = 2002; // the process hosting a dialog Docent opened
+
+    /// A dropped window that comes to the front tells the pool that the
+    /// typing has ended, and sends no event of that window; its other window
+    /// events tell the pool nothing (docent#768).
+    #[test]
+    fn regression_768_a_dropped_window_that_comes_to_the_front_ends_the_typing() {
+        let (tx, rx) = std::sync::mpsc::channel::<BridgeMessage>();
+        INPUT_RAW_SENDER.with(|s| *s.borrow_mut() = Some(tx));
+        input_dropped_window_event(EVENT_SYSTEM_FOREGROUND as u32);
+        assert!(matches!(rx.try_recv(), Ok(BridgeMessage::TypingEnded)));
+        assert!(rx.try_recv().is_err(), "one message only");
+        for other in [EVENT_OBJECT_FOCUS as u32, EVENT_OBJECT_VALUECHANGE as u32] {
+            input_dropped_window_event(other);
+            assert!(rx.try_recv().is_err(), "event {other:#x}");
+        }
+        INPUT_RAW_SENDER.with(|s| *s.borrow_mut() = None);
+    }
 
     /// A verdict cache for one capture session's worth of events, plus a count
     /// of the owner lookups the decision spent against it.
@@ -4519,6 +5328,7 @@ mod tests {
             capture_mode: CaptureMode::Accessibility,
             frame_src: None,
             window_rect: None,
+            preferred_languages: None,
             sequence_id: Some(1),
             payload: ActionPayload::Key {
                 key: key.to_string(),
@@ -4529,6 +5339,8 @@ mod tests {
                     meta: false,
                 },
                 repeat: false,
+                code: None,
+                input_method: Default::default(),
                 held: crate::capture::HeldKeysAtAction::default(),
                 element: ElementDescription {
                     tag: "Edit".to_string(),

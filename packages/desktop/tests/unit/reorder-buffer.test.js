@@ -300,6 +300,37 @@ describe('_insertOrdered redacts sensitive field values', () => {
     assert.equal(actions[0].capture_mode, 'accessibility');
   });
 
+  it('regression_734_typed_keys_across_a_change_of_the_window_title_are_one_masked_type', () => {
+    // The selector holds the window's title; the field is the same field
+    // under another title, told by its path under the window's root.
+    const cardUnder = (title, field = 'Edit:Card') => ({
+      tag: 'Edit',
+      name: 'creditCardNumber',
+      selector: `Window:${title} > Pane > ${field}`,
+      locators: [{ strategy: 'tree_path', value: `Window:${title} > Pane > ${field}` }],
+      text: null,
+    });
+    insertOrdered(keyOn(cardUnder('Pay - Shop'), '4', 1));
+    insertOrdered(keyOn(cardUnder('*Pay - Shop'), '1', 2));
+    assert.deepEqual(shape(), [`type ${SENSITIVE_MASK}`]);
+  });
+
+  it('regression_734_typed_keys_on_two_fields_of_one_window_stay_two_masked_types', () => {
+    const cardUnder = (field) => ({
+      tag: 'Edit',
+      name: 'creditCardNumber',
+      selector: `Window:Pay > ${field}`,
+      locators: [{ strategy: 'tree_path', value: `Window:Pay > ${field}` }],
+      text: null,
+    });
+    insertOrdered(keyOn(cardUnder('Edit:Card'), '4', 1));
+    insertOrdered(keyOn(cardUnder('Edit:Card again'), '1', 2));
+    // A field with no path under a window is told by its selector, as before.
+    insertOrdered(keyOn({ ...cardField(), selector: 'a' }, '4', 3));
+    insertOrdered(keyOn({ ...cardField(), selector: 'b' }, '4', 4));
+    assert.deepEqual(shape(), Array(4).fill(`type ${SENSITIVE_MASK}`));
+  });
+
   it('regression_696_a_key_recorded_as_the_masked_type_carries_no_repeat', () => {
     // `repeat` is a fact of a `key`; the masked `type` a text key becomes on
     // a sensitive field has no such field, held key or not.
@@ -308,6 +339,47 @@ describe('_insertOrdered redacts sensitive field values', () => {
 
     assert.deepEqual(shape(), [`type ${SENSITIVE_MASK}`]);
     assert.equal('repeat' in adapter.getPendingActions()[0], false);
+  });
+
+  it('regression_717_a_key_recorded_as_the_masked_type_carries_no_code', () => {
+    // `code` names the physical key, which on a sensitive field says as much
+    // as the character does: the masked `type` does not carry it.
+    insertOrdered({ ...keyOn(cardField(), '4', 1), code: 'Digit4' });
+
+    assert.deepEqual(shape(), [`type ${SENSITIVE_MASK}`]);
+    assert.equal('code' in adapter.getPendingActions()[0], false);
+  });
+
+  it('regression_237_a_key_recorded_as_the_masked_type_carries_no_input_method_fields', () => {
+    // The fields belong to a `key` action; the masked `type` is none.
+    insertOrdered({
+      ...keyOn(cardField(), '4', 1),
+      input_method_open: true,
+      input_method_conversion_mode: 9,
+    });
+
+    assert.deepEqual(shape(), [`type ${SENSITIVE_MASK}`]);
+    assert.equal('input_method_open' in adapter.getPendingActions()[0], false);
+    assert.equal('input_method_conversion_mode' in adapter.getPendingActions()[0], false);
+  });
+
+  it('regression_237_a_key_that_stays_a_key_keeps_its_input_method_fields', () => {
+    insertOrdered({
+      ...keyOn(cardField(), 'Enter', 1),
+      input_method_open: false,
+      input_method_conversion_mode: 0,
+    });
+
+    stripSeqFields();
+    assert.equal(adapter.getPendingActions()[0].input_method_open, false);
+    assert.equal(adapter.getPendingActions()[0].input_method_conversion_mode, 0);
+  });
+
+  it('regression_717_a_key_that_stays_a_key_on_a_sensitive_field_keeps_its_code', () => {
+    insertOrdered({ ...keyOn(cardField(), 'Enter', 1), code: 'NumpadEnter' });
+
+    stripSeqFields();
+    assert.equal(adapter.getPendingActions()[0].code, 'NumpadEnter');
   });
 
   it('regression_696_a_key_on_a_sensitive_named_control_that_takes_no_text_stays_a_key', () => {

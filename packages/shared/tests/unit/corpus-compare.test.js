@@ -161,6 +161,25 @@ describe('corpus-compare: normalization classes', () => {
     assert.equal(d2.element.selector, 'Win > Button', 'non-coord selector untouched');
   });
 
+  it('preferred_languages: a list → <languages> on both platforms; null and absence preserved', () => {
+    for (const platform of ['extension', 'desktop-windows']) {
+      const n = normalizeEnvelope(
+        envelope(
+          [
+            click({ preferred_languages: ['da-DK', 'en-US'] }),
+            click({ preferred_languages: null }),
+            click(),
+          ],
+          platform,
+        ),
+      );
+      const [listed, unread, unstated] = n.recordings[0].steps[0].actions;
+      assert.equal(listed.preferred_languages, '<languages>', platform);
+      assert.equal(unread.preferred_languages, null, 'null preserved');
+      assert.ok(!('preferred_languages' in unstated), 'absence preserved');
+    }
+  });
+
   it('is pure and idempotent', () => {
     const doc = envelope([click()]);
     const before = JSON.stringify(doc);
@@ -183,6 +202,7 @@ describe('corpus-compare: the normalization class map covers what the pass does'
         click({
           window_rect: { x: 1, y: 2, width: 3, height: 4 },
           opener_context_id: 999,
+          preferred_languages: ['en-US'],
           element: { tag: 'Edit', selector: 'coord:12,34', described_after_ms: 42 },
         }),
       ],
@@ -204,6 +224,7 @@ describe('corpus-compare: the normalization class map covers what the pass does'
       x: (d) => action(d).x,
       y: (d) => action(d).y,
       window_rect: (d) => action(d).window_rect,
+      preferred_languages: (d) => action(d).preferred_languages,
       described_after_ms: (d) => action(d).element.described_after_ms,
       selector: (d) => action(d).element.selector,
     };

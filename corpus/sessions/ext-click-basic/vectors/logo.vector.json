@@ -9,6 +9,7 @@
   "element_facts": {
     "autocomplete": null,
     "id": "logo",
+    "language": "en",
     "name": null,
     "role": null,
     "selector": "#logo",

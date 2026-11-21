@@ -155,6 +155,7 @@ classes:
 | context handles (`context_id`, `opener_context_id`)                       | ordinal placeholders through one shared map — same-context vs cross-context identity survives                                           |
 | coordinates (action `x`/`y`; desktop non-null `window_rect`)              | value placeholders; presence vs null vs absence stays exact                                                                             |
 | `described_after_ms`                                                      | positive (worker-describe latency) → placeholder; `0` (an input-time describe) stays exact                                              |
+| `preferred_languages`                                                     | a list (the capturing machine's own preference) → placeholder; null and absence stay exact                                              |
 | coordinate-mode `selector` (`coord:x,y`)                                  | point placeholder; every other selector stays exact                                                                                     |
 
 The pass walks the envelope structure (project → recordings → steps → actions
@@ -267,7 +268,7 @@ STC-4's hermetic serving:
   | placeholder                                                    | ext-type-blur   |
 
 - Fixed pixel sizes for geometry the session depends on (scroll containers);
-  no animation, no time/locale-dependent text, `lang="en"`, no external
+  no animation, no time/locale-dependent text, `lang="en"` on the document element — EXCEPT the two pages that pin how the recorded `language` is read: `ext-click-basic` gives one button a `lang` of its own, and the `ext-iframe` frame page declares none — no external
   resources. The runner pins a 1280x720 viewport.
 - Waits come from `packages/extension/lib/capture-timing.js` constants
   (`SCROLL_DEBOUNCE`, `SCROLL_MIN_DISTANCE_PX`), never magic numbers.

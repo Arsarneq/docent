@@ -53,10 +53,233 @@ pub const KEY_REPEAT_PARAM: i64 = 1 << 32;
 
 /// The layout character a keyboard event carries: the low 32 bits of
 /// `RawEvent::callback_params[3]`, below the repeat mark
-/// ([`KEY_REPEAT_PARAM`]). What the value means is
-/// `worker_pool::punctuation_key_name`'s to state.
+/// ([`KEY_REPEAT_PARAM`]), without the dead-key read
+/// ([`dead_as_pressed_of`]) that sits in bits the layout's value leaves clear.
+/// What the value means is `worker_pool::punctuation_key_name`'s to state.
 pub const fn layout_char_of(param: i64) -> u32 {
-    param as u32
+    (param & !(KEY_DEAD_READ_PARAM | KEY_DEAD_AS_PRESSED_PARAM | KEY_DEAD_ACCENT_MASK)) as u32
+}
+
+/// The mark that the keyboard hook asked the layout whether the key is a dead
+/// key as pressed, with the modifiers held: bit 29 of
+/// `RawEvent::callback_params[3]`, inside the layout character's 32 bits. The
+/// layout's own value uses the low 16 bits and bit 31, so the bit is free.
+const KEY_DEAD_READ_PARAM: i64 = 1 << 29;
+/// The answer, beside the read mark: set where the key is dead as pressed.
+const KEY_DEAD_AS_PRESSED_PARAM: i64 = 1 << 30;
+
+/// Where the accent a dead key carries as pressed sits, below the two marks:
+/// bits 16 to 28, which the layout's value leaves clear as well.
+const KEY_DEAD_ACCENT_SHIFT: u32 = 16;
+/// The accents that fit there: every character below U+2000. An accent above
+/// is carried as none named.
+const DEAD_ACCENT_MAX: u16 = 0x1FFF;
+const KEY_DEAD_ACCENT_MASK: i64 = (DEAD_ACCENT_MAX as i64) << KEY_DEAD_ACCENT_SHIFT;
+
+/// What a keyboard layout answers about a key with the modifiers held.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AsPressed {
+    /// The key enters a character or nothing.
+    NoDeadKey,
+    /// The key is a dead key. `accent` is the character the layout names for
+    /// it, the one a program enters where no character takes the accent; `0`
+    /// where the layout named none.
+    DeadKey { accent: u16 },
+}
+
+/// What the keyboard hook read of the key as pressed, as a keyboard event
+/// carries it; `None` where the hook did not ask.
+pub const fn dead_as_pressed_param(read: Option<AsPressed>) -> i64 {
+    match read {
+        None => 0,
+        Some(AsPressed::NoDeadKey) => KEY_DEAD_READ_PARAM,
+        Some(AsPressed::DeadKey { accent }) => {
+            let carried = if accent > DEAD_ACCENT_MAX { 0 } else { accent };
+            KEY_DEAD_READ_PARAM
+                | KEY_DEAD_AS_PRESSED_PARAM
+                | (carried as i64) << KEY_DEAD_ACCENT_SHIFT
+        }
+    }
+}
+
+/// The read [`dead_as_pressed_param`] put into `callback_params[3]`.
+pub const fn dead_as_pressed_of(param: i64) -> Option<AsPressed> {
+    if param & KEY_DEAD_READ_PARAM == 0 {
+        None
+    } else if param & KEY_DEAD_AS_PRESSED_PARAM == 0 {
+        Some(AsPressed::NoDeadKey)
+    } else {
+        Some(AsPressed::DeadKey {
+            accent: ((param & KEY_DEAD_ACCENT_MASK) >> KEY_DEAD_ACCENT_SHIFT) as u16,
+        })
+    }
+}
+
+/// What a keyboard layout answered when asked whether a key is a dead key
+/// with a given Shift and AltGr state, kept by the thread that asks so each
+/// question is put to the layout once. The layout's answer depends on an
+/// accent already pending in the system, so it is taken only while none is
+/// pending and then holds for every later press of that key, whatever is
+/// pending by then. One layout at a time: an answer for another layout
+/// clears the rest. A fixed table, so a lookup on the keyboard hook neither
+/// allocates nor locks.
+pub struct DeadKeyAnswers {
+    layout: isize,
+    /// Per key code and modifier state: 0 not asked, 1 no dead key, 2 a dead
+    /// key with no accent named, any other value a dead key's accent.
+    answers: [u16; 256 * 4],
+}
+
+impl DeadKeyAnswers {
+    pub const fn new() -> Self {
+        Self {
+            layout: 0,
+            answers: [0; 256 * 4],
+        }
+    }
+
+    const fn index(key_code: u32, shift: bool, alt_gr: bool) -> usize {
+        (key_code as usize & 0xFF) * 4 + shift as usize + 2 * alt_gr as usize
+    }
+
+    /// The answer kept for this key on `layout`; `None` where none was taken.
+    pub fn get(
+        &self,
+        layout: isize,
+        key_code: u32,
+        shift: bool,
+        alt_gr: bool,
+    ) -> Option<AsPressed> {
+        if layout != self.layout {
+            return None;
+        }
+        match self.answers[Self::index(key_code, shift, alt_gr)] {
+            0 => None,
+            1 => Some(AsPressed::NoDeadKey),
+            2 => Some(AsPressed::DeadKey { accent: 0 }),
+            accent => Some(AsPressed::DeadKey { accent }),
+        }
+    }
+
+    /// Keep `answer` as `layout`'s answer for this key. An accent below 3 is
+    /// no accent character and is kept as none named.
+    pub fn learn(
+        &mut self,
+        layout: isize,
+        key_code: u32,
+        shift: bool,
+        alt_gr: bool,
+        answer: AsPressed,
+    ) {
+        if layout != self.layout {
+            self.layout = layout;
+            self.answers = [0; 256 * 4];
+        }
+        self.answers[Self::index(key_code, shift, alt_gr)] = match answer {
+            AsPressed::NoDeadKey => 1,
+            AsPressed::DeadKey { accent } if accent < 3 => 2,
+            AsPressed::DeadKey { accent } => accent,
+        };
+    }
+}
+
+impl Default for DeadKeyAnswers {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// What the keyboard hook read of the input method at a key press: whether
+/// one was on for the control that held the keyboard focus, and its
+/// conversion mode, the value the system gave (the session-format document
+/// states its bits). A `key` action states what was read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct InputMethodState {
+    /// Whether the input method was on (its open status).
+    pub open: bool,
+    /// The conversion mode as read, its low 27 bits; the bits above them,
+    /// the four the system reserves among them, are not carried. `None`
+    /// where the open status was read and the conversion mode was not.
+    pub conversion_mode: Option<u32>,
+}
+
+/// The two questions the keyboard hook asks an input-method window.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InputMethodQuestion {
+    /// Whether the input method is on.
+    OpenStatus,
+    /// Its conversion mode.
+    ConversionMode,
+}
+
+/// Read the input method's state by asking `ask` the two questions, each of
+/// which answers `None` where no answer came in time. The open status is
+/// asked first; with no answer to it nothing was read, and the conversion
+/// mode is not asked, so an input-method window that does not answer costs
+/// the hook one wait. An open status that was read is kept where the
+/// conversion mode then gets no answer: a fact that was read is written.
+pub fn read_input_method(
+    mut ask: impl FnMut(InputMethodQuestion) -> Option<usize>,
+) -> Option<InputMethodState> {
+    let open = ask(InputMethodQuestion::OpenStatus)?;
+    Some(InputMethodState {
+        open: open != 0,
+        conversion_mode: ask(InputMethodQuestion::ConversionMode)
+            .map(|mode| mode as u32 & INPUT_METHOD_MODE_MASK),
+    })
+}
+
+/// The mark that an input method was read, as a keyboard event carries it in
+/// `RawEvent::callback_params[0]`, above the extended mark
+/// ([`KEY_EXTENDED_PARAM`]). Clear where none was read.
+const KEY_INPUT_METHOD_READ_PARAM: i64 = 1 << 33;
+/// The input method's open status, beside the read mark.
+const KEY_INPUT_METHOD_OPEN_PARAM: i64 = 1 << 34;
+/// The mark that the conversion mode was read too.
+const KEY_INPUT_METHOD_MODE_READ_PARAM: i64 = 1 << 35;
+/// Where the conversion mode sits, above its mark: 27 bits, up to the sign
+/// bit.
+const KEY_INPUT_METHOD_MODE_SHIFT: u32 = 36;
+/// The bits of a conversion mode that are carried.
+pub const INPUT_METHOD_MODE_MASK: u32 = 0x07FF_FFFF;
+
+/// What a keyboard event carries of the input method read at the press, to
+/// be set into `RawEvent::callback_params[0]` beside the scan code and
+/// the extended mark; 0 where none was read.
+pub const fn input_method_param(state: Option<InputMethodState>) -> i64 {
+    let Some(state) = state else {
+        return 0;
+    };
+    let open = if state.open {
+        KEY_INPUT_METHOD_OPEN_PARAM
+    } else {
+        0
+    };
+    let mode = match state.conversion_mode {
+        Some(mode) => {
+            KEY_INPUT_METHOD_MODE_READ_PARAM
+                | (((mode & INPUT_METHOD_MODE_MASK) as i64) << KEY_INPUT_METHOD_MODE_SHIFT)
+        }
+        None => 0,
+    };
+    KEY_INPUT_METHOD_READ_PARAM | open | mode
+}
+
+/// The input method read a keyboard event carries
+/// (`RawEvent::callback_params[0]`, see [`input_method_param`]); `None` where
+/// none was read.
+pub const fn input_method_of(param: i64) -> Option<InputMethodState> {
+    if param & KEY_INPUT_METHOD_READ_PARAM == 0 {
+        return None;
+    }
+    Some(InputMethodState {
+        open: param & KEY_INPUT_METHOD_OPEN_PARAM != 0,
+        conversion_mode: if param & KEY_INPUT_METHOD_MODE_READ_PARAM != 0 {
+            Some(((param >> KEY_INPUT_METHOD_MODE_SHIFT) as u32) & INPUT_METHOD_MODE_MASK)
+        } else {
+            None
+        },
+    })
 }
 
 /// One past the highest key code the record tracks.
@@ -396,6 +619,165 @@ impl DragStartKeys {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn regression_237_an_input_method_read_survives_its_trip_on_a_key_event() {
+        for state in [
+            InputMethodState {
+                open: true,
+                conversion_mode: Some(0x9),
+            },
+            InputMethodState {
+                open: false,
+                conversion_mode: Some(0),
+            },
+            InputMethodState {
+                open: false,
+                conversion_mode: Some(INPUT_METHOD_MODE_MASK),
+            },
+            InputMethodState {
+                open: true,
+                conversion_mode: None,
+            },
+            InputMethodState {
+                open: false,
+                conversion_mode: None,
+            },
+        ] {
+            assert_eq!(
+                input_method_of(input_method_param(Some(state))),
+                Some(state)
+            );
+        }
+        assert_eq!(input_method_param(None), 0);
+        // A layout's answers are kept per key and modifier state, and only
+        // for the layout they were taken from.
+        let mut answers = DeadKeyAnswers::new();
+        let grave = AsPressed::DeadKey { accent: 0x60 };
+        let unnamed = AsPressed::DeadKey { accent: 0 };
+        assert_eq!(answers.get(7, 0xDB, false, false), None);
+        answers.learn(7, 0xDB, false, false, grave);
+        answers.learn(7, 0xDB, false, true, AsPressed::NoDeadKey);
+        answers.learn(7, 0xDB, true, true, AsPressed::DeadKey { accent: 1 });
+        assert_eq!(answers.get(7, 0xDB, false, false), Some(grave));
+        assert_eq!(
+            answers.get(7, 0xDB, false, true),
+            Some(AsPressed::NoDeadKey)
+        );
+        assert_eq!(answers.get(7, 0xDB, true, true), Some(unnamed));
+        assert_eq!(answers.get(7, 0xDB, true, false), None);
+        assert_eq!(answers.get(7, 0xBA, false, false), None);
+        assert_eq!(answers.get(8, 0xDB, false, false), None);
+        answers.learn(8, 0x45, false, false, AsPressed::NoDeadKey);
+        assert_eq!(
+            answers.get(8, 0x45, false, false),
+            Some(AsPressed::NoDeadKey)
+        );
+        assert_eq!(answers.get(7, 0xDB, false, false), None);
+        assert_eq!(answers.get(8, 0xDB, false, false), None);
+        // The dead-key read shares the layout character's parameter and
+        // leaves the character, its dead-key flag and the repeat mark as
+        // they are.
+        let layout = 0x8000_00B4_i64;
+        for read in [
+            None,
+            Some(AsPressed::NoDeadKey),
+            Some(grave),
+            Some(unnamed),
+            Some(AsPressed::DeadKey { accent: 0x1FFF }),
+        ] {
+            let param = layout | KEY_REPEAT_PARAM | dead_as_pressed_param(read);
+            assert_eq!(dead_as_pressed_of(param), read);
+            assert_eq!(layout_char_of(param), 0x8000_00B4);
+            assert_ne!(param & KEY_REPEAT_PARAM, 0);
+        }
+        // An accent that does not fit is carried as none named.
+        assert_eq!(
+            dead_as_pressed_of(dead_as_pressed_param(Some(AsPressed::DeadKey {
+                accent: 0x2000
+            }))),
+            Some(unnamed)
+        );
+        assert_eq!(input_method_of(0), None);
+        // The scan code and the extended mark share the parameter and are
+        // no input-method read.
+        assert_eq!(input_method_of(0xFFFF_FFFF | KEY_EXTENDED_PARAM), None);
+        // The bits above the carried ones, the four the system reserves
+        // among them, are not carried, and the sign bit stays clear.
+        let reserved = InputMethodState {
+            open: true,
+            conversion_mode: Some(0xF800_0009),
+        };
+        assert_eq!(
+            input_method_of(input_method_param(Some(reserved))),
+            Some(InputMethodState {
+                open: true,
+                conversion_mode: Some(0x9)
+            })
+        );
+        let full = InputMethodState {
+            open: true,
+            conversion_mode: Some(u32::MAX),
+        };
+        assert!(input_method_param(Some(full)) > 0);
+        // The read leaves the scan code and the extended mark as they are.
+        let param = i64::from(u32::MAX) | KEY_EXTENDED_PARAM | input_method_param(Some(full));
+        assert_eq!(param as u32, u32::MAX);
+        assert_ne!(param & KEY_EXTENDED_PARAM, 0);
+    }
+
+    #[test]
+    fn regression_237_the_open_status_is_asked_first_and_kept_where_the_mode_gets_no_answer() {
+        use InputMethodQuestion::{ConversionMode, OpenStatus};
+        let read = |open: Option<usize>, mode: Option<usize>| {
+            let mut asked = Vec::new();
+            let state = read_input_method(|question| {
+                asked.push(question);
+                match question {
+                    OpenStatus => open,
+                    ConversionMode => mode,
+                }
+            });
+            (state, asked)
+        };
+        // Both answered.
+        assert_eq!(
+            read(Some(1), Some(0x9)),
+            (
+                Some(InputMethodState {
+                    open: true,
+                    conversion_mode: Some(0x9)
+                }),
+                vec![OpenStatus, ConversionMode]
+            )
+        );
+        assert_eq!(
+            read(Some(0), Some(0)).0,
+            Some(InputMethodState {
+                open: false,
+                conversion_mode: Some(0)
+            })
+        );
+        // The open status was read and the conversion mode was not: the open
+        // status stands alone.
+        assert_eq!(
+            read(Some(1), None).0,
+            Some(InputMethodState {
+                open: true,
+                conversion_mode: None
+            })
+        );
+        // No answer to the first question: nothing read, the second not asked.
+        assert_eq!(read(None, Some(0x9)), (None, vec![OpenStatus]));
+        // The bits that are not carried are dropped at the read.
+        assert_eq!(
+            read(Some(1), Some(0xF000_0009)).0,
+            Some(InputMethodState {
+                open: true,
+                conversion_mode: Some(0x9)
+            })
+        );
+    }
 
     const ENTER: u32 = 0x0D;
     const SPACE: u32 = 0x20;

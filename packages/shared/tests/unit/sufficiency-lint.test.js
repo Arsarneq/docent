@@ -176,6 +176,23 @@ describe('Sufficiency lint: predicate pins', () => {
     assert.ok(!ids(good).includes('fail:element-locators'));
   });
 
+  // Regression: #237 — a conversion mode is written only beside the open
+  // status of the input method it was read from.
+  // https://github.com/Arsarneq/docent/issues/237
+  it('regression_237_key_input_method_pair_fires_on_a_conversion_mode_without_the_open_status', () => {
+    const key = { type: 'key', key: 'Enter', context_id: 1, capture_mode: 'accessibility' };
+    const lint = (extra) =>
+      ids(lintRecordingFile(doc('desktop-windows', [{ ...key, element: el(), ...extra }])));
+    assert.ok(lint({ input_method_conversion_mode: 9 }).includes('fail:key-input-method-pair'));
+    assert.ok(
+      !lint({ input_method_open: true, input_method_conversion_mode: 9 }).includes(
+        'fail:key-input-method-pair',
+      ),
+    );
+    assert.ok(!lint({ input_method_open: false }).includes('fail:key-input-method-pair'));
+    assert.ok(!lint({}).includes('fail:key-input-method-pair'));
+  });
+
   it('locator-pair-invariants fires on a NUMERIC index without count, not on the legal null', () => {
     const base = { type: 'click', x: 1, y: 2, context_id: 1, capture_mode: 'dom' };
     const orphanNumeric = lintRecordingFile(
@@ -250,6 +267,7 @@ describe('Sufficiency lint: predicate pins', () => {
       { size_of_set: 2 },
       { level: 1 },
       { framework_id: 'Win32' },
+      { language: 'da-DK' },
       { described_after_ms: 0 },
     ]) {
       const withFact = lintRecordingFile(doc('desktop-windows', [mk(fact)]));

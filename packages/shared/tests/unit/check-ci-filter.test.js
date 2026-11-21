@@ -1312,6 +1312,7 @@ describe('real-tree lock', () => {
       .sort();
     assert.deepEqual(running, [
       'desktop-corpus-diff',
+      'desktop-e2e-tests',
       'desktop-integration-tests',
       'desktop-vectors-diff',
       'extension-e2e-tests',
