@@ -1,0 +1,11 @@
+{
+  "name": "docent-desktop-e2e-tests",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "npx playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.65.0"
+  }
+}
