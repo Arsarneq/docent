@@ -222,11 +222,15 @@ async function askFrameForHeldKeyReports(tabId, frameId) {
   }
 }
 
-/** Settles as `promise` does, or with null at the time `until` where that comes first. */
+/**
+ * Settles as `promise` does, or with null at the time `until` where that
+ * comes first. `until` is a time of `performance.now()`, which a change of
+ * the system clock does not move.
+ */
 function settledBy(until, promise) {
   let timer;
   const bound = new Promise((resolve) => {
-    timer = setTimeout(() => resolve(null), Math.max(0, until - Date.now()));
+    timer = setTimeout(() => resolve(null), Math.max(0, until - performance.now()));
   });
   return Promise.race([promise, bound]).finally(() => clearTimeout(timer));
 }
@@ -331,7 +335,7 @@ async function endTypingInOtherFrames(sender) {
   }
   const tabId = sender.tab.id;
   const others = [...(activeFrames.get(tabId) ?? [])].filter((id) => id !== sender.frameId);
-  const until = Date.now() + END_TYPING_BOUND;
+  const until = performance.now() + END_TYPING_BOUND;
   const answers = await endTypingIn(others.map((frameId) => [tabId, frameId]));
   // The press's own actions name the keys held in those frames as their
   // reports up to the answer leave them, within the same bound: the hold is
@@ -347,7 +351,7 @@ async function endTypingInOtherFrames(sender) {
  * and the wait for that report end within HELD_KEYS_ASK_BOUND.
  */
 async function levelHeldKeysWithFrames(tabId, frameIds) {
-  const until = Date.now() + HELD_KEYS_ASK_BOUND;
+  const until = performance.now() + HELD_KEYS_ASK_BOUND;
   await Promise.all(
     frameIds.map(async (frameId) =>
       levelHeldKeysWith(

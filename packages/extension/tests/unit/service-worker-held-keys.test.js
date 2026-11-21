@@ -359,6 +359,30 @@ describe('SERVICE WORKER: a key held in another frame of the tab', () => {
     });
   });
 
+  it('regression_779_a_clock_set_back_does_not_lengthen_the_wait_for_a_last_report', async () => {
+    held(TOP, { event: 'down', code: 'Escape', key: 'Escape', recorder: 'r1', seq: 1 });
+    // The frame answers late, and the report it names as its last never comes.
+    endTyping.set(
+      TOP,
+      () =>
+        new Promise((resolve) =>
+          setTimeout(() => resolve({ ok: true, heldReports: { recorder: 'r1', seq: 2 } }), 100),
+        ),
+    );
+    const clock = Date.now;
+    const started = performance.now();
+    try {
+      tell(INNER, { type: 'POINTER_PRESSED' });
+      const appended = append(INNER, click());
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      Date.now = () => clock() - 3000;
+      assert.deepEqual((await appended).held_keys, []);
+    } finally {
+      Date.now = clock;
+    }
+    assert.ok(performance.now() - started < 1500, 'the hold ended at its bound');
+  });
+
   it('regression_779_another_tab_or_window_taking_the_focus_forgets_the_keys', async () => {
     held(TOP, { event: 'down', code: 'Escape', key: 'Escape' });
     listeners.tabActivated({ tabId: TAB + 1, windowId: 1 });
