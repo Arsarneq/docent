@@ -2995,7 +2995,7 @@ fn regression_237_a_key_states_the_input_method_read_at_its_press() {
             "on, native full-shape",
             InputMethodState {
                 open: true,
-                conversion_mode: 0x9,
+                conversion_mode: Some(0x9),
             },
             true,
             9,
@@ -3004,7 +3004,7 @@ fn regression_237_a_key_states_the_input_method_read_at_its_press() {
             "off",
             InputMethodState {
                 open: false,
-                conversion_mode: 0,
+                conversion_mode: Some(0),
             },
             false,
             0,
@@ -3013,7 +3013,7 @@ fn regression_237_a_key_states_the_input_method_read_at_its_press() {
             "off with a mode left set",
             InputMethodState {
                 open: false,
-                conversion_mode: 0x19,
+                conversion_mode: Some(0x19),
             },
             false,
             0x19,
@@ -3032,6 +3032,27 @@ fn regression_237_a_key_states_the_input_method_read_at_its_press() {
             "{name}: got {events:?}"
         );
     }
+}
+
+/// A key press whose open status was read and whose conversion mode was not
+/// states the open status alone.
+#[test]
+fn regression_237_a_key_states_the_open_status_alone_where_the_mode_was_not_read() {
+    let harness = WorkerTestHarness::new(MockBackend::new());
+    let mut enter = layout_key(1, now_ms(), 0x0D);
+    enter.callback_params[3] |= input_method_param(Some(InputMethodState {
+        open: true,
+        conversion_mode: None,
+    }));
+    harness.send_event(enter);
+    thread::sleep(Duration::from_millis(100));
+    let events = harness.shutdown();
+
+    assert_eq!(
+        input_method_fields_of(&events),
+        (Some(serde_json::json!(true)), None),
+        "got {events:?}"
+    );
 }
 
 /// A key press whose input method was not read (no input-method window, no
@@ -3062,7 +3083,7 @@ fn regression_237_the_input_method_read_leaves_the_key_name_and_the_repeat_mark(
         | KEY_REPEAT_PARAM
         | input_method_param(Some(InputMethodState {
             open: true,
-            conversion_mode: 0x0FFF_FFFF,
+            conversion_mode: Some(0x07FF_FFFF),
         }));
     harness.send_event(plus);
     thread::sleep(Duration::from_millis(100));
@@ -3080,7 +3101,7 @@ fn regression_237_the_input_method_read_leaves_the_key_name_and_the_repeat_mark(
         input_method_fields_of(&events),
         (
             Some(serde_json::json!(true)),
-            Some(serde_json::json!(0x0FFF_FFFF))
+            Some(serde_json::json!(0x07FF_FFFF))
         ),
         "got {events:?}"
     );

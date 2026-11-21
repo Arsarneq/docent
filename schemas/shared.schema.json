@@ -291,7 +291,7 @@
         "input_method_conversion_mode": {
           "type": "integer",
           "minimum": 0,
-          "description": "The input method's conversion mode as the platform gave it at the press, before the key took effect: a set of bits the session-format document states. Written together with `input_method_open`, and absent with it."
+          "description": "The input method's conversion mode as the platform gave it at the press, before the key took effect: a set of bits the session-format document states. Written only beside `input_method_open`; absent where it was not read."
         },
         "held_keys": {
           "type": "array",

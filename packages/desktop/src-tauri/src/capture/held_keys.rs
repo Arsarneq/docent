@@ -62,14 +62,41 @@ pub const fn layout_char_of(param: i64) -> u32 {
 /// What the keyboard hook read of the input method at a key press: whether
 /// one was on for the control that held the keyboard focus, and its
 /// conversion mode, the value the system gave (the session-format document
-/// states its bits). A `key` action states both as read.
+/// states its bits). A `key` action states what was read.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct InputMethodState {
     /// Whether the input method was on (its open status).
     pub open: bool,
-    /// The conversion mode as read, its low 28 bits; the four above them are
-    /// reserved by the system and are not carried.
-    pub conversion_mode: u32,
+    /// The conversion mode as read, its low 27 bits; the bits above them,
+    /// the four the system reserves among them, are not carried. `None`
+    /// where the open status was read and the conversion mode was not.
+    pub conversion_mode: Option<u32>,
+}
+
+/// The two questions the keyboard hook asks an input-method window.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InputMethodQuestion {
+    /// Whether the input method is on.
+    OpenStatus,
+    /// Its conversion mode.
+    ConversionMode,
+}
+
+/// Read the input method's state by asking `ask` the two questions, each of
+/// which answers `None` where no answer came in time. The open status is
+/// asked first; with no answer to it nothing was read, and the conversion
+/// mode is not asked, so an input-method window that does not answer costs
+/// the hook one wait. An open status that was read is kept where the
+/// conversion mode then gets no answer: a fact that was read is written.
+pub fn read_input_method(
+    mut ask: impl FnMut(InputMethodQuestion) -> Option<usize>,
+) -> Option<InputMethodState> {
+    let open = ask(InputMethodQuestion::OpenStatus)?;
+    Some(InputMethodState {
+        open: open != 0,
+        conversion_mode: ask(InputMethodQuestion::ConversionMode)
+            .map(|mode| mode as u32 & INPUT_METHOD_MODE_MASK),
+    })
 }
 
 /// The mark that an input method was read, as a keyboard event carries it in
@@ -78,29 +105,34 @@ pub struct InputMethodState {
 const KEY_INPUT_METHOD_READ_PARAM: i64 = 1 << 33;
 /// The input method's open status, beside the read mark.
 const KEY_INPUT_METHOD_OPEN_PARAM: i64 = 1 << 34;
-/// Where the conversion mode sits, above the open status: 28 bits, up to the
-/// sign bit.
-const KEY_INPUT_METHOD_MODE_SHIFT: u32 = 35;
+/// The mark that the conversion mode was read too.
+const KEY_INPUT_METHOD_MODE_READ_PARAM: i64 = 1 << 35;
+/// Where the conversion mode sits, above its mark: 27 bits, up to the sign
+/// bit.
+const KEY_INPUT_METHOD_MODE_SHIFT: u32 = 36;
 /// The bits of a conversion mode that are carried.
-const INPUT_METHOD_MODE_MASK: u32 = 0x0FFF_FFFF;
+pub const INPUT_METHOD_MODE_MASK: u32 = 0x07FF_FFFF;
 
 /// What a keyboard event carries of the input method read at the press, to
 /// be set into `RawEvent::callback_params[3]` beside the layout character and
 /// the repeat mark; 0 where none was read.
 pub const fn input_method_param(state: Option<InputMethodState>) -> i64 {
-    match state {
-        Some(state) => {
-            KEY_INPUT_METHOD_READ_PARAM
-                | if state.open {
-                    KEY_INPUT_METHOD_OPEN_PARAM
-                } else {
-                    0
-                }
-                | (((state.conversion_mode & INPUT_METHOD_MODE_MASK) as i64)
-                    << KEY_INPUT_METHOD_MODE_SHIFT)
+    let Some(state) = state else {
+        return 0;
+    };
+    let open = if state.open {
+        KEY_INPUT_METHOD_OPEN_PARAM
+    } else {
+        0
+    };
+    let mode = match state.conversion_mode {
+        Some(mode) => {
+            KEY_INPUT_METHOD_MODE_READ_PARAM
+                | (((mode & INPUT_METHOD_MODE_MASK) as i64) << KEY_INPUT_METHOD_MODE_SHIFT)
         }
         None => 0,
-    }
+    };
+    KEY_INPUT_METHOD_READ_PARAM | open | mode
 }
 
 /// The input method read a keyboard event carries
@@ -112,7 +144,11 @@ pub const fn input_method_of(param: i64) -> Option<InputMethodState> {
     }
     Some(InputMethodState {
         open: param & KEY_INPUT_METHOD_OPEN_PARAM != 0,
-        conversion_mode: ((param >> KEY_INPUT_METHOD_MODE_SHIFT) as u32) & INPUT_METHOD_MODE_MASK,
+        conversion_mode: if param & KEY_INPUT_METHOD_MODE_READ_PARAM != 0 {
+            Some(((param >> KEY_INPUT_METHOD_MODE_SHIFT) as u32) & INPUT_METHOD_MODE_MASK)
+        } else {
+            None
+        },
     })
 }
 
@@ -459,15 +495,23 @@ mod tests {
         for state in [
             InputMethodState {
                 open: true,
-                conversion_mode: 0x9,
+                conversion_mode: Some(0x9),
             },
             InputMethodState {
                 open: false,
-                conversion_mode: 0,
+                conversion_mode: Some(0),
             },
             InputMethodState {
                 open: false,
-                conversion_mode: 0x0FFF_FFFF,
+                conversion_mode: Some(INPUT_METHOD_MODE_MASK),
+            },
+            InputMethodState {
+                open: true,
+                conversion_mode: None,
+            },
+            InputMethodState {
+                open: false,
+                conversion_mode: None,
             },
         ] {
             assert_eq!(
@@ -480,22 +524,81 @@ mod tests {
         // The layout character and the repeat mark share the parameter and
         // are no input-method read.
         assert_eq!(input_method_of(0xFFFF_FFFF | KEY_REPEAT_PARAM), None);
-        // The four bits the system reserves are not carried.
+        // The bits above the carried ones, the four the system reserves
+        // among them, are not carried, and the sign bit stays clear.
         let reserved = InputMethodState {
             open: true,
-            conversion_mode: 0xF000_0009,
+            conversion_mode: Some(0xF800_0009),
         };
         assert_eq!(
             input_method_of(input_method_param(Some(reserved))),
             Some(InputMethodState {
                 open: true,
-                conversion_mode: 0x9
+                conversion_mode: Some(0x9)
             })
         );
+        let full = InputMethodState {
+            open: true,
+            conversion_mode: Some(u32::MAX),
+        };
+        assert!(input_method_param(Some(full)) > 0);
         // The read leaves the layout character and the repeat mark as they are.
-        let param = i64::from(u32::MAX) | KEY_REPEAT_PARAM | input_method_param(Some(reserved));
+        let param = i64::from(u32::MAX) | KEY_REPEAT_PARAM | input_method_param(Some(full));
         assert_eq!(layout_char_of(param), u32::MAX);
         assert_ne!(param & KEY_REPEAT_PARAM, 0);
+    }
+
+    #[test]
+    fn regression_237_the_open_status_is_asked_first_and_kept_where_the_mode_gets_no_answer() {
+        use InputMethodQuestion::{ConversionMode, OpenStatus};
+        let read = |open: Option<usize>, mode: Option<usize>| {
+            let mut asked = Vec::new();
+            let state = read_input_method(|question| {
+                asked.push(question);
+                match question {
+                    OpenStatus => open,
+                    ConversionMode => mode,
+                }
+            });
+            (state, asked)
+        };
+        // Both answered.
+        assert_eq!(
+            read(Some(1), Some(0x9)),
+            (
+                Some(InputMethodState {
+                    open: true,
+                    conversion_mode: Some(0x9)
+                }),
+                vec![OpenStatus, ConversionMode]
+            )
+        );
+        assert_eq!(
+            read(Some(0), Some(0)).0,
+            Some(InputMethodState {
+                open: false,
+                conversion_mode: Some(0)
+            })
+        );
+        // The open status was read and the conversion mode was not: the open
+        // status stands alone.
+        assert_eq!(
+            read(Some(1), None).0,
+            Some(InputMethodState {
+                open: true,
+                conversion_mode: None
+            })
+        );
+        // No answer to the first question: nothing read, the second not asked.
+        assert_eq!(read(None, Some(0x9)), (None, vec![OpenStatus]));
+        // The bits that are not carried are dropped at the read.
+        assert_eq!(
+            read(Some(1), Some(0xF000_0009)).0,
+            Some(InputMethodState {
+                open: true,
+                conversion_mode: Some(0x9)
+            })
+        );
     }
 
     const ENTER: u32 = 0x0D;

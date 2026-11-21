@@ -170,8 +170,8 @@ fn stop_capture_bounded(
 }
 
 /// Assert that every captured `Key` event is well-formed — a non-empty key name
-/// (captured keys are never garbled or empty), and the input method's state
-/// either read whole or left out. Deliberately asserts no *count*
+/// (captured keys are never garbled or empty), and no conversion mode of the
+/// input method without its open status. Deliberately asserts no *count*
 /// (see [`stop_capture_bounded`]); this is the integrity half of the
 /// environment-independent contract for real-input keyboard tests.
 fn assert_captured_keys_well_formed(events: &[ActionEvent]) {
@@ -184,17 +184,17 @@ fn assert_captured_keys_well_formed(events: &[ActionEvent]) {
                 !key.is_empty(),
                 "a captured key event must have a non-empty key name"
             );
-            // What was read of the input method is stated whole or not at
-            // all, and the conversion mode within the bits that are carried.
-            assert_eq!(
-                input_method.input_method_open.is_some(),
-                input_method.input_method_conversion_mode.is_some(),
-                "a key states the input method's open status and conversion mode together, got {input_method:?}"
+            // The conversion mode is never stated without the open status,
+            // and stays within the bits that are carried.
+            assert!(
+                input_method.input_method_open.is_some()
+                    || input_method.input_method_conversion_mode.is_none(),
+                "a key states a conversion mode only beside the open status, got {input_method:?}"
             );
             assert!(
                 input_method
                     .input_method_conversion_mode
-                    .is_none_or(|mode| mode <= 0x0FFF_FFFF),
+                    .is_none_or(|mode| mode <= 0x07FF_FFFF),
                 "a conversion mode beyond the carried bits, got {input_method:?}"
             );
         }

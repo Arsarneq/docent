@@ -425,17 +425,22 @@ keyboard hook read of the input method at the press, before the key took
 effect: `input_method_open`, whether an input method was on for the control
 that held the keyboard focus (the foreground window where none was read),
 and `input_method_conversion_mode`, its conversion mode as Windows gave it,
-less the four bits Windows reserves. The hook asks that control's
-input-method window (`ImmGetDefaultIMEWnd`) with two `WM_IME_CONTROL`
-messages (`IMC_GETOPENSTATUS`, `IMC_GETCONVERSIONMODE`), which the program's
-own thread answers. Each ask waits for at most
-`INPUT_METHOD_READ_TIMEOUT_MS` (20 ms), or an eighth of the system's
-low-level hook timeout where that is less (`src/capture/timing.rs`), gives
-up at once on a thread Windows knows to be hung, and dispatches no message
-to the hook's own thread while it waits; the second is not sent where the
-first got no answer. The two fields are written together or not at all:
-neither where the control has no input-method window, where an ask got no
-answer in time, or on a key attributed to no window (DCP-14). They say that
+less its five highest bits, the four Windows reserves among them. The hook
+asks that control's input-method window (`ImmGetDefaultIMEWnd`) with two
+`WM_IME_CONTROL` messages (`IMC_GETOPENSTATUS`, then
+`IMC_GETCONVERSIONMODE`), which the program's own thread answers. Each ask
+waits for at most `INPUT_METHOD_READ_TIMEOUT_MS` (20 ms), or an eighth of
+the system's low-level hook timeout where that is less
+(`src/capture/timing.rs`), gives up at once on a thread Windows knows to be
+hung, and dispatches no message to the hook's own thread while it waits.
+Where the first ask gets no answer, or is refused, nothing was read and the
+second is not sent; where the first is answered and the second is not, the
+open status is written alone, a fact that was read being written (core
+CP-18). Neither field is written where the control has no input-method
+window or on a key attributed to no window (DCP-14). Windows hands a
+program a message another thread sent it ahead of the key presses waiting
+in its queue, so on a program that runs behind the typing the read can
+show the state before an earlier key took effect. They say that
 an input method was on and in which mode, not that it took the key: nothing
 the desktop can read says a composition is open
 ([docent#237](https://github.com/Arsarneq/docent/issues/237)). The extension

@@ -369,7 +369,8 @@ pub struct HeldKeysAtAction {
 
 /// What was read of the input method at a key press (see
 /// [`held_keys::InputMethodState`]), as a `key` action states it: two fields
-/// of the action itself, both left out of the file where nothing was read.
+/// of the action itself, each left out of the file where it was not read.
+/// The conversion mode is never there without the open status.
 #[derive(Debug, Serialize, Clone, Copy, Default, PartialEq, Eq)]
 pub struct InputMethodAtKey {
     /// Whether an input method was on for the control that held the
@@ -385,7 +386,7 @@ impl From<Option<held_keys::InputMethodState>> for InputMethodAtKey {
     fn from(state: Option<held_keys::InputMethodState>) -> Self {
         Self {
             input_method_open: state.map(|s| s.open),
-            input_method_conversion_mode: state.map(|s| s.conversion_mode),
+            input_method_conversion_mode: state.and_then(|s| s.conversion_mode),
         }
     }
 }

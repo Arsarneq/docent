@@ -2759,19 +2759,22 @@ const IMC_GETCONVERSIONMODE: usize = 0x0001;
 /// control that holds the keyboard focus; the foreground window `foreground`
 /// where none was read): whether it is on, and its conversion mode. `None`
 /// where the window has no input-method window, where that window gave no
-/// answer within the session's time limit
-/// (`timing::input_method_read_timeout_ms`), or where that limit is 0.
+/// answer to the first ask within the session's time limit
+/// (`timing::input_method_read_timeout_ms`) or refused it, or where that
+/// limit is 0.
 ///
 /// Called on the keyboard hook. The input-method window belongs to the
 /// program's own thread, which has to answer, so each of the two asks waits
 /// for at most the time limit and gives up at once on a thread the system
-/// knows to be hung; the second is not sent when the first got no answer.
-/// The wait dispatches no message to this thread (`SMTO_BLOCK`), so no hook
-/// call runs inside it.
+/// knows to be hung; which is asked when, and what stands where one gets no
+/// answer, is [`super::held_keys::read_input_method`]'s to state. The wait
+/// dispatches no message to this thread (`SMTO_BLOCK`), so no hook call runs
+/// inside it.
 unsafe fn input_method_state_of(
     control: i64,
     foreground: HWND,
 ) -> Option<super::held_keys::InputMethodState> {
+    use super::held_keys::InputMethodQuestion;
     let timeout_ms = INPUT_METHOD_READ_TIMEOUT_MS.with(|t| t.get());
     if timeout_ms == 0 {
         return None;
@@ -2788,16 +2791,17 @@ unsafe fn input_method_state_of(
     if input_method_window.0.is_null() {
         return None;
     }
-    let open = ask_input_method(input_method_window, IMC_GETOPENSTATUS, timeout_ms)?;
-    let conversion_mode = ask_input_method(input_method_window, IMC_GETCONVERSIONMODE, timeout_ms)?;
-    Some(super::held_keys::InputMethodState {
-        open: open != 0,
-        conversion_mode: conversion_mode as u32,
+    super::held_keys::read_input_method(|question| {
+        let command = match question {
+            InputMethodQuestion::OpenStatus => IMC_GETOPENSTATUS,
+            InputMethodQuestion::ConversionMode => IMC_GETCONVERSIONMODE,
+        };
+        ask_input_method(input_method_window, command, timeout_ms)
     })
 }
 
 /// Ask an input-method window one `WM_IME_CONTROL` question; `None` when no
-/// answer came within the time limit.
+/// answer came within the time limit, or the message was refused.
 unsafe fn ask_input_method(
     input_method_window: HWND,
     command: usize,
