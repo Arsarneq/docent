@@ -220,8 +220,9 @@ phase, for exactly these DOM events, on `document` unless the item names
   the key behind a dead key is written after the page has handled it: the
   text is taken at that key's press, so that the entry the key ends holds
   what the page saw. That entry stands ahead of the dead key where it is a
-  `key` too, and what the element holds beyond it is its next entry,
-  written behind the keys. The desktop decides the same question by the accent the field's
+  `key` too, and goes out ahead of the presses that still wait. Text the
+  browser enters in the element after that press is its next entry, written
+  behind the keys; what the page made of the element by itself is no entry. The desktop decides the same question by the accent the field's
   value gained (desktop capture DCP-9). On any other element a
   character key is written at once (a letter on a button). An entry a key
   press writes ahead of itself (below) carries the time of that press. A

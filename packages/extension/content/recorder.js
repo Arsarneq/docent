@@ -811,10 +811,11 @@
   // last entry was written.
   let editableTypedInto = null;
   // What the editable content typed into held at the press of a key that
-  // waits behind a dead key (`{ el, value }`), until that key's entry is
-  // written. Null otherwise.
+  // waits behind a dead key, and whether the browser entered text in it
+  // since (`{ el, value, inputSince }`), until that key's entry is written.
+  // Null otherwise.
   let editableAtKeyBehind = null;
-  // That text has been written, and the element holds other text since: it
+  // That text has been written. What the person enters in the element since
   // came with or after the key behind the dead key, so no press that waited
   // with that key writes it ahead of itself.
   let editableReadAtPress = false;
@@ -838,18 +839,18 @@
     // The text taken at the press of a key that waited behind a dead key is
     // what that key ended. Text the element holds beyond it came with or
     // after the key, and is the element's next entry.
-    const atPress = editableAtKeyBehind?.el === el ? editableAtKeyBehind.value : null;
+    // Only text the browser entered since (an `input`) is the person's: what
+    // the page made of the element by itself is no entry.
+    const atPress = editableAtKeyBehind?.el === el ? editableAtKeyBehind : null;
     editableAtKeyBehind = null;
-    const value = atPress ?? now;
-    if (value === now || !active) editableTypedInto = null;
-    else editableReadAtPress = true;
+    const value = atPress ? atPress.value : now;
+    if (atPress) editableReadAtPress = true;
+    if (!atPress?.inputSince || value === now || !active) editableTypedInto = null;
     if (!active) return Promise.resolve();
-    const sent = appendAction({
-      type: 'type',
-      timestamp,
-      element: describeElement(el),
-      value,
-    });
+    const entry = { type: 'type', timestamp, element: describeElement(el), value };
+    // The text taken at the press was complete before the presses that still
+    // wait, and goes out ahead of them.
+    const sent = atPress ? sendAction(entry) : appendAction(entry);
     markUserAction();
     return sent;
   }
@@ -1742,7 +1743,11 @@
       // have handled it: the editable content's text is taken here, before
       // they act, for the entry that key ends.
       if (press.behindDead && editableTypedInto && !editableAtKeyBehind) {
-        editableAtKeyBehind = { el: editableTypedInto, value: editableText(editableTypedInto) };
+        editableAtKeyBehind = {
+          el: editableTypedInto,
+          value: editableText(editableTypedInto),
+          inputSince: false,
+        };
       }
     },
     { capture: true, passive: true },
@@ -2110,6 +2115,7 @@
       // Typing in another element ends the typing in the one before it.
       if (editableTypedInto !== el) writeEditableEntry();
       editableTypedInto = el;
+      if (editableAtKeyBehind?.el === el) editableAtKeyBehind.inputSince = true;
     },
     { capture: true, passive: true },
   );

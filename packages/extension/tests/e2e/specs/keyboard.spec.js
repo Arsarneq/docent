@@ -1943,23 +1943,34 @@ test.describe('Every key press that is not text', () => {
 
   // The same where no accent is entered and the dead key is a `key` too:
   // the text taken at the press stands ahead of both keys, and what the
-  // element holds after them is written behind them, never between them.
+  // person changed in the element after them is written behind them, never
+  // between them. What the page made of the element by itself is no entry,
+  // also where the page moves the focus away before the key is released.
   for (const [name, behind, cancels, expected] of [
     [
       'a_page_that_cancels_enter_and_empties_it',
       { key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 },
-      true,
+      'empties',
       [
         ['type', 'c'],
         ['key', 'Dead'],
         ['key', 'Enter'],
-        ['type', ''],
+      ],
+    ],
+    [
+      'a_page_that_cancels_enter_empties_it_and_moves_the_focus_later',
+      { key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 },
+      'moves',
+      [
+        ['type', 'c'],
+        ['key', 'Dead'],
+        ['key', 'Enter'],
       ],
     ],
     [
       'a_key_that_deletes_from_it',
       { key: 'Backspace', code: 'Backspace', windowsVirtualKeyCode: 8 },
-      false,
+      null,
       [
         ['type', 'c'],
         ['key', 'Dead'],
@@ -1976,14 +1987,15 @@ test.describe('Every key press that is not text', () => {
       const session = await context.newCDPSession(testPage);
       const dead = { key: 'Dead', code: 'Equal', windowsVirtualKeyCode: 221 };
       if (cancels) {
-        await testPage.evaluate(() => {
+        await testPage.evaluate((moves) => {
           const box = document.querySelector('#editable');
           box.addEventListener('keydown', (e) => {
             if (e.key !== 'Enter') return;
             e.preventDefault();
             box.textContent = '';
+            if (moves) setTimeout(() => document.querySelector('#btn').focus(), 10);
           });
-        });
+        }, cancels === 'moves');
       }
       await testPage.focus('#editable');
       await testPage.keyboard.type('c');
@@ -1993,7 +2005,9 @@ test.describe('Every key press that is not text', () => {
       await testPage.waitForTimeout(50);
       await session.send('Input.dispatchKeyEvent', { type: 'keyUp', ...behind });
       await testPage.locator('#btn').click();
-      const actions = (await written(serviceWorker, testPage)).filter(([type]) => type !== 'click');
+      const actions = (await written(serviceWorker, testPage)).filter(
+        ([type]) => type !== 'click' && type !== 'focus',
+      );
       expect(actions).toEqual(expected);
     });
   }
