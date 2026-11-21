@@ -324,12 +324,15 @@ named, which differs when the focus moved on before the worker described it (a
 dialog that closed as the focus went back to its owner, for example) and no
 later focus event was dispatched before the description (a focus described
 after one writes nothing, DCP-12); where the description resolved no window, the
-event's window gives the context. A focus whose element is in another window
+event's window gives the context.
+
+A focus whose element is in another window
 than the one the event named, as its description resolved it, and that window
 belongs to another process than the event's, or to a process that can no
 longer be read, writes nothing: the
-scope filters (DCP-5) judged the event's process, not that one. The
-Input_Thread introduces the event's window, not the element's (above), so a
+scope filters (DCP-5) judged the event's process, not that one.
+
+The Input_Thread introduces the event's window, not the element's (above), so a
 focus recorded in a window the session introduced no other way has no
 `context_switch` before it.
 
@@ -951,12 +954,8 @@ with a caveat):
   the one the event named, and the later event records where the focus went,
   at its own place, save in the open cases DCP-12 states; a departure (core
   CP-18)
-- A focus whose element, when a worker describes it, is in another top-level
-  window than the one the focus event named, as its description resolved it,
-  where that window belongs to
-  another process than the event's or to a process that can no longer be read
-  (DCP-7) — not written: the scope filters judged the event's process, not
-  that one; a departure (core CP-18)
+- A focus whose element is in a window of a process DCP-7 names as not
+  judged by the scope filters — not written; a departure (core CP-18)
 - A key pressed while an input method composes text (the letters of a
   romanized reading, Space, the Enter that confirms, Escape, an arrow in the
   candidate list, Backspace) — written as a `key`, a typing key among them
