@@ -990,10 +990,10 @@ jobs:
         run: |
           cargo test --test capture_integration --no-run
           for i in 1 2; do
-            echo "=== round $i, read off"
-            DOCENT_DIAG_NO_IME=1 cargo test --test capture_integration -- --test-threads=1 --nocapture 2>&1 || true
             echo "=== round $i, read on"
             cargo test --test capture_integration -- --test-threads=1 --nocapture 2>&1 || true
+            echo "=== round $i, read off"
+            DOCENT_DIAG_NO_IME=1 cargo test --test capture_integration -- --test-threads=1 --nocapture 2>&1 || true
           done
 
       - name: Run Rust integration tests with coverage

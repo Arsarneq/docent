@@ -2868,6 +2868,19 @@ unsafe fn diag_focused(uia: &IUIAutomation) -> Option<IUIAutomationElement> {
         },
         started.elapsed()
     );
+    if let Ok(element) = &focused {
+        let started = Instant::now();
+        let pid = element.CurrentProcessId().ok();
+        let class = element
+            .CurrentClassName()
+            .ok()
+            .map(|c| String::from_utf16_lossy(&c));
+        eprintln!(
+            "[diag] worker tid {tid}: focused is pid {pid:?} class {class:?} (read in {:?}); fg now {}",
+            started.elapsed(),
+            diag_window(GetForegroundWindow())
+        );
+    }
     focused.ok()
 }
 
