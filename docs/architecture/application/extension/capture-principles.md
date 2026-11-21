@@ -587,8 +587,12 @@ with a caveat):
     the frame (the `END_TYPING` of a pointer press, `HELD_KEY_REPORTS` for
     any other action that would be given one of its keys), stores the
     action once the report the frame names as its last has arrived, and
-    forgets the keys of a frame that gives no answer within the bound or is
-    gone, and those an earlier document of the frame reported. A key another
+    forgets the keys of a frame that gives no answer in time or is gone,
+    and those an earlier document of the frame reported. The time is the
+    500 ms of the end of typing at a press and half of that at any other
+    action: what the acting frame writes waits behind the ask, a typed
+    entry too, and such an entry is still stored ahead of the click of
+    another frame's press. A key another
     frame reports released in that time is not named.
   - No key is known to be down once the focus leaves the document any other
     way (to another tab, window or program, to a frame the extension does
@@ -609,13 +613,13 @@ with a caveat):
   in another frame is missing where the worker, which keeps these keys in
   memory only, was suspended; where the recording was stopped and started
   or a frame of the tab started to navigate; where the frame that reported
-  the key gave no answer within the bound; where a release was reported
+  the key gave no answer in time; where a release was reported
   while the action waited to be stored; and where a frame's blur reached
   the worker ahead of the press that caused it. A released key can be named
   in one case: the focus goes to the browser's own interface and comes back
   by a press in another frame while the page of the frame that held the key,
   in a process of its own, hangs the whole time and then answers that press
-  within the bound; its late blur is then taken for the press's own
+  in time; its late blur is then taken for the press's own.
 
 - Back/forward between same-document entries (an SPA's history) — a
   browser-chrome action; the worker's committed-navigation listener does not

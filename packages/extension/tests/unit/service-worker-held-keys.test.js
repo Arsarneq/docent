@@ -76,6 +76,7 @@ globalThis.chrome = {
       const how = endTyping.get(frameId);
       if (how === 'gone') return Promise.reject(new Error('Receiving end does not exist'));
       if (how === 'silent') return new Promise(() => {});
+      if (typeof how === 'function') return Promise.resolve(how(message));
       return Promise.resolve(how ?? { ok: true });
     },
   },
@@ -85,7 +86,8 @@ globalThis.chrome = {
   sidePanel: { open: async () => {} },
 };
 
-// How a frame answers END_TYPING: frameId → 'gone' | 'silent' | the answer.
+// How a frame answers an ask: frameId → 'gone' | 'silent' | the answer | a
+// function of the message that gives the answer or a promise of it.
 const endTyping = new Map();
 
 const from = (frameId, tabId = TAB) => ({ id: RUNTIME_ID, frameId, tab: { id: tabId } });
@@ -303,6 +305,58 @@ describe('SERVICE WORKER: a key held in another frame of the tab', () => {
         ['F3', []],
       ],
     );
+  });
+
+  describe('the entry a frame typed stays ahead of the click that ended it', () => {
+    const THIRD = 6;
+    const after = (ms, value) => new Promise((resolve) => setTimeout(() => resolve(value), ms));
+    const kinds = () => storage.pendingActions.map((a) => a.type);
+    /** The frame is slow to answer the first ask, and quick after it. */
+    const slowOnceWithALastReportThatNeverComes = (frameId) => {
+      let asked = false;
+      endTyping.set(frameId, () => {
+        if (asked) return { ok: true };
+        asked = true;
+        return after(300, { ok: true, heldReports: { recorder: 'r1', seq: 2 } });
+      });
+    };
+    /** The frame answers END_TYPING once the entry it then writes is stored. */
+    const writesItsEntryWhenAsked = (frameId) =>
+      endTyping.set(frameId, async (message) => {
+        if (message.type === 'END_TYPING') {
+          await append(frameId, { type: 'type', value: 'x', timestamp: Date.now() });
+        }
+        return { ok: true };
+      });
+
+    it('regression_779_where_the_typing_frame_waits_for_a_frame_asked_of_its_held_keys', async () => {
+      tell(THIRD, { type: 'FRAME_READY' });
+      // A slow frame holds a key, and names a last report that never comes.
+      held(INNER, { event: 'down', code: 'KeyA', key: 'a', recorder: 'r1', seq: 1 });
+      slowOnceWithALastReportThatNeverComes(INNER);
+      const key = { type: 'key', key: 'F2', code: 'F2', timestamp: Date.now(), held_keys: [] };
+      const keyed = append(TOP, key);
+      writesItsEntryWhenAsked(TOP);
+      tell(THIRD, { type: 'POINTER_PRESSED' });
+      await Promise.all([keyed, append(THIRD, click())]);
+      await after(700);
+      assert.deepEqual(kinds(), ['key', 'type', 'click']);
+    });
+
+    it('regression_779_where_the_typing_frame_pressed_and_waits_for_a_last_report', async () => {
+      tell(THIRD, { type: 'FRAME_READY' });
+      held(INNER, { event: 'down', code: 'KeyA', key: 'a', recorder: 'r1', seq: 1 });
+      slowOnceWithALastReportThatNeverComes(INNER);
+      tell(TOP, { type: 'POINTER_PRESSED' });
+      const clicked = append(TOP, click());
+      writesItsEntryWhenAsked(TOP);
+      // The next press comes a moment later, as a person's does.
+      await after(50);
+      tell(THIRD, { type: 'POINTER_PRESSED' });
+      await Promise.all([clicked, append(THIRD, click())]);
+      await after(700);
+      assert.deepEqual(kinds(), ['click', 'type', 'click']);
+    });
   });
 
   it('regression_779_another_tab_or_window_taking_the_focus_forgets_the_keys', async () => {

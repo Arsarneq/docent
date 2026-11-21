@@ -242,7 +242,8 @@ the worker wakes waits for the stored recording flag to be read back first.
 
 `HELD_KEY_REPORTS`: the frame answers `{ ok: true, heldReports }` at once and
 does nothing else. `heldReports` is `{ recorder, seq }`, the last `HELD_KEY`
-the recorder sent; the worker waits for that report, up to the same bound,
+the recorder sent; the worker waits for that report, the ask and the wait
+together up to half that bound,
 before it names a key held in that frame to an action of another frame
 ([ECP-12](capture-principles.md#exceptions-within-the-surface)).
 

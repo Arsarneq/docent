@@ -53,6 +53,7 @@ import {
   TAB_REMOVED_SWITCH_SUPPRESSION,
   TAB_CREATED_NAVIGATION_SUPPRESSION,
   END_TYPING_BOUND,
+  HELD_KEYS_ASK_BOUND,
 } from '../lib/capture-timing.js';
 import { STORAGE_QUOTA_KEY, classifyStoragePressure } from '../lib/storage-quota.js';
 import { isTrustedActionSender } from '../lib/frame-trust.js';
@@ -221,11 +222,11 @@ async function askFrameForHeldKeyReports(tabId, frameId) {
   }
 }
 
-/** Settles with `value` once `promise` has, or with null at END_TYPING_BOUND. */
-function withinTheBound(promise) {
+/** Settles as `promise` does, or with null at the time `until` where that comes first. */
+function settledBy(until, promise) {
   let timer;
   const bound = new Promise((resolve) => {
-    timer = setTimeout(() => resolve(null), END_TYPING_BOUND);
+    timer = setTimeout(() => resolve(null), Math.max(0, until - Date.now()));
   });
   return Promise.race([promise, bound]).finally(() => clearTimeout(timer));
 }
@@ -234,15 +235,16 @@ function withinTheBound(promise) {
  * Bring the held-keys relay level with one frame, from the answer it gave to
  * an ask: wait for the report the recorder names as its last, which can
  * arrive behind the answer. A frame that gave no answer, or whose last
- * report does not arrive within the bound, has said nothing sure of the keys
- * it reported as held: they are forgotten.
+ * report has not arrived at the time `until`, has said nothing sure of the
+ * keys it reported as held: they are forgotten.
  */
-async function levelHeldKeysWith(tabId, frameId, answer) {
+async function levelHeldKeysWith(tabId, frameId, answer, until) {
   const last = answer?.heldReports;
   if (answer && !last) return;
   const seen =
     last &&
-    (await withinTheBound(
+    (await settledBy(
+      until,
       heldKeysRelay.whenSeen(tabId, frameId, last.recorder, last.seq).then(() => true),
     ));
   if (!seen) heldKeysRelay.forgetFrame(tabId, frameId);
@@ -329,25 +331,30 @@ async function endTypingInOtherFrames(sender) {
   }
   const tabId = sender.tab.id;
   const others = [...(activeFrames.get(tabId) ?? [])].filter((id) => id !== sender.frameId);
+  const until = Date.now() + END_TYPING_BOUND;
   const answers = await endTypingIn(others.map((frameId) => [tabId, frameId]));
   // The press's own actions name the keys held in those frames as their
-  // reports up to the answer leave them.
+  // reports up to the answer leave them, within the same bound: the hold is
+  // no longer for it.
   await Promise.all(
-    [...answers].map(([[, frameId], answer]) => levelHeldKeysWith(tabId, frameId, answer)),
+    [...answers].map(([[, frameId], answer]) => levelHeldKeysWith(tabId, frameId, answer, until)),
   );
 }
 
 /**
  * The same for an action with no press before it: the frames whose keys it
- * would be given are asked for their last report, and nothing else.
+ * would be given are asked for their last report, and nothing else. The ask
+ * and the wait for that report end within HELD_KEYS_ASK_BOUND.
  */
 async function levelHeldKeysWithFrames(tabId, frameIds) {
+  const until = Date.now() + HELD_KEYS_ASK_BOUND;
   await Promise.all(
     frameIds.map(async (frameId) =>
       levelHeldKeysWith(
         tabId,
         frameId,
-        await withinTheBound(askFrameForHeldKeyReports(tabId, frameId)),
+        await settledBy(until, askFrameForHeldKeyReports(tabId, frameId)),
+        until,
       ),
     ),
   );
