@@ -605,21 +605,22 @@ with a caveat):
   - A key pressed while the Meta key was held is treated as released at the
     release of the Meta key, in whichever frame: some systems send the page
     no release for such a key. It is named again from its next repeat.
-
-  The modifiers held at an action are exact wherever they were pressed: the
-  action's own event states them and `modifiers` carries them. Between
-  recorded frames these departures remain (core CP-19;
-  [docent#782](https://github.com/Arsarneq/docent/issues/782)). A key held
-  in another frame is missing where the worker, which keeps these keys in
-  memory only, was suspended; where the recording was stopped and started
-  or a frame of the tab started to navigate; where the frame that reported
-  the key gave no answer in time; where a release was reported
-  while the action waited to be stored; and where a frame's blur reached
-  the worker ahead of the press that caused it. A released key can be named
-  in one case: the focus goes to the browser's own interface and comes back
-  by a press in another frame while the page of the frame that held the key,
-  in a process of its own, hangs the whole time and then answers that press
-  in time; its late blur is then taken for the press's own.
+  - The modifiers held at an action are exact wherever they were pressed:
+    the action's own event states them and `modifiers` carries them.
+  - Between recorded frames these departures remain (core CP-19;
+    [docent#782](https://github.com/Arsarneq/docent/issues/782)). A key
+    held in another frame is missing where:
+    - the worker, which keeps these keys in memory only, was suspended;
+    - the recording was stopped and started, or a frame of the tab started
+      to navigate;
+    - the frame that reported the key gave no answer in time;
+    - a release was reported while the action waited to be stored;
+    - a frame's blur reached the worker ahead of the press that caused it.
+  - A released key can be named in one case: the focus goes to the
+    browser's own interface and comes back by a press in another frame
+    while the page of the frame that held the key, in a process of its own,
+    hangs the whole time and then answers that press in time; its late blur
+    is then taken for the press's own.
 
 - Back/forward between same-document entries (an SPA's history) — a
   browser-chrome action; the worker's committed-navigation listener does not
