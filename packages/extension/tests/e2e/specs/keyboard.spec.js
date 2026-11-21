@@ -1941,6 +1941,63 @@ test.describe('Every key press that is not text', () => {
     });
   }
 
+  // The same where no accent is entered and the dead key is a `key` too:
+  // the text taken at the press stands ahead of both keys, and what the
+  // element holds after them is written behind them, never between them.
+  for (const [name, behind, cancels, expected] of [
+    [
+      'a_page_that_cancels_enter_and_empties_it',
+      { key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 },
+      true,
+      [
+        ['type', 'c'],
+        ['key', 'Dead'],
+        ['key', 'Enter'],
+        ['type', ''],
+      ],
+    ],
+    [
+      'a_key_that_deletes_from_it',
+      { key: 'Backspace', code: 'Backspace', windowsVirtualKeyCode: 8 },
+      false,
+      [
+        ['type', 'c'],
+        ['key', 'Dead'],
+        ['key', 'Backspace'],
+        ['type', ''],
+      ],
+    ],
+  ]) {
+    test(`regression_769_text_in_editable_content_stands_ahead_of_a_dead_key_and_the_key_behind_it_on_${name}`, async ({
+      testPage,
+      serviceWorker,
+      context,
+    }) => {
+      const session = await context.newCDPSession(testPage);
+      const dead = { key: 'Dead', code: 'Equal', windowsVirtualKeyCode: 221 };
+      if (cancels) {
+        await testPage.evaluate(() => {
+          const box = document.querySelector('#editable');
+          box.addEventListener('keydown', (e) => {
+            if (e.key !== 'Enter') return;
+            e.preventDefault();
+            box.textContent = '';
+          });
+        });
+      }
+      await testPage.focus('#editable');
+      await testPage.keyboard.type('c');
+      await session.send('Input.dispatchKeyEvent', { type: 'rawKeyDown', ...dead });
+      await session.send('Input.dispatchKeyEvent', { type: 'keyUp', ...dead });
+      await session.send('Input.dispatchKeyEvent', { type: 'rawKeyDown', ...behind });
+      await testPage.waitForTimeout(50);
+      await session.send('Input.dispatchKeyEvent', { type: 'keyUp', ...behind });
+      await testPage.locator('#btn').click();
+      const actions = (await written(serviceWorker, testPage)).filter(([type]) => type !== 'click');
+      expect(actions).toEqual(expected);
+    });
+  }
+
   test('a_dead_key_is_a_key_where_the_key_behind_it_changes_the_field_or_enters_text_elsewhere', async ({
     testPage,
     serviceWorker,

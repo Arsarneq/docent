@@ -158,9 +158,9 @@
  *     the worker asks the frames for, which landed inside the previous
  *     budget; no new dependency.
  *   - Raised to 837KB for a dead key whose accent the browser enters with
- *     the key after it (docent#769): measured 831,375 B (`node_modules`
- *     inside the checkout); margin 25,713 B; growth since 803,721 B (the
- *     header's recorded size): `content/recorder.js` +15,154 B (+3,278 B in
+ *     the key after it (docent#769): measured 831,754 B (`node_modules`
+ *     inside the checkout); margin 25,334 B; growth since 803,721 B (the
+ *     header's recorded size): `content/recorder.js` +15,533 B (+3,657 B in
  *     this change, +11,876 B before it), the files synced from the shared
  *     package with the generated validator +11,161 B, `content/recorder-logic.js`
  *     +788 B, `background/service-worker.js` +442 B, `lib/redaction-logic.js`

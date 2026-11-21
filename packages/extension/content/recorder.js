@@ -814,6 +814,10 @@
   // waits behind a dead key (`{ el, value }`), until that key's entry is
   // written. Null otherwise.
   let editableAtKeyBehind = null;
+  // That text has been written, and the element holds other text since: it
+  // came with or after the key behind the dead key, so no press that waited
+  // with that key writes it ahead of itself.
+  let editableReadAtPress = false;
 
   /**
    * Write the text the editable content typed into holds, as its `type`. The
@@ -838,6 +842,7 @@
     editableAtKeyBehind = null;
     const value = atPress ?? now;
     if (value === now || !active) editableTypedInto = null;
+    else editableReadAtPress = true;
     if (!active) return Promise.resolve();
     const sent = appendAction({
       type: 'type',
@@ -1024,7 +1029,7 @@
     }
     // The key ends the typing in editable content too: its entry stands ahead
     // of the key.
-    writeEditableEntry(time);
+    if (!editableReadAtPress) writeEditableEntry(time);
     sendAction(press.action);
     markUserAction();
     // What the field holds after a key that can change it is an entry the
@@ -1075,7 +1080,10 @@
     } finally {
       writingPendingKeys = false;
     }
-    if (pendingKeys.length === 0) editableAtKeyBehind = null;
+    if (pendingKeys.length === 0) {
+      editableAtKeyBehind = null;
+      editableReadAtPress = false;
+    }
     releaseHeldBehindPendingKeys();
   }
 
@@ -1127,6 +1135,7 @@
     pendingKeys = [];
     heldBehindPendingKeys = [];
     editableAtKeyBehind = null;
+    editableReadAtPress = false;
   }
 
   // ─── Click capture ────────────────────────────────────────────────────────────
