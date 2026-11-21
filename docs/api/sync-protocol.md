@@ -632,7 +632,7 @@ name+metadata, or one recording):
 2. **Delete-vs-change.** The unit existed in the baseline, and one side **deleted**
    it while the other side **changed** it. Deleting and editing are
    irreconcilable, so the user chooses delete or keep-the-change.
-   - A project whose own name and metadata hold no agreement is such a case, for as long as SP-10 states.
+   - The deletion of a project whose own name and metadata hold no agreement is such a case, for as long as SP-10 states.
 
 Because content identity is SP-9's canonical digest, a unit changed on both
 sides diverges whichever of its inputs moved — its name or metadata as much as a
