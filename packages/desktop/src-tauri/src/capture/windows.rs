@@ -909,6 +909,11 @@ impl CaptureLayer for WindowsCapture {
             }
         }
 
+        // The control that holds the keyboard focus as capture starts is
+        // looked at now, on the typing worker, so the first key typed into it
+        // finds it known (docent#761). Nothing is written.
+        pool.look_at_focus();
+
         // Clone the shared sequence counter for the Input_Thread, which assigns
         // a monotonic id to every raw event (docent#139 reorder buffer).
         let sequence_counter = Arc::clone(pool.sequence_counter());
@@ -1397,6 +1402,11 @@ static FOCUS_EPOCH: AtomicU64 = AtomicU64::new(1);
 /// (`AccessibilityBackend::focus_events_dispatched`); `0` before the first.
 /// Process-wide, so the workers read it directly.
 static FOCUS_EVENTS_DISPATCHED: AtomicU64 = AtomicU64::new(0);
+
+/// The key presses the Input_Thread dispatched, numbered per window
+/// (`AccessibilityBackend::keys_dispatched`, docent#761). Process-wide, so the
+/// workers read it directly.
+static KEYS_DISPATCHED: super::worker_pool::KeyNumbers = super::worker_pool::KeyNumbers::new();
 
 /// Count a focus or foreground change a program reported (the low half of
 /// the epoch). One atomic add.
@@ -2686,6 +2696,17 @@ unsafe extern "system" fn input_keyboard_ll_proc(
                     KeyAttribution::NoWindow => None,
                     _ => input_method_state_of(control, hwnd),
                 };
+                // The key's number among its window's keys, counted here,
+                // where the key is sure to be sent: a worker that read a
+                // field's value takes it only while no later key of the
+                // window was dispatched (docent#761). A key with no window
+                // types into none, and is not numbered; a Shift, Control or
+                // Alt key changes no text, and carries the window's latest
+                // number.
+                let number = match attribution {
+                    KeyAttribution::NoWindow => 0,
+                    _ => KEYS_DISPATCHED.for_key(window_handle, kb_struct.vkCode),
+                };
                 input_dispatch_raw_event(RawEvent {
                     event_type: RawEventType::Keyboard,
                     sequence_id: 0,
@@ -2710,18 +2731,20 @@ unsafe extern "system" fn input_keyboard_ll_proc(
                     // foreground window's layout, read above (docent#691), and
                     // above it whether the key was already down at this
                     // key-down: a press key repeat generated (docent#696),
-                    // and above that what was read of the input method
-                    // (docent#237).
+                    // and above that the key's number, counted above.
                     // Above the scan code sits the hook's extended mark,
                     // which tells apart two keys that share a key code;
                     // the two together name the physical key (docent#717).
+                    // Above that mark sits what was read of the input method
+                    // (docent#237).
                     callback_params: [
                         i64::from(kb_struct.scanCode)
                             | if kb_struct.flags & LLKHF_EXTENDED as u32 != 0 {
                                 super::held_keys::KEY_EXTENDED_PARAM
                             } else {
                                 0
-                            },
+                            }
+                            | super::held_keys::input_method_param(input_method),
                         control,
                         INPUT_PART_FOCUS.with(|note| note.borrow().of(control)),
                         i64::from(layout_char)
@@ -2730,7 +2753,7 @@ unsafe extern "system" fn input_keyboard_ll_proc(
                             } else {
                                 0
                             }
-                            | super::held_keys::input_method_param(input_method),
+                            | super::worker_pool::key_number_param(number),
                     ],
                     pre_captured_element: None,
                     focus_epoch: 0,
@@ -3704,34 +3727,37 @@ pub(crate) unsafe fn get_process_name_for_hwnd(hwnd: HWND) -> String {
 }
 
 fn get_process_name_for_pid(pid: u32) -> String {
+    process_exe_name(pid).unwrap_or_else(|| format!("pid:{pid}"))
+}
+
+/// The executable file name of the process `pid`, read from the process;
+/// `None` when it cannot be opened or read (it has exited, or access is
+/// refused).
+fn process_exe_name(pid: u32) -> Option<String> {
     use super::win32_bindings::{
         GetModuleFileNameExW, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
     };
 
     unsafe {
-        match valid_handle(OpenProcess(
+        let h = valid_handle(OpenProcess(
             PROCESS_QUERY_LIMITED_INFORMATION as u32,
             false,
             pid,
-        )) {
-            Some(h) => {
-                let mut buf = [0u16; 512];
-                let len =
-                    GetModuleFileNameExW(Some(h), None, PWSTR(buf.as_mut_ptr()), buf.len() as u32);
-                let _ = CloseHandle(h);
-                if len > 0 {
-                    let full_path = String::from_utf16_lossy(&buf[..len as usize]);
-                    full_path
-                        .rsplit('\\')
-                        .next()
-                        .unwrap_or(&full_path)
-                        .to_string()
-                } else {
-                    format!("pid:{pid}")
-                }
-            }
-            None => format!("pid:{pid}"),
+        ))?;
+        let mut buf = [0u16; 512];
+        let len = GetModuleFileNameExW(Some(h), None, PWSTR(buf.as_mut_ptr()), buf.len() as u32);
+        let _ = CloseHandle(h);
+        if len == 0 {
+            return None;
         }
+        let full_path = String::from_utf16_lossy(&buf[..len as usize]);
+        Some(
+            full_path
+                .rsplit('\\')
+                .next()
+                .unwrap_or(&full_path)
+                .to_string(),
+        )
     }
 }
 
@@ -3922,6 +3948,10 @@ impl AccessibilityBackend for WindowsAccessibilityBackend {
         FOCUS_EVENTS_DISPATCHED.load(Ordering::SeqCst)
     }
 
+    fn keys_dispatched(&self, window: i64) -> u64 {
+        KEYS_DISPATCHED.latest(window)
+    }
+
     fn is_foreground_window(&self, window_handle: i64) -> bool {
         if window_handle == 0 {
             return false;
@@ -4007,6 +4037,36 @@ impl AccessibilityBackend for WindowsAccessibilityBackend {
     fn process_name(&self, window_handle: i64) -> String {
         let hwnd = HWND(window_handle as *mut _);
         unsafe { get_process_name_for_hwnd(hwnd) }
+    }
+
+    fn process_name_of(&self, process_id: u32) -> Option<String> {
+        process_exe_name(process_id)
+    }
+
+    fn process_id_of(&self, window_handle: i64) -> u32 {
+        let mut process_id = 0u32;
+        unsafe {
+            GetWindowThreadProcessId(HWND(window_handle as *mut _), Some(&mut process_id));
+        }
+        process_id
+    }
+
+    /// A `WM_NULL` sent to the control's own window, which its thread
+    /// answers once it is back at its message loop; a thread the system
+    /// already counts as hung is not waited on at all.
+    fn answers_promptly(&self, control: i64) -> bool {
+        unsafe {
+            SendMessageTimeoutW(
+                HWND(control as *mut _),
+                WM_NULL as u32,
+                WPARAM(0),
+                LPARAM(0),
+                SMTO_ABORTIFHUNG as u32,
+                super::worker_pool::PROMPT_ANSWER_MS,
+                None,
+            )
+            .0 != 0
+        }
     }
 
     fn read_file_dialog_path(&self, window_handle: i64) -> Option<(String, String)> {
@@ -4141,6 +4201,40 @@ mod tests {
         MAPVK_VSC_TO_VK,
     };
     use crate::capture::worker_pool::{is_punctuation_key, punctuation_key_name};
+
+    // -- a process named by its id (docent#761) -------------------------------
+
+    /// A process is named by its id as its windows are named, with no window
+    /// needed: the name a context switch states when its window closed before
+    /// a worker got to it. The test process names itself.
+    #[test]
+    fn a_process_is_named_by_its_id_as_its_windows_are() {
+        let backend = super::WindowsAccessibilityBackend::new();
+        let exe = std::env::current_exe().unwrap();
+        let expected = exe.file_name().unwrap().to_string_lossy().into_owned();
+        assert_eq!(
+            super::AccessibilityBackend::process_name_of(&backend, std::process::id()),
+            Some(expected)
+        );
+    }
+
+    /// A process that has exited is named by no id: the switch then falls
+    /// back to its window, and never states "pid:<n>" as a name read by id.
+    #[test]
+    fn a_process_that_has_exited_is_named_by_no_id() {
+        let backend = super::WindowsAccessibilityBackend::new();
+        let mut child = std::process::Command::new("cmd")
+            .args(["/C", "exit"])
+            .spawn()
+            .unwrap();
+        let pid = child.id();
+        child.wait().unwrap();
+        drop(child);
+        assert_eq!(
+            super::AccessibilityBackend::process_name_of(&backend, pid),
+            None
+        );
+    }
 
     // -- a punctuation key's layout character (docent#691) --------------------
 
