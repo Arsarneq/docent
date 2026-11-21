@@ -571,8 +571,7 @@ with a caveat):
   given:
   - A key is known to be down from its written press, in the document that
     saw it go down, for as long as that document's window has the focus.
-  - An action in another recorded frame of the same tab names it too
-    ([docent#779](https://github.com/Arsarneq/docent/issues/779)): each
+  - An action in another recorded frame of the same tab names it too: each
     recorder tells the worker the keys it names as held, their releases,
     its window's blur, a drag, and the focus a pointer press gives its
     window (`HELD_KEY`, beside the `POINTER_PRESSED` of the press), and the
@@ -580,8 +579,14 @@ with a caveat):
     of the action's own.
   - Where a pointer press in another recorded frame takes the focus, the
     keys go to that frame once it reports that focus: their releases reach
-    it from then on, and a recorder reports the release of a key it did not
-    see go down.
+    it from then on, and a recorder reports the release, and the first
+    repeat, of a key it did not see go down.
+  - A frame's reports can reach the worker late (a busy page). The actions
+    of a press are stored once the tab's other frames have answered it
+    (the press's `END_TYPING`), and an answer comes behind the reports of
+    what its frame saw before. A key another frame reports released in
+    that time is not named, and the keys of a frame that gives no answer
+    within the bound, or is gone, are forgotten.
   - No key is known to be down once the focus leaves the document any other
     way (to another tab, window or program, to a frame the extension does
     not run in, to another frame by the Tab key or a script) or a drag
@@ -589,17 +594,22 @@ with a caveat):
     A key still held when the focus arrives or returns or the drag has ended
     is named again from its next repeat in the document that has the focus.
   - A key pressed while the Meta key was held is treated as released at the
-    release of the Meta key: some systems send the page no release for such
-    a key. It is named again from its next repeat.
+    release of the Meta key, in whichever frame: some systems send the page
+    no release for such a key. It is named again from its next repeat.
 
   The modifiers held at an action are exact wherever they were pressed: the
-  action's own event states them and `modifiers` carries them. Two
-  departures remain (core CP-19), in both of which a key held in another
-  recorded frame is missing and never named when it could have been
-  released: the worker keeps these keys in memory only, so a suspension
-  forgets them; and the reports of two frames have no order between them,
-  so a blur that reaches the worker ahead of the press that caused it
-  forgets the keys
+  action's own event states them and `modifiers` carries them. Between
+  recorded frames these departures remain (core CP-19;
+  [docent#782](https://github.com/Arsarneq/docent/issues/782)). A key held
+  in another frame is missing where the worker, which keeps these keys in
+  memory only, was suspended; where the recording was stopped and started
+  or a frame of the tab started to navigate; where the frame that reported
+  the key gave no answer within the bound; where a release was reported
+  while the action waited to be stored; and where a frame's blur reached
+  the worker ahead of the press that caused it. A released key can be named
+  in one case: a frame in a process of its own whose page hangs from before
+  the page loses the focus until a press in another frame, and then answers
+  that press within the bound, has its late blur taken for the press's own
 
 - Back/forward between same-document entries (an SPA's history) — a
   browser-chrome action; the worker's committed-navigation listener does not

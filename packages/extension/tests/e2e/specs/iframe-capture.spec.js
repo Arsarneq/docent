@@ -223,6 +223,59 @@ test.describe('Cross-origin iframe capture (#93)', () => {
     ]);
   });
 
+  test('regression_779_a_key_whose_release_a_busy_frame_reports_late_is_not_held', async ({
+    context,
+    serviceWorker,
+  }) => {
+    // The key is released in the parent, whose page is busy at that release,
+    // and the other site's frame is clicked meanwhile: the click's report
+    // reaches the worker ahead of the release's.
+    routes.set(
+      '/child',
+      `<!DOCTYPE html><html><body><button id="inner" style="padding:1rem">Inner</button></body></html>`,
+    );
+    routes.set(
+      '/parent',
+      `<!DOCTYPE html><html><body>
+        <button id="outer">Outer</button>
+        <iframe id="x" src="${ORIGIN_B()}/child" width="400" height="120"></iframe>
+        <script>
+          const busy = (ms) => { const end = performance.now() + ms; while (performance.now() < end); };
+          window.addEventListener('keyup', () => busy(300), true);
+        </script>
+      </body></html>`,
+    );
+
+    await startRecording(serviceWorker);
+    const page = context.pages()[0] || (await context.newPage());
+    await page.goto(`${ORIGIN_A()}/parent`);
+    await waitForTopFrameReady(serviceWorker, page);
+    await page.waitForTimeout(300);
+    const inner = page.frameLocator('#x').locator('#inner');
+    await inner.waitFor();
+    const box = await inner.boundingBox();
+
+    await page.locator('#outer').focus();
+    await page.keyboard.down('Escape');
+    await page.waitForTimeout(100);
+    const released = page.keyboard.up('Escape');
+    await page.waitForTimeout(50);
+    // A raw click: one through the locator would wait for the busy parent.
+    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+    await released;
+    await settle(serviceWorker, page);
+
+    const actions = await getPendingActions(serviceWorker);
+    expect(
+      actions
+        .filter((a) => a.type === 'click' || a.type === 'key')
+        .map((a) => [a.type, a.held_keys, a.element.selector]),
+    ).toEqual([
+      ['key', [], '#outer'],
+      ['click', [], '#inner'],
+    ]);
+  });
+
   test('parent-page capture keeps working alongside a cross-origin iframe', async ({
     context,
     serviceWorker,

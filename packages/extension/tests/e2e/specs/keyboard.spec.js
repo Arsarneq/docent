@@ -2865,6 +2865,71 @@ test.describe('Keyboard activation', () => {
     ]);
   });
 
+  test('regression_779_a_key_whose_repeat_is_text_in_the_frame_is_not_held_after_its_release', async ({
+    testPage,
+    serviceWorker,
+  }) => {
+    // A letter pressed on a button is a key and named as held; the click into
+    // the frame's field hands it over, and its repeat there is text. The
+    // frame then knows of no key to report released.
+    await setTestContent(
+      testPage,
+      /* html */ `<!DOCTYPE html><html><body><button id="btn">Button</button>
+        <iframe id="frame" srcdoc="<input id='field' type='text'><button id='inner'>Inner</button>"></iframe>
+      </body></html>`,
+    );
+    await testPage.waitForTimeout(300);
+    await clearPendingActions(serviceWorker);
+    const frame = testPage.frameLocator('#frame');
+    await testPage.focus('#btn');
+    await testPage.keyboard.down('a');
+    await frame.locator('#field').click();
+    await testPage.keyboard.down('a');
+    await testPage.keyboard.up('a');
+    await frame.locator('#inner').click();
+    await waitForActionsToSettle(serviceWorker, testPage);
+
+    const actions = await getPendingActions(serviceWorker);
+    expect(
+      actions
+        .filter((a) => a.type === 'key' || a.type === 'click')
+        .map((a) => [a.type, a.held_keys, a.element.selector]),
+    ).toEqual([
+      ['key', [], '#btn'],
+      ['click', ['a'], '#field'],
+      ['click', [], '#inner'],
+    ]);
+  });
+
+  test('regression_779_a_key_held_in_a_frame_the_page_removed_is_not_held', async ({
+    testPage,
+    serviceWorker,
+    context,
+  }) => {
+    // The frame that saw the key go down is taken out of the page, and the
+    // key is released in another tab: nothing reports its release.
+    const session = await context.newCDPSession(testPage);
+    await session.send('Emulation.setFocusEmulationEnabled', { enabled: false });
+    await testPage.bringToFront();
+    await testPage.waitForTimeout(200);
+    await testPage.frameLocator('#frame').locator('#inner').focus();
+    await testPage.keyboard.down('Escape');
+    await testPage.evaluate(() => document.getElementById('frame').remove());
+    await testPage.waitForTimeout(200);
+    const other = await context.newPage();
+    await other.bringToFront();
+    await other.waitForTimeout(200);
+    await other.keyboard.up('Escape');
+    await testPage.bringToFront();
+    await other.close();
+    await testPage.waitForTimeout(200);
+    await testPage.click('#btn');
+    await waitForActionsToSettle(serviceWorker, testPage);
+
+    const clicks = (await getPendingActions(serviceWorker)).filter((a) => a.type === 'click');
+    expect(clicks.map((a) => [a.element.selector, a.held_keys])).toEqual([['#btn', []]]);
+  });
+
   test('regression_779_a_key_released_while_the_page_was_not_focused_is_not_held_in_a_frame', async ({
     testPage,
     serviceWorker,

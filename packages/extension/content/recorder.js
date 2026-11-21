@@ -1043,7 +1043,9 @@
     const named = press.downByThis && press.key !== 'Meta';
     if (named && keysDown.get(press.code) === null) {
       keysDown.set(press.code, press.key);
-      reportHeldKey('down', press.code, press.key);
+      // A key the browser names no `code` for cannot be told from another
+      // such key, nor matched to its release: it is named in this document only.
+      if (press.code) reportHeldKey('down', press.code, press.key, downUnderMeta.has(press.code));
     }
   }
 
@@ -1193,20 +1195,27 @@
   let pressInTask = false;
   /**
    * Tell the worker what the tab's other documents cannot see of the keys
-   * held here: a key named as held, a key's release, the focus a press gave
-   * this window, its blur, and a drag (`clear`). The worker names a key held
-   * in one document of a tab in `held_keys` of an action in another (#779),
-   * and only while its release is sure to be reported (lib/held-keys-relay.js).
-   * A key typed as text is never named, so it is never reported as down.
+   * held here: a key named as held, a key's release, the release of the Meta
+   * key, the focus a press gave this window, its blur, and a drag (`clear`).
+   * The worker names a key held in one document of a tab in `held_keys` of an
+   * action in another (#779), and only while its release is sure to be
+   * reported (lib/held-keys-relay.js). A key typed as text in this document
+   * is never named, so nothing of it is reported: neither its press nor its
+   * release. Of a key this document did not see go down, the `code` is
+   * reported at its release and at its first repeat here, whatever it was
+   * pressed as elsewhere: another document can have named it.
    *
-   * @param {'down'|'up'|'focus'|'blur'|'clear'} event
+   * @param {'down'|'up'|'metaup'|'focus'|'blur'|'clear'} event
    * @param {string} [code]
    * @param {string} [key]
+   * @param {boolean} [underMeta] — the key went down while the Meta key was held
    */
-  function reportHeldKey(event, code, key) {
+  function reportHeldKey(event, code, key, underMeta) {
     if (!active) return;
     try {
-      chrome.runtime.sendMessage({ type: 'HELD_KEY', event, code, key }).catch(() => undefined);
+      chrome.runtime
+        .sendMessage({ type: 'HELD_KEY', event, code, key, underMeta })
+        .catch(() => undefined);
     } catch {
       // Worker unavailable (a teardown): nothing to tell.
     }
@@ -1631,6 +1640,10 @@
       // This keydown is the one the key is down by when it is the press, or the
       // first keydown of the key this document sees.
       const downByThis = !e.repeat || !keysDown.has(e.code);
+      // A repeat of a key this document did not see go down: where another
+      // document named it, it is this document's from here, named again only
+      // if this keydown is written as a `key`.
+      if (e.repeat && !keysDown.has(e.code)) reportHeldKey('up', e.code);
       if (downByThis) {
         keysDown.delete(e.code);
         keysDown.set(e.code, null);
@@ -1816,7 +1829,7 @@
       // recording is on: a key released while it is off is not down after it.
       // The worker is told of the release of a key named as held, and of one
       // this document did not see go down: another document of the tab can
-      // have named it. The release of a key typed as text is not told.
+      // have named it. The release of a key typed as text here is not told.
       if (keysDown.get(e.code) !== null) reportHeldKey('up', e.code);
       keysDown.delete(e.code);
       downUnderMeta.delete(e.code);
@@ -1824,8 +1837,10 @@
       // key is held: once the Meta key is released, no key pressed under it
       // is known to be down. One still held is down again by its next repeat.
       if (e.key === 'Meta') {
+        // The keys that went down under it in the tab's other documents are
+        // the worker's to forget.
+        reportHeldKey('metaup');
         for (const code of downUnderMeta) {
-          if (keysDown.get(code) != null) reportHeldKey('up', code);
           keysDown.delete(code);
           pressedKeysDown.delete(code);
         }

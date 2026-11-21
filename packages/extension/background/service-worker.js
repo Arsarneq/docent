@@ -194,14 +194,16 @@ function clearActiveFrames() {
 
 /**
  * Ask one frame to end its typing. Settles when the frame has answered, which
- * it does once what it wrote is stored; never rejects (a frame with no
- * recorder, or one that went away, answers nothing).
+ * it does once what it wrote is stored; never rejects. Gives whether a
+ * recorder answered: a frame with none, or one that went away, does not.
  */
 async function askFrameToEndTyping(tabId, frameId) {
   try {
     await chrome.tabs.sendMessage(tabId, { type: 'END_TYPING' }, { frameId });
+    return true;
   } catch {
     // No recorder there, or the frame is gone: nothing to end.
+    return false;
   }
 }
 
@@ -211,12 +213,20 @@ async function askFrameToEndTyping(tabId, frameId) {
  * warning, so an entry that came late can be explained.
  *
  * @param {Array<[number, number]>} frames — (tabId, frameId) pairs
+ * @returns {Promise<Array<[number, number]>>} the frames no recorder answered
+ *   for in that time: what they reported last is not known to be their latest
  */
 async function endTypingIn(frames) {
-  if (frames.length === 0) return;
+  if (frames.length === 0) return [];
   const unanswered = new Set(frames);
+  const silent = new Set(frames);
   const answers = Promise.all(
-    frames.map((frame) => askFrameToEndTyping(...frame).then(() => unanswered.delete(frame))),
+    frames.map((frame) =>
+      askFrameToEndTyping(...frame).then((answered) => {
+        unanswered.delete(frame);
+        if (answered) silent.delete(frame);
+      }),
+    ),
   );
   let timer;
   const bound = new Promise((resolve) => {
@@ -229,6 +239,7 @@ async function endTypingIn(frames) {
       frames: [...unanswered].map(([tabId, frameId]) => ({ tabId, frameId })),
     });
   }
+  return [...silent];
 }
 
 /**
@@ -277,7 +288,11 @@ async function endTypingInOtherFrames(sender) {
   }
   const tabId = sender.tab.id;
   const others = [...(activeFrames.get(tabId) ?? [])].filter((id) => id !== sender.frameId);
-  await endTypingIn(others.map((frameId) => [tabId, frameId]));
+  const silent = await endTypingIn(others.map((frameId) => [tabId, frameId]));
+  // A frame's answer comes behind the reports of what it saw before the
+  // press. One that gave none has said nothing sure of the keys it reported
+  // as held: they are forgotten, so the press's own actions do not name them.
+  for (const [, frameId] of silent) heldKeysRelay.forgetFrame(tabId, frameId);
 }
 
 // Press holds: "tabId:frameId" → a promise that settles once the typing a
@@ -635,16 +650,18 @@ async function validateAndAppend(action, sender) {
   // the frame that sent it is still registered (the click that navigates its
   // own frame away, or closes its tab).
   const hold = pressHolds.get(pressHoldKey(sender));
-  // The keys held in the tab's other frames are read as the message arrives
-  // too: a key released after the action was not released at it.
+  // The keys held in the tab's other frames are watched from the arrival of
+  // the message too, and taken once the hold is over: a key this frame
+  // releases after the action was down at it, and one another frame reports
+  // released in that time, its report late, is not known to have been.
   const heldElsewhere =
     Array.isArray(action?.held_keys) && sender?.tab?.id != null
-      ? heldKeysRelay.heldElsewhere(
+      ? heldKeysRelay.watch(
           sender.tab.id,
           sender.frameId,
           action.type === 'key' ? action.code : undefined,
         )
-      : [];
+      : null;
 
   await restoreWhatSuspensionLost(sender);
   const tabId = sender?.tab?.id;
@@ -659,6 +676,7 @@ async function validateAndAppend(action, sender) {
       tabId,
       frameId: sender?.frameId,
     });
+    heldElsewhere?.take();
     return;
   }
 
@@ -668,11 +686,12 @@ async function validateAndAppend(action, sender) {
   // frame data would violate the conservative-fidelity rule.
   if (action && typeof action === 'object') {
     action.context_id = sender.tab.id;
-    // A key held in another frame of the tab went down before this frame had
-    // the focus: it is named ahead of the keys the frame saw go down (#779).
-    if (heldElsewhere.length > 0) action.held_keys = [...heldElsewhere, ...action.held_keys];
   }
   if (hold) await hold;
+  // A key held in another frame of the tab went down before this frame had
+  // the focus: it is named ahead of the keys the frame saw go down (#779).
+  const elsewhere = heldElsewhere?.take() ?? [];
+  if (elsewhere.length > 0) action.held_keys = [...elsewhere, ...action.held_keys];
   await appendSwAction(action);
 }
 

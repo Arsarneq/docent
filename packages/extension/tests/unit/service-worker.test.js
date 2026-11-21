@@ -1108,7 +1108,7 @@ describe('SERVICE WORKER: APPEND_ACTION sender validation', () => {
   const pressHolds = new Map();
   const pressHoldKey = () => null;
   // No key is reported as held in another frame in these cases.
-  const heldKeysRelay = { heldElsewhere: () => [] };
+  const heldKeysRelay = { watch: () => ({ take: () => [] }) };
   async function appendSwAction(action) {
     storageData.pendingActions = [...storageData.pendingActions, action];
     storageData.pendingCount = storageData.pendingActions.length;
@@ -1123,16 +1123,18 @@ describe('SERVICE WORKER: APPEND_ACTION sender validation', () => {
     // the frame that sent it is still registered (the click that navigates its
     // own frame away, or closes its tab).
     const hold = pressHolds.get(pressHoldKey(sender));
-    // The keys held in the tab's other frames are read as the message arrives
-    // too: a key released after the action was not released at it.
+    // The keys held in the tab's other frames are watched from the arrival of
+    // the message too, and taken once the hold is over: a key this frame
+    // releases after the action was down at it, and one another frame reports
+    // released in that time, its report late, is not known to have been.
     const heldElsewhere =
       Array.isArray(action?.held_keys) && sender?.tab?.id != null
-        ? heldKeysRelay.heldElsewhere(
+        ? heldKeysRelay.watch(
             sender.tab.id,
             sender.frameId,
             action.type === 'key' ? action.code : undefined,
           )
-        : [];
+        : null;
 
     await restoreWhatSuspensionLost(sender);
     const tabId = sender?.tab?.id;
@@ -1147,6 +1149,7 @@ describe('SERVICE WORKER: APPEND_ACTION sender validation', () => {
         tabId,
         frameId: sender?.frameId,
       });
+      heldElsewhere?.take();
       return;
     }
 
@@ -1156,11 +1159,12 @@ describe('SERVICE WORKER: APPEND_ACTION sender validation', () => {
     // frame data would violate the conservative-fidelity rule.
     if (action && typeof action === 'object') {
       action.context_id = sender.tab.id;
-      // A key held in another frame of the tab went down before this frame had
-      // the focus: it is named ahead of the keys the frame saw go down (#779).
-      if (heldElsewhere.length > 0) action.held_keys = [...heldElsewhere, ...action.held_keys];
     }
     if (hold) await hold;
+    // A key held in another frame of the tab went down before this frame had
+    // the focus: it is named ahead of the keys the frame saw go down (#779).
+    const elsewhere = heldElsewhere?.take() ?? [];
+    if (elsewhere.length > 0) action.held_keys = [...elsewhere, ...action.held_keys];
     await appendSwAction(action);
   }
   // -- END MIRRORED APPEND CHOKEPOINT --

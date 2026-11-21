@@ -198,12 +198,105 @@ describe('createHeldKeysRelay', () => {
     assert.deepEqual(relay.heldElsewhere(TAB + 1, INNER), []);
   });
 
+  it('forgets a key at the release of the Meta key it went down under, in whichever frame', () => {
+    const relay = createHeldKeysRelay();
+    relay.report(TAB, TOP, { event: 'down', code: 'KeyA', key: 'a', underMeta: true });
+    relay.report(TAB, TOP, { event: 'down', code: 'KeyB', key: 'b' });
+    relay.report(TAB, INNER, { event: 'press' });
+    relay.report(TAB, TOP, { event: 'blur' });
+    relay.report(TAB, INNER, { event: 'focus' });
+    relay.report(TAB, INNER, { event: 'metaup' });
+    assert.deepEqual(relay.heldElsewhere(TAB, INNER), ['b']);
+  });
+
+  it('forgets a handed-over key with the frame that first reported it', () => {
+    const relay = createHeldKeysRelay();
+    relay.report(TAB, TOP, { event: 'down', code: 'KeyA', key: 'a' });
+    relay.report(TAB, INNER, { event: 'press' });
+    relay.report(TAB, INNER, { event: 'focus' });
+    // The first frame never said what it saw of the key before the focus left it.
+    relay.forgetFrame(TAB, TOP);
+    assert.deepEqual(relay.heldElsewhere(TAB, INNER), []);
+  });
+
+  describe('a watch: the keys held elsewhere at an action that is stored later', () => {
+    it('keeps a key the action’s own frame releases afterwards', () => {
+      const relay = createHeldKeysRelay();
+      relay.report(TAB, TOP, { event: 'down', code: 'KeyA', key: 'a' });
+      relay.report(TAB, INNER, { event: 'press' });
+      relay.report(TAB, TOP, { event: 'blur' });
+      relay.report(TAB, INNER, { event: 'focus' });
+      const watch = relay.watch(TAB, INNER);
+      relay.report(TAB, INNER, { event: 'up', code: 'KeyA' });
+      relay.report(TAB, INNER, { event: 'blur' });
+      relay.report(TAB, INNER, { event: 'clear' });
+      assert.deepEqual(watch.take(), ['a']);
+      assert.deepEqual(relay.heldElsewhere(TAB, INNER), []);
+    });
+
+    it('loses a key another frame reports released: when is not known', () => {
+      const relay = createHeldKeysRelay();
+      relay.report(TAB, TOP, { event: 'down', code: 'KeyA', key: 'a' });
+      relay.report(TAB, TOP, { event: 'down', code: 'KeyB', key: 'b' });
+      const watch = relay.watch(TAB, INNER);
+      relay.report(TAB, TOP, { event: 'up', code: 'KeyA' });
+      assert.deepEqual(watch.take(), ['b']);
+    });
+
+    it('loses a key whose frame loses the focus, is gone, or drags', () => {
+      for (const lose of [
+        (relay) => relay.report(TAB, TOP, { event: 'blur' }),
+        (relay) => relay.report(TAB, TOP, { event: 'clear' }),
+        (relay) => relay.report(TAB, TOP, { event: 'metaup' }),
+        (relay) => relay.forgetFrame(TAB, TOP),
+        (relay) => relay.forgetTab(TAB),
+        (relay) => relay.forgetAll(),
+      ]) {
+        const relay = createHeldKeysRelay();
+        relay.report(TAB, TOP, { event: 'down', code: 'KeyA', key: 'a', underMeta: true });
+        const watch = relay.watch(TAB, INNER);
+        lose(relay);
+        assert.deepEqual(watch.take(), []);
+      }
+    });
+
+    it('keeps a key for an action made at the press that then took the focus', () => {
+      const relay = createHeldKeysRelay();
+      relay.report(TAB, TOP, { event: 'down', code: 'KeyA', key: 'a' });
+      relay.report(TAB, INNER, { event: 'press' });
+      // A right-click is written at its press, ahead of the blur it causes.
+      const atPress = relay.watch(TAB, INNER);
+      const elsewhere = relay.watch(TAB, OTHER);
+      relay.report(TAB, TOP, { event: 'blur' });
+      assert.deepEqual(atPress.take(), ['a']);
+      assert.deepEqual(elsewhere.take(), []);
+    });
+
+    it('does not gain a key that goes down afterwards', () => {
+      const relay = createHeldKeysRelay();
+      const watch = relay.watch(TAB, INNER);
+      relay.report(TAB, TOP, { event: 'down', code: 'KeyA', key: 'a' });
+      assert.deepEqual(watch.take(), []);
+    });
+
+    it('leaves out the key the action is about, and is over once taken', () => {
+      const relay = createHeldKeysRelay();
+      relay.report(TAB, TOP, { event: 'down', code: 'KeyA', key: 'a' });
+      relay.report(TAB, TOP, { event: 'down', code: 'KeyB', key: 'b' });
+      const watch = relay.watch(TAB, INNER, 'KeyA');
+      assert.deepEqual(watch.take(), ['b']);
+      relay.report(TAB, TOP, { event: 'up', code: 'KeyB' });
+      assert.deepEqual(watch.take(), ['b']);
+    });
+  });
+
   it('ignores a report it cannot read', () => {
     const relay = createHeldKeysRelay();
     relay.report(TAB, TOP, { event: 'down', code: 'KeyA', key: 'a' });
     relay.report(TAB, TOP, null);
     relay.report(TAB, TOP, { event: 'down', code: 7, key: 'x' });
     relay.report(TAB, TOP, { event: 'down', code: 'KeyX', key: '' });
+    relay.report(TAB, TOP, { event: 'down', code: '', key: 'x' });
     relay.report(TAB, TOP, { event: 'other' });
     relay.report(null, TOP, { event: 'clear' });
     assert.deepEqual(relay.heldElsewhere(TAB, INNER), ['a']);

@@ -71,12 +71,21 @@ globalThis.chrome = {
     onRemoved: listen('tabRemoved'),
     query: async () => [],
     get: async () => ({}),
-    sendMessage: async () => ({}),
+    // END_TYPING, asked of one frame: answered, unless a case says otherwise.
+    sendMessage: (tabId, message, { frameId } = {}) => {
+      const how = endTyping.get(frameId);
+      if (how === 'gone') return Promise.reject(new Error('Receiving end does not exist'));
+      if (how === 'silent') return new Promise(() => {});
+      return Promise.resolve({ ok: true });
+    },
   },
   scripting: { executeScript: async () => {} },
   alarms: { create() {}, clear() {}, onAlarm: noListener },
   sidePanel: { open: async () => {} },
 };
+
+// How a frame answers END_TYPING: frameId → 'gone' | 'silent'.
+const endTyping = new Map();
 
 const from = (frameId, tabId = TAB) => ({ id: RUNTIME_ID, frameId, tab: { id: tabId } });
 /** A one-way message, as a recorder sends it. */
@@ -106,6 +115,7 @@ describe('SERVICE WORKER: a key held in another frame of the tab', () => {
     await globalThis.chrome.storage.local.set({ recording: true });
     await new Promise((resolve) => setTimeout(resolve, 10));
     storage.pendingActions = [];
+    endTyping.clear();
     tell(TOP, { type: 'FRAME_READY' });
     tell(INNER, { type: 'FRAME_READY' });
     tell(TOP, { type: 'FRAME_READY' }, TAB + 1);
@@ -148,12 +158,44 @@ describe('SERVICE WORKER: a key held in another frame of the tab', () => {
     assert.equal('held_keys' in stored, false);
   });
 
-  it('regression_779_the_key_is_read_as_the_action_arrives', async () => {
+  it('regression_779_a_release_the_action_s_own_frame_reports_afterwards_leaves_the_key_named', async () => {
     held(TOP, { event: 'down', code: 'Escape', key: 'Escape' });
+    tell(INNER, { type: 'POINTER_PRESSED' });
+    held(TOP, { event: 'blur' });
+    held(INNER, { event: 'focus' });
     const appended = append(INNER, click());
-    held(TOP, { event: 'up', code: 'Escape' });
+    held(INNER, { event: 'up', code: 'Escape' });
     assert.deepEqual((await appended).held_keys, ['Escape']);
     assert.deepEqual((await append(INNER, click())).held_keys, []);
+  });
+
+  it('regression_779_a_release_another_frame_reports_before_the_action_is_stored_unnames_the_key', async () => {
+    // The other frame's page was busy: its report of a release made before
+    // the click arrives after the click's.
+    held(TOP, { event: 'down', code: 'Escape', key: 'Escape' });
+    tell(INNER, { type: 'POINTER_PRESSED' });
+    held(INNER, { event: 'focus' });
+    const appended = append(INNER, click());
+    held(TOP, { event: 'up', code: 'Escape' });
+    held(TOP, { event: 'blur' });
+    assert.deepEqual((await appended).held_keys, []);
+  });
+
+  it('regression_779_the_keys_of_a_frame_that_does_not_answer_the_press_are_forgotten', async () => {
+    held(TOP, { event: 'down', code: 'Escape', key: 'Escape' });
+    endTyping.set(TOP, 'silent');
+    tell(INNER, { type: 'POINTER_PRESSED' });
+    held(INNER, { event: 'focus' });
+    assert.deepEqual((await append(INNER, click())).held_keys, []);
+    endTyping.delete(TOP);
+    assert.deepEqual((await append(INNER, click())).held_keys, []);
+  });
+
+  it('regression_779_the_keys_of_a_frame_that_is_gone_at_the_press_are_forgotten', async () => {
+    held(INNER, { event: 'down', code: 'Escape', key: 'Escape' });
+    endTyping.set(INNER, 'gone');
+    tell(TOP, { type: 'POINTER_PRESSED' });
+    assert.deepEqual((await append(TOP, click())).held_keys, []);
   });
 
   it('regression_779_a_press_hands_the_key_to_the_frame_it_gave_the_focus', async () => {
