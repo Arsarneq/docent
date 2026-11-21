@@ -784,6 +784,15 @@ impl WorkerPool {
         idx
     }
 
+    /// The typing in a field has ended with no event to dispatch: a window
+    /// the recording keeps nothing of (the recorder's own window, or one
+    /// outside the application recorded) came to the front. The `type` held
+    /// is written then, as it is when a recorded window comes to the front
+    /// (docent#768).
+    pub fn end_typing(&mut self) {
+        self.tell_typing_worker(WorkerMessage::EndTyping);
+    }
+
     /// Send the typing worker a message that is no event: that the typing in
     /// a field has ended, or that a menu item was clicked. With no typing
     /// worker yet there is no pending `type` and no field typed into; a

@@ -112,6 +112,9 @@ enum BridgeMessage {
         barrier_id: u64,
         done: std::sync::mpsc::Sender<Vec<usize>>,
     },
+    /// A window the recording keeps nothing of came to the front, away from
+    /// the field typed into (docent#768). FIFO-ordered behind the keys already sent.
+    TypingEnded,
 }
 
 /// A pending commit-barrier request handed from the command thread to the
@@ -941,6 +944,7 @@ impl CaptureLayer for WindowsCapture {
                         let wedged = pool.flush_all(barrier_id, FLUSH_BARRIER_TIMEOUT);
                         let _ = done.send(wedged);
                     }
+                    BridgeMessage::TypingEnded => pool.end_typing(),
                 }
             }
             // Channel closed (input thread dropped raw_tx) — return pool for shutdown.
@@ -1492,6 +1496,29 @@ fn input_send_raw_event(mut event: RawEvent) {
     });
 }
 
+/// What the Input_Thread does with a window event the scope filters drop:
+/// nothing is written for it, and a dropped window that comes to the front
+/// (`EVENT_SYSTEM_FOREGROUND`) has taken the keyboard from the field typed
+/// into, so the pool is told the typing has ended. Without this the field's
+/// `type` waited for the next key or click in a recorded window, and text
+/// typed last in a step was not in the step when the person went to the
+/// recorder's panel to complete it (docent#768).
+///
+/// A pointer press on a dropped window is no such end by itself: a window
+/// that takes no focus (an on-screen keyboard, the emoji panel) leaves the
+/// person typing in the field. Any other window event of a dropped window
+/// tells the pool nothing.
+fn input_dropped_window_event(event: u32) {
+    if event != EVENT_SYSTEM_FOREGROUND as u32 {
+        return;
+    }
+    INPUT_RAW_SENDER.with(|s| {
+        if let Some(sender) = s.borrow().as_ref() {
+            let _ = sender.send(BridgeMessage::TypingEnded);
+        }
+    });
+}
+
 /// Forward a pending commit-barrier request (docent#298) onto the Input_Thread's
 /// own bridge sender. Called from the message pump on `WM_APP_FLUSH`, so the
 /// resulting [`BridgeMessage::Flush`] is FIFO-ordered behind every raw event the
@@ -1887,6 +1914,7 @@ unsafe fn input_win_event_handle(
 
     // PID exclusion check (cached — covers both PID tree and ownership).
     if !input_should_keep_event_cached(process_id, excluded, hwnd) {
+        input_dropped_window_event(event);
         return;
     }
 
@@ -4475,6 +4503,10 @@ mod tests {
         RawEventType, CLICK_IS_MIDDLE_BUTTON, DRAG_THRESHOLD_PX, HWND, INPUT_INCLUDED_PID,
         INPUT_PID_CACHE, POINT, WM_LBUTTONDOWN, WM_MBUTTONDOWN, WM_MOUSEWHEEL, WM_RBUTTONDOWN,
     };
+    use super::{
+        input_dropped_window_event, BridgeMessage, EVENT_OBJECT_FOCUS, EVENT_OBJECT_VALUECHANGE,
+        EVENT_SYSTEM_FOREGROUND, INPUT_RAW_SENDER,
+    };
     use std::cell::{Cell, RefCell};
     use std::collections::HashMap;
 
@@ -4483,6 +4515,23 @@ mod tests {
     const OTHER_APP: u32 = 777; // some other running application
     const DOCENT: u32 = 1001; // Docent's own process (the excluded one)
     const DIALOG_HOST: u32 = 2002; // the process hosting a dialog Docent opened
+
+    /// A dropped window that comes to the front tells the pool that the
+    /// typing has ended, and sends no event of that window; its other window
+    /// events tell the pool nothing (docent#768).
+    #[test]
+    fn regression_768_a_dropped_window_that_comes_to_the_front_ends_the_typing() {
+        let (tx, rx) = std::sync::mpsc::channel::<BridgeMessage>();
+        INPUT_RAW_SENDER.with(|s| *s.borrow_mut() = Some(tx));
+        input_dropped_window_event(EVENT_SYSTEM_FOREGROUND as u32);
+        assert!(matches!(rx.try_recv(), Ok(BridgeMessage::TypingEnded)));
+        assert!(rx.try_recv().is_err(), "one message only");
+        for other in [EVENT_OBJECT_FOCUS as u32, EVENT_OBJECT_VALUECHANGE as u32] {
+            input_dropped_window_event(other);
+            assert!(rx.try_recv().is_err(), "event {other:#x}");
+        }
+        INPUT_RAW_SENDER.with(|s| *s.borrow_mut() = None);
+    }
 
     /// A verdict cache for one capture session's worth of events, plus a count
     /// of the owner lookups the decision spent against it.
