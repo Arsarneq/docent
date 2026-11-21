@@ -4792,6 +4792,31 @@ fn regression_751_a_value_change_reported_twice_after_a_menu_command_is_one_type
     assert_eq!(type_values_of(&events), vec!["h", "h"], "got {events:?}");
 }
 
+/// The stated limit of the menu command: which item was clicked is not read,
+/// so after an item that pasted nothing (Save, Copy) a report that repeats
+/// the field's value is taken for a paste and written, once.
+#[test]
+fn regression_751_a_menu_item_that_pasted_nothing_takes_the_next_report_for_its_text() {
+    let (backend, scene, _) = MovingFocusBackend::new(file_name_field(""));
+    let harness = WorkerTestHarness::new(backend);
+    paste_h_with_the_key(&harness, &scene);
+
+    // The click on the item changes no text; a key follows, and only then
+    // does the program report the field's value once more, and again.
+    harness.event_tx.send(WorkerMessage::EndTyping).unwrap();
+    harness.event_tx.send(WorkerMessage::MenuCommand).unwrap();
+    harness.send_event(in_dialog(layout_key(3, now_ms(), 0x24)));
+    thread::sleep(Duration::from_millis(150));
+    harness.send_event(in_dialog(value_change(4, now_ms(), DIALOG)));
+    thread::sleep(Duration::from_millis(150));
+    harness.send_event(in_dialog(value_change(5, now_ms(), DIALOG)));
+
+    thread::sleep(Duration::from_millis(900));
+    let events = harness.shutdown();
+
+    assert_eq!(type_values_of(&events), vec!["h", "h"], "got {events:?}");
+}
+
 /// A menu command with no field typed into before it waits for nothing: the
 /// first text of a field is recorded as ever.
 #[test]
