@@ -1724,18 +1724,27 @@ fn is_printable_key(raw: &RawEvent) -> bool {
     is_typing_key_code(raw.key_code) && !meta && ctrl == alt
 }
 
-/// Whether a keystroke is a dead key: a key the keyboard layout of the
-/// foreground window's thread marks as one (the dead-key flag, bit 31 of the
-/// value the keyboard hook read for the key with no modifier). It enters
-/// nothing by itself; its accent goes into the character the next key enters.
-/// The flag is the unmodified key's, so it counts for a press with neither
-/// Shift nor AltGr (Ctrl and Alt together): a key that is dead only with one
-/// of them is not known as a dead key, and a key that is dead only without
-/// them is none when pressed with one.
+/// Whether a keystroke is a dead key: it enters nothing by itself; its accent
+/// goes into the character the next key enters.
+///
+/// Where the keyboard hook asked the layout about the key as pressed, with
+/// the modifiers held ([`super::held_keys::dead_as_pressed_of`]), the answer
+/// is the layout's: a key dead with Shift or AltGr is a dead key, and a key
+/// dead only without them is none when pressed with one.
+///
+/// Where the hook did not ask, what is known is the dead-key flag of the
+/// unmodified key (bit 31 of the layout character). It counts for a press
+/// with neither Shift nor AltGr (Ctrl and Alt together); with one of them the
+/// key is taken for an ordinary one.
 fn is_dead_key(raw: &RawEvent) -> bool {
+    if !is_printable_key(raw) {
+        return false;
+    }
+    if let Some(dead) = super::held_keys::dead_as_pressed_of(raw.callback_params[3]) {
+        return dead;
+    }
     let (ctrl, shift, alt, _meta) = raw.modifiers;
-    is_printable_key(raw)
-        && !shift
+    !shift
         && !(ctrl && alt)
         && super::held_keys::layout_char_of(raw.callback_params[3]) & 0x8000_0000 != 0
 }
@@ -2357,7 +2366,7 @@ const KEY_NUMBER_MASK: u64 = (1 << 30) - 1;
 ///
 /// | bits  | holds                                                  |
 /// |-------|--------------------------------------------------------|
-/// | 0–31  | the layout character ([`super::held_keys::layout_char_of`]) |
+/// | 0–31  | the layout character ([`super::held_keys::layout_char_of`]), with the dead-key read in bits 29 and 30 |
 /// | 32    | the repeat mark ([`super::held_keys::KEY_REPEAT_PARAM`]) |
 /// | 33–62 | the key number ([`KEY_NUMBER_MASK`])                   |
 /// | 63    | clear: the parameter stays a positive `i64`            |

@@ -53,10 +53,40 @@ pub const KEY_REPEAT_PARAM: i64 = 1 << 32;
 
 /// The layout character a keyboard event carries: the low 32 bits of
 /// `RawEvent::callback_params[3]`, below the repeat mark
-/// ([`KEY_REPEAT_PARAM`]). What the value means is
-/// `worker_pool::punctuation_key_name`'s to state.
+/// ([`KEY_REPEAT_PARAM`]), without the two marks of the dead-key read
+/// ([`dead_as_pressed_of`]) that sit in bits the layout's value leaves clear.
+/// What the value means is `worker_pool::punctuation_key_name`'s to state.
 pub const fn layout_char_of(param: i64) -> u32 {
-    param as u32
+    (param & !(KEY_DEAD_READ_PARAM | KEY_DEAD_AS_PRESSED_PARAM)) as u32
+}
+
+/// The mark that the keyboard hook asked the layout whether the key is a dead
+/// key as pressed, with the modifiers held: bit 29 of
+/// `RawEvent::callback_params[3]`, inside the layout character's 32 bits. The
+/// layout's own value uses the low 16 bits and bit 31, so the bit is free.
+const KEY_DEAD_READ_PARAM: i64 = 1 << 29;
+/// The answer, beside the read mark: set where the key is dead as pressed.
+const KEY_DEAD_AS_PRESSED_PARAM: i64 = 1 << 30;
+
+/// What the keyboard hook read of the key as pressed, as a keyboard event
+/// carries it: `Some(true)` for a dead key with the modifiers held,
+/// `Some(false)` for a key that enters a character or nothing with them, and
+/// `None` where the hook did not ask.
+pub const fn dead_as_pressed_param(read: Option<bool>) -> i64 {
+    match read {
+        None => 0,
+        Some(false) => KEY_DEAD_READ_PARAM,
+        Some(true) => KEY_DEAD_READ_PARAM | KEY_DEAD_AS_PRESSED_PARAM,
+    }
+}
+
+/// The read [`dead_as_pressed_param`] put into `callback_params[3]`.
+pub const fn dead_as_pressed_of(param: i64) -> Option<bool> {
+    if param & KEY_DEAD_READ_PARAM == 0 {
+        None
+    } else {
+        Some(param & KEY_DEAD_AS_PRESSED_PARAM != 0)
+    }
 }
 
 /// What the keyboard hook read of the input method at a key press: whether
@@ -520,6 +550,15 @@ mod tests {
             );
         }
         assert_eq!(input_method_param(None), 0);
+        // The dead-key read shares the layout character's word and leaves
+        // the character, its dead-key flag and the repeat mark as they are.
+        let layout = 0x8000_00B4_i64;
+        for read in [None, Some(false), Some(true)] {
+            let param = layout | KEY_REPEAT_PARAM | dead_as_pressed_param(read);
+            assert_eq!(dead_as_pressed_of(param), read);
+            assert_eq!(layout_char_of(param), 0x8000_00B4);
+            assert_ne!(param & KEY_REPEAT_PARAM, 0);
+        }
         assert_eq!(input_method_of(0), None);
         // The scan code and the extended mark share the parameter and are
         // no input-method read.

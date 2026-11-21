@@ -9152,25 +9152,116 @@ fn a_value_reported_again_behind_a_waiting_dead_key_leaves_it_to_be_written() {
     );
 }
 
+/// A dead key as the hook read it for the press itself: the layout asked
+/// about the key with the modifiers held (docent#769).
+fn dead_key_as_pressed(seq: u64, modifiers: (bool, bool, bool, bool), dead: bool) -> RawEvent {
+    let mut key = dead_key(seq);
+    key.modifiers = modifiers;
+    key.callback_params[3] |=
+        docent_desktop_lib::capture::held_keys::dead_as_pressed_param(Some(dead));
+    key
+}
+
 #[test]
 fn a_key_that_is_dead_only_unshifted_is_no_dead_key_when_pressed_with_shift() {
     // The layout marks the key as dead for the press with no modifier. With
     // Shift it enters a character of its own (the German `^` key enters `°`),
-    // so its value change makes it text and it is not written as a key.
+    // so its value change makes it text and it is not written as a key. This
+    // holds where the hook asked about the press (and was told it is not
+    // dead) and where it could not ask.
+    for asked in [true, false] {
+        let (backend, scene, _) = MovingFocusBackend::new(file_name_field(""));
+        let harness = WorkerTestHarness::new(backend);
+        let key = if asked {
+            dead_key_as_pressed(1, (false, true, false, false), false)
+        } else {
+            let mut key = dead_key(1);
+            key.modifiers = (false, true, false, false);
+            key
+        };
+        harness.send_event(key);
+        {
+            let mut scene = scene.lock().unwrap();
+            scene.element.text = Some("\u{b0}".to_string());
+            scene.element.value = Some("\u{b0}".to_string());
+        }
+        harness.send_event(in_dialog(value_change(2, now_ms(), DIALOG)));
+        thread::sleep(Duration::from_millis(900));
+        harness.event_tx.send(WorkerMessage::EndTyping).unwrap();
+        assert_eq!(
+            types_and_keys(&harness.shutdown()),
+            vec!["type \u{b0}"],
+            "asked: {asked}"
+        );
+    }
+}
+
+/// A key that is dead with Shift or with AltGr held (the Danish acute key
+/// with Shift is the grave accent, the diaeresis key with AltGr the tilde) is
+/// a dead key as much as with no modifier: it waits for the key after it
+/// however long the person takes, and is part of that key's text, with no
+/// `key` beside it (docent#769).
+#[test]
+fn regression_769_a_key_dead_with_shift_or_altgr_is_text_when_the_next_key_enters_text() {
+    for (name, modifiers, text) in [
+        ("Shift", (false, true, false, false), "\u{e8}"),
+        ("AltGr", (true, false, true, false), "\u{f1}"),
+    ] {
+        let (backend, scene, _) = MovingFocusBackend::new(file_name_field(""));
+        let harness = WorkerTestHarness::new(backend);
+
+        harness.send_event(dead_key_as_pressed(1, modifiers, true));
+        thread::sleep(Duration::from_millis(900));
+        harness.send_event(in_dialog(layout_key(2, now_ms(), 0x45)));
+        {
+            let mut scene = scene.lock().unwrap();
+            scene.element.text = Some(text.to_string());
+            scene.element.value = Some(text.to_string());
+        }
+        harness.send_event(in_dialog(value_change(3, now_ms(), DIALOG)));
+
+        thread::sleep(Duration::from_millis(900));
+        assert_eq!(
+            types_and_keys(&harness.shutdown()),
+            vec![format!("type {text}")],
+            "{name}"
+        );
+    }
+}
+
+/// A key the layout marks dead with no modifier, pressed with a modifier that
+/// makes it an ordinary character (the Danish acute key with AltGr enters
+/// `|`), is no dead key: with no value change it is written as a `key` after
+/// the wait, not held for the key after it (docent#769).
+#[test]
+fn regression_769_a_key_not_dead_as_pressed_is_an_ordinary_key() {
+    let (backend, _scene, _) = MovingFocusBackend::new(file_name_field(""));
+    let harness = WorkerTestHarness::new(backend);
+
+    harness.send_event(dead_key_as_pressed(1, (true, false, true, false), false));
+    thread::sleep(Duration::from_millis(900));
+    let written_at_the_wait = types_and_keys(&harness.shutdown());
+    assert_eq!(written_at_the_wait, vec!["key \u{b4}"]);
+}
+
+/// A plain press the hook asked about and found dead is a dead key, as it is
+/// by the layout's own mark where the hook could not ask.
+#[test]
+fn regression_769_a_plain_dead_key_the_hook_asked_about_is_text_with_its_letter() {
     let (backend, scene, _) = MovingFocusBackend::new(file_name_field(""));
     let harness = WorkerTestHarness::new(backend);
-    let mut key = dead_key(1);
-    key.modifiers = (false, true, false, false);
-    harness.send_event(key);
+
+    harness.send_event(dead_key_as_pressed(1, (false, false, false, false), true));
+    thread::sleep(Duration::from_millis(900));
+    harness.send_event(in_dialog(layout_key(2, now_ms(), 0x45)));
     {
         let mut scene = scene.lock().unwrap();
-        scene.element.text = Some("\u{b0}".to_string());
-        scene.element.value = Some("\u{b0}".to_string());
+        scene.element.text = Some("\u{e9}".to_string());
+        scene.element.value = Some("\u{e9}".to_string());
     }
-    harness.send_event(in_dialog(value_change(2, now_ms(), DIALOG)));
+    harness.send_event(in_dialog(value_change(3, now_ms(), DIALOG)));
     thread::sleep(Duration::from_millis(900));
-    harness.event_tx.send(WorkerMessage::EndTyping).unwrap();
-    assert_eq!(types_and_keys(&harness.shutdown()), vec!["type \u{b0}"]);
+    assert_eq!(types_and_keys(&harness.shutdown()), vec!["type \u{e9}"]);
 }
 
 #[test]

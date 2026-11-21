@@ -362,17 +362,21 @@ none of them.
 If a value-change event arrives (producing a `type` action), the buffered
 keys are discarded (superseded). If no value-change arrives within 500 ms of
 the last buffered key (non-editable control like Calculator), the keys are
-emitted individually. A dead key (a key the keyboard layout marks as one, read
-for the key with no modifier) is the exception to that wait: it enters
+emitted individually. A dead key (a key the keyboard layout of the foreground
+window says is one as pressed, with Shift or AltGr where held) is the
+exception to that wait: it enters
 nothing by itself, so it stays buffered until the next key or the end of the
 typing decides what it was; a value change that comes while it waits is the
 text of the keys before it. Where the character key after it enters text it
 is part of that text; where a key that is no typing key follows, or the
 typing ends, it is written as a `key`, as on the extension, behind the keys
-pressed before it that are still buffered. A key that is
-dead only with Shift or AltGr is not known as one and is written after the
-wait; a departure (core CP-18). A key that is dead only without them is an
-ordinary key when pressed with one. The `type` itself is held for the field and carried
+pressed before it that are still buffered. The keyboard hook asks the layout
+at each typing key with the system's read that leaves the keyboard state as
+it is, so the accent pending in the application is not touched. A Windows
+before version 10.0.14393 has no such read: there only the layout's mark for
+the key with no modifier is known, a key dead only with Shift or AltGr is
+written as a `key` after the wait, and a key pressed with one of them is
+taken for an ordinary key; a departure (core CP-18). The `type` itself is held for the field and carried
 forward to each new value, and it is written when the typing in the field
 ends: a key that is no typing key is pressed, a typing key is pressed in
 another element, the pointer is pressed (a click, a right-click or a drag),
