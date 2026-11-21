@@ -112,6 +112,9 @@ enum BridgeMessage {
         barrier_id: u64,
         done: std::sync::mpsc::Sender<Vec<usize>>,
     },
+    /// The person left the field typed into for a window the recording keeps
+    /// nothing of (docent#768). FIFO-ordered behind the keys already sent.
+    TypingEnded,
 }
 
 /// A pending commit-barrier request handed from the command thread to the
@@ -941,6 +944,7 @@ impl CaptureLayer for WindowsCapture {
                         let wedged = pool.flush_all(barrier_id, FLUSH_BARRIER_TIMEOUT);
                         let _ = done.send(wedged);
                     }
+                    BridgeMessage::TypingEnded => pool.end_typing(),
                 }
             }
             // Channel closed (input thread dropped raw_tx) — return pool for shutdown.
@@ -1492,6 +1496,24 @@ fn input_send_raw_event(mut event: RawEvent) {
     });
 }
 
+/// Tell the pool that input in a window the scope filters drop has ended the
+/// typing in a recorded field, where input of this kind ends it
+/// ([`super::worker_pool::ends_typing_outside_the_recording`]). The window's
+/// own event is not sent: nothing is written for it. Without this the field's
+/// `type` waited for the next key or click in a recorded window, so text
+/// typed last in a step was not in the step when the person went to the
+/// recorder's panel to complete it (docent#768).
+fn input_note_left_for_dropped_window(event_type: &RawEventType) {
+    if !super::worker_pool::ends_typing_outside_the_recording(event_type) {
+        return;
+    }
+    INPUT_RAW_SENDER.with(|s| {
+        if let Some(sender) = s.borrow().as_ref() {
+            let _ = sender.send(BridgeMessage::TypingEnded);
+        }
+    });
+}
+
 /// Forward a pending commit-barrier request (docent#298) onto the Input_Thread's
 /// own bridge sender. Called from the message pump on `WM_APP_FLUSH`, so the
 /// resulting [`BridgeMessage::Flush`] is FIFO-ordered behind every raw event the
@@ -1887,6 +1909,11 @@ unsafe fn input_win_event_handle(
 
     // PID exclusion check (cached — covers both PID tree and ownership).
     if !input_should_keep_event_cached(process_id, excluded, hwnd) {
+        // A dropped window that comes to the front has taken the person
+        // away from the field typed into.
+        if event == EVENT_SYSTEM_FOREGROUND as u32 {
+            input_note_left_for_dropped_window(&RawEventType::Foreground);
+        }
         return;
     }
 
@@ -2570,6 +2597,12 @@ unsafe fn input_mouse_ll_handle(n_code: i32, w_param: WPARAM, l_param: LPARAM) {
             INPUT_MOUSE_DOWN_POS.with(|p| p.set(None));
             INPUT_LEFT_PRESS.with(|p| p.set(None));
             double_click_break_pair();
+        } else if msg == WM_LBUTTONDOWN as u32 {
+            // A press on a dropped window ends the typing in a recorded
+            // field, as a click in a recorded window does.
+            input_note_left_for_dropped_window(&RawEventType::Click);
+        } else if msg == WM_RBUTTONDOWN as u32 {
+            input_note_left_for_dropped_window(&RawEventType::RightClick);
         }
     }
 }
@@ -4475,6 +4508,7 @@ mod tests {
         RawEventType, CLICK_IS_MIDDLE_BUTTON, DRAG_THRESHOLD_PX, HWND, INPUT_INCLUDED_PID,
         INPUT_PID_CACHE, POINT, WM_LBUTTONDOWN, WM_MBUTTONDOWN, WM_MOUSEWHEEL, WM_RBUTTONDOWN,
     };
+    use super::{input_note_left_for_dropped_window, BridgeMessage, INPUT_RAW_SENDER};
     use std::cell::{Cell, RefCell};
     use std::collections::HashMap;
 
@@ -4483,6 +4517,37 @@ mod tests {
     const OTHER_APP: u32 = 777; // some other running application
     const DOCENT: u32 = 1001; // Docent's own process (the excluded one)
     const DIALOG_HOST: u32 = 2002; // the process hosting a dialog Docent opened
+
+    /// A press on, or a switch to, a window the filters drop tells the pool
+    /// that the typing has ended, and sends no event of that window; other
+    /// input there tells it nothing (docent#768).
+    #[test]
+    fn regression_768_input_in_a_dropped_window_that_ends_typing_is_told_to_the_pool() {
+        let (tx, rx) = std::sync::mpsc::channel::<BridgeMessage>();
+        INPUT_RAW_SENDER.with(|s| *s.borrow_mut() = Some(tx));
+        for ender in [
+            RawEventType::Click,
+            RawEventType::RightClick,
+            RawEventType::Foreground,
+        ] {
+            input_note_left_for_dropped_window(&ender);
+            assert!(
+                matches!(rx.try_recv(), Ok(BridgeMessage::TypingEnded)),
+                "{ender:?}"
+            );
+            assert!(rx.try_recv().is_err(), "{ender:?}: one message only");
+        }
+        for other in [
+            RawEventType::Scroll,
+            RawEventType::Focus,
+            RawEventType::Keyboard,
+            RawEventType::ValueChange,
+        ] {
+            input_note_left_for_dropped_window(&other);
+            assert!(rx.try_recv().is_err(), "{other:?}");
+        }
+        INPUT_RAW_SENDER.with(|s| *s.borrow_mut() = None);
+    }
 
     /// A verdict cache for one capture session's worth of events, plus a count
     /// of the owner lookups the decision spent against it.

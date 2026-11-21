@@ -14,7 +14,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc;
 use std::sync::Arc;
 
-use docent_desktop_lib::capture::worker_pool::{RawEvent, RawEventType, WorkerMessage, WorkerPool};
+use docent_desktop_lib::capture::worker_pool::{
+    ends_typing_outside_the_recording, RawEvent, RawEventType, WorkerMessage, WorkerPool,
+};
 use docent_desktop_lib::capture::ActionEvent;
 use proptest::prelude::*;
 
@@ -4135,6 +4137,100 @@ fn regression_719_the_event_that_ends_the_typing_writes_the_type() {
             vec!["abc"],
             "{name}: the text typed after it is the next type, got {after:?}"
         );
+    }
+}
+
+/// The person leaves the recorded windows for one the recording keeps
+/// nothing of (the recorder's own window to complete the step, or a window
+/// outside the application recorded): no event of that window reaches the
+/// pool, and the typing has ended all the same. Told so, the pool has the
+/// `type` written at once, with no further key or click in the application
+/// (docent#768), and the text typed on return is the next `type`.
+#[test]
+fn regression_768_leaving_for_a_window_not_recorded_writes_the_type() {
+    let gate = closed_gate();
+    open_gate(&gate);
+    let live = Arc::new(Mutex::new(String::new()));
+    let (action_tx, action_rx) = mpsc::channel::<ActionEvent>();
+    let worker_gate = Arc::clone(&gate);
+    let worker_live = Arc::clone(&live);
+    let mut pool = WorkerPool::new(
+        3,
+        action_tx,
+        move |index, rx, queue_len, sender, pending| {
+            let backend = TypingBackend::edit_live(&worker_gate, &worker_live);
+            thread::spawn(move || {
+                let ep = Arc::new(AtomicU32::new(0));
+                worker_loop(index, backend, rx, queue_len, sender, ep, pending, None);
+            })
+        },
+    );
+    let mut seq = 0;
+    type_character(&live, 'a', &mut seq, |raw| pool.dispatch(raw));
+    type_character(&live, 'b', &mut seq, |raw| pool.dispatch(raw));
+    let typed_until = seq;
+    pool.end_typing();
+    thread::sleep(Duration::from_millis(200));
+    let before_stop: Vec<ActionEvent> = action_rx.try_iter().collect();
+    assert_eq!(
+        type_values_of(&before_stop),
+        vec!["ab"],
+        "the typing is written when the person leaves, got {before_stop:?}"
+    );
+    assert_eq!(
+        before_stop.len(),
+        1,
+        "and nothing beside it, got {before_stop:?}"
+    );
+    assert_eq!(before_stop[0].sequence_id, Some(typed_until));
+
+    type_character(&live, 'c', &mut seq, |raw| pool.dispatch(raw));
+    pool.shutdown();
+    let after: Vec<ActionEvent> = action_rx.try_iter().collect();
+    assert_eq!(
+        type_values_of(&after),
+        vec!["abc"],
+        "the text typed on return is the next type, got {after:?}"
+    );
+}
+
+/// Leaving with nothing typed tells no worker anything it has to act on: no
+/// typing worker is chosen by it, and nothing is written.
+#[test]
+fn regression_768_leaving_with_nothing_typed_writes_nothing() {
+    let (action_tx, action_rx) = mpsc::channel::<ActionEvent>();
+    let mut pool = WorkerPool::new(
+        3,
+        action_tx,
+        move |index, rx, queue_len, sender, pending| {
+            let backend = MockBackend::new();
+            thread::spawn(move || {
+                let ep = Arc::new(AtomicU32::new(0));
+                worker_loop(index, backend, rx, queue_len, sender, ep, pending, None);
+            })
+        },
+    );
+    pool.end_typing();
+    pool.shutdown();
+    let written: Vec<ActionEvent> = action_rx.try_iter().collect();
+    assert!(written.is_empty(), "got {written:?}");
+}
+
+/// What ends the typing from a window not recorded is what ends it from a
+/// recorded one: a press of the left or right button, a drag, a window that
+/// comes to the front. A scroll, a focus report or a key there ends nothing.
+#[test]
+fn regression_768_the_same_input_ends_the_typing_from_a_window_not_recorded() {
+    for (name, ender) in typing_enders() {
+        assert!(ends_typing_outside_the_recording(&ender), "{name}");
+    }
+    for (name, other) in [
+        ("scroll", RawEventType::Scroll),
+        ("focus", RawEventType::Focus),
+        ("key", RawEventType::Keyboard),
+        ("value change", RawEventType::ValueChange),
+    ] {
+        assert!(!ends_typing_outside_the_recording(&other), "{name}");
     }
 }
 

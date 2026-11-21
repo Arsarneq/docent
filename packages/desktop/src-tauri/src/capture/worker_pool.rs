@@ -784,6 +784,15 @@ impl WorkerPool {
         idx
     }
 
+    /// The typing in a field has ended with no event to dispatch: the person
+    /// pressed a mouse button on, or brought to the front, a window the
+    /// recording keeps nothing of (the recorder's own window, or one outside
+    /// the application recorded). The `type` held is written then, as it is
+    /// ahead of a click in a recorded window (docent#768).
+    pub fn end_typing(&mut self) {
+        self.tell_typing_worker(WorkerMessage::EndTyping);
+    }
+
     /// Send the typing worker a message that is no event: that the typing in
     /// a field has ended, or that a menu item was clicked. With no typing
     /// worker yet there is no pending `type` and no field typed into; a
@@ -4254,6 +4263,14 @@ fn ends_typing(event_type: &RawEventType) -> bool {
             | RawEventType::Drop { .. }
             | RawEventType::Foreground
     )
+}
+
+/// Whether input of this kind in a window the recording keeps nothing of
+/// ends the typing in a recorded field. The same input ends it as in a
+/// recorded window ([`ends_typing`]): the person left the field for that
+/// window. No action is written for the input itself.
+pub fn ends_typing_outside_the_recording(event_type: &RawEventType) -> bool {
+    ends_typing(event_type)
 }
 
 // ---------------------------------------------------------------------------
