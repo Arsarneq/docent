@@ -9098,3 +9098,23 @@ fn a_key_that_is_dead_only_unshifted_is_no_dead_key_when_pressed_with_shift() {
     harness.event_tx.send(WorkerMessage::EndTyping).unwrap();
     assert_eq!(types_and_keys(&harness.shutdown()), vec!["type \u{b0}"]);
 }
+
+#[test]
+fn a_key_that_took_no_text_is_written_ahead_of_the_dead_key_behind_it_when_the_typing_ends() {
+    // X and a dead key in a control that reports no value change, a pause
+    // longer than the wait, then the typing ends (a click). Both are keys,
+    // written in the order they were pressed, and before what ended the
+    // typing.
+    let (backend, _scene, _) = MovingFocusBackend::new(file_name_field(""));
+    let harness = WorkerTestHarness::new(backend);
+    harness.send_event(in_dialog(layout_key(1, now_ms(), 0x58)));
+    harness.send_event(dead_key(2));
+    thread::sleep(Duration::from_millis(900));
+    harness.event_tx.send(WorkerMessage::EndTyping).unwrap();
+    thread::sleep(Duration::from_millis(30));
+    assert_eq!(
+        types_and_keys(&harness.drain_actions()),
+        vec!["key X", "key \u{b4}"]
+    );
+    harness.shutdown();
+}

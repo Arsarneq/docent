@@ -403,6 +403,10 @@ pub struct PendingBuffers {
     /// the typing decides what it was. No pending `type` holds its text, so
     /// a `type` written while it waits does not supersede it.
     pub pending_dead_keys: usize,
+    /// The typing ended while those dead keys waited behind keys no value
+    /// change had reached: they are keys now, written behind those keys when
+    /// their wait ends, and no key pressed later makes them text.
+    pub dead_keys_are_keys: bool,
     /// How many of `pending_keys`, from the first, are written as keys after
     /// the pending `type`: their value change came, and its value was read after a later key of the
     /// window had been dispatched, so it was not taken (docent#761). The
@@ -457,6 +461,7 @@ impl PendingBuffers {
         self.pending_keys_last_timestamp = 0;
         self.keys_after_type = 0;
         self.pending_dead_keys = 0;
+        self.dead_keys_are_keys = false;
     }
 
     /// Discard the buffered keys a value read in time made text. A dead key
@@ -469,24 +474,42 @@ impl PendingBuffers {
         self.keys_after_type = 0;
         if waiting == 0 {
             self.pending_keys_last_timestamp = 0;
+            self.dead_keys_are_keys = false;
         }
     }
 
     /// The typing in a field has ended: write the pending `type` and the
-    /// keys after it, then a dead key still waiting for the key after it. No
-    /// character follows it now, so it is a key; no value change that comes
-    /// later is its own. A key ahead of it that no value change has reached
-    /// stays buffered, as it does where no dead key waits.
-    fn end_typing(&mut self, action_sender: &mpsc::Sender<ActionEvent>) {
+    /// keys after it, and settle a dead key still waiting for the key after
+    /// it. No character follows it now, so it is a key; no value change that
+    /// comes later is its own.
+    ///
+    /// Where it is the only key buffered it is written here. Where keys no
+    /// value change has reached are buffered ahead of it, it is written
+    /// behind them, in the order pressed: here where their wait for a value
+    /// change is over at `now`, otherwise when that wait ends
+    /// ([`write_keys_that_took_no_text`]), or behind the `type` their value
+    /// change makes. Writing them here regardless would write a key beside
+    /// its own text.
+    fn end_typing(&mut self, now: u64, action_sender: &mpsc::Sender<ActionEvent>) {
         self.flush_pending_type_only(action_sender);
-        let waiting = self.waiting_dead_keys();
-        let first = self.pending_keys.len() - waiting;
-        for event in self.pending_keys.drain(first..) {
-            let _ = action_sender.send(event);
+        if self.waiting_dead_keys() == 0 {
+            return;
         }
-        self.pending_dead_keys = 0;
-        if self.pending_keys.is_empty() {
-            self.pending_keys_last_timestamp = 0;
+        if self.waiting_dead_keys() == self.pending_keys.len() {
+            self.write_keys(action_sender);
+            return;
+        }
+        self.dead_keys_are_keys = true;
+        write_keys_that_took_no_text(self, now, action_sender);
+    }
+
+    /// How many dead keys at the end of the buffered keys still wait for the
+    /// key after them: none once the end of the typing made them keys.
+    fn undecided_dead_keys(&self) -> usize {
+        if self.dead_keys_are_keys {
+            0
+        } else {
+            self.waiting_dead_keys()
         }
     }
 
@@ -1992,7 +2015,7 @@ pub fn worker_loop<B: AccessibilityBackend>(
             }
             Ok(WorkerMessage::EndTyping) => {
                 // In-memory buffer mutation only — no backend calls inside.
-                lock_buffers(&pending).end_typing(&action_sender);
+                lock_buffers(&pending).end_typing(current_timestamp_ms(), &action_sender);
             }
             Ok(WorkerMessage::MenuCommand) => note_menu_command(&mut state),
             Ok(WorkerMessage::LookAtFocus) => {
@@ -2026,7 +2049,8 @@ pub fn worker_loop<B: AccessibilityBackend>(
                             }));
                         }
                         WorkerMessage::EndTyping => {
-                            lock_buffers(&pending).end_typing(&action_sender);
+                            lock_buffers(&pending)
+                                .end_typing(current_timestamp_ms(), &action_sender);
                         }
                         WorkerMessage::MenuCommand => note_menu_command(&mut state),
                         // No key follows a stop: nothing to look at.
@@ -4004,6 +4028,12 @@ fn handle_keyboard<B: AccessibilityBackend>(
         }) {
             buffers.write_keys(action_sender);
         }
+        // A dead key the end of the typing made a key is no part of the text
+        // this key enters: it and the keys ahead of it are written now, in
+        // the order pressed.
+        if buffers.dead_keys_are_keys {
+            buffers.write_keys(action_sender);
+        }
         // Buffer printable keys — they may be superseded by a type event.
         buffers.pending_keys.push(event);
         buffers.pending_keys_last_timestamp = raw.timestamp;
@@ -4191,14 +4221,17 @@ fn write_keys_that_took_no_text(
     // change came. They wait for the end of the typing, or for a value read
     // in time that makes them part of the `type` (docent#761); the keys
     // behind them that no value change reached are written as any are.
-    // While a dead key waits for the key after it, the wait writes nothing.
+    // While a dead key waits for the key after it, the wait writes nothing;
+    // one the end of the typing made a key is written with the others.
     if buffers.pending_keys.len() > buffers.keys_after_type
-        && buffers.waiting_dead_keys() == 0
+        && buffers.undecided_dead_keys() == 0
         && buffers.pending_keys_last_timestamp > 0
         && debounce_elapsed(now, buffers.pending_keys_last_timestamp, KEY_TEXT_WAIT_MS)
     {
         buffers.write_keys_after_type(false, action_sender);
         buffers.pending_keys_last_timestamp = 0;
+        buffers.pending_dead_keys = 0;
+        buffers.dead_keys_are_keys = false;
     }
 }
 

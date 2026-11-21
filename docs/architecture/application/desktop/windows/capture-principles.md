@@ -368,7 +368,8 @@ nothing by itself, so it stays buffered until the next key or the end of the
 typing decides what it was; a value change that comes while it waits is the
 text of the keys before it. Where the character key after it enters text it
 is part of that text; where a key that is no typing key follows, or the
-typing ends, it is written as a `key`, as on the extension. A key that is
+typing ends, it is written as a `key`, as on the extension, behind the keys
+pressed before it that are still buffered. A key that is
 dead only with Shift or AltGr is not known as one and is written after the
 wait; a departure (core CP-18). A key that is dead only without them is an
 ordinary key when pressed with one. The `type` itself is held for the field and carried
