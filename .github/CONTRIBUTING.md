@@ -185,7 +185,7 @@ npm run test:shared        # shared module unit tests
 
 `npm run test:unit` reads two build outputs: the synced shared code and the desktop frontend bundle. Run `npm run dev:desktop` first to produce both. On a fresh clone the suite is red until it has run.
 
-`npm run test:integration` and `npm run test:e2e` need a one-time harness install first: [the integration suite's steps](../docs/test/integration/desktop.md#running-the-suite) and [the end-to-end suite's steps](../docs/test/e2e.md#running-the-suite).
+`npm run test:integration`, `npm run test:e2e` and `npm run test:e2e:desktop` need a one-time harness install first: [the integration suite's steps](../docs/test/integration/desktop.md#running-the-suite), [the end-to-end suite's steps](../docs/test/e2e.md#running-the-suite) and [the desktop end-to-end suite's steps](../docs/test/e2e/desktop.md#running-the-suite), which also build the app.
 
 The reference implementations under `reference-implementations/` have suites of their own. CI runs them when a diff touches what they read ([Path-filtered test jobs](../docs/guides/ci.md#path-filtered-test-jobs)). Run them from the repository root:
 

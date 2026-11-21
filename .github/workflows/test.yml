@@ -16,6 +16,8 @@ on:
       # failure can't block an extension release (and vice-versa). Empty on
       # push/PR, where the `changes` path filter decides what runs. An unset/empty
       # value runs everything (fail-safe: a caller that forgets it skips nothing).
+      # One job runs for no publish call: desktop-e2e-tests, until it joins
+      # ci-gate (its comment says why).
       platform:
         type: string
         required: false

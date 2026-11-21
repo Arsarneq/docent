@@ -1,6 +1,6 @@
 # Keyboard driver
 
-The desktop end-to-end suite gives the app real keyboard input, the way a person's keyboard does. This driver sends it on Windows with `SendInput`, from a small steps file, and refuses to send anything into a window the steps did not name. The app's hooks see these keys as they see a person's.
+The desktop end-to-end suite gives the app real keyboard input, the way a person's keyboard does. This driver sends it on Windows with `SendInput`, from a small steps file, and checks before each input step that the window in front is the one the steps named, stopping if it is not. The app's hooks see these keys as they see a person's.
 
 ## Files
 

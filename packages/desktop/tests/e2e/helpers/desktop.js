@@ -11,7 +11,10 @@
  * operating-system input, so a click on the panel does not move the
  * foreground. Each test starts the app on a data folder of its own: `APPDATA`
  * points at a new temporary folder, where the app keeps its projects, so a
- * run never reads or removes the data of a Docent installed on the machine.
+ * run never reads or removes the projects of a Docent installed on the
+ * machine. The app's API keys are not kept there but in Windows Credential
+ * Manager, per user, which this does not separate: run the suite as a user
+ * with no Docent keys stored.
  */
 
 import { test as base, chromium } from '@playwright/test';

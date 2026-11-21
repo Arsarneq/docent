@@ -27,7 +27,7 @@ The job runs the driver's own tests first, before it builds the app: the planner
 
 ## Running the suite
 
-On a Windows machine nobody is using, since the suite takes over the keyboard, with any installed Docent closed (the suite's app keeps its data in a temporary folder, but uses the same WebView folder):
+On a Windows machine nobody is using, since the suite takes over the keyboard, as a Windows user with no Docent API keys stored and any installed Docent closed. The suite's app keeps its projects in a temporary folder, but it shares the WebView folder and Windows Credential Manager, where the app keeps its keys, with an installed Docent of the same user:
 
 ```powershell
 npm ci
