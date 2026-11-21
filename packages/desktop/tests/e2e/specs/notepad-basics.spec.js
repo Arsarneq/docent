@@ -87,6 +87,11 @@ test('typing in Notepad and closing it unsaved exports exactly those actions', a
   await panel.fill('#narration-input', 'Type a line and close Notepad without saving');
   await expect(panel.locator('#btn-commit-step')).toBeEnabled();
   await panel.click('#btn-commit-step');
+  // The commit empties the pending list, which disables the button again;
+  // Export sits in the project view, one breadcrumb up.
+  await expect(panel.locator('#btn-commit-step')).toBeDisabled();
+  await panel.click('#bc-project');
+  await expect(panel.locator('#view-project')).toBeVisible();
 
   const doc = await exportProject(app, file);
 
