@@ -88,7 +88,8 @@ export function deserializeState(json) {
 
 /**
  * Read the backend's rejection of `load_state` (commands.rs `LoadError`,
- * sent as `{ kind, path, kept_as, reason }`) as a LoadProblem.
+ * sent as `{ kind, path, kept_as, reason, state }`, `kept_as` and `state` for
+ * a set-aside only) as a LoadProblem.
  *
  * @param {unknown} err
  * @returns {LoadProblem}
@@ -110,8 +111,10 @@ function loadProblemFrom(err) {
  *
  * - A missing file reads as `{}`: empty state, no problem.
  * - A file the backend could not use is never written over: the backend
- *   either moved it aside or refuses saves (application-shell §DSH-3). The
- *   state is empty and `problem` says which, for the panel to tell the user.
+ *   either moved it aside or refuses saves (application-shell §DSH-3), and
+ *   `problem` says which, for the panel to tell the user. The state holds no
+ *   projects: after a set-aside it holds the stored keys the backend handed
+ *   back, otherwise it is empty.
  * - An answer that is not a JSON object is a problem too, with saving
  *   stopped, so the empty state never replaces what the file held.
  *
@@ -125,9 +128,9 @@ export async function loadSessionState(invoke) {
   } catch (err) {
     console.warn('[Docent] The session file could not be used:', err?.kind ?? err);
     const problem = loadProblemFrom(err);
-    // A set-aside hands back the state a missing file reads as, with the
-    // credential-store keys in it; starting from that keeps the next save
-    // from clearing them. Without a usable one, saving stops instead.
+    // A set-aside hands back `{}` with the credential-store keys re-injected;
+    // starting from that keeps the next save from clearing them. Without a
+    // usable one, saving stops instead.
     const start = problem.kind === 'set_aside' ? deserializeState(err.state) : null;
     if (problem.kind === 'set_aside' && start === null) problem.savingStopped = true;
     return { state: start ? withDefaults(start) : emptyState(), problem };
@@ -172,19 +175,18 @@ function withDefaults(parsed) {
  * @returns {string}
  */
 export function loadProblemMessage(problem) {
+  const stopped =
+    'To keep them safe, Docent will not save anything until you restart it, ' +
+    'so changes you make now will be lost.';
   if (problem.kind === 'set_aside') {
     return (
       'Docent could not read your saved projects, so it has started with none.\n\n' +
       `The file it could not read is kept, unchanged, at:\n${problem.keptAs}\n\n` +
-      'New work is saved as usual.'
+      (problem.savingStopped ? stopped : 'New work is saved as usual.')
     );
   }
   const where = problem.path ? ` at:\n${problem.path}\n\nThe file is left as it is.` : '.';
-  return (
-    `Docent could not read your saved projects${where}\n\n` +
-    'To keep them safe, Docent will not save anything until you restart it, ' +
-    'so changes you make now will be lost.'
-  );
+  return `Docent could not read your saved projects${where}\n\n` + stopped;
 }
 
 /**

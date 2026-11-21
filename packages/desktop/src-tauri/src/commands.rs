@@ -161,10 +161,10 @@ pub enum LoadError {
     /// The file could not be read, or held no JSON object, and was moved to
     /// `kept_as` in the same folder. Saving goes on to a new session file.
     ///
-    /// `state` is what a missing file reads as (`{}` with the credential-store
-    /// keys re-injected), the state the app starts from: starting from it
-    /// rather than from a bare empty state keeps the next save from clearing
-    /// the stored keys (DSH-2's clear branch).
+    /// `state` is `{}` with the credential-store keys re-injected (a missing
+    /// file itself reads as a bare `{}`), the state the app starts from:
+    /// starting from it rather than from a bare empty state keeps the next
+    /// save from clearing the stored keys (DSH-2's clear branch).
     SetAside {
         path: String,
         kept_as: String,
@@ -1076,6 +1076,17 @@ mod tests {
                 })
             );
             assert!(guard.saves_refused());
+
+            // A later load of the run, with the location now known, answers
+            // with the same error and reads nothing.
+            let dir = tempfile::tempdir().unwrap();
+            let later = load_guarded(
+                Ok(dir.path().join("session.json")),
+                &DisabledStore,
+                &guard,
+                &real_rename,
+            );
+            assert_eq!(later, result);
         }
 
         #[test]

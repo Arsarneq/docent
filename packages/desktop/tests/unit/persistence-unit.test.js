@@ -189,6 +189,10 @@ describe('loadSessionState()', () => {
     const { state, problem } = await loadSessionState(invoke);
     assert.deepStrictEqual(state, emptyState());
     assert.strictEqual(problem.savingStopped, true);
+    const text = loadProblemMessage(problem);
+    assert.ok(text.includes(KEPT_AS), text);
+    assert.match(text, /will not save anything until you restart it/);
+    assert.doesNotMatch(text, /saved as usual/);
   });
 
   it('starts empty and stops saving when the backend left the file in place', async () => {
