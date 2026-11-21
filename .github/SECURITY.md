@@ -77,7 +77,7 @@ Docent has several capabilities with distinct attack surfaces:
 
 ### Out of scope
 
-- Vulnerabilities in the receiving endpoint or sync server (those are outside this project)
+- Vulnerabilities in a user's own receiving endpoint or sync server (those are outside this project)
 - Issues requiring physical access to the machine
 - Social engineering
 
