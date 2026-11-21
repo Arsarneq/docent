@@ -9118,3 +9118,34 @@ fn a_key_that_took_no_text_is_written_ahead_of_the_dead_key_behind_it_when_the_t
     );
     harness.shutdown();
 }
+
+#[test]
+fn a_value_reported_again_while_only_a_dead_key_waits_is_no_second_type() {
+    // C and its value, a dead key, a value change that gives no value (it
+    // writes the `type` and keeps the keys), and then the program reports the
+    // field's value once more. Only the dead key is buffered, and it enters
+    // nothing, so the report is a repeat and no text typed over itself.
+    let set_value = |scene: &Arc<Mutex<FocusScene>>, value: Option<&str>| {
+        let mut scene = scene.lock().unwrap();
+        scene.element.text = value.map(str::to_string);
+        scene.element.value = value.map(str::to_string);
+    };
+    let (backend, scene, _) = MovingFocusBackend::new(file_name_field(""));
+    let harness = WorkerTestHarness::new(backend);
+    harness.send_event(in_dialog(layout_key(1, now_ms(), 0x43)));
+    set_value(&scene, Some("c"));
+    harness.send_event(in_dialog(value_change(2, now_ms(), DIALOG)));
+    thread::sleep(Duration::from_millis(150));
+    harness.send_event(dead_key(3));
+    set_value(&scene, None);
+    harness.send_event(in_dialog(value_change(4, now_ms(), DIALOG)));
+    thread::sleep(Duration::from_millis(150));
+    set_value(&scene, Some("c"));
+    harness.send_event(in_dialog(value_change(5, now_ms(), DIALOG)));
+    thread::sleep(Duration::from_millis(150));
+    harness.event_tx.send(WorkerMessage::EndTyping).unwrap();
+    assert_eq!(
+        types_and_keys(&harness.shutdown()),
+        vec!["type c", "key \u{b4}"]
+    );
+}

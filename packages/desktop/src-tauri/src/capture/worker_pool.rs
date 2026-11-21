@@ -3530,14 +3530,15 @@ fn record_type_value(
     // no typing key and no paste key pressed for it, is the same change
     // reported again (a program that reports one change twice) and adds
     // nothing. With a typing key buffered it is typing: the person typed the
-    // same text over itself. The first value change of a field after a paste
+    // same text over itself. A dead key waiting for the key after it is no
+    // such key: it enters nothing by itself. The first value change of a field after a paste
     // key pressed in it is the pasted text: the same text pasted over itself.
     // Only the field typed into last is remembered, so a value the field held
     // in an earlier typing run is never what a later one is compared with.
     let pasted = pasted_into
         .take_if(|field| field.is_of(context_id, &element))
         .is_some();
-    let repeats_last = buffers.pending_keys.is_empty()
+    let repeats_last = buffers.pending_keys.len() == buffers.waiting_dead_keys()
         && !pasted
         && last_value
             .as_ref()
