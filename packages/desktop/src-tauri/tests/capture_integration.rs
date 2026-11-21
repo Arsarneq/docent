@@ -121,6 +121,9 @@ impl ResponsiveWindow {
         let thread_id = rx.recv().expect("window thread failed to start");
         // Let the window settle and become foreground before input is driven.
         thread::sleep(Duration::from_millis(100));
+        docent_desktop_lib::capture::windows::diag_foreground(&format!(
+            "responsive window up (its thread {thread_id})"
+        )); // TEMP-DIAG
         Self {
             thread_id,
             handle: Some(handle),
@@ -130,6 +133,7 @@ impl ResponsiveWindow {
 
 impl Drop for ResponsiveWindow {
     fn drop(&mut self) {
+        docent_desktop_lib::capture::windows::diag_foreground("responsive window dropped"); // TEMP-DIAG
         use docent_desktop_lib::capture::win32_bindings::{PostThreadMessageW, WM_QUIT};
         use docent_desktop_lib::capture::win32_bindings::{LPARAM, WPARAM};
         unsafe {
@@ -1876,6 +1880,10 @@ mod user_actions_extended {
         );
         let _ = SetForegroundWindow(hwnd);
         thread::sleep(Duration::from_millis(100));
+        docent_desktop_lib::capture::windows::diag_foreground(&format!(
+            "target window {:#x} up",
+            hwnd.0 as usize
+        )); // TEMP-DIAG
         let mut rect = RECT::default();
         GetWindowRect(hwnd, &mut rect).unwrap();
         let cx = (rect.left + rect.right) / 2;
@@ -2201,6 +2209,10 @@ mod scroll_behaviour {
         );
         let _ = SetForegroundWindow(hwnd);
         thread::sleep(Duration::from_millis(100));
+        docent_desktop_lib::capture::windows::diag_foreground(&format!(
+            "target window {:#x} up",
+            hwnd.0 as usize
+        )); // TEMP-DIAG
         let mut rect = RECT::default();
         GetWindowRect(hwnd, &mut rect).unwrap();
         let cx = (rect.left + rect.right) / 2;
@@ -2318,6 +2330,10 @@ mod user_actions_missing {
         );
         let _ = SetForegroundWindow(hwnd);
         thread::sleep(Duration::from_millis(100));
+        docent_desktop_lib::capture::windows::diag_foreground(&format!(
+            "target window {:#x} up",
+            hwnd.0 as usize
+        )); // TEMP-DIAG
         let mut rect = RECT::default();
         GetWindowRect(hwnd, &mut rect).unwrap();
         let cx = (rect.left + rect.right) / 2;
@@ -2467,6 +2483,10 @@ mod capture_behaviour_missing {
         );
         let _ = SetForegroundWindow(hwnd);
         thread::sleep(Duration::from_millis(100));
+        docent_desktop_lib::capture::windows::diag_foreground(&format!(
+            "target window {:#x} up",
+            hwnd.0 as usize
+        )); // TEMP-DIAG
         let mut rect = RECT::default();
         GetWindowRect(hwnd, &mut rect).unwrap();
         let cx = (rect.left + rect.right) / 2;
@@ -2607,6 +2627,10 @@ mod completeness {
         );
         let _ = SetForegroundWindow(hwnd);
         thread::sleep(Duration::from_millis(100));
+        docent_desktop_lib::capture::windows::diag_foreground(&format!(
+            "target window {:#x} up",
+            hwnd.0 as usize
+        )); // TEMP-DIAG
         let mut rect = RECT::default();
         GetWindowRect(hwnd, &mut rect).unwrap();
         let cx = (rect.left + rect.right) / 2;
@@ -3316,6 +3340,10 @@ mod deduplication {
         );
         let _ = SetForegroundWindow(hwnd);
         thread::sleep(Duration::from_millis(100));
+        docent_desktop_lib::capture::windows::diag_foreground(&format!(
+            "target window {:#x} up",
+            hwnd.0 as usize
+        )); // TEMP-DIAG
         let mut rect = RECT::default();
         GetWindowRect(hwnd, &mut rect).unwrap();
         let cx = (rect.left + rect.right) / 2;
