@@ -113,6 +113,10 @@ test('typing in Notepad and closing it unsaved exports exactly those actions', a
     (a) => `${a.type}:${a.value ?? a.key ?? a.title ?? ''}@${a.context_id}`,
   );
   console.log(`[actions] ${JSON.stringify(summary)}`);
+  // The whole list, without the locator arrays, for a red run's log.
+  console.log(
+    `[actions:full] ${JSON.stringify(actions.map(({ element, ...rest }) => ({ ...rest, element: element && { ...element, locators: undefined } })))}`,
+  );
 
   // A: Notepad's main window. The typing is one held value per run of typing
   // keys, ended by the key that is not one (DCP-9).
