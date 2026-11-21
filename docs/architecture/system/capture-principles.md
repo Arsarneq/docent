@@ -82,7 +82,13 @@ classes are closed: a held fact left unwritten outside them is a defect.
 **CP-19.** The same input is recorded the same way on every platform: the
 same action type, the same fields, the same values. A key press that activates
 a control is a `key` on both platforms; text typed into a field is that
-field's `type` on both. A difference between platforms is one of two kinds.
+field's `type` on both, save where the desktop read the field's value after
+later keys were pressed: there the keys typed since the last value it read in
+time are written as `key` actions after the field's `type`, or alone where it
+read none in time, and a key the value it took lacks, or text no key carries
+(a paste), can be in no action, departures the desktop capture document
+lists (DCP-9, DCP-13;
+[docent#762](https://github.com/Arsarneq/docent/issues/762)). A difference between platforms is one of two kinds.
 One comes from the platforms themselves and is part of the format: an input
 the platform's own events never deliver to its capture layer, whatever the
 layer listens for, a fact about an input that the platform's events do not
