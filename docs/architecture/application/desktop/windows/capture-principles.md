@@ -373,15 +373,17 @@ typing ends, it is written as a `key`, as on the extension, behind the keys
 pressed before it that are still buffered. The keyboard hook asks the layout
 with the system's read that leaves the keyboard state as it is, so an accent
 pending in the application is not touched. The layout's answer depends on an
-accent already pending, so it is asked only while none is, once per key and
-modifier state, and the answer is kept: what a key is does not depend on how
-far the application has got with the keys before it. CapsLock is no part of
-the question. Where the layout was not asked, only its mark for the key with
-no modifier is known: a key dead only with Shift or AltGr is then written as
-a `key` after the wait, and a key pressed with one of them is taken for an
-ordinary key. That holds on a Windows before version 10.0.14393, which has no
-such read, and for a key pressed for the first time in a recording while an
-accent is pending; a departure (core CP-18). The `type` itself is held for the field and carried
+accent already pending, so it is asked about a key pressed with Shift or
+AltGr only while none is, and its answer is kept for that key and modifier
+state: once asked, what a key is does not depend on how far the application
+has got with the keys before it. A key pressed with neither is known by the
+layout's own mark. CapsLock is no part of the question. Where the layout was
+not asked, a key pressed with Shift or AltGr is taken for an ordinary key,
+and one that is dead with them is written as a `key` after the wait. That
+holds on a Windows before version 10.0.14393, which has no such read, and
+for a key pressed while an accent is pending before the layout has been
+asked about it in the recording or since the foreground window's layout last
+changed; a departure (core CP-18). The `type` itself is held for the field and carried
 forward to each new value, and it is written when the typing in the field
 ends: a key that is no typing key is pressed, a typing key is pressed in
 another element, the pointer is pressed (a click, a right-click or a drag),

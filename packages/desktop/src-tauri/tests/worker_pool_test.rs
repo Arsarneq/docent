@@ -9244,26 +9244,6 @@ fn regression_769_a_key_not_dead_as_pressed_is_an_ordinary_key() {
     assert_eq!(written_at_the_wait, vec!["key \u{b4}"]);
 }
 
-/// A plain press the hook asked about and found dead is a dead key, as it is
-/// by the layout's own mark where the hook could not ask.
-#[test]
-fn regression_769_a_plain_dead_key_the_hook_asked_about_is_text_with_its_letter() {
-    let (backend, scene, _) = MovingFocusBackend::new(file_name_field(""));
-    let harness = WorkerTestHarness::new(backend);
-
-    harness.send_event(dead_key_as_pressed(1, (false, false, false, false), true));
-    thread::sleep(Duration::from_millis(900));
-    harness.send_event(in_dialog(layout_key(2, now_ms(), 0x45)));
-    {
-        let mut scene = scene.lock().unwrap();
-        scene.element.text = Some("\u{e9}".to_string());
-        scene.element.value = Some("\u{e9}".to_string());
-    }
-    harness.send_event(in_dialog(value_change(3, now_ms(), DIALOG)));
-    thread::sleep(Duration::from_millis(900));
-    assert_eq!(types_and_keys(&harness.shutdown()), vec!["type \u{e9}"]);
-}
-
 #[test]
 fn a_key_that_took_no_text_is_written_ahead_of_the_dead_key_behind_it_when_the_typing_ends() {
     // X and a dead key in a control that reports no value change, a pause

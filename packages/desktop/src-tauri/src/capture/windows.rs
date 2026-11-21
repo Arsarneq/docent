@@ -2940,8 +2940,9 @@ const fn windows_build_honors_flag(major: u32, build: u32) -> bool {
 /// with `modifiers` (Ctrl, Shift, Alt, Meta) held, on the keyboard layout of
 /// the foreground window's thread (`thread_id`): `None` where it is not known
 /// (no thread or layout, a key that is no typing key, an injected character,
-/// a shortcut modifier held, a Windows that does not honor the flag below, or
-/// a key first pressed while an accent is pending, see below).
+/// a shortcut modifier held, neither Shift nor AltGr held, a Windows that
+/// does not honor the flag below, or a key pressed while an accent is pending
+/// before the layout was asked about it, see below).
 ///
 /// The layout is asked with `ToUnicodeEx` and its flag 4, which leaves the
 /// keyboard state as it is: measured on Windows 10 (19045) from a low-level
@@ -2957,8 +2958,8 @@ const fn windows_build_honors_flag(major: u32, build: u32) -> bool {
 /// key is with given modifiers is then the same at every press, however far
 /// behind the application is. CapsLock is no part of the question.
 ///
-/// Called on the keyboard hook: at most three user32 reads the first time a
-/// key is pressed with given modifiers and none after, no accessibility call,
+/// Called on the keyboard hook: three user32 reads until the layout has
+/// answered for a key with given modifiers and none after, no accessibility call,
 /// lock or allocation.
 unsafe fn foreground_dead_as_pressed(
     vk: u32,
@@ -2979,6 +2980,11 @@ unsafe fn foreground_dead_as_pressed(
         return None;
     }
     let alt_gr = ctrl && alt;
+    // A press with neither is the layout's own mark for the key, which the
+    // worker has already and which depends on nothing pending.
+    if !shift && !alt_gr {
+        return None;
+    }
     let hkl = GetKeyboardLayout(thread_id);
     let layout = hkl.0 as isize;
     if let Some(kept) = INPUT_DEAD_KEY_ANSWERS.with(|a| a.borrow().get(layout, vk, shift, alt_gr)) {
@@ -4479,6 +4485,7 @@ mod tests {
     /// While an accent is pending the layout is not asked: its answer would
     /// say what the key does to the accent (docent#769).
     #[test]
+    #[serial_test::serial(danish_layout)]
     fn regression_769_the_danish_layout_says_which_keys_are_dead_as_pressed() {
         if !super::layout_read_leaves_key_state() {
             return; // a Windows before 10.0.14393: the layout is not asked
@@ -4550,6 +4557,7 @@ mod tests {
     }
 
     #[test]
+    #[serial_test::serial(danish_layout)]
     fn layout_char_reads_what_the_danish_layout_gives_a_punctuation_key() {
         let danish = LoadedLayout::load("00000406", 0x0406);
         // VK_OEM_PLUS, the key right of 0, enters `+` (`=` on the US layout).
