@@ -168,6 +168,61 @@ test.describe('Cross-origin iframe capture (#93)', () => {
     expect(frameClick.frame_src).toContain('localhost'); // origin B
   });
 
+  // Regression: #779 — a key held in one document of a tab was not named in
+  // `held_keys` of an action in another document of the same tab. Here the
+  // two documents are of different sites, so each has its own process.
+  // https://github.com/Arsarneq/docent/issues/779
+  test('regression_779_a_key_held_across_a_cross_origin_frame_is_named_both_ways', async ({
+    context,
+    serviceWorker,
+  }) => {
+    routes.set(
+      '/child',
+      `<!DOCTYPE html><html><body><button id="inner" style="padding:1rem">Inner</button></body></html>`,
+    );
+    routes.set(
+      '/parent',
+      `<!DOCTYPE html><html><body>
+        <button id="outer">Outer</button>
+        <iframe id="x" src="${ORIGIN_B()}/child" width="400" height="120"></iframe>
+      </body></html>`,
+    );
+
+    await startRecording(serviceWorker);
+    const page = context.pages()[0] || (await context.newPage());
+    await page.goto(`${ORIGIN_A()}/parent`);
+    await waitForTopFrameReady(serviceWorker, page);
+    await page.waitForTimeout(300); // let the SW inject into the child frame too
+    const inner = page.frameLocator('#x').locator('#inner');
+
+    // Held outside, clicked inside, released inside.
+    await page.locator('#outer').focus();
+    await page.keyboard.down('Escape');
+    await inner.click();
+    await page.keyboard.up('Escape');
+    await inner.click();
+    // Held inside, clicked outside, released outside.
+    await page.keyboard.down('F2');
+    await page.locator('#outer').click();
+    await page.keyboard.up('F2');
+    await page.locator('#outer').click();
+    await settle(serviceWorker, page);
+
+    const actions = await getPendingActions(serviceWorker);
+    expect(
+      actions
+        .filter((a) => a.type === 'click' || a.type === 'key')
+        .map((a) => [a.type, a.key ?? null, a.held_keys, a.element.selector]),
+    ).toEqual([
+      ['key', 'Escape', [], '#outer'],
+      ['click', null, ['Escape'], '#inner'],
+      ['click', null, [], '#inner'],
+      ['key', 'F2', [], '#inner'],
+      ['click', null, ['F2'], '#outer'],
+      ['click', null, [], '#outer'],
+    ]);
+  });
+
   test('parent-page capture keeps working alongside a cross-origin iframe', async ({
     context,
     serviceWorker,

@@ -56,6 +56,7 @@ import {
 } from '../lib/capture-timing.js';
 import { STORAGE_QUOTA_KEY, classifyStoragePressure } from '../lib/storage-quota.js';
 import { isTrustedActionSender } from '../lib/frame-trust.js';
+import { createHeldKeysRelay } from '../lib/held-keys-relay.js';
 import { NOT_ACTIVE_RECORDING, namesActiveRecording } from '../lib/active-recording.js';
 import {
   classifyNavigation,
@@ -127,6 +128,14 @@ const activeFrames = new Map();
  * introspection handle's plant runs from no production event (extension runtime
  * ERT-5), so it lands at the moment a case plants it, outside that account.
  */
+// The keys held across the frames of each recorded tab, as the recorders
+// report them (HELD_KEY, POINTER_PRESSED): an action in one frame is given
+// the keys held in the tab's other frames (#779). In memory only: after a
+// suspension nothing is known to be held elsewhere until it is reported
+// again. Its entries leave with the registry's: a frame that navigates, a
+// tab that closes, every clear of the registry.
+const heldKeysRelay = createHeldKeysRelay();
+
 function registerFrame(tabId, frameId) {
   if (tabId == null || frameId == null) return;
   let frames = activeFrames.get(tabId);
@@ -179,6 +188,8 @@ async function seedActiveFrames() {
  */
 function clearActiveFrames() {
   activeFrames.clear();
+  // The keys held in the registered frames go with the registry.
+  heldKeysRelay.forgetAll();
 }
 
 /**
@@ -277,6 +288,17 @@ const pressHolds = new Map();
 
 const pressHoldKey = (sender) =>
   sender?.tab?.id == null || sender.frameId == null ? null : `${sender.tab.id}:${sender.frameId}`;
+
+/** Pass a registered frame's report to the held-keys relay. */
+function reportToHeldKeysRelay(sender, report) {
+  const trusted = isTrustedActionSender({
+    sender,
+    runtimeId: chrome.runtime.id,
+    liveRecording,
+    activeFrames,
+  });
+  if (trusted) heldKeysRelay.report(sender.tab.id, sender.frameId, report);
+}
 
 /**
  * Take a press hold for the frame that reported a pointer press. Called
@@ -450,7 +472,13 @@ chrome.webNavigation.onCompleted.addListener(async (details) => {
 // frame's registration follows on the next onCompleted, so main frames
 // are left alone here.)
 chrome.webNavigation.onBeforeNavigate.addListener((details) => {
-  if (details.frameId === 0) return;
+  // The release of a key held in a document that is leaving is not sure to
+  // be reported: a main frame takes its tab's frames with it.
+  if (details.frameId === 0) {
+    heldKeysRelay.forgetTab(details.tabId);
+    return;
+  }
+  heldKeysRelay.forgetFrame(details.tabId, details.frameId);
   const frames = activeFrames.get(details.tabId);
   if (frames) frames.delete(details.frameId);
 });
@@ -607,6 +635,16 @@ async function validateAndAppend(action, sender) {
   // the frame that sent it is still registered (the click that navigates its
   // own frame away, or closes its tab).
   const hold = pressHolds.get(pressHoldKey(sender));
+  // The keys held in the tab's other frames are read as the message arrives
+  // too: a key released after the action was not released at it.
+  const heldElsewhere =
+    Array.isArray(action?.held_keys) && sender?.tab?.id != null
+      ? heldKeysRelay.heldElsewhere(
+          sender.tab.id,
+          sender.frameId,
+          action.type === 'key' ? action.code : undefined,
+        )
+      : [];
 
   await restoreWhatSuspensionLost(sender);
   const tabId = sender?.tab?.id;
@@ -630,6 +668,9 @@ async function validateAndAppend(action, sender) {
   // frame data would violate the conservative-fidelity rule.
   if (action && typeof action === 'object') {
     action.context_id = sender.tab.id;
+    // A key held in another frame of the tab went down before this frame had
+    // the focus: it is named ahead of the keys the frame saw go down (#779).
+    if (heldElsewhere.length > 0) action.held_keys = [...heldElsewhere, ...action.held_keys];
   }
   if (hold) await hold;
   await appendSwAction(action);
@@ -794,6 +835,7 @@ chrome.tabs.onCreated.addListener(async (tab) => {
 chrome.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
   lastTabRemovedTimestamp = Date.now();
   // Clean up tracking regardless of recording state.
+  heldKeysRelay.forgetTab(tabId);
   const wasProgrammatic = programmaticTabs.delete(tabId);
   // The tab is gone — drop all of its frames from the active-frame registry.
   activeFrames.delete(tabId);
@@ -1145,7 +1187,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   // sender test as an append, and holds what this frame appends next behind
   // their answers. No response is sent.
   if (message.type === 'POINTER_PRESSED') {
+    reportToHeldKeysRelay(sender, { event: 'press' });
     holdAppendsBehindPress(sender);
+    return false;
+  }
+
+  // HELD_KEY: a recorder reports a key it names as held, a key's release, or
+  // what moves the focus in its frame. Read as it arrives, so one frame's
+  // reports keep their order, and held to the sender test of an append with
+  // no reseed: a report from a frame the registry does not hold is dropped,
+  // which leaves a key unnamed. No response is sent.
+  if (message.type === 'HELD_KEY') {
+    reportToHeldKeysRelay(sender, message);
     return false;
   }
 
