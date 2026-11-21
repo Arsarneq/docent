@@ -4309,12 +4309,17 @@ struct Controls {
     descriptions: u64,
     value_reads: u64,
     nature_looks: u64,
-    /// The number of the latest key the Input_Thread dispatched (one window);
-    /// `0`, the platform numbering none, unless a test sets it.
-    latest_key: u64,
+    /// The number of the latest key the Input_Thread dispatched, by window;
+    /// a window not in it answers `0`, the platform numbering none.
+    latest_keys: HashMap<i64, u64>,
     /// Scripted value reads, first first: the value a control read answers
-    /// and the number of the latest key dispatched once the read finished.
+    /// and the number of the latest key dispatched in the control's window
+    /// once the read finished.
     reads: VecDeque<(&'static str, u64)>,
+    /// The dialog's window answers no message in time (a hung program).
+    hung: bool,
+    /// The id of the process that owns the dialog.
+    process_id: u32,
 }
 
 impl Controls {
@@ -4439,14 +4444,29 @@ impl AccessibilityBackend for MovingFocusBackend {
         let mut controls = self.controls.lock().unwrap();
         controls.value_reads += 1;
         if let Some((value, latest)) = controls.reads.pop_front() {
-            controls.latest_key = latest;
+            controls
+                .latest_keys
+                .insert(self.root_window_handle(control), latest);
             return Some(value.to_string());
         }
         controls.own.get(&control).and_then(|e| e.text.clone())
     }
 
-    fn keys_dispatched(&self, _window: i64) -> u64 {
-        self.controls.lock().unwrap().latest_key
+    fn keys_dispatched(&self, window: i64) -> u64 {
+        let controls = self.controls.lock().unwrap();
+        controls.latest_keys.get(&window).copied().unwrap_or(0)
+    }
+
+    fn answers_promptly(&self, control: i64) -> bool {
+        !(self.controls.lock().unwrap().hung && self.root_window_handle(control) == DIALOG)
+    }
+
+    fn process_id_of(&self, window_handle: i64) -> u32 {
+        if window_handle == DIALOG {
+            self.controls.lock().unwrap().process_id
+        } else {
+            0
+        }
     }
 
     fn window_title(&self, _window_handle: i64) -> String {
@@ -8021,6 +8041,35 @@ fn open_case_762_a_value_read_in_time_can_lack_the_last_key_before_it() {
     );
 }
 
+/// Keys are numbered per window: a key pressed in another window before the
+/// field's value was read makes the read no later, and the value is the
+/// field's `type`.
+#[test]
+fn a_key_in_another_window_leaves_a_read_in_time() {
+    let (backend, _scene, _queries, _controls) = MovingFocusBackend::with_controls(
+        save_button_focused(),
+        Controls {
+            latest_keys: HashMap::from([(OTHER_WINDOW, 2)]),
+            ..field_with_reads(&[("a", 1)])
+        },
+    );
+    let harness = WorkerTestHarness::new(backend);
+    let t = now_ms();
+    harness.send_event(numbered_in_field(packet_key(1, t, u16::from(b'a')), 1));
+    harness.send_event(control_value_change(2, t + 1, FIELD)); // read after `x`
+    let mut x = packet_key(3, t + 2, u16::from(b'x'));
+    x.window_handle = OTHER_WINDOW;
+    x.focus_epoch = 1;
+    x.callback_params[3] |= key_number_param(2);
+    harness.send_event(x);
+    thread::sleep(Duration::from_millis(300));
+    let field: Vec<String> = typed_actions_of(&harness.shutdown())
+        .into_iter()
+        .filter(|a| a.ends_with(IN_FIELD))
+        .collect();
+    assert_eq!(field, on_field(&["type a"]));
+}
+
 /// A value read late in the middle of a run splits nothing: the next value
 /// read in time supersedes the keys kept after the late one, and the field
 /// has one `type`.
@@ -8103,7 +8152,7 @@ fn regression_761_a_value_described_after_a_later_key_is_not_the_type() {
             element: scene_element("Edit", "Dialog > Edit:Name", Some("a")),
         },
         Controls {
-            latest_key: 3,
+            latest_keys: HashMap::from([(DIALOG, 3)]),
             ..Default::default()
         },
     );
@@ -8188,6 +8237,61 @@ fn a_look_with_nothing_new_in_focus_describes_nothing() {
     thread::sleep(Duration::from_millis(100));
     assert_eq!(controls.lock().unwrap().descriptions, 1);
     assert!(harness.shutdown().is_empty(), "a look writes nothing");
+}
+
+/// A look at a control whose program answers no message in time describes
+/// nothing: no key waits on the look, and the first key describes the
+/// control itself.
+#[test]
+fn a_look_at_a_control_whose_program_answers_late_describes_nothing() {
+    let (backend, _scene, _queries, controls) = MovingFocusBackend::with_controls(
+        save_button_focused(),
+        Controls {
+            hung: true,
+            ..field_controls("c")
+        },
+    );
+    let harness = WorkerTestHarness::new(backend);
+    harness.event_tx.send(WorkerMessage::LookAtFocus).unwrap();
+    thread::sleep(Duration::from_millis(100));
+    assert_eq!(controls.lock().unwrap().descriptions, 0);
+    let t = now_ms();
+    harness.send_event(in_field(packet_key(1, t, u16::from(b'c'))));
+    harness.send_event(control_value_change(2, t + 1, FIELD));
+    thread::sleep(Duration::from_millis(300));
+    assert_eq!(typed_actions_of(&harness.shutdown()), on_field(&["type c"]));
+    assert_eq!(
+        controls.lock().unwrap().descriptions,
+        1,
+        "the key described it"
+    );
+}
+
+/// A look at a control of the excluded process (Docent's own window in
+/// front) describes nothing.
+#[test]
+fn a_look_at_a_control_of_the_excluded_process_describes_nothing() {
+    let (backend, _scene, _queries, controls) = MovingFocusBackend::with_controls(
+        save_button_focused(),
+        Controls {
+            process_id: 42,
+            ..field_controls("c")
+        },
+    );
+    let harness = WorkerTestHarness::new(backend);
+    harness._excluded_pid.store(42, Ordering::SeqCst);
+    harness.event_tx.send(WorkerMessage::LookAtFocus).unwrap();
+    thread::sleep(Duration::from_millis(100));
+    assert_eq!(controls.lock().unwrap().descriptions, 0);
+    harness._excluded_pid.store(7, Ordering::SeqCst);
+    harness.event_tx.send(WorkerMessage::LookAtFocus).unwrap();
+    thread::sleep(Duration::from_millis(100));
+    assert_eq!(
+        controls.lock().unwrap().descriptions,
+        1,
+        "another process excluded"
+    );
+    harness.shutdown();
 }
 
 /// `type` and `key` actions as `typed_actions_of` writes them, in the order

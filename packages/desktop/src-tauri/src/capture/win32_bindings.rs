@@ -523,6 +523,29 @@ pub unsafe fn ScrollWindow(
     }
 }
 #[inline]
+pub unsafe fn SendMessageTimeoutW(
+    hwnd: HWND,
+    msg: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+    fuflags: u32,
+    utimeout: u32,
+    lpdwresult: Option<*mut usize>,
+) -> LRESULT {
+    windows_core::link!("user32.dll" "system" fn SendMessageTimeoutW(hwnd : HWND, msg : u32, wparam : WPARAM, lparam : LPARAM, fuflags : u32, utimeout : u32, lpdwresult : *mut usize) -> LRESULT);
+    unsafe {
+        SendMessageTimeoutW(
+            hwnd,
+            msg,
+            wparam,
+            lparam,
+            fuflags,
+            utimeout,
+            lpdwresult.unwrap_or(core::mem::zeroed()) as _,
+        )
+    }
+}
+#[inline]
 pub unsafe fn SendMessageW(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     windows_core::link!("user32.dll" "system" fn SendMessageW(hwnd : HWND, msg : u32, wparam : WPARAM, lparam : LPARAM) -> LRESULT);
     unsafe { SendMessageW(hwnd, msg, wparam, lparam) }
@@ -4669,6 +4692,7 @@ impl Default for SHFILEINFOW {
     }
 }
 pub const SHGFI_DISPLAYNAME: i32 = 512;
+pub const SMTO_ABORTIFHUNG: i32 = 2;
 pub const SM_CXDOUBLECLK: i32 = 36;
 pub const SM_CXVIRTUALSCREEN: i32 = 78;
 pub const SM_CYDOUBLECLK: i32 = 37;

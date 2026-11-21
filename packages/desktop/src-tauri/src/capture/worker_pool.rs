@@ -390,13 +390,13 @@ pub struct PendingBuffers {
     pub pending_keys: Vec<ActionEvent>,
     /// Timestamp of the last buffered key (the wait is counted from it).
     pub pending_keys_last_timestamp: u64,
-    /// How many of `pending_keys`, from the first, are kept as keys: their
-    /// value change came, and its value was read after a later key of the
+    /// How many of `pending_keys`, from the first, are written as keys after
+    /// the pending `type`: their value change came, and its value was read after a later key of the
     /// window had been dispatched, so it was not taken (docent#761). The
     /// pending `type` keeps the last value read in time, and these keys are
     /// written after it, as keys, unless a value read in time supersedes
     /// them.
-    pub kept_keys: usize,
+    pub keys_after_type: usize,
 }
 
 impl PendingBuffers {
@@ -405,19 +405,36 @@ impl PendingBuffers {
     }
 
     /// The typing in a field has ended: write the pending `type` (if any),
-    /// then the keys kept after its value ([`kept_keys`](Self::kept_keys)),
+    /// then the keys after its value ([`keys_after_type`](Self::keys_after_type)),
     /// as keys. The other buffered keys, which no value change has reached
     /// yet, stay buffered. Used at points where a type event must be
     /// committed before another action (context switch, control key).
     fn flush_pending_type_only(&mut self, action_sender: &mpsc::Sender<ActionEvent>) {
         flush_pending_type(&mut self.pending_type, action_sender);
-        let kept = self.kept_keys.min(self.pending_keys.len());
-        for event in self.pending_keys.drain(..kept) {
-            let _ = action_sender.send(event);
-        }
-        self.kept_keys = 0;
+        self.write_keys_after_type(true, action_sender);
         if self.pending_keys.is_empty() {
             self.pending_keys_last_timestamp = 0;
+        }
+    }
+
+    /// Write, as keys, the keys after the `type`
+    /// ([`keys_after_type`](Self::keys_after_type)) when `after_type`, which
+    /// are then none; otherwise the keys behind them, which no value change
+    /// has reached. The one place either is taken from the buffer.
+    fn write_keys_after_type(
+        &mut self,
+        after_type: bool,
+        action_sender: &mpsc::Sender<ActionEvent>,
+    ) {
+        let split = self.keys_after_type.min(self.pending_keys.len());
+        let keys = if after_type {
+            self.keys_after_type = 0;
+            self.pending_keys.drain(..split)
+        } else {
+            self.pending_keys.drain(split..)
+        };
+        for event in keys {
+            let _ = action_sender.send(event);
         }
     }
 
@@ -425,20 +442,20 @@ impl PendingBuffers {
     fn write_keys(&mut self, action_sender: &mpsc::Sender<ActionEvent>) {
         flush_pending_keys(&mut self.pending_keys, action_sender);
         self.pending_keys_last_timestamp = 0;
-        self.kept_keys = 0;
+        self.keys_after_type = 0;
     }
 
     /// Discard the buffered keys: a value read in time made them text.
     fn clear_keys(&mut self) {
         self.pending_keys.clear();
         self.pending_keys_last_timestamp = 0;
-        self.kept_keys = 0;
+        self.keys_after_type = 0;
     }
 
     /// Drain all buffered actions, emitting them via `action_sender`.
     ///
-    /// The pending `type`, then every buffered key, each once: the kept keys
-    /// are not in the `type`'s value, which was read before them, and a key
+    /// The pending `type`, then every buffered key, each once: the keys after
+    /// the `type` are not in the `type`'s value, which was read before them, and a key
     /// no value change has reached yet is not either (docent#761). Returns
     /// after the buffers are empty. Safe to call more than once and from
     /// either the worker or the shutdown drainer — whoever calls first
@@ -1253,6 +1270,20 @@ pub trait AccessibilityBackend: Send + 'static {
         None
     }
 
+    /// Whether the window `control` answers a message within
+    /// [`PROMPT_ANSWER_MS`] (a program not hung). Asked before the look ahead
+    /// of the keys ([`WorkerMessage::LookAtFocus`]), which no key waits on, so
+    /// a program that answers late is not described then. A platform that
+    /// cannot ask answers `true`.
+    fn answers_promptly(&self, _control: i64) -> bool {
+        true
+    }
+
+    /// The id of the process that owns `window_handle`; `0` where unknown.
+    fn process_id_of(&self, _window_handle: i64) -> u32 {
+        0
+    }
+
     /// Get the window title for a window handle.
     fn window_title(&self, window_handle: i64) -> String;
 
@@ -1875,7 +1906,11 @@ pub fn worker_loop<B: AccessibilityBackend>(
             Ok(WorkerMessage::LookAtFocus) => {
                 // Backend calls only; the buffers are not touched.
                 let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    look_at_focused_control(&backend, &mut state.controls);
+                    look_at_focused_control(
+                        &backend,
+                        &mut state.controls,
+                        excluded_pid.load(Ordering::SeqCst),
+                    );
                 }));
             }
             Ok(WorkerMessage::Shutdown) => {
@@ -2158,8 +2193,12 @@ impl PartFocusNote {
 /// While the two are equal, no later key of that window was dispatched, so
 /// the program had received no later key when it answered the read.
 ///
-/// Numbers are taken from one count for every window, so a number never comes
-/// back for a window that was let go and noted again. Written by the
+/// Numbers are per window because a key goes to the focus of the window it
+/// was pressed in: a key pressed in another window cannot reach the field,
+/// so it makes no read of the field late, where one count for all windows
+/// would. They are taken
+/// from one count for every window, so a number never comes back for a
+/// window that was let go and noted again. Written by the
 /// Input_Thread only, read by the workers with no lock: a window being
 /// replaced in its slot can only answer a later number than its own, and a
 /// window not remembered answers [`KeyNumbers::NOT_REMEMBERED`], which is no
@@ -2167,7 +2206,6 @@ impl PartFocusNote {
 #[derive(Debug)]
 pub struct KeyNumbers {
     last: AtomicU64,
-    next_slot: AtomicUsize,
     slots: [KeySlot; KeyNumbers::WINDOWS],
 }
 
@@ -2180,9 +2218,21 @@ struct KeySlot {
 /// The bits a key number takes (see [`key_number_param`]).
 const KEY_NUMBER_MASK: u64 = (1 << 30) - 1;
 
-/// Where a key number sits in a keystroke's `callback_params[3]`: above the
-/// layout character and the repeat mark.
-const KEY_NUMBER_SHIFT: u32 = 33;
+/// Where a key number sits in a keystroke's `callback_params[3]`: the bit
+/// above the repeat mark, which sits above the layout character.
+///
+/// | bits  | holds                                                  |
+/// |-------|--------------------------------------------------------|
+/// | 0–31  | the layout character ([`super::held_keys::layout_char_of`]) |
+/// | 32    | the repeat mark ([`super::held_keys::KEY_REPEAT_PARAM`]) |
+/// | 33–62 | the key number ([`KEY_NUMBER_MASK`])                   |
+/// | 63    | clear: the parameter stays a positive `i64`            |
+const KEY_NUMBER_SHIFT: u32 = super::held_keys::KEY_REPEAT_PARAM.trailing_zeros() + 1;
+
+const _: () = assert!(
+    KEY_NUMBER_SHIFT + KEY_NUMBER_MASK.count_ones() <= 63,
+    "a key number fits below the sign bit"
+);
 
 impl KeyNumbers {
     /// How many windows are remembered.
@@ -2195,7 +2245,6 @@ impl KeyNumbers {
     pub const fn new() -> Self {
         Self {
             last: AtomicU64::new(0),
-            next_slot: AtomicUsize::new(0),
             slots: [const {
                 KeySlot {
                     window: std::sync::atomic::AtomicI64::new(0),
@@ -2219,16 +2268,32 @@ impl KeyNumbers {
             .find(|s| s.window.load(Ordering::SeqCst) == window)
         {
             Some(slot) => slot,
-            None => {
-                let index = self.next_slot.fetch_add(1, Ordering::SeqCst) % Self::WINDOWS;
-                &self.slots[index]
-            }
+            // The window whose latest key is the oldest is let go (a slot
+            // never used holds `0`, older than every number).
+            None => self
+                .slots
+                .iter()
+                .min_by_key(|s| s.latest.load(Ordering::SeqCst))
+                .expect("KeyNumbers has slots"),
         };
         // The number before the window: a reader that finds the window finds
         // its number or a later one.
         slot.latest.store(number, Ordering::SeqCst);
         slot.window.store(window, Ordering::SeqCst);
         number
+    }
+
+    /// The number a keystroke of key `vk` in `window` carries: a key that
+    /// can change a field's text is numbered ([`number`](Self::number)); a
+    /// Shift, Control or Alt key changes no text, so it carries the number of
+    /// the window's latest key and moves nothing for a read of that window
+    /// (a window not remembered numbers it, as its first key). Called on the
+    /// Input_Thread only.
+    pub fn for_key(&self, window: i64, vk: u32) -> u64 {
+        match self.latest(window) {
+            latest if !numbers_key(vk) && latest != Self::NOT_REMEMBERED => latest,
+            _ => self.number(window),
+        }
     }
 
     /// The number of the latest key dispatched in `window`;
@@ -2246,6 +2311,13 @@ impl Default for KeyNumbers {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// Whether a keystroke of key `vk` is numbered among its window's keys (see
+/// [`KeyNumbers::for_key`]): every key but Shift, Control and Alt, generic
+/// (`0x10`–`0x12`) or left and right (`0xA0`–`0xA5`).
+pub const fn numbers_key(vk: u32) -> bool {
+    !matches!(vk, 0x10..=0x12 | 0xA0..=0xA5)
 }
 
 /// A key number as a keystroke's `callback_params[3]` carries it, to be
@@ -2474,6 +2546,28 @@ fn settle_key_on_its_control<B: AccessibilityBackend>(
         }
     }
     let title = title.unwrap_or_else(|| backend.window_title(raw.window_handle));
+    describe_and_note_control(
+        backend,
+        controls,
+        control,
+        KnownControl {
+            element: None,
+            epoch: raw.focus_epoch,
+            part_focus: key_part_focus(raw),
+            title,
+        },
+    )
+}
+
+/// Describe the control with window handle `control` and note it as `known`
+/// says, with the description; the element it is, `None` for a window that
+/// holds other elements and for a control gone, which is not noted.
+fn describe_and_note_control<B: AccessibilityBackend>(
+    backend: &B,
+    controls: &mut HashMap<i64, KnownControl>,
+    control: i64,
+    known: KnownControl,
+) -> Option<ElementDescription> {
     let element = match backend.describe_control(control) {
         ControlLook::Own(element) => Some(*element),
         ControlLook::Shared => None,
@@ -2486,13 +2580,16 @@ fn settle_key_on_its_control<B: AccessibilityBackend>(
         control,
         KnownControl {
             element: element.clone(),
-            epoch: raw.focus_epoch,
-            part_focus: key_part_focus(raw),
-            title,
+            ..known
         },
     );
     element
 }
+
+/// How long the look ahead of the keys waits for the focused control's
+/// window to answer before it leaves the control to its first key (see
+/// [`AccessibilityBackend::answers_promptly`]).
+pub const PROMPT_ANSWER_MS: u32 = 50;
 
 /// A [`KnownControl::part_focus`] no keystroke carries: a control looked at
 /// ahead of its keys has what it is looked at again, with no description, at
@@ -2506,10 +2603,15 @@ const LOOKED_AT_AHEAD: i64 = i64::MIN;
 /// looked at itself, after one look at what the control is
 /// ([`LOOKED_AT_AHEAD`]), which needs no description. A control already
 /// known, a platform that counts no focus changes (whose keys are never
-/// settled on their control) and no focused control leave nothing to do.
+/// settled on their control) and no focused control leave nothing to do;
+/// nor does a control of the excluded process (`excluded_pid`), or one whose
+/// window does not answer promptly
+/// ([`AccessibilityBackend::answers_promptly`]): no key waits on this look,
+/// and the control's first key looks at it itself.
 fn look_at_focused_control<B: AccessibilityBackend>(
     backend: &B,
     controls: &mut HashMap<i64, KnownControl>,
+    excluded_pid: u32,
 ) {
     let epoch = backend.focus_epoch();
     if epoch == 0 {
@@ -2519,19 +2621,20 @@ fn look_at_focused_control<B: AccessibilityBackend>(
     if control == 0 || controls.contains_key(&control) {
         return;
     }
-    let title = backend.window_title(backend.root_window_handle(control));
-    let element = match backend.describe_control(control) {
-        ControlLook::Own(element) => Some(*element),
-        ControlLook::Shared => None,
-        ControlLook::Gone => return,
-    };
-    if controls.len() >= KNOWN_CONTROLS_MAX {
-        controls.clear();
+    let window = backend.root_window_handle(control);
+    if excluded_pid != 0 && backend.process_id_of(window) == excluded_pid {
+        return;
     }
-    controls.insert(
+    if !backend.answers_promptly(control) {
+        return;
+    }
+    let title = backend.window_title(window);
+    describe_and_note_control(
+        backend,
+        controls,
         control,
         KnownControl {
-            element,
+            element: None,
             epoch,
             part_focus: LOOKED_AT_AHEAD,
             title,
@@ -3343,11 +3446,11 @@ fn read_in_time<B: AccessibilityBackend>(last_key: Option<&LastKey>, backend: &B
 }
 
 /// A value read too late is not taken: the pending `type` keeps the last
-/// value read in time, and the keys buffered now are kept, to be written as
-/// keys after it unless a value read in time supersedes them.
+/// value read in time, and the keys buffered now are the keys after it, to
+/// be written as keys unless a value read in time supersedes them.
 fn keep_keys_after_late_read(pending: &SharedPendingBuffers) {
     let mut buffers = lock_buffers(pending);
-    buffers.kept_keys = buffers.pending_keys.len();
+    buffers.keys_after_type = buffers.pending_keys.len();
 }
 
 /// A value change that is no `type` supersedes no keystroke. A `type` already
@@ -3784,7 +3887,9 @@ fn handle_foreground<B: AccessibilityBackend>(
     // The process the Input_Thread read with the event, while the window was
     // there: a window can close before a worker gets to its switch, and then
     // it names no process (docent#761). The window names it where the
-    // process cannot be named by its id.
+    // process cannot be named by its id. An exited process's id can be
+    // reused: a process started under it before the switch is read would
+    // be named instead.
     let source = Some(raw.process_id)
         .filter(|pid| *pid != 0)
         .and_then(|pid| backend.process_name_of(pid))
@@ -3934,18 +4039,15 @@ fn write_keys_that_took_no_text(
     now: u64,
     action_sender: &mpsc::Sender<ActionEvent>,
 ) {
-    // Keys kept after a value read too late did take text: their value
+    // The keys after the `type` (a value read too late) did take text: their value
     // change came. They wait for the end of the typing, or for a value read
     // in time that makes them part of the `type` (docent#761); the keys
     // behind them that no value change reached are written as any are.
-    if buffers.pending_keys.len() > buffers.kept_keys
+    if buffers.pending_keys.len() > buffers.keys_after_type
         && buffers.pending_keys_last_timestamp > 0
         && debounce_elapsed(now, buffers.pending_keys_last_timestamp, KEY_TEXT_WAIT_MS)
     {
-        let kept = buffers.kept_keys.min(buffers.pending_keys.len());
-        for event in buffers.pending_keys.drain(kept..).collect::<Vec<_>>() {
-            let _ = action_sender.send(event);
-        }
+        buffers.write_keys_after_type(false, action_sender);
         buffers.pending_keys_last_timestamp = 0;
     }
 }
@@ -4907,6 +5009,43 @@ mod tests {
         let again = keys.number(1);
         assert!(again > first);
         assert_eq!(keys.latest(1), again);
+    }
+
+    /// Shift, Control and Alt change no text: their keystrokes carry the
+    /// window's latest number and move nothing for a read of the window; a
+    /// window with no key yet numbers its first, whatever the key.
+    #[test]
+    fn a_shift_control_or_alt_key_moves_no_windows_count() {
+        let keys = KeyNumbers::new();
+        let first = keys.for_key(3, 0xA0);
+        assert_ne!(first, 0, "a window's first key is numbered");
+        let a = keys.for_key(3, u32::from(b'A'));
+        assert!(a > first);
+        for vk in [0x10, 0x11, 0x12, 0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5] {
+            assert_eq!(keys.for_key(3, vk), a, "key {vk:#x}");
+        }
+        assert_eq!(keys.latest(3), a);
+        for vk in [0x08, 0x09, 0x0D, 0x14, 0x20, 0x5B, u32::from(b'B')] {
+            assert!(numbers_key(vk), "key {vk:#x}");
+        }
+        assert!(keys.for_key(3, u32::from(b'B')) > a);
+    }
+
+    /// The window let go is the one whose latest key is the oldest: a window
+    /// typed into again keeps its place, whatever order the windows came in.
+    #[test]
+    fn the_window_let_go_is_the_one_with_the_oldest_key() {
+        let keys = KeyNumbers::new();
+        for window in 1..=KeyNumbers::WINDOWS as i64 {
+            keys.number(window);
+        }
+        let again = keys.number(1);
+        keys.number(KeyNumbers::WINDOWS as i64 + 1);
+        assert_eq!(keys.latest(1), again, "typed into again, kept");
+        assert_eq!(keys.latest(2), KeyNumbers::NOT_REMEMBERED, "the oldest");
+        for window in 3..=KeyNumbers::WINDOWS as i64 + 1 {
+            assert_ne!(keys.latest(window), KeyNumbers::NOT_REMEMBERED);
+        }
     }
 
     /// The number rides above the layout character and the repeat mark

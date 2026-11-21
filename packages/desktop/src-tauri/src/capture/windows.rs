@@ -50,8 +50,8 @@ use super::win32_bindings::{
     GetWindow, GetWindowLongW, GetWindowTextW, GetWindowThreadProcessId, IUIAutomation,
     IUIAutomationCondition, IUIAutomationElement, IUIAutomationSelectionPattern, IsWindow,
     IsWindowVisible, LCIDToLocaleName, MapVirtualKeyExW, PeekMessageW, PostThreadMessageW,
-    RegGetValueW, SetProcessDpiAwarenessContext, SetWinEventHook, SetWindowsHookExW,
-    TranslateMessage, TreeScope_Descendants, TreeScope_Subtree, UnhookWinEvent,
+    RegGetValueW, SendMessageTimeoutW, SetProcessDpiAwarenessContext, SetWinEventHook,
+    SetWindowsHookExW, TranslateMessage, TreeScope_Descendants, TreeScope_Subtree, UnhookWinEvent,
     UnhookWindowsHookEx, WindowFromPoint, CHILDID_SELF, CLSCTX_ALL, COINIT_APARTMENTTHREADED,
     COINIT_MULTITHREADED, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, EVENT_OBJECT_CREATE,
     EVENT_OBJECT_DESTROY, EVENT_OBJECT_FOCUS, EVENT_OBJECT_SELECTION, EVENT_OBJECT_VALUECHANGE,
@@ -59,11 +59,11 @@ use super::win32_bindings::{
     HHOOK, HKEY_CURRENT_USER, HKL, HWINEVENTHOOK, HWND, INVALID_HANDLE_VALUE, KBDLLHOOKSTRUCT,
     LCID, LLKHF_EXTENDED, LOCALE_ALLOW_NEUTRAL_NAMES, LOCALE_NAME_MAX_LENGTH, LPARAM, LRESULT,
     MAPVK_VK_TO_CHAR, MSG, MSLLHOOKSTRUCT, MUI_LANGUAGE_NAME, OBJID_WINDOW, PM_NOREMOVE, POINT,
-    PROPERTYID, RRF_RT_REG_DWORD, RRF_RT_REG_SZ, SM_CXDOUBLECLK, SM_CYDOUBLECLK, UIA_HWND,
-    VK_CONTROL, VK_LWIN, VK_MENU, VK_RWIN, VK_SHIFT, VT_EMPTY, WH_KEYBOARD_LL, WH_MOUSE_LL,
-    WINEVENT_OUTOFCONTEXT, WM_APP, WM_KEYDOWN, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN,
-    WM_MOUSEHWHEEL, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_NULL, WM_QUIT, WM_RBUTTONDOWN, WM_SYSKEYDOWN,
-    WM_USER, WPARAM, WS_CHILD,
+    PROPERTYID, RRF_RT_REG_DWORD, RRF_RT_REG_SZ, SMTO_ABORTIFHUNG, SM_CXDOUBLECLK, SM_CYDOUBLECLK,
+    UIA_HWND, VK_CONTROL, VK_LWIN, VK_MENU, VK_RWIN, VK_SHIFT, VT_EMPTY, WH_KEYBOARD_LL,
+    WH_MOUSE_LL, WINEVENT_OUTOFCONTEXT, WM_APP, WM_KEYDOWN, WM_LBUTTONDOWN, WM_LBUTTONUP,
+    WM_MBUTTONDOWN, WM_MOUSEHWHEEL, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_NULL, WM_QUIT, WM_RBUTTONDOWN,
+    WM_SYSKEYDOWN, WM_USER, WPARAM, WS_CHILD,
 };
 use windows_core::{Error, Interface, BOOL, BSTR, PWSTR};
 
@@ -2684,10 +2684,12 @@ unsafe extern "system" fn input_keyboard_ll_proc(
                 // where the key is sure to be sent: a worker that read a
                 // field's value takes it only while no later key of the
                 // window was dispatched (docent#761). A key with no window
-                // types into none, and is not numbered.
+                // types into none, and is not numbered; a Shift, Control or
+                // Alt key changes no text, and carries the window's latest
+                // number.
                 let number = match attribution {
                     KeyAttribution::NoWindow => 0,
-                    _ => KEYS_DISPATCHED.number(window_handle),
+                    _ => KEYS_DISPATCHED.for_key(window_handle, kb_struct.vkCode),
                 };
                 input_dispatch_raw_event(RawEvent {
                     event_type: RawEventType::Keyboard,
@@ -3937,6 +3939,32 @@ impl AccessibilityBackend for WindowsAccessibilityBackend {
 
     fn process_name_of(&self, process_id: u32) -> Option<String> {
         process_exe_name(process_id)
+    }
+
+    fn process_id_of(&self, window_handle: i64) -> u32 {
+        let mut process_id = 0u32;
+        unsafe {
+            GetWindowThreadProcessId(HWND(window_handle as *mut _), Some(&mut process_id));
+        }
+        process_id
+    }
+
+    /// A `WM_NULL` sent to the control's own window, which its thread
+    /// answers once it is back at its message loop; a thread the system
+    /// already counts as hung is not waited on at all.
+    fn answers_promptly(&self, control: i64) -> bool {
+        unsafe {
+            SendMessageTimeoutW(
+                HWND(control as *mut _),
+                WM_NULL as u32,
+                WPARAM(0),
+                LPARAM(0),
+                SMTO_ABORTIFHUNG as u32,
+                super::worker_pool::PROMPT_ANSWER_MS,
+                None,
+            )
+            .0 != 0
+        }
     }
 
     fn read_file_dialog_path(&self, window_handle: i64) -> Option<(String, String)> {
