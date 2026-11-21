@@ -223,6 +223,35 @@ describe('adapter.saveSyncSettings()', () => {
   });
 });
 
+// ─── A session file the backend could not use ────────────────────────────────
+// load_state rejects with a tagged object (commands.rs LoadError), not an
+// Error; the settings saves word it as the panel's startup message does.
+
+describe('the settings saves when load_state rejects with a LoadError', () => {
+  beforeEach(resetMocks);
+
+  const KEPT = { kind: 'kept_in_place', path: 'C:\\d\\session.json', reason: 'r' };
+
+  for (const [member, save] of [
+    ['saveSettings', () => adapter.saveSettings('https://api.test', 'k')],
+    ['saveSyncSettings', () => adapter.saveSyncSettings('https://sync.test', 'k')],
+  ]) {
+    it(`${member} rejects with the words, and saves nothing`, async () => {
+      mockInvoke.mock.mockImplementation(async (cmd) => {
+        if (cmd === 'load_state') throw KEPT;
+        return undefined;
+      });
+      await assert.rejects(save, (err) => {
+        assert.ok(!String(err.message).includes('[object Object]'), err.message);
+        assert.ok(err.message.includes('will not save anything until you restart it'), err.message);
+        assert.ok(err.message.includes('C:\\d\\session.json'), err.message);
+        return true;
+      });
+      assert.ok(!mockInvoke.mock.calls.some((c) => c.arguments[0] === 'save_state'));
+    });
+  }
+});
+
 // ─── The panel's mirror-back over one session blob ────────────────────────────
 // Both desktop writers of the settings blob — this adapter's load-mutate-save
 // round-trip and the panel's whole-blob save through persistence.js — run here
@@ -305,7 +334,7 @@ describe("the panel's mirror-back over one session blob", () => {
   for (const { member, save, mirror, read, lost, kept } of SAVE_MEMBERS) {
     it(`loses a ${member} write the panel never mirrored back`, async () => {
       installSessionStore();
-      const sessionState = await loadSessionState(mockInvoke);
+      const { state: sessionState } = await loadSessionState(mockInvoke);
 
       await save();
       // The seam's write landed: its own load counterpart reads the value back
@@ -321,7 +350,7 @@ describe("the panel's mirror-back over one session blob", () => {
 
     it(`keeps a ${member} write the panel mirrored back`, async () => {
       installSessionStore();
-      const sessionState = await loadSessionState(mockInvoke);
+      const { state: sessionState } = await loadSessionState(mockInvoke);
 
       await save();
       mirror(sessionState.settings);
@@ -336,7 +365,7 @@ describe("the panel's mirror-back over one session blob", () => {
       projects: [],
       settings: { syncUrl: 'https://sync.test', syncApiKey: 'key1' },
     });
-    const sessionState = await loadSessionState(mockInvoke);
+    const { state: sessionState } = await loadSessionState(mockInvoke);
 
     await adapter.saveSyncSettings('', '');
     const adapterWrite = JSON.parse(store.saves.at(-1)).settings;
