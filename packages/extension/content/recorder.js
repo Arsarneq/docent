@@ -810,6 +810,15 @@
   // when the typing in it ends. Null while none has been typed into since the
   // last entry was written.
   let editableTypedInto = null;
+  // What the editable content typed into held at the press of a key that
+  // waits behind a dead key, and whether the browser entered text in it
+  // since (`{ el, value, inputSince }`), until that key's entry is written.
+  // Null otherwise.
+  let editableAtKeyBehind = null;
+  // That text has been written. What the person enters in the element since
+  // came with or after the key behind the dead key, so no press that waited
+  // with that key writes it ahead of itself.
+  let editableReadAtPress = false;
 
   /**
    * Write the text the editable content typed into holds, as its `type`. The
@@ -821,17 +830,27 @@
    *   typing, when a key press writes the entry
    * @returns {Promise<void>} settled once the worker has answered
    */
+  const editableText = (el) => el.innerText.trim().slice(0, 500);
+
   function writeEditableEntry(timestamp = Date.now()) {
     const el = editableTypedInto;
     if (!el) return Promise.resolve();
-    editableTypedInto = null;
+    const now = editableText(el);
+    // The text taken at the press of a key that waited behind a dead key is
+    // what that key ended. Text the element holds beyond it came with or
+    // after the key, and is the element's next entry.
+    // Only text the browser entered since (an `input`) is the person's: what
+    // the page made of the element by itself is no entry.
+    const atPress = editableAtKeyBehind?.el === el ? editableAtKeyBehind : null;
+    editableAtKeyBehind = null;
+    const value = atPress ? atPress.value : now;
+    if (atPress) editableReadAtPress = true;
+    if (!atPress?.inputSince || value === now || !active) editableTypedInto = null;
     if (!active) return Promise.resolve();
-    const sent = appendAction({
-      type: 'type',
-      timestamp,
-      element: describeElement(el),
-      value: el.innerText.trim().slice(0, 500),
-    });
+    const entry = { type: 'type', timestamp, element: describeElement(el), value };
+    // The text taken at the press was complete before the presses that still
+    // wait, and goes out ahead of them.
+    const sent = atPress ? sendAction(entry) : appendAction(entry);
     markUserAction();
     return sent;
   }
@@ -937,10 +956,16 @@
   // Two kinds of press wait for more than themselves. A date or time field
   // has a value, and sends `input`, only once its parts make one: the
   // character keys typed into one wait together as a run (`byParts`). A dead
-  // key enters nothing until the next character key is pressed: it waits for
-  // that press and is text or a key together with it (`dead`). The timer and
-  // a release leave both kinds waiting, and a press that does not belong with
-  // them ends the wait.
+  // key enters nothing until the next key is pressed in its field (`dead`).
+  // With a character key it is text or a key together with that press. A key
+  // of another kind waits behind it (`behindDead`) while the browser handles
+  // that key: where the bare accent is entered then (`input` with inputType
+  // `insertText` in the dead key's own field), the dead key is text and only
+  // the key behind it is a `key`; otherwise both are keys, in the order
+  // pressed (#769). The field holding other text does not make such a dead
+  // key text: the key behind it can change the field by itself. The timer and a release leave a run and a dead key with
+  // nothing behind it waiting, and a press that does not belong with them
+  // ends the wait.
   let pendingKeys = [];
   // The actions the browser caused while it handled a waiting press, other
   // than entries: written behind the press once it is known what it was.
@@ -1005,7 +1030,7 @@
     }
     // The key ends the typing in editable content too: its entry stands ahead
     // of the key.
-    writeEditableEntry(time);
+    if (!editableReadAtPress) writeEditableEntry(time);
     sendAction(press.action);
     markUserAction();
     // What the field holds after a key that can change it is an entry the
@@ -1040,8 +1065,14 @@
     const resolved = pending.filter((press) => !pendingKeys.includes(press));
     writingPendingKeys = true;
     try {
-      for (const press of resolved) {
-        if (press.textAtPress !== null && textHeld(press.field) !== press.textAtPress) {
+      for (const [at, press] of resolved.entries()) {
+        // A dead key with a key behind it is text only by the `input` for
+        // its accent in its own field (`pendingKeysBecameText`): the key
+        // behind it can change the field by itself.
+        const keyBehind = press.dead && resolved.slice(at + 1).some((later) => later.behindDead);
+        const fieldChanged =
+          press.textAtPress !== null && textHeld(press.field) !== press.textAtPress;
+        if (fieldChanged && !keyBehind) {
           noteTextEntered(press.field);
         } else {
           writeKeyPress(press);
@@ -1049,6 +1080,10 @@
       }
     } finally {
       writingPendingKeys = false;
+    }
+    if (pendingKeys.length === 0) {
+      editableAtKeyBehind = null;
+      editableReadAtPress = false;
     }
     releaseHeldBehindPendingKeys();
   }
@@ -1068,8 +1103,15 @@
     if (pendingKeys.length === 0) return;
     const target = e.composedPath?.()[0] ?? e.target;
     const waiting = pendingKeys.length;
+    const keyBehind = pendingKeys.some((press) => press.behindDead);
     pendingKeys = pendingKeys.filter((press) => {
       if (press.byParts) return press.field !== target && press.el !== e.target;
+      // The key behind a dead key is no text: the text is the dead key's.
+      if (press.behindDead) return true;
+      // With a key behind it, a dead key is text only where the typed text
+      // lands in its own field: that key's own character can land in the
+      // field the focus moved to (#769).
+      if (press.dead && keyBehind) return !(typed && press.field === target);
       return press.dead ? !typed && !composed : !typed;
     });
     // The text can land in another field than the one the key was pressed in
@@ -1081,6 +1123,11 @@
       fieldsEditedByKey.add(e.target);
       if (typed) noteEntryMadeAgain(e.target);
     }
+    // A key that waited behind a dead key waits for nothing more once the
+    // dead key is known to be text.
+    if (pendingKeys.length > 0 && pendingKeys.every((press) => press.behindDead)) {
+      resolvePendingKeys();
+    }
     releaseHeldBehindPendingKeys();
   }
 
@@ -1088,6 +1135,8 @@
   function forgetPendingKeys() {
     pendingKeys = [];
     heldBehindPendingKeys = [];
+    editableAtKeyBehind = null;
+    editableReadAtPress = false;
   }
 
   // ─── Click capture ────────────────────────────────────────────────────────────
@@ -1600,13 +1649,18 @@
       const secret = character || altCode ? (sensitiveField ?? sensitiveHost) : null;
       // A press before this one that still waits has had its chance: the
       // browser enters a key's text before the next key. A run goes on with
-      // a press that belongs to it, and a dead key waits for a character key
-      // through the modifiers and the input method's keys pressed on the way.
+      // a press that belongs to it. A dead key waits for the next key press
+      // in its field, through the modifiers and the input method's keys
+      // pressed on the way: its accent goes into the character a character
+      // key enters, and the browser can enter the bare accent with a key of
+      // another kind, while it handles that key (#769). Once such a key
+      // waits behind it, the press after that ends the wait of both.
+      const keyBehindWaits = pendingKeys.some((press) => press.behindDead);
       const goesOn = inRun
         ? (press) => press.byParts && press.field === field
-        : mayBeText || kind === 'modifier' || kind === 'composed'
-          ? (press) => press.dead && press.field === field
-          : undefined;
+        : keyBehindWaits
+          ? undefined
+          : (press) => press.dead && press.field === field;
       resolvePendingKeys(goesOn);
       // The entry the person made in the field is complete before this press,
       // and the browser's `change` for it comes only while it handles the
@@ -1657,6 +1711,10 @@
         downByThis,
         byParts: inRun,
         dead,
+        // A key that is no character key, pressed behind a dead key that
+        // still waits: it is written behind the dead key, once it is known
+        // what that was.
+        behindDead: !mayBeText && pendingKeys.length > 0,
         secret,
         // What the field held at the press, for a press that waits.
         textAtPress: mayBeText ? textHeld(field) : null,
@@ -1679,8 +1737,18 @@
       // the press's events; a press that waits is marked like one written.
       pressedKeysDown.add(e.code);
       markKeyEvent();
-      if (mayBeText) pendingKeys.push(press);
+      if (mayBeText || press.behindDead) pendingKeys.push(press);
       else writeKeyPress(press);
+      // A key behind a dead key is written once the browser and the page
+      // have handled it: the editable content's text is taken here, before
+      // they act, for the entry that key ends.
+      if (press.behindDead && editableTypedInto && !editableAtKeyBehind) {
+        editableAtKeyBehind = {
+          el: editableTypedInto,
+          value: editableText(editableTypedInto),
+          inputSince: false,
+        };
+      }
     },
     { capture: true, passive: true },
   );
@@ -2047,6 +2115,7 @@
       // Typing in another element ends the typing in the one before it.
       if (editableTypedInto !== el) writeEditableEntry();
       editableTypedInto = el;
+      if (editableAtKeyBehind?.el === el) editableAtKeyBehind.inputSince = true;
     },
     { capture: true, passive: true },
   );

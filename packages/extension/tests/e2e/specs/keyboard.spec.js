@@ -1852,6 +1852,226 @@ test.describe('Every key press that is not text', () => {
     ]);
   });
 
+  // A dead key and then a key that is no character key. Where the browser
+  // enters the bare accent with that key, the accent's character arrives
+  // while the key is handled, after its keydown: the dead key is text of the
+  // field and is no `key` beside it (#769). The key that followed is a `key`.
+  for (const [name, field] of [
+    ['a_text_field', '#text'],
+    ['a_text_area', '#area'],
+  ]) {
+    test(`regression_769_a_dead_key_whose_accent_is_entered_with_the_next_key_is_text_in_${name}`, async ({
+      testPage,
+      serviceWorker,
+      context,
+    }) => {
+      const session = await context.newCDPSession(testPage);
+      const dead = { key: 'Dead', code: 'Equal', windowsVirtualKeyCode: 221 };
+      const enter = { key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 };
+      await testPage.focus(field);
+      await testPage.keyboard.type('c');
+      await session.send('Input.dispatchKeyEvent', { type: 'rawKeyDown', ...dead });
+      await session.send('Input.dispatchKeyEvent', { type: 'keyUp', ...dead });
+      await testPage.waitForTimeout(300);
+      await session.send('Input.dispatchKeyEvent', { type: 'rawKeyDown', ...enter });
+      await session.send('Input.dispatchKeyEvent', { type: 'char', ...enter, text: '´' });
+      await session.send('Input.dispatchKeyEvent', { type: 'char', ...enter, text: '\r' });
+      await session.send('Input.dispatchKeyEvent', { type: 'keyUp', ...enter });
+      await testPage.locator('#btn').click();
+      const actions = (await written(serviceWorker, testPage)).filter(([type]) => type !== 'click');
+      expect(actions).toEqual([
+        ['type', 'c'],
+        ['key', 'Enter'],
+        ['type', field === '#area' ? 'c´\n' : 'c´'],
+      ]);
+    });
+  }
+
+  // Editable content has its text read when its entry is written. A key
+  // behind a dead key is written after the page has handled it, so the text
+  // is taken at that key's press: a page that sends and empties its editable
+  // content at Enter (a chat box) still has what was typed in the file.
+  for (const [name, empties, expected] of [
+    [
+      'a_page_that_empties_it_at_that_key',
+      true,
+      [
+        ['type', 'c'],
+        ['key', 'Enter'],
+        ['type', '´'],
+      ],
+    ],
+    [
+      'a_page_that_leaves_it',
+      false,
+      [
+        ['type', 'c'],
+        ['key', 'Enter'],
+        ['type', 'c´'],
+      ],
+    ],
+  ]) {
+    test(`regression_769_text_in_editable_content_is_read_at_the_press_of_the_key_behind_a_dead_key_on_${name}`, async ({
+      testPage,
+      serviceWorker,
+      context,
+    }) => {
+      const session = await context.newCDPSession(testPage);
+      const dead = { key: 'Dead', code: 'Equal', windowsVirtualKeyCode: 221 };
+      const enter = { key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 };
+      if (empties) {
+        await testPage.evaluate(() => {
+          const box = document.querySelector('#editable');
+          box.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') box.textContent = '';
+          });
+        });
+      }
+      await testPage.focus('#editable');
+      await testPage.keyboard.type('c');
+      await session.send('Input.dispatchKeyEvent', { type: 'rawKeyDown', ...dead });
+      await session.send('Input.dispatchKeyEvent', { type: 'keyUp', ...dead });
+      await session.send('Input.dispatchKeyEvent', { type: 'rawKeyDown', ...enter });
+      await session.send('Input.dispatchKeyEvent', { type: 'char', ...enter, text: '´' });
+      await testPage.waitForTimeout(50);
+      await session.send('Input.dispatchKeyEvent', { type: 'keyUp', ...enter });
+      await testPage.locator('#btn').click();
+      const actions = (await written(serviceWorker, testPage)).filter(([type]) => type !== 'click');
+      expect(actions).toEqual(expected);
+    });
+  }
+
+  // The same where no accent is entered and the dead key is a `key` too:
+  // the text taken at the press stands ahead of both keys, and what the
+  // person changed in the element after them is written behind them, never
+  // between them. What the page made of the element by itself is no entry,
+  // also where the page moves the focus away before the key is released.
+  for (const [name, behind, cancels, expected] of [
+    [
+      'a_page_that_cancels_enter_and_empties_it',
+      { key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 },
+      'empties',
+      [
+        ['type', 'c'],
+        ['key', 'Dead'],
+        ['key', 'Enter'],
+      ],
+    ],
+    [
+      'a_page_that_cancels_enter_empties_it_and_moves_the_focus_later',
+      { key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 },
+      'moves',
+      [
+        ['type', 'c'],
+        ['key', 'Dead'],
+        ['key', 'Enter'],
+      ],
+    ],
+    [
+      'a_key_that_deletes_from_it',
+      { key: 'Backspace', code: 'Backspace', windowsVirtualKeyCode: 8 },
+      null,
+      [
+        ['type', 'c'],
+        ['key', 'Dead'],
+        ['key', 'Backspace'],
+        ['type', ''],
+      ],
+    ],
+  ]) {
+    test(`regression_769_text_in_editable_content_stands_ahead_of_a_dead_key_and_the_key_behind_it_on_${name}`, async ({
+      testPage,
+      serviceWorker,
+      context,
+    }) => {
+      const session = await context.newCDPSession(testPage);
+      const dead = { key: 'Dead', code: 'Equal', windowsVirtualKeyCode: 221 };
+      if (cancels) {
+        await testPage.evaluate((moves) => {
+          const box = document.querySelector('#editable');
+          box.addEventListener('keydown', (e) => {
+            if (e.key !== 'Enter') return;
+            e.preventDefault();
+            box.textContent = '';
+            if (moves) setTimeout(() => document.querySelector('#btn').focus(), 10);
+          });
+        }, cancels === 'moves');
+      }
+      await testPage.focus('#editable');
+      await testPage.keyboard.type('c');
+      await session.send('Input.dispatchKeyEvent', { type: 'rawKeyDown', ...dead });
+      await session.send('Input.dispatchKeyEvent', { type: 'keyUp', ...dead });
+      await session.send('Input.dispatchKeyEvent', { type: 'rawKeyDown', ...behind });
+      await testPage.waitForTimeout(50);
+      await session.send('Input.dispatchKeyEvent', { type: 'keyUp', ...behind });
+      await testPage.locator('#btn').click();
+      const actions = (await written(serviceWorker, testPage)).filter(
+        ([type]) => type !== 'click' && type !== 'focus',
+      );
+      expect(actions).toEqual(expected);
+    });
+  }
+
+  test('a_dead_key_is_a_key_where_the_key_behind_it_changes_the_field_or_enters_text_elsewhere', async ({
+    testPage,
+    serviceWorker,
+    context,
+  }) => {
+    // The key behind a dead key can change the field by itself (Backspace),
+    // and its own character can land in the field the focus moved to (Tab).
+    // Neither is the dead key's accent entered in its field: the dead key
+    // entered nothing and is the `key` it was.
+    const session = await context.newCDPSession(testPage);
+    const dead = { key: 'Dead', code: 'Equal', windowsVirtualKeyCode: 221 };
+    const pressDead = async () => {
+      await session.send('Input.dispatchKeyEvent', { type: 'rawKeyDown', ...dead });
+      await session.send('Input.dispatchKeyEvent', { type: 'keyUp', ...dead });
+    };
+    await testPage.focus('#text');
+    await testPage.keyboard.type('c');
+    await pressDead();
+    await testPage.keyboard.press('Backspace');
+    await pressDead();
+    const tab = { key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9 };
+    await session.send('Input.dispatchKeyEvent', { type: 'rawKeyDown', ...tab });
+    await testPage.evaluate(() => document.querySelector('#area').focus());
+    await session.send('Input.dispatchKeyEvent', { type: 'char', ...tab, text: '\t' });
+    await session.send('Input.dispatchKeyEvent', { type: 'keyUp', ...tab });
+    const actions = await written(serviceWorker, testPage);
+    expect(actions.slice(0, 6)).toEqual([
+      ['type', 'c'],
+      ['key', 'Dead'],
+      ['key', 'Backspace'],
+      ['type', ''],
+      ['key', 'Dead'],
+      ['key', 'Tab'],
+    ]);
+  });
+
+  test('a_dead_key_and_a_key_that_enters_nothing_are_keys_in_the_order_pressed', async ({
+    testPage,
+    serviceWorker,
+    context,
+  }) => {
+    // The same two keys where the browser enters nothing for them: both are
+    // keys, the dead key first, and what the second key caused comes after.
+    const session = await context.newCDPSession(testPage);
+    const dead = { key: 'Dead', code: 'Equal', windowsVirtualKeyCode: 221 };
+    await testPage.focus('#text');
+    await session.send('Input.dispatchKeyEvent', { type: 'rawKeyDown', ...dead });
+    await session.send('Input.dispatchKeyEvent', { type: 'keyUp', ...dead });
+    await testPage.keyboard.press('ArrowLeft');
+    await session.send('Input.dispatchKeyEvent', { type: 'rawKeyDown', ...dead });
+    await session.send('Input.dispatchKeyEvent', { type: 'keyUp', ...dead });
+    await testPage.keyboard.press('Control+a');
+    expect(await written(serviceWorker, testPage)).toEqual([
+      ['key', 'Dead'],
+      ['key', 'ArrowLeft'],
+      ['key', 'Dead'],
+      ['key', 'a'],
+    ]);
+  });
+
   test('regression_702_keys_that_wait_when_capture_goes_off_are_not_carried_into_the_next', async ({
     testPage,
     serviceWorker,

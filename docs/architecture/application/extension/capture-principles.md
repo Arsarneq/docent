@@ -204,9 +204,26 @@ phase, for exactly these DOM events, on `document` unless the item names
   pressed elsewhere, any other action, the window losing the focus or the
   page being left making each the `key` it was; a space in such a field opens
   its picker and is written at once. A dead key enters nothing until the
-  character key after it is pressed: in a field typing can change it waits
-  for that press and is text or a `key` together with it, and any other
-  press or action makes it the `key` it was. On any other element a
+  key after it is pressed: in a field typing can change it waits for the
+  next press in that field. With a character key it is text or a `key`
+  together with that press. With a key of another kind the browser can enter
+  the bare accent while it handles that key (Enter after a dead key): that
+  key waits behind the dead key, the dead key is text where the browser's
+  `input` for typed text follows in the dead key's own field, and the key
+  behind it is then written as the `key` it was; without it both are keys,
+  the dead key first, and the press after them, any other action, the end
+  of the handling of the second key or the release of a key ends the wait.
+  Other text in the field does not make such a dead key text (the key
+  behind it can change the field by itself), nor does typed text that lands
+  in another field (that key's own character, in the field the focus moved
+  to). Editable content has its text read when its entry is written, and
+  the key behind a dead key is written after the page has handled it: the
+  text is taken at that key's press, so that the entry the key ends holds
+  what the page saw. That entry stands ahead of the dead key where it is a
+  `key` too, and goes out ahead of the presses that still wait. Text the
+  browser enters in the element after that press is its next entry, written
+  behind the keys; what the page made of the element by itself is no entry. The desktop decides the same question by the accent the field's
+  value gained (desktop capture DCP-9). On any other element a
   character key is written at once (a letter on a button). An entry a key
   press writes ahead of itself (below) carries the time of that press. A
   character key pressed with no shortcut modifier on a sensitive element is

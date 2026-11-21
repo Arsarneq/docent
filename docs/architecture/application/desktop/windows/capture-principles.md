@@ -362,17 +362,52 @@ none of them.
 If a value-change event arrives (producing a `type` action), the buffered
 keys are discarded (superseded). If no value-change arrives within 500 ms of
 the last buffered key (non-editable control like Calculator), the keys are
-emitted individually. A dead key (a key the keyboard layout marks as one, read
-for the key with no modifier) is the exception to that wait: it enters
+emitted individually. A dead key (a key the keyboard layout of the foreground
+window says is one as pressed, with Shift or AltGr where held) is the
+exception to that wait: it enters
 nothing by itself, so it stays buffered until the next key or the end of the
 typing decides what it was; a value change that comes while it waits is the
 text of the keys before it. Where the character key after it enters text it
-is part of that text; where a key that is no typing key follows, or the
-typing ends, it is written as a `key`, as on the extension, behind the keys
-pressed before it that are still buffered. A key that is
-dead only with Shift or AltGr is not known as one and is written after the
-wait; a departure (core CP-18). A key that is dead only without them is an
-ordinary key when pressed with one. The `type` itself is held for the field and carried
+is part of that text. A program can also enter the bare accent as a
+character: when the dead key is pressed again, or with a key that is no
+typing key (Enter in a text editor). The dead key is part of that text too,
+and no `key` beside it, where the value taken for the field holds the accent
+more often than the field did before the first waiting dead key (the value
+the worker read when it took that press, or else the value last taken for
+the field);
+that many of the waiting dead keys with the accent, from the first, are
+text. The accent is the character the layout names for the dead key. This is asked only of a value taken for the dead keys' own field, while
+every buffered key is a waiting dead key and what the field held before is
+known; otherwise the dead keys stay as they are, and are written as keys
+beside the text. The worker reads the field when it takes the press, which
+can be after the program applied later keys: the value read then holds
+their accents already, none is counted as gained, and the dead keys stay
+keys. A key that is no typing key pressed behind waiting dead keys in their
+field, with no other key buffered, is held with them, so that the keys are
+written in the order pressed (with another key buffered all are written at
+once, as keys): a value
+taken for the field decides what the dead keys were and the held key is
+written behind those that are keys, ahead of the `type` the value starts.
+With no such value within the 500 ms, or at the next key or any other
+action (a turn of the wheel included, whose scroll is written later), the
+dead keys and the held key are written as keys. Where the
+typing ends with a dead key still waiting, it is written as a `key`, behind
+the keys pressed before it that are still buffered. The extension decides the same question by the browser's `input` for typed
+text in the dead key's field (extension capture principles, Capture
+Surface); the desktop has no such event and counts the accent in the value. The keyboard hook asks the layout
+with the system's read that leaves the keyboard state as it is, so an accent
+pending in the application is not touched. The layout's answer depends on an
+accent already pending, so it is asked about a key pressed with Shift or
+AltGr only while none is, and its answer is kept for that key and modifier
+state: once asked, what a key is does not depend on how far the application
+has got with the keys before it. A key pressed with neither is known by the
+layout's own mark. CapsLock is no part of the question. Where the layout was
+not asked, a key pressed with Shift or AltGr is taken for an ordinary key,
+and one that is dead with them is written as a `key` after the wait. That
+holds on a Windows before version 10.0.14393, which has no such read, and
+for a key pressed while an accent is pending before the layout has been
+asked about it in the recording or since the foreground window's layout last
+changed; a departure (core CP-18). The `type` itself is held for the field and carried
 forward to each new value, and it is written when the typing in the field
 ends: a key that is no typing key is pressed, a typing key is pressed in
 another element, the pointer is pressed (a click, a right-click or a drag),

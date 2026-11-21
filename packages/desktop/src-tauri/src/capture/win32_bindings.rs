@@ -487,6 +487,11 @@ pub unsafe fn RegisterClassW(lpwndclass: *const WNDCLASSW) -> ATOM {
     unsafe { RegisterClassW(lpwndclass) }
 }
 #[inline]
+pub unsafe fn RtlGetVersion(lpversioninformation: *mut OSVERSIONINFOW) -> windows_core::NTSTATUS {
+    windows_core::link!("ntdll.dll" "system" fn RtlGetVersion(lpversioninformation : *mut OSVERSIONINFOW) -> windows_core::NTSTATUS);
+    unsafe { RtlGetVersion(lpversioninformation as _) }
+}
+#[inline]
 pub unsafe fn SHGetFileInfoW<P0>(
     pszpath: P0,
     dwfileattributes: u32,
@@ -617,6 +622,29 @@ pub unsafe fn SetWindowsHookExW(
 pub unsafe fn ShowWindow(hwnd: HWND, ncmdshow: i32) -> windows_core::BOOL {
     windows_core::link!("user32.dll" "system" fn ShowWindow(hwnd : HWND, ncmdshow : i32) -> windows_core::BOOL);
     unsafe { ShowWindow(hwnd, ncmdshow) }
+}
+#[inline]
+pub unsafe fn ToUnicodeEx(
+    wvirtkey: u32,
+    wscancode: u32,
+    lpkeystate: *const u8,
+    pwszbuff: windows_core::PWSTR,
+    cchbuff: i32,
+    wflags: u32,
+    dwhkl: Option<HKL>,
+) -> i32 {
+    windows_core::link!("user32.dll" "system" fn ToUnicodeEx(wvirtkey : u32, wscancode : u32, lpkeystate : *const u8, pwszbuff : windows_core::PWSTR, cchbuff : i32, wflags : u32, dwhkl : HKL) -> i32);
+    unsafe {
+        ToUnicodeEx(
+            wvirtkey,
+            wscancode,
+            lpkeystate,
+            pwszbuff,
+            cchbuff,
+            wflags,
+            dwhkl.unwrap_or(core::mem::zeroed()) as _,
+        )
+    }
 }
 #[inline]
 pub unsafe fn TranslateMessage(lpmsg: *const MSG) -> windows_core::BOOL {
@@ -4575,6 +4603,21 @@ pub struct OPENFILENAMEW {
     pub pvReserved: *mut core::ffi::c_void,
     pub dwReserved: u32,
     pub FlagsEx: u32,
+}
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct OSVERSIONINFOW {
+    pub dwOSVersionInfoSize: u32,
+    pub dwMajorVersion: u32,
+    pub dwMinorVersion: u32,
+    pub dwBuildNumber: u32,
+    pub dwPlatformId: u32,
+    pub szCSDVersion: [u16; 128],
+}
+impl Default for OSVERSIONINFOW {
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
 }
 pub type OrientationType = i32;
 #[repr(transparent)]

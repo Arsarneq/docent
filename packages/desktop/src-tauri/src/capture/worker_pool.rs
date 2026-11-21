@@ -282,6 +282,11 @@ pub enum WorkerMessage {
     /// Paste, where the menu is the field's own). Sent to the typing worker
     /// only, behind the [`WorkerMessage::EndTyping`] of the same click.
     MenuCommand,
+    /// A wheel event was dispatched. The scroll it becomes is written with no
+    /// place in the order of the events, so a key held behind a dead key
+    /// ([`PendingBuffers::key_behind_dead_keys`]) is written now, ahead of
+    /// it. Sent to the typing worker only; with no key held it does nothing.
+    WriteHeldKey,
     /// Capture started, or a window came to the front: look at the control
     /// that holds the keyboard focus now, so the first key typed into it finds
     /// it known and the field's first value is read without waiting on its
@@ -407,6 +412,19 @@ pub struct PendingBuffers {
     /// change had reached: they are keys now, written behind those keys when
     /// their wait ends, and no key pressed later makes them text.
     pub dead_keys_are_keys: bool,
+    /// The accent of each dead key waiting at the end of the buffered keys
+    /// ([`dead_key_accent`]), in the order pressed.
+    pub waiting_accents: Vec<Option<char>>,
+    /// What the field held when the first of those dead keys was pressed,
+    /// where it was read then.
+    pub value_at_dead_key: Option<String>,
+    /// A key that is no typing key, pressed behind dead keys that wait and
+    /// held until it is known what they were: a program can enter the bare
+    /// accent as a character with such a key (docent#769). The buffered keys
+    /// are then those dead keys and no other. It is written behind them when
+    /// a value taken for the field decides it, when its wait for one is over,
+    /// or ahead of whatever is written next.
+    pub key_behind_dead_keys: Option<ActionEvent>,
     /// How many of `pending_keys`, from the first, are written as keys after
     /// the pending `type`: their value change came, and its value was read after a later key of the
     /// window had been dispatched, so it was not taken (docent#761). The
@@ -455,13 +473,123 @@ impl PendingBuffers {
         }
     }
 
-    /// Write every buffered key as a key.
+    /// Write every buffered key as a key, and behind them the key held
+    /// behind waiting dead keys.
     fn write_keys(&mut self, action_sender: &mpsc::Sender<ActionEvent>) {
         flush_pending_keys(&mut self.pending_keys, action_sender);
+        if let Some(key) = self.key_behind_dead_keys.take() {
+            let _ = action_sender.send(key);
+        }
         self.pending_keys_last_timestamp = 0;
         self.keys_after_type = 0;
+        self.no_dead_key_waits();
+    }
+
+    /// No dead key waits at the end of the buffered keys any more.
+    fn no_dead_key_waits(&mut self) {
         self.pending_dead_keys = 0;
         self.dead_keys_are_keys = false;
+        self.waiting_accents.clear();
+        self.value_at_dead_key = None;
+    }
+
+    /// A typing key was buffered: count it among the waiting dead keys where
+    /// it is one (`dead`, with its `accent` and the field's value read at
+    /// the press), and end their wait where it is none.
+    fn note_buffered_key(&mut self, dead: bool, accent: Option<char>, value: Option<String>) {
+        if !dead {
+            self.pending_dead_keys = 0;
+            self.waiting_accents.clear();
+            self.value_at_dead_key = None;
+            return;
+        }
+        // The key itself is the last buffered one.
+        let waiting = self
+            .pending_dead_keys
+            .min(self.pending_keys.len().saturating_sub(1));
+        if waiting == 0 {
+            self.waiting_accents.clear();
+            self.value_at_dead_key = value;
+        }
+        self.waiting_accents.truncate(waiting);
+        self.waiting_accents.resize(waiting, None);
+        self.waiting_accents.push(accent);
+        self.pending_dead_keys = waiting + 1;
+    }
+
+    /// A value was taken for the field's `type`: discard the waiting dead
+    /// keys whose accent the program entered as a character, which are part
+    /// of that text (docent#769). The program entered one where `value`
+    /// holds the accent more often than the field did `before` the first of
+    /// them was pressed; that many of the dead keys with the accent, from
+    /// the first, are text.
+    ///
+    /// Only where every buffered key is such a dead key and `before` is
+    /// known: text of other keys that no value has reached could hold the
+    /// accent too, and nothing would tell whose it is. The dead keys then
+    /// stay as they are.
+    fn take_dead_keys_entered(&mut self, before: Option<&str>, value: &str) {
+        let waiting = self.undecided_dead_keys();
+        let Some(before) = before else { return };
+        if waiting == 0
+            || waiting != self.pending_keys.len()
+            || waiting != self.waiting_accents.len()
+        {
+            return;
+        }
+        let mut entered: Vec<(char, usize)> = Vec::new();
+        let mut kept_keys = Vec::with_capacity(waiting);
+        let mut kept_accents = Vec::with_capacity(waiting);
+        for (key, accent) in self
+            .pending_keys
+            .drain(..)
+            .zip(self.waiting_accents.drain(..))
+        {
+            let is_text = accent.is_some_and(|accent| {
+                let left = match entered.iter_mut().find(|(known, _)| *known == accent) {
+                    Some((_, left)) => left,
+                    None => {
+                        let gained = value
+                            .matches(accent)
+                            .count()
+                            .saturating_sub(before.matches(accent).count());
+                        entered.push((accent, gained));
+                        &mut entered.last_mut().expect("just pushed").1
+                    }
+                };
+                let text = *left > 0;
+                *left = left.saturating_sub(1);
+                text
+            });
+            if !is_text {
+                kept_keys.push(key);
+                kept_accents.push(accent);
+            }
+        }
+        self.pending_dead_keys = kept_keys.len();
+        self.pending_keys = kept_keys;
+        self.waiting_accents = kept_accents;
+        // The dead keys left wait behind this value: it is what the field
+        // held before any accent of theirs.
+        self.value_at_dead_key = (self.pending_dead_keys > 0).then(|| value.to_string());
+    }
+
+    /// Whether every buffered key was pressed in `element` of `context_id`:
+    /// the field a value was taken for.
+    fn dead_keys_wait_in(&self, context_id: Option<i64>, element: &ElementDescription) -> bool {
+        self.pending_keys.iter().all(|key| {
+            key.context_id == context_id
+                && matches!(&key.payload,
+                    ActionPayload::Key { element: pressed_in, .. } if same_field(pressed_in, element))
+        })
+    }
+
+    /// The key held behind waiting dead keys is written now, behind them:
+    /// what is written next must not come ahead of it.
+    fn write_key_behind_dead_keys(&mut self, action_sender: &mpsc::Sender<ActionEvent>) {
+        if self.key_behind_dead_keys.is_some() {
+            self.write_keys(action_sender);
+        }
     }
 
     /// Discard the buffered keys a value read in time made text. A dead key
@@ -474,7 +602,7 @@ impl PendingBuffers {
         self.keys_after_type = 0;
         if waiting == 0 {
             self.pending_keys_last_timestamp = 0;
-            self.dead_keys_are_keys = false;
+            self.no_dead_key_waits();
         }
     }
 
@@ -752,6 +880,9 @@ impl WorkerPool {
         }
         if is_menu_command(&event) {
             self.tell_typing_worker(WorkerMessage::MenuCommand);
+        }
+        if matches!(event.event_type, RawEventType::Scroll) {
+            self.tell_typing_worker(WorkerMessage::WriteHeldKey);
         }
         let comes_to_front = matches!(event.event_type, RawEventType::Foreground);
         let worker_index = self.select_worker(&event);
@@ -1724,20 +1855,45 @@ fn is_printable_key(raw: &RawEvent) -> bool {
     is_typing_key_code(raw.key_code) && !meta && ctrl == alt
 }
 
-/// Whether a keystroke is a dead key: a key the keyboard layout of the
-/// foreground window's thread marks as one (the dead-key flag, bit 31 of the
-/// value the keyboard hook read for the key with no modifier). It enters
-/// nothing by itself; its accent goes into the character the next key enters.
-/// The flag is the unmodified key's, so it counts for a press with neither
-/// Shift nor AltGr (Ctrl and Alt together): a key that is dead only with one
-/// of them is not known as a dead key, and a key that is dead only without
-/// them is none when pressed with one.
+/// Whether a keystroke is a dead key: it enters nothing by itself; its accent
+/// goes into the character the next key enters.
+///
+/// Where the keyboard hook asked the layout about the key as pressed, with
+/// the modifiers held ([`super::held_keys::dead_as_pressed_of`]), the answer
+/// is the layout's: a key dead with Shift or AltGr is a dead key, and a key
+/// dead only without them is none when pressed with one.
+///
+/// Where the hook did not ask, what is known is the dead-key flag of the
+/// unmodified key (bit 31 of the layout character). It counts for a press
+/// with neither Shift nor AltGr (Ctrl and Alt together); with one of them the
+/// key is taken for an ordinary one.
 fn is_dead_key(raw: &RawEvent) -> bool {
+    if !is_printable_key(raw) {
+        return false;
+    }
+    if let Some(read) = super::held_keys::dead_as_pressed_of(raw.callback_params[3]) {
+        return matches!(read, super::held_keys::AsPressed::DeadKey { .. });
+    }
     let (ctrl, shift, alt, _meta) = raw.modifiers;
-    is_printable_key(raw)
-        && !shift
+    !shift
         && !(ctrl && alt)
         && super::held_keys::layout_char_of(raw.callback_params[3]) & 0x8000_0000 != 0
+}
+
+/// The accent a dead key carries: the character a program enters for it
+/// where no character takes the accent (the key pressed twice, or a key that
+/// is no typing key behind it). The layout's answer for the key as pressed
+/// where the hook asked, otherwise the layout character of the unmodified
+/// key. `None` for a key that is no dead key and where the layout named none.
+fn dead_key_accent(raw: &RawEvent) -> Option<char> {
+    if !is_dead_key(raw) {
+        return None;
+    }
+    let code = match super::held_keys::dead_as_pressed_of(raw.callback_params[3]) {
+        Some(super::held_keys::AsPressed::DeadKey { accent }) => u32::from(accent),
+        _ => super::held_keys::layout_char_of(raw.callback_params[3]) & 0xFFFF,
+    };
+    char::from_u32(code).filter(|accent| *accent != '\0')
 }
 
 /// Whether a keystroke is a paste key: V with Ctrl (with or without Shift), or
@@ -2027,6 +2183,10 @@ pub fn worker_loop<B: AccessibilityBackend>(
                 lock_buffers(&pending).end_typing(current_timestamp_ms(), &action_sender);
             }
             Ok(WorkerMessage::MenuCommand) => note_menu_command(&mut state),
+            Ok(WorkerMessage::WriteHeldKey) => {
+                // In-memory buffer mutation only — no backend calls inside.
+                lock_buffers(&pending).write_key_behind_dead_keys(&action_sender);
+            }
             Ok(WorkerMessage::LookAtFocus) => {
                 // Backend calls only; the buffers are not touched.
                 let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -2062,6 +2222,9 @@ pub fn worker_loop<B: AccessibilityBackend>(
                                 .end_typing(current_timestamp_ms(), &action_sender);
                         }
                         WorkerMessage::MenuCommand => note_menu_command(&mut state),
+                        WorkerMessage::WriteHeldKey => {
+                            lock_buffers(&pending).write_key_behind_dead_keys(&action_sender);
+                        }
                         // No key follows a stop: nothing to look at.
                         WorkerMessage::LookAtFocus => {}
                         WorkerMessage::Flush(ack) => {
@@ -2357,7 +2520,7 @@ const KEY_NUMBER_MASK: u64 = (1 << 30) - 1;
 ///
 /// | bits  | holds                                                  |
 /// |-------|--------------------------------------------------------|
-/// | 0–31  | the layout character ([`super::held_keys::layout_char_of`]) |
+/// | 0–31  | the layout character ([`super::held_keys::layout_char_of`]), with the dead-key read in bits 16 to 30 |
 /// | 32    | the repeat mark ([`super::held_keys::KEY_REPEAT_PARAM`]) |
 /// | 33–62 | the key number ([`KEY_NUMBER_MASK`])                   |
 /// | 63    | clear: the parameter stays a positive `i64`            |
@@ -2889,6 +3052,14 @@ fn process_raw_event<B: AccessibilityBackend>(
     // the event is another worker's.
     if ends_typing(&raw.event_type) {
         lock_buffers(pending).flush_pending_type_only(action_sender);
+    }
+    // A key held behind dead keys is written ahead of this event's action. A
+    // value change is what it waits for, and a key settles it itself.
+    if !matches!(
+        raw.event_type,
+        RawEventType::ValueChange | RawEventType::Keyboard
+    ) {
+        lock_buffers(pending).write_key_behind_dead_keys(action_sender);
     }
 
     match &raw.event_type {
@@ -3555,6 +3726,24 @@ fn record_type_value(
     if repeats_last {
         return true;
     }
+    // Dead keys that wait in this field and whose accent the program entered
+    // are part of this text. What the field held before them is the value
+    // read at the first of them, or else the value last taken for the field.
+    // A password field's value is its mask and says nothing, and a value
+    // taken for another field says nothing about dead keys pressed in theirs.
+    if !is_password && buffers.dead_keys_wait_in(context_id, &element) {
+        let before = buffers.value_at_dead_key.take().or_else(|| {
+            last_value
+                .as_ref()
+                .filter(|last| last.is_of(context_id, &element))
+                .map(|last| last.value.clone())
+        });
+        buffers.take_dead_keys_entered(before.as_deref(), &value);
+    }
+    // The key held behind dead keys ended the typing before this value: the
+    // dead keys still buffered entered nothing and are keys, and it is
+    // written behind them, ahead of the `type` this value starts.
+    buffers.write_key_behind_dead_keys(action_sender);
     *last_value = Some(LastValue::of(context_id, &element, &value));
 
     buffer_type_value(
@@ -3921,6 +4110,7 @@ fn handle_keyboard<B: AccessibilityBackend>(
     // `unknowable`: nothing can be said about the element the key went to.
     // Its window is gone, the window gave no focused element, or the person
     // moved the focus (a click, a focus-moving key) before this description.
+    let described_now = on_control.is_none() && remembered.is_none();
     let (mut element, mark, unknowable) = match (on_control, remembered) {
         (Some(element), _) => (element, None, false),
         (None, Some((element, mark))) => (element, Some(mark), false),
@@ -3995,6 +4185,19 @@ fn handle_keyboard<B: AccessibilityBackend>(
     // A typing key waits for the value change that would make it text, except
     // on a control that takes no typed text, where it is a key at once.
     let buffered = is_printable_key(raw) && !takes_no_typed_text(&element);
+    // What the field holds at a dead key, where it was read for this key:
+    // from its control, or with an element described just now. An element
+    // remembered from an earlier key holds an earlier value and gives none.
+    let dead = buffered && is_dead_key(raw);
+    let value_at_dead_key = if !dead {
+        None
+    } else if control != 0 {
+        backend.control_value(control)
+    } else if described_now {
+        element.value.clone()
+    } else {
+        None
+    };
 
     let event = ActionEvent {
         timestamp: raw.timestamp,
@@ -4044,19 +4247,35 @@ fn handle_keyboard<B: AccessibilityBackend>(
         if buffers.dead_keys_are_keys {
             buffers.write_keys(action_sender);
         }
+        // Dead keys with a key held behind them got no value for it: they
+        // and it are keys, ahead of this one.
+        buffers.write_key_behind_dead_keys(action_sender);
         // Buffer printable keys — they may be superseded by a type event.
         buffers.pending_keys.push(event);
         buffers.pending_keys_last_timestamp = raw.timestamp;
-        buffers.pending_dead_keys = if is_dead_key(raw) {
-            buffers.waiting_dead_keys() + 1
-        } else {
-            0
-        };
+        buffers.note_buffered_key(dead, dead_key_accent(raw), value_at_dead_key);
     } else {
         // Control key — flush pending type and pending keys, then emit.
         buffers.flush_pending_type_only(action_sender);
-        buffers.write_keys(action_sender);
-        let _ = action_sender.send(event);
+        // Behind dead keys that wait in this field, with no other key
+        // buffered, the key is held with them: a value the field reports for
+        // it says whether the program entered their accent as text.
+        let waiting = buffers.undecided_dead_keys();
+        let behind_dead_keys = waiting > 0
+            && waiting == buffers.pending_keys.len()
+            && buffers.key_behind_dead_keys.is_none()
+            && buffers.pending_keys.iter().all(|dead_key| {
+                dead_key.context_id == context_id
+                    && matches!(&dead_key.payload,
+                        ActionPayload::Key { element, .. } if same_field(element, &key_element))
+            });
+        if behind_dead_keys {
+            buffers.key_behind_dead_keys = Some(event);
+            buffers.pending_keys_last_timestamp = raw.timestamp;
+        } else {
+            buffers.write_keys(action_sender);
+            let _ = action_sender.send(event);
+        }
     }
 }
 
@@ -4233,6 +4452,14 @@ fn write_keys_that_took_no_text(
     // behind them that no value change reached are written as any are.
     // While a dead key waits for the key after it, the wait writes nothing;
     // one the end of the typing made a key is written with the others.
+    // Dead keys with a key held behind them: no value came for that key
+    // within the wait, so the program entered nothing and all are keys.
+    if buffers.key_behind_dead_keys.is_some()
+        && debounce_elapsed(now, buffers.pending_keys_last_timestamp, KEY_TEXT_WAIT_MS)
+    {
+        buffers.write_keys(action_sender);
+        return;
+    }
     if buffers.pending_keys.len() > buffers.keys_after_type
         && buffers.undecided_dead_keys() == 0
         && buffers.pending_keys_last_timestamp > 0
@@ -4240,8 +4467,7 @@ fn write_keys_that_took_no_text(
     {
         buffers.write_keys_after_type(false, action_sender);
         buffers.pending_keys_last_timestamp = 0;
-        buffers.pending_dead_keys = 0;
-        buffers.dead_keys_are_keys = false;
+        buffers.no_dead_key_waits();
     }
 }
 
@@ -4558,6 +4784,7 @@ mod tests {
                     }
                     Ok(WorkerMessage::EndTyping)
                     | Ok(WorkerMessage::MenuCommand)
+                    | Ok(WorkerMessage::WriteHeldKey)
                     | Ok(WorkerMessage::LookAtFocus) => {}
                     Ok(WorkerMessage::Shutdown) | Err(_) => break,
                 }
@@ -4594,6 +4821,38 @@ mod tests {
              behind it; after the barrier the next one reaches worker 1"
         );
         pool.shutdown_with_timeout(Duration::from_millis(200));
+    }
+
+    #[test]
+    fn dead_keys_are_made_text_only_by_a_value_of_their_own_field() {
+        // A value taken for another field, or in another window, says nothing
+        // about dead keys that wait in theirs: the accent it holds is not
+        // theirs.
+        let field = |selector: &str| ElementDescription {
+            tag: "Edit".to_string(),
+            selector: selector.to_string(),
+            ..Default::default()
+        };
+        let mut buffers = PendingBuffers::new();
+        buffers.pending_keys = vec![key_event("\u{b4}")];
+        buffers.note_buffered_key(true, Some('\u{b4}'), Some(String::new()));
+        assert!(buffers.dead_keys_wait_in(Some(42), &field("win > edit")));
+        assert!(!buffers.dead_keys_wait_in(Some(42), &field("win > other")));
+        assert!(!buffers.dead_keys_wait_in(Some(7), &field("win > edit")));
+
+        // In their own field the accent gained makes them text, once each.
+        buffers.pending_keys.push(key_event("\u{b4}"));
+        buffers.note_buffered_key(true, Some('\u{b4}'), None);
+        buffers.pending_keys.push(key_event("\u{b4}"));
+        buffers.note_buffered_key(true, Some('\u{b4}'), None);
+        let before = buffers.value_at_dead_key.take();
+        buffers.take_dead_keys_entered(before.as_deref(), "\u{b4}\u{b4}");
+        assert_eq!(buffers.pending_keys.len(), 1);
+        assert_eq!(buffers.waiting_dead_keys(), 1);
+        assert_eq!(buffers.value_at_dead_key.as_deref(), Some("\u{b4}\u{b4}"));
+        // With what the field held before not known, nothing is decided.
+        buffers.take_dead_keys_entered(None, "\u{b4}\u{b4}\u{b4}");
+        assert_eq!(buffers.pending_keys.len(), 1);
     }
 
     #[test]

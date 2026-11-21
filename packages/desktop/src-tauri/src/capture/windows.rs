@@ -66,6 +66,7 @@ use super::win32_bindings::{
     WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MOUSEHWHEEL, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_NULL, WM_QUIT,
     WM_RBUTTONDOWN, WM_SYSKEYDOWN, WM_USER, WPARAM, WS_CHILD,
 };
+use super::win32_bindings::{RtlGetVersion, ToUnicodeEx, OSVERSIONINFOW};
 use windows_core::{Error, Interface, BOOL, BSTR, PWSTR};
 
 use super::element_mapping::{
@@ -428,6 +429,11 @@ thread_local! {
     /// Shared included PID for target app filtering. 0 means capture all.
     static INPUT_INCLUDED_PID: std::cell::RefCell<Option<Arc<AtomicU32>>> =
         const { std::cell::RefCell::new(None) };
+
+    /// What the foreground layout answered about its dead keys, asked once
+    /// per key and modifier state ([`foreground_dead_as_pressed`]).
+    static INPUT_DEAD_KEY_ANSWERS: std::cell::RefCell<super::held_keys::DeadKeyAnswers> =
+        const { std::cell::RefCell::new(super::held_keys::DeadKeyAnswers::new()) };
 
     /// PID of the current foreground window. Updated on EVENT_SYSTEM_FOREGROUND.
     /// Events from non-foreground processes are filtered out.
@@ -2691,6 +2697,12 @@ unsafe extern "system" fn input_keyboard_ll_proc(
 
             if attribution != KeyAttribution::Dropped {
                 let layout_char = foreground_layout_char(kb_struct.vkCode, thread_id);
+                let dead_as_pressed = foreground_dead_as_pressed(
+                    kb_struct.vkCode,
+                    kb_struct.scanCode,
+                    modifiers,
+                    thread_id,
+                );
                 let timestamp = current_timestamp_ms();
                 let foreground_handle = hwnd.0 as i64;
                 let (window_handle, process_id) = match attribution {
@@ -2756,7 +2768,9 @@ unsafe extern "system" fn input_keyboard_ll_proc(
                     // And the number of the latest focus change that named a
                     // part of that control, from this thread's own note.
                     // Then the character a punctuation key enters on the
-                    // foreground window's layout, read above (docent#691), and
+                    // foreground window's layout, read above (docent#691),
+                    // with whether the key is a dead key as pressed
+                    // (docent#769), and
                     // above it whether the key was already down at this
                     // key-down: a press key repeat generated (docent#696),
                     // and above that the key's number, counted above.
@@ -2776,6 +2790,7 @@ unsafe extern "system" fn input_keyboard_ll_proc(
                         control,
                         INPUT_PART_FOCUS.with(|note| note.borrow().of(control)),
                         i64::from(layout_char)
+                            | super::held_keys::dead_as_pressed_param(dead_as_pressed)
                             | if repeat {
                                 super::held_keys::KEY_REPEAT_PARAM
                             } else {
@@ -2896,6 +2911,151 @@ unsafe fn foreground_layout_char(vk: u32, thread_id: u32) -> u32 {
         return 0;
     }
     layout_char(vk, GetKeyboardLayout(thread_id))
+}
+
+/// Whether this Windows honors the flag that makes `ToUnicodeEx` leave the
+/// keyboard state as it is (flag 4: Windows 10 version 1607, build 14393, and
+/// later). Without it the call takes the pending accent of a dead key, in the
+/// application typed into too, so the layout is not asked there. Read once.
+fn layout_read_leaves_key_state() -> bool {
+    static HONORED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *HONORED.get_or_init(|| {
+        let mut version = OSVERSIONINFOW {
+            dwOSVersionInfoSize: std::mem::size_of::<OSVERSIONINFOW>() as u32,
+            ..Default::default()
+        };
+        // SAFETY: a sized, writable version structure of this frame.
+        let status = unsafe { RtlGetVersion(&mut version) };
+        status.is_ok() && windows_build_honors_flag(version.dwMajorVersion, version.dwBuildNumber)
+    })
+}
+
+/// Whether a Windows of this major version and build honors `ToUnicodeEx`'s
+/// flag 4: Windows 10 from build 14393 on.
+const fn windows_build_honors_flag(major: u32, build: u32) -> bool {
+    major > 10 || (major == 10 && build >= 14393)
+}
+
+/// Whether typing key `vk` (scan code `scan_code`) is a dead key as pressed,
+/// with `modifiers` (Ctrl, Shift, Alt, Meta) held, on the keyboard layout of
+/// the foreground window's thread (`thread_id`): `None` where it is not known
+/// (no thread or layout, a key that is no typing key, an injected character,
+/// a shortcut modifier held, neither Shift nor AltGr held, a Windows that
+/// does not honor the flag below, or a key pressed while an accent is pending
+/// before the layout was asked about it, see below).
+///
+/// The layout is asked with `ToUnicodeEx` and its flag 4, which leaves the
+/// keyboard state as it is: measured on Windows 10 (19045) from a low-level
+/// keyboard hook, dead keys in the application typed into compose as with no
+/// call at all, where the same call with no flag breaks every one of them
+/// (docent#769).
+///
+/// The answer depends on an accent already pending, and the accent pending
+/// when the hook runs is the one the application has got to, not the one the
+/// keys pressed so far will leave. So the layout is asked only while nothing
+/// is pending ([`layout_has_no_accent_pending`], checked before and after),
+/// and its answer is kept for the layout ([`INPUT_DEAD_KEY_ANSWERS`]): what a
+/// key is with given modifiers is then the same at every press, however far
+/// behind the application is. CapsLock is no part of the question.
+///
+/// Called on the keyboard hook: three user32 reads until the layout has
+/// answered for a key with given modifiers and none after, no accessibility call,
+/// lock or allocation.
+unsafe fn foreground_dead_as_pressed(
+    vk: u32,
+    scan_code: u32,
+    modifiers: (bool, bool, bool, bool),
+    thread_id: u32,
+) -> Option<super::held_keys::AsPressed> {
+    let (ctrl, shift, alt, meta) = modifiers;
+    // Ctrl and Alt together are AltGr; either alone, or Meta, is a shortcut,
+    // which enters no text and is asked nothing.
+    if thread_id == 0
+        || meta
+        || ctrl != alt
+        || vk == super::worker_pool::VK_PACKET
+        || !super::worker_pool::is_typing_key_code(vk)
+        || !layout_read_leaves_key_state()
+    {
+        return None;
+    }
+    let alt_gr = ctrl && alt;
+    // A press with neither is the layout's own mark for the key, which the
+    // worker has already and which depends on nothing pending.
+    if !shift && !alt_gr {
+        return None;
+    }
+    let hkl = GetKeyboardLayout(thread_id);
+    let layout = hkl.0 as isize;
+    if let Some(kept) = INPUT_DEAD_KEY_ANSWERS.with(|a| a.borrow().get(layout, vk, shift, alt_gr)) {
+        return Some(kept);
+    }
+    let dead = dead_as_pressed(vk, scan_code, shift, alt_gr, hkl)?;
+    INPUT_DEAD_KEY_ANSWERS.with(|a| a.borrow_mut().learn(layout, vk, shift, alt_gr, dead));
+    Some(dead)
+}
+
+/// `ToUnicodeEx`: the keyboard state is not changed.
+const LEAVE_KEY_STATE: u32 = 4;
+
+/// Whether no accent of a dead key is pending for `hkl` right now: the layout
+/// answers Enter with the one carriage return. With an accent pending it
+/// answers with the accent as well, or with something else.
+unsafe fn layout_has_no_accent_pending(hkl: HKL) -> bool {
+    let state = [0u8; 256];
+    let mut entered = [0u16; 8];
+    let answer = ToUnicodeEx(
+        0x0D,
+        0x1C,
+        state.as_ptr(),
+        windows_core::PWSTR(entered.as_mut_ptr()),
+        entered.len() as i32,
+        LEAVE_KEY_STATE,
+        Some(hkl),
+    );
+    answer == 1 && entered[0] == 0x0D
+}
+
+/// What layout `hkl` answers for the key with Shift or AltGr held: whether it
+/// is a dead key, and the accent it names for one. `None` for no layout, and where an accent is pending before
+/// or after the question, since the answer then says what the key does to
+/// that accent and not what the key is.
+unsafe fn dead_as_pressed(
+    vk: u32,
+    scan_code: u32,
+    shift: bool,
+    alt_gr: bool,
+    hkl: HKL,
+) -> Option<super::held_keys::AsPressed> {
+    use super::held_keys::AsPressed;
+    if hkl.0.is_null() || !layout_has_no_accent_pending(hkl) {
+        return None;
+    }
+    let mut state = [0u8; 256];
+    if shift {
+        state[0x10] = 0x80;
+    }
+    if alt_gr {
+        state[0x11] = 0x80;
+        state[0x12] = 0x80;
+    }
+    let mut entered = [0u16; 8];
+    // A negative answer is a dead key, with its accent in the buffer.
+    let answer = ToUnicodeEx(
+        vk,
+        scan_code,
+        state.as_ptr(),
+        windows_core::PWSTR(entered.as_mut_ptr()),
+        entered.len() as i32,
+        LEAVE_KEY_STATE,
+        Some(hkl),
+    );
+    let read = if answer < 0 {
+        AsPressed::DeadKey { accent: entered[0] }
+    } else {
+        AsPressed::NoDeadKey
+    };
+    layout_has_no_accent_pending(hkl).then_some(read)
 }
 
 /// The character `vk` enters with no modifier on keyboard layout `hkl`, with
@@ -4322,7 +4482,93 @@ mod tests {
         }
     }
 
+    /// The Danish layout asked about a key as pressed: the acute key is dead
+    /// alone and with Shift (grave) and enters `|` with AltGr; the diaeresis
+    /// key is dead alone, with Shift (circumflex) and with AltGr (tilde); a
+    /// letter is none. Asking leaves the keyboard state as it is, so the same
+    /// question gets the same answer twice and no accent is pending after.
+    /// While an accent is pending the layout is not asked: its answer would
+    /// say what the key does to the accent (docent#769).
     #[test]
+    #[serial_test::serial(danish_layout)]
+    fn regression_769_the_danish_layout_says_which_keys_are_dead_as_pressed() {
+        if !super::layout_read_leaves_key_state() {
+            return; // a Windows before 10.0.14393: the layout is not asked
+        }
+        use crate::capture::held_keys::AsPressed;
+        let danish = LoadedLayout::load("00000406", 0x0406);
+        let acute = danish.vk_at(0x0D);
+        let diaeresis = danish.vk_at(0x1B);
+        let e = danish.vk_at(0x12);
+        let ask = |vk, scan, shift, alt_gr| {
+            // SAFETY: a read of a loaded layout's tables that leaves the key state.
+            unsafe { super::dead_as_pressed(vk, scan, shift, alt_gr, danish.hkl) }
+        };
+        let dead = |accent: char| {
+            Some(AsPressed::DeadKey {
+                accent: accent as u16,
+            })
+        };
+        for _ in 0..2 {
+            assert_eq!(ask(acute, 0x0D, false, false), dead('\u{b4}'));
+            assert_eq!(ask(acute, 0x0D, true, false), dead('\u{60}'));
+            assert_eq!(ask(acute, 0x0D, false, true), Some(AsPressed::NoDeadKey));
+            assert_eq!(ask(diaeresis, 0x1B, false, false), dead('\u{a8}'));
+            assert_eq!(ask(diaeresis, 0x1B, true, false), dead('\u{5e}'));
+            assert_eq!(ask(diaeresis, 0x1B, false, true), dead('\u{7e}'));
+            assert_eq!(ask(e, 0x12, false, false), Some(AsPressed::NoDeadKey));
+        }
+        // SAFETY: reads of a loaded layout's tables.
+        assert!(unsafe { super::layout_has_no_accent_pending(danish.hkl) });
+        assert_eq!(
+            unsafe { super::dead_as_pressed(acute, 0x0D, false, false, HKL(std::ptr::null_mut())) },
+            None
+        );
+
+        // An accent made pending (the same read with no flag takes the key
+        // into the keyboard state): nothing is answered until it is gone.
+        let state = [0u8; 256];
+        let mut entered = [0u16; 8];
+        let press = |vk, scan, entered: &mut [u16; 8]| {
+            // SAFETY: a keyboard-state read of this thread; the accent it
+            // leaves pending is taken out again below.
+            unsafe {
+                super::ToUnicodeEx(
+                    vk,
+                    scan,
+                    state.as_ptr(),
+                    windows_core::PWSTR(entered.as_mut_ptr()),
+                    8,
+                    0,
+                    Some(danish.hkl),
+                )
+            }
+        };
+        assert!(
+            press(acute, 0x0D, &mut entered) < 0,
+            "the acute key is dead"
+        );
+        let pending = unsafe { super::layout_has_no_accent_pending(danish.hkl) };
+        let answered = ask(e, 0x12, false, false);
+        // Enter takes the accent out again, whatever the asserts below find.
+        press(0x0D, 0x1C, &mut entered);
+        assert!(!pending, "an accent is pending after the dead key");
+        assert_eq!(answered, None, "the layout is not asked while one is");
+        assert!(unsafe { super::layout_has_no_accent_pending(danish.hkl) });
+        assert_eq!(ask(e, 0x12, false, false), Some(AsPressed::NoDeadKey));
+    }
+
+    #[test]
+    fn regression_769_the_layout_is_asked_only_where_windows_leaves_the_key_state() {
+        assert!(!super::windows_build_honors_flag(6, 9600));
+        assert!(!super::windows_build_honors_flag(10, 10586));
+        assert!(super::windows_build_honors_flag(10, 14393));
+        assert!(super::windows_build_honors_flag(10, 19045));
+        assert!(super::windows_build_honors_flag(11, 0));
+    }
+
+    #[test]
+    #[serial_test::serial(danish_layout)]
     fn layout_char_reads_what_the_danish_layout_gives_a_punctuation_key() {
         let danish = LoadedLayout::load("00000406", 0x0406);
         // VK_OEM_PLUS, the key right of 0, enters `+` (`=` on the US layout).
