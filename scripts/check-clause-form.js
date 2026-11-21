@@ -271,7 +271,7 @@ export function auditClauseForm(readFile) {
   }
   for (const pair of [...sharing.keys()].sort()) {
     if (baseline['shared-text'].includes(pair)) continue;
-    problems.push(`${pair.replace('|', ' and ')} both state "${sharing.get(pair)}" — a rule is stated in one clause, ${ONE_HOME_RULE}`); // prettier-ignore
+    problems.push(`${pair.split('|').join(' and ')} both state "${sharing.get(pair)}" — a rule is stated in one clause, ${ONE_HOME_RULE}`); // prettier-ignore
   }
   for (const [i, pair] of baseline['shared-text'].entries()) {
     const ordered = pair.split('|').sort().join('|');
