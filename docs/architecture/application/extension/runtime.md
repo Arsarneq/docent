@@ -154,6 +154,8 @@ The worker's startup surface is exactly two blocks:
   - reconciles the background Auto-Sync trigger with the persisted setting;
   - re-evaluates storage pressure against actual usage.
 
+The message that woke the worker is delivered before the restore block has read storage. Every panel request waits for the restore before it is handled, and so does a background Auto-Sync cycle: a request handled on the empty working copy would act on no projects, and the restore would then replace what the request did. Where the read of the stored state fails, the worker does not know its projects: it answers every panel request with the error `Stored state could not be read`, runs no sync cycle, and writes nothing over the stored model.
+
 The worker never writes the `recording` flag at startup. The user controls capture, so a recording in progress continues across a suspension or a browser restart. The browser persists the Auto-Sync backstop alarm (`chrome.alarms`, ~60 s), which re-wakes the worker. So background sync also continues with the panel closed ([Sync Protocol — Automatic sync](../../../api/sync-protocol.md#automatic-sync-auto-sync)).
 
 [ECP-1](capture-principles.md#architecture) governs the worker's module imports: the MV3 constraint and its guards.

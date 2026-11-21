@@ -573,6 +573,8 @@ half of the extension is documented in
 | `service-worker-mirror-parity.test.js` | The append chokepoint's and the active-unit helpers' second copies stay textually identical to the shipped functions, the chokepoint under indentation only. |
 | `service-worker-navigation.test.js` | The worker's navigation proxy through its registered listeners: the duplicate check, the last-URL marker and its self-clear, and the new-tab link path. |
 | `service-worker-static-import.test.js` | A static-source guard that the background path uses the statically imported validator, never a dynamic import. |
+| `service-worker-wake-unread.test.js` | A worker whose read of its stored state failed, through its registered listener: it answers every panel request with that error and writes nothing over the stored projects. |
+| `service-worker-wake.test.js` | The worker's first messages after a wake, behind a storage that answers late: projects listed and created before the stored state is read are kept with the stored ones, and a recording can be created in such a project. |
 | `service-worker.test.js` | The worker's message handlers: the panel protocol, import and export, the trusted-sender gate, redaction (a character key on a sensitive field stored as its one masked `type`), and storage-failure recovery. [Detail](#service-workertestjs) |
 | `storage-quota.test.js` | The storage-pressure classifier: the warn band's threshold and the resume hysteresis. |
 
