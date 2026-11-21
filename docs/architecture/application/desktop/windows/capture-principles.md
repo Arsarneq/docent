@@ -324,7 +324,10 @@ named, which differs when the focus moved on before the worker described it (a
 dialog that closed as the focus went back to its owner, for example) and no
 later focus event was dispatched before the description (a focus described
 after one writes nothing, DCP-12); where the description resolved no window, the
-event's window gives the context. The
+event's window gives the context. A focus whose element is in another window
+than the one the event named, and that window belongs to another process than
+the event's, or to a process that can no longer be read, writes nothing: the
+scope filters (DCP-5) judged the event's process, not that one. The
 Input_Thread introduces the event's window, not the element's (above), so a
 focus recorded in a window the session introduced no other way has no
 `context_switch` before it.

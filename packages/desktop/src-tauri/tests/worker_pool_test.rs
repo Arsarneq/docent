@@ -4726,11 +4726,13 @@ impl AccessibilityBackend for MovingFocusBackend {
         !(self.controls.lock().unwrap().hung && self.root_window_handle(control) == DIALOG)
     }
 
+    /// The dialog's process is the test's to set; every other window, the
+    /// dialog's owner among them, is in the process the test events come from.
     fn process_id_of(&self, window_handle: i64) -> u32 {
         if window_handle == DIALOG {
             self.controls.lock().unwrap().process_id
         } else {
-            0
+            EVENT_PROCESS
         }
     }
 
@@ -7903,10 +7905,16 @@ fn an_action_after_a_switch_is_not_the_sessions_first_context() {
 }
 
 /// A backend whose focused element is in `window` (0: the description
-/// resolved none), with a rectangle of its own for every window handle.
+/// resolved none), with a rectangle of its own for every window handle. Every
+/// window belongs to process 1, the process the test focus events come from,
+/// except `window` itself, which belongs to `window_process`.
 struct FocusWindowBackend {
     window: i64,
+    window_process: u32,
 }
+
+/// The process every test focus event comes from (`make_raw_event`).
+const EVENT_PROCESS: u32 = 1;
 
 fn rect_of(window_handle: i64) -> docent_desktop_lib::capture::WindowRect {
     docent_desktop_lib::capture::WindowRect {
@@ -7953,14 +7961,34 @@ impl AccessibilityBackend for FocusWindowBackend {
     fn selected_item_name(&self, _window_handle: i64) -> Option<(ElementDescription, String)> {
         None
     }
+    fn process_id_of(&self, window_handle: i64) -> u32 {
+        if window_handle == self.window {
+            self.window_process
+        } else {
+            EVENT_PROCESS
+        }
+    }
 }
 
 /// The context and rectangle of the focus written for one focus event named
-/// `DIALOG`, with the focused element in `window`.
+/// `DIALOG`, with the focused element in `window` of the event's own process.
 fn focus_written_with_element_in(
     window: i64,
 ) -> Vec<(Option<i64>, Option<docent_desktop_lib::capture::WindowRect>)> {
-    let harness = WorkerTestHarness::new(FocusWindowBackend { window });
+    focus_written_with_element_in_process(window, EVENT_PROCESS)
+}
+
+/// The context and rectangle of the focus written for one focus event named
+/// `DIALOG`, with the focused element in `window`, which belongs to
+/// `window_process`.
+fn focus_written_with_element_in_process(
+    window: i64,
+    window_process: u32,
+) -> Vec<(Option<i64>, Option<docent_desktop_lib::capture::WindowRect>)> {
+    let harness = WorkerTestHarness::new(FocusWindowBackend {
+        window,
+        window_process,
+    });
     let mut focus = make_raw_event(RawEventType::Focus, DIALOG);
     focus.sequence_id = 1;
     harness.send_event(focus);
@@ -7991,6 +8019,28 @@ fn a_focus_whose_element_resolved_no_window_keeps_the_events_window() {
         focus_written_with_element_in(0),
         vec![(Some(DIALOG), Some(rect_of(DIALOG)))]
     );
+}
+
+/// The scope filters judged the process the focus event came from, not the
+/// process of the window the element is in by the time it is described (the
+/// focus can move on to another application's window while the event waits,
+/// one whose own focus events the filters drop): a focus whose element is in
+/// a window of another process writes nothing.
+#[test]
+fn a_focus_whose_element_is_in_another_process_s_window_writes_nothing() {
+    const OTHER_PROCESS: u32 = 99;
+    assert_eq!(
+        focus_written_with_element_in_process(NOTEPAD, OTHER_PROCESS),
+        vec![]
+    );
+}
+
+/// A window whose process can no longer be read is not one the scope filters
+/// kept (DCP-5's resolvable-window filter): a focus whose element is in such a
+/// window writes nothing.
+#[test]
+fn a_focus_whose_element_s_window_has_no_readable_process_writes_nothing() {
+    assert_eq!(focus_written_with_element_in_process(NOTEPAD, 0), vec![]);
 }
 
 /// A right or middle press into an inactive window not introduced yet writes
