@@ -267,6 +267,44 @@ describe('SERVICE WORKER: a key held in another frame of the tab', () => {
     assert.deepEqual((await append(INNER, click())).held_keys, []);
   });
 
+  it('regression_779_a_key_the_document_before_reported_is_not_named_in_the_next_one', async () => {
+    // The document being left reports a key as its navigation is under way;
+    // the release goes to the next document, whose recorder answers the press.
+    held(TOP, { event: 'down', code: 'KeyG', key: 'g', recorder: 'before', seq: 1 });
+    endTyping.set(TOP, { ok: true, heldReports: { recorder: 'next', seq: 0 } });
+    tell(INNER, { type: 'POINTER_PRESSED' });
+    held(INNER, { event: 'focus' });
+    assert.deepEqual((await append(INNER, click())).held_keys, []);
+  });
+
+  it('regression_779_an_action_behind_a_standing_hold_asks_the_frame_that_holds_a_key_too', async () => {
+    const THIRD = 6;
+    tell(THIRD, { type: 'FRAME_READY' });
+    const key = (name) => ({
+      type: 'key',
+      key: name,
+      code: name,
+      timestamp: Date.now(),
+      held_keys: [],
+    });
+    // The first action waits for a frame that is slow to answer.
+    held(INNER, { event: 'down', code: 'KeyA', key: 'a' });
+    endTyping.set(INNER, 'silent');
+    const first = append(TOP, key('F2'));
+    // Meanwhile another frame reports a key late, and is gone when asked.
+    held(THIRD, { event: 'down', code: 'KeyB', key: 'b' });
+    endTyping.set(THIRD, 'gone');
+    const second = append(TOP, key('F3'));
+    await Promise.all([first, second]);
+    assert.deepEqual(
+      storage.pendingActions.slice(-2).map((a) => [a.key, a.held_keys]),
+      [
+        ['F2', []],
+        ['F3', []],
+      ],
+    );
+  });
+
   it('regression_779_another_tab_or_window_taking_the_focus_forgets_the_keys', async () => {
     held(TOP, { event: 'down', code: 'Escape', key: 'Escape' });
     listeners.tabActivated({ tabId: TAB + 1, windowId: 1 });

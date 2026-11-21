@@ -365,19 +365,17 @@ const pressHoldKey = (sender) =>
 /**
  * Open the watch for the keys an action is given beside its own: those held
  * in the tab's other frames (lib/held-keys-relay.js). Where a key of another
- * frame is among them and no press hold stands for the sender, that frame is
- * asked for its last report first, and what the sender appends is held behind
- * the answer: a frame's reports can arrive late, and a key is named only by
+ * frame is among them, that frame is asked for its last report first, and
+ * what the sender appends is held behind the answer, and behind any hold
+ * that stands: a frame's reports can arrive late, and a key is named only by
  * what its frame has reported up to the action. Called synchronously as the
  * action's message arrives. Null for an action that carries no `held_keys`.
  */
 function watchKeysHeldElsewhere(action, sender) {
   const tabId = sender?.tab?.id;
   if (!Array.isArray(action?.held_keys) || tabId == null || sender.frameId == null) return null;
-  if (!pressHolds.has(pressHoldKey(sender))) {
-    const frames = heldKeysRelay.framesHoldingFor(tabId, sender.frameId);
-    if (frames.length > 0) holdAppendsBehind(sender, levelHeldKeysWithFrames(tabId, frames));
-  }
+  const frames = heldKeysRelay.framesHoldingFor(tabId, sender.frameId);
+  if (frames.length > 0) holdAppendsBehind(sender, levelHeldKeysWithFrames(tabId, frames));
   return heldKeysRelay.watch(
     tabId,
     sender.frameId,

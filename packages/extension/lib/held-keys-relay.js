@@ -15,7 +15,7 @@
  * keys with it, once that frame reports the focus.
  *
  * Reports of different frames can arrive in another order than their events
- * happened in, and a busy page sends its reports late. Three things keep a
+ * happened in, and a busy page sends its reports late. Four things keep a
  * late report from naming a released key:
  *
  * - The hand-over is decided by the pressed frame's own reports (its press,
@@ -32,6 +32,10 @@
  *   came before the action is not known.
  * - The worker forgets the keys a frame reported when that frame does not
  *   answer (`forgetFrame`), handed over or not.
+ * - A key rests on the recorder that reported it, and one handed over on the
+ *   recorder that took it. A recorder is new with each document, so a report
+ *   or an answer from another recorder of the same frame forgets the key: one
+ *   a document reported while it was being left is not named in the next.
  *
  * A pure module over plain data, with no chrome.* side-effects, as
  * frame-trust.js and navigation-logic.js are.
@@ -59,9 +63,10 @@
 
 export function createHeldKeysRelay() {
   // tabId → { keys: Map(code → held), pressed, watches }
-  // held: { name, frame, origin, waitsFor, handedOver, underMeta }. `frame` is
-  // the frame sent the key's release, `origin` the frame that reported the
-  // key down. `waitsFor` is the frame a press named while `frame` has lost
+  // held: { name, frame, recorder, origin, originRecorder, waitsFor,
+  // handedOver, underMeta }. `frame` is the frame sent the key's release,
+  // `origin` the frame that reported the key down, each with the recorder it
+  // had then. `waitsFor` is the frame a press named while `frame` has lost
   // the focus: the key is unnamed until that frame reports its focus.
   // `pressed` is the frame of the tab's last press whose focus has not been
   // reported. `watches` are the open watches of the tab's actions.
@@ -113,6 +118,7 @@ export function createHeldKeysRelay() {
    */
   function whenSeen(tabId, frameId, recorder, seq) {
     if (typeof recorder !== 'string' || typeof seq !== 'number') return Promise.resolve();
+    heardFrom(tabId, frameId, recorder);
     const key = frameKey(tabId, frameId);
     const last = lastReports.get(key);
     if (!last || last.recorder !== recorder) {
@@ -162,6 +168,23 @@ export function createHeldKeysRelay() {
     if (tab.watches.size === 0) tabs.delete(tabId);
   };
 
+  /**
+   * The frame is heard from through `recorder`: a key that rests on another
+   * recorder of that frame rests on a document that is no longer there, and
+   * is forgotten.
+   */
+  const heardFrom = (tabId, frameId, recorder) => {
+    const tab = tabs.get(tabId);
+    if (!tab || typeof recorder !== 'string') return;
+    const another = (known) => typeof known === 'string' && known !== recorder;
+    dropWhere(
+      tab,
+      (held) =>
+        (held.frame === frameId && another(held.recorder)) ||
+        (held.origin === frameId && another(held.originRecorder)),
+    );
+  };
+
   const namedTo = (held, frameId) =>
     held.waitsFor === null && !(held.frame === frameId && !held.handedOver);
 
@@ -175,6 +198,7 @@ export function createHeldKeysRelay() {
   function report(tabId, frameId, report) {
     if (tabId == null || frameId == null || !report || typeof report !== 'object') return;
     if (!inOrder(tabId, frameId, report)) return;
+    heardFrom(tabId, frameId, report.recorder);
     const { event, code, key } = report;
     if (event === 'down') {
       if (typeof code !== 'string' || code === '') return;
@@ -184,7 +208,9 @@ export function createHeldKeysRelay() {
       tab.keys.set(code, {
         name: key,
         frame: frameId,
+        recorder: report.recorder,
         origin: frameId,
+        originRecorder: report.recorder,
         waitsFor: null,
         handedOver: false,
         underMeta: report.underMeta === true,
@@ -209,6 +235,7 @@ export function createHeldKeysRelay() {
       for (const held of tab.keys.values()) {
         if (held.frame === frameId) continue;
         held.frame = frameId;
+        held.recorder = report.recorder;
         held.waitsFor = null;
         held.handedOver = true;
       }

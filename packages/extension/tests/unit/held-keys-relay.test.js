@@ -316,10 +316,45 @@ describe('createHeldKeysRelay', () => {
       assert.deepEqual(relay.heldElsewhere(TAB, INNER), ['b']);
     });
 
-    it('starts over with a new recorder in the frame', () => {
+    it('forgets the keys of the recorder before, at a report of a new recorder in the frame', () => {
       const relay = createHeldKeysRelay();
       relay.report(TAB, TOP, numbered(5, { event: 'down', code: 'KeyB', key: 'b' }));
       relay.report(TAB, TOP, { event: 'down', code: 'KeyA', key: 'a', recorder: 'r2', seq: 1 });
+      assert.deepEqual(relay.heldElsewhere(TAB, INNER), ['a']);
+    });
+
+    it('forgets the keys of the recorder before, at an answer of a new recorder in the frame', async () => {
+      const relay = createHeldKeysRelay();
+      relay.report(TAB, TOP, numbered(1, { event: 'down', code: 'KeyB', key: 'b' }));
+      await relay.whenSeen(TAB, TOP, 'r2', 0);
+      assert.deepEqual(relay.heldElsewhere(TAB, INNER), []);
+    });
+
+    it('forgets a key handed over, at a new recorder in the frame that first reported it', async () => {
+      const relay = createHeldKeysRelay();
+      relay.report(TAB, TOP, numbered(1, { event: 'down', code: 'KeyB', key: 'b' }));
+      relay.report(TAB, INNER, { event: 'press' });
+      relay.report(TAB, INNER, { event: 'focus', recorder: 'i1', seq: 1 });
+      assert.deepEqual(relay.heldElsewhere(TAB, INNER), ['b']);
+      await relay.whenSeen(TAB, TOP, 'r2', 0);
+      assert.deepEqual(relay.heldElsewhere(TAB, INNER), []);
+    });
+
+    it('forgets a key handed over, at a new recorder in the frame that took it', () => {
+      const relay = createHeldKeysRelay();
+      relay.report(TAB, TOP, numbered(1, { event: 'down', code: 'KeyB', key: 'b' }));
+      relay.report(TAB, INNER, { event: 'press' });
+      relay.report(TAB, TOP, numbered(2, { event: 'blur' }));
+      relay.report(TAB, INNER, { event: 'focus', recorder: 'i1', seq: 1 });
+      assert.deepEqual(relay.heldElsewhere(TAB, OTHER), ['b']);
+      relay.report(TAB, INNER, { event: 'press', recorder: 'i2', seq: 1 });
+      assert.deepEqual(relay.heldElsewhere(TAB, OTHER), []);
+    });
+
+    it('keeps the keys of a recorder that reports again', () => {
+      const relay = createHeldKeysRelay();
+      relay.report(TAB, TOP, numbered(1, { event: 'down', code: 'KeyB', key: 'b' }));
+      relay.report(TAB, TOP, numbered(2, { event: 'down', code: 'KeyA', key: 'a' }));
       assert.deepEqual(relay.heldElsewhere(TAB, INNER), ['b', 'a']);
     });
 

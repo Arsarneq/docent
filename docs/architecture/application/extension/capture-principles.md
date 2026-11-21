@@ -581,13 +581,15 @@ with a caveat):
     keys go to that frame once it reports that focus: their releases reach
     it from then on, and a recorder reports the release of a key it did not
     see go down.
-  - A frame's reports can reach the worker late (a busy page), so a key of
-    another frame is named only by what that frame has reported up to the
-    action. The worker asks the frame (the `END_TYPING` of a pointer press,
-    `HELD_KEY_REPORTS` for an action with no press before it), stores the
+  - A frame's reports can reach the worker late (a busy page, a document
+    that is being left), so a key of another frame is named only by what
+    that frame's document has reported up to the action. The worker asks
+    the frame (the `END_TYPING` of a pointer press, `HELD_KEY_REPORTS` for
+    any other action that would be given one of its keys), stores the
     action once the report the frame names as its last has arrived, and
     forgets the keys of a frame that gives no answer within the bound or is
-    gone. A key another frame reports released in that time is not named.
+    gone, and those an earlier document of the frame reported. A key another
+    frame reports released in that time is not named.
   - No key is known to be down once the focus leaves the document any other
     way (to another tab, window or program, to a frame the extension does
     not run in, to another frame by the Tab key or a script) or a drag

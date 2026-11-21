@@ -170,6 +170,15 @@
  *     is the physical key, the input method's keys and composed text, and
  *     entries made again, which landed inside the previous budget, 319 B
  *     under it; no new dependency.
+ *   - Raised to 864KB for a key held in another frame of the tab
+ *     (docent#779): measured 858,190 B (`node_modules` inside the checkout);
+ *     margin 26,546 B; growth since 832,284 B (the header's recorded size):
+ *     `lib/held-keys-relay.js` +14,003 B (new), `background/service-worker.js`
+ *     +7,468 B (+6,740 B in this change, +728 B before it),
+ *     `content/recorder.js` +4,435 B. Deliberate: each recorder reports the
+ *     keys it names as held and what moves the focus, and the worker keeps
+ *     which of them an action in another frame may name, asking a frame for
+ *     its last report before it names one of its keys; no new dependency.
  *
  * Requires `npm run sync-shared` to have been run first.
  */
@@ -220,7 +229,7 @@ function formatSize(bytes) {
 
 const extensionExcludes = ['node_modules', 'tests', '.git', 'coverage'];
 
-const JS_BUDGET_KB = 838;
+const JS_BUDGET_KB = 864;
 
 /** The headroom rule's figures for a measured size: the next budget and its margin. */
 function nextBudget(bytes) {

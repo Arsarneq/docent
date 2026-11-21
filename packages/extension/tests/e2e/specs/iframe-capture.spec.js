@@ -42,6 +42,14 @@ function startServer() {
   return new Promise((resolve) => {
     server = http.createServer((req, res) => {
       const url = new URL(req.url, 'http://placeholder');
+      // A resource that keeps its page loading: the recorder is injected at the end of the load.
+      if (url.pathname === '/slow-image') {
+        setTimeout(() => {
+          res.writeHead(200, { 'Content-Type': 'image/gif' });
+          res.end();
+        }, 2500);
+        return;
+      }
       const html = routes.get(url.pathname) ?? '<!DOCTYPE html><html><body></body></html>';
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
       res.end(html);
@@ -326,6 +334,59 @@ test.describe('Cross-origin iframe capture (#93)', () => {
     const actions = await getPendingActions(serviceWorker);
     const f2Key = actions.find((a) => a.type === 'key' && a.key === 'F2');
     expect([f2Key.element.selector, f2Key.held_keys]).toEqual(['#inner', []]);
+  });
+
+  test('regression_779_a_key_the_page_before_reported_while_it_was_left_is_not_held', async ({
+    context,
+    serviceWorker,
+  }) => {
+    // The key's press sends the page to the next one, and the page being left
+    // writes the key and reports it held once the navigation is under way.
+    // The key is released in the next page before its recorder runs.
+    routes.set(
+      '/leaving',
+      `<!DOCTYPE html><html><body><input id="q">
+        <script>
+          document.getElementById('q').addEventListener('keydown', (e) => {
+            e.preventDefault();
+            location.href = '/next';
+          });
+        </script>
+      </body></html>`,
+    );
+    routes.set(
+      '/next',
+      `<!DOCTYPE html><html><body><p>Next</p>
+        <iframe id="x" srcdoc="<button id='inner'>Inner</button>"></iframe>
+        <img src="/slow-image">
+      </body></html>`,
+    );
+
+    await startRecording(serviceWorker);
+    const page = context.pages()[0] || (await context.newPage());
+    await page.goto(`${ORIGIN_A()}/leaving`);
+    await waitForTopFrameReady(serviceWorker, page);
+    await page.waitForTimeout(300);
+    await page.locator('#q').focus();
+    const committed = page.waitForURL('**/next', { waitUntil: 'commit' });
+    await page.keyboard.down('g');
+    await committed;
+    await page.waitForTimeout(100);
+    await page.keyboard.up('g');
+    await page.waitForLoadState('load');
+    await waitForTopFrameReady(serviceWorker, page);
+    await page.waitForTimeout(500);
+    await page.frameLocator('#x').locator('#inner').click();
+    await settle(serviceWorker, page);
+
+    const actions = await getPendingActions(serviceWorker);
+    const seen = actions
+      .filter((a) => a.type === 'click' || a.type === 'key')
+      .map((a) => [a.type, a.key ?? null, a.held_keys, a.element.selector]);
+    expect(seen).toEqual([
+      ['key', 'g', [], '#q'],
+      ['click', null, [], '#inner'],
+    ]);
   });
 
   test('parent-page capture keeps working alongside a cross-origin iframe', async ({
