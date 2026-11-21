@@ -283,6 +283,16 @@ jobs:
       - name: Validate clause preambles and keyword placement
         run: npm run lint:clause-preamble
 
+      # A rule has one home: an issue linked from two clauses, or a run of
+      # words standing in two clauses, is a rule stated twice, and the copies
+      # drift with the next change. A clause is also read by a person, so a
+      # paragraph, list item or table row over the word limit reds until it is
+      # split. scripts/clause-form-baseline.json lists the cases the check
+      # admits, and that list only shrinks;
+      # scripts/check-clause-form.js holds the rules and their limits.
+      - name: Validate one home per rule and clause unit length
+        run: npm run lint:clause-form
+
       # The committed data that goes stale around the test suites, held to the
       # tree: what each suite document enumerates, the coverage plumbing's
       # hand-maintained file lists, how a suite is registered and where its

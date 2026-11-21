@@ -35,11 +35,12 @@ inventoried, with its local command, in
 [the lint table](ci.md#the-lint-and-freshness-gates), which
 is the one home of that list. In short:
 
-| When you          | You                                                                                                                        | Held by                                                                  |
-| ----------------- | -------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| Add or move a doc | Link it from the documentation map and give it a home in the area map                                                      | `lint:links`, `lint:reachability`, `lint:area-map`                       |
-| Add a code file   | Make it resolve to an area of the area map, in the same PR                                                                 | `lint:area-map`                                                          |
-| Mint a clause     | Mark it with a stable id, give it a registry row, state the preamble, and keep the paths its row cites governed by its doc | `lint:clause-registry`, `lint:clause-preamble`, `lint:clause-governance` |
+| When you                 | You                                                                                                                                    | Held by                                                                  |
+| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| Add or move a doc        | Link it from the documentation map and give it a home in the area map                                                                  | `lint:links`, `lint:reachability`, `lint:area-map`                       |
+| Add a code file          | Make it resolve to an area of the area map, in the same PR                                                                             | `lint:area-map`                                                          |
+| Mint a clause            | Mark it with a stable id, give it a registry row, state the preamble, and keep the paths its row cites governed by its doc             | `lint:clause-registry`, `lint:clause-preamble`, `lint:clause-governance` |
+| Write or change a clause | State a rule in one clause and cite that clause from any other, and keep each paragraph, list item and table row within the word limit | `lint:clause-form`                                                       |
 
 The detail for each:
 
@@ -106,6 +107,7 @@ The detail for each:
   - **Meaning and justification.** A clause's meaning lives in the doctrine
     text; a row's justification states how compliance is verified and why no
     check decides it, never the clause's meaning.
+  - **One home and unit length.** A rule is stated in one clause. Another clause that needs it cites that clause by its id and does not state it again. A departure or an open case is linked to its issue from one clause. A paragraph, a list item or a table row in a clause's scope holds at most 150 words; a longer one is split into paragraphs or a list. The limit is on one unit, never on how much a clause or a document says. `lint:clause-form` holds this: it reds on an issue linked from two clauses, on a run of 12 words standing in two clauses, and on a unit over the limit. [`scripts/clause-form-baseline.json`](../../scripts/clause-form-baseline.json) lists the cases the check admits, and that list only shrinks. A rule restated in other words shares no run of words, so the check does not see it: that stays a review judgment.
   - **Lists.** A list inside a clause's scope — bulleted, numbered, a table's
     rows, or an inline series of three or more members of one set — states
     whether it is closed.
