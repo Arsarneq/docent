@@ -437,20 +437,15 @@ impl PendingBuffers {
 
     /// Drain all buffered actions, emitting them via `action_sender`.
     ///
-    /// Pending type takes precedence over pending keys (the type value
-    /// supersedes the individual keystrokes), as it does when the typing
-    /// ends, save the keys kept after its value, which are written after it.
-    /// Returns after the buffers are empty. Safe to call more than
-    /// once and from either the worker or the shutdown drainer — whoever calls
-    /// first empties the buffers; subsequent calls are no-ops.
+    /// The pending `type`, then every buffered key, each once: the kept keys
+    /// are not in the `type`'s value, which was read before them, and a key
+    /// no value change has reached yet is not either (docent#761). Returns
+    /// after the buffers are empty. Safe to call more than once and from
+    /// either the worker or the shutdown drainer — whoever calls first
+    /// empties the buffers; subsequent calls are no-ops.
     fn drain_into(&mut self, action_sender: &mpsc::Sender<ActionEvent>) {
-        if self.pending_type.is_some() {
-            // A type event supersedes buffered keys, save the kept ones.
-            self.flush_pending_type_only(action_sender);
-            self.clear_keys();
-        } else {
-            self.write_keys(action_sender);
-        }
+        self.flush_pending_type_only(action_sender);
+        self.write_keys(action_sender);
         if let Some(result) = self.scroll_acc.try_flush(u64::MAX) {
             let _ = action_sender.send(ActionEvent {
                 timestamp: current_timestamp_ms(),
@@ -3941,13 +3936,17 @@ fn write_keys_that_took_no_text(
 ) {
     // Keys kept after a value read too late did take text: their value
     // change came. They wait for the end of the typing, or for a value read
-    // in time that makes them part of the `type` (docent#761).
-    if !buffers.pending_keys.is_empty()
-        && buffers.kept_keys == 0
+    // in time that makes them part of the `type` (docent#761); the keys
+    // behind them that no value change reached are written as any are.
+    if buffers.pending_keys.len() > buffers.kept_keys
         && buffers.pending_keys_last_timestamp > 0
         && debounce_elapsed(now, buffers.pending_keys_last_timestamp, KEY_TEXT_WAIT_MS)
     {
-        buffers.write_keys(action_sender);
+        let kept = buffers.kept_keys.min(buffers.pending_keys.len());
+        for event in buffers.pending_keys.drain(kept..).collect::<Vec<_>>() {
+            let _ = action_sender.send(event);
+        }
+        buffers.pending_keys_last_timestamp = 0;
     }
 }
 

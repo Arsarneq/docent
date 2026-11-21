@@ -7992,7 +7992,7 @@ fn regression_761_a_run_with_no_value_read_in_time_is_its_keys() {
     );
 }
 
-/// KNOWN OPEN CASE, not the behaviour wanted (docent#762): the program raised
+/// KNOWN OPEN CASE, not the behavior wanted (docent#762): the program raised
 /// the value change of the first `a` only after the second `a` was
 /// dispatched, and the read, made before the Backspace, found the second `a`
 /// not yet applied. The read counts (no key after the second `a` had been
@@ -8188,4 +8188,112 @@ fn a_look_with_nothing_new_in_focus_describes_nothing() {
     thread::sleep(Duration::from_millis(100));
     assert_eq!(controls.lock().unwrap().descriptions, 1);
     assert!(harness.shutdown().is_empty(), "a look writes nothing");
+}
+
+/// `type` and `key` actions as `typed_actions_of` writes them, in the order
+/// the recording holds them: by sequence id, as the frontend orders them
+/// (DCP-2), the `type` under the id of its last value change.
+fn typed_in_recorded_order(events: &[ActionEvent]) -> Vec<String> {
+    let mut events: Vec<&ActionEvent> = events.iter().collect();
+    events.sort_by_key(|e| e.sequence_id);
+    typed_actions_of(&events.into_iter().cloned().collect::<Vec<_>>())
+}
+
+/// `1` read in time, `5` read only after `x` was dispatched, and `x`, which
+/// the field refused (no value change), sent into the field.
+fn one_five_refused_x(harness: &WorkerTestHarness) {
+    let t = now_ms();
+    harness.send_event(numbered_in_field(packet_key(1, t, u16::from(b'1')), 1));
+    harness.send_event(control_value_change(2, t + 1, FIELD));
+    harness.send_event(numbered_in_field(packet_key(3, t + 2, u16::from(b'5')), 2));
+    harness.send_event(control_value_change(4, t + 3, FIELD)); // read after `x`
+    harness.send_event(numbered_in_field(packet_key(5, t + 4, u16::from(b'x')), 3));
+}
+
+/// A key that got no value change, buffered behind a kept key, is written
+/// once the wait for keys that took no text has passed, and the commit then
+/// writes the `type` and the kept key: every key once.
+#[test]
+fn a_key_with_no_value_change_behind_a_kept_key_is_written_after_the_wait() {
+    let (backend, _scene, _queries, _controls) = MovingFocusBackend::with_controls(
+        save_button_focused(),
+        field_with_reads(&[("1", 1), ("15", 3)]),
+    );
+    let harness = WorkerTestHarness::new(backend);
+    one_five_refused_x(&harness);
+    thread::sleep(Duration::from_millis(1200));
+    let mut events = harness.drain_actions();
+    assert_eq!(
+        typed_actions_of(&events),
+        on_field(&["key x"]),
+        "the wait writes `x` alone"
+    );
+    harness.flush();
+    events.extend(harness.drain_actions());
+    harness.shutdown();
+    assert_eq!(
+        typed_in_recorded_order(&events),
+        on_field(&["type 1", "key 5", "key x"])
+    );
+}
+
+/// The same keys drained by a commit before the wait has passed: the drain
+/// writes the `type`, the kept key and the key behind it.
+#[test]
+fn a_commit_writes_every_buffered_key_behind_the_type() {
+    let (backend, _scene, _queries, _controls) = MovingFocusBackend::with_controls(
+        save_button_focused(),
+        field_with_reads(&[("1", 1), ("15", 3)]),
+    );
+    let harness = WorkerTestHarness::new(backend);
+    one_five_refused_x(&harness);
+    thread::sleep(Duration::from_millis(150));
+    harness.flush();
+    let events = harness.drain_actions();
+    harness.shutdown();
+    assert_eq!(
+        typed_in_recorded_order(&events),
+        on_field(&["type 1", "key 5", "key x"])
+    );
+}
+
+/// And by a stop.
+#[test]
+fn a_stop_writes_every_buffered_key_behind_the_type() {
+    let (backend, _scene, _queries, _controls) = MovingFocusBackend::with_controls(
+        save_button_focused(),
+        field_with_reads(&[("1", 1), ("15", 3)]),
+    );
+    let harness = WorkerTestHarness::new(backend);
+    one_five_refused_x(&harness);
+    assert_eq!(
+        typed_in_recorded_order(&harness.shutdown()),
+        on_field(&["type 1", "key 5", "key x"])
+    );
+}
+
+/// KNOWN OPEN CASE, not the behavior wanted (docent#762): a value change no
+/// buffered key carries the text of (a paste, an accepted suggestion, a
+/// composed character), read only after a later key was dispatched, is not
+/// taken, and no key carries its text: the pasted text is recorded nowhere.
+/// Taking the late value could record a value the person never had.
+#[test]
+fn open_case_762_a_pasted_value_read_late_is_recorded_nowhere() {
+    let (backend, _scene, _queries, _controls) = MovingFocusBackend::with_controls(
+        save_button_focused(),
+        field_with_reads(&[("pasted", 2)]),
+    );
+    let harness = WorkerTestHarness::new(backend);
+    let t = now_ms();
+    let mut ctrl_v = numbered_in_field(layout_key(1, t, 0x56), 1);
+    ctrl_v.modifiers = (true, false, false, false);
+    harness.send_event(ctrl_v);
+    harness.send_event(control_value_change(2, t + 1, FIELD)); // read after Enter
+    harness.send_event(numbered_in_field(layout_key(3, t + 2, 0x0D), 2)); // Enter
+    thread::sleep(Duration::from_millis(300));
+    assert_eq!(
+        typed_actions_of(&harness.shutdown()),
+        on_field(&["key V", "key Enter"]),
+        "the open case: the pasted text is recorded nowhere"
+    );
 }
