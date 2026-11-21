@@ -102,14 +102,14 @@ import { join } from 'node:path';
 const PLAN = fileURLToPath(new URL('./plan.mjs', import.meta.url));
 
 test('the CLI reads a steps file that starts with a byte-order mark', () => {
-  const f = join(mkdtempSync(join(tmpdir(), 'qad-')), 'steps.json');
+  const f = join(mkdtempSync(join(tmpdir(), 'keyboard-driver-')), 'steps.json');
   writeFileSync(f, '﻿' + JSON.stringify([W, { text: 'ab' }]), 'utf8');
   const out = JSON.parse(execFileSync(process.execPath, [PLAN, f], { encoding: 'utf8' }));
   assert.equal(out.length, 3);
 });
 
 test('the CLI prints ASCII only, with non-ASCII characters escaped', () => {
-  const f = join(mkdtempSync(join(tmpdir(), 'qad-')), 'steps.json');
+  const f = join(mkdtempSync(join(tmpdir(), 'keyboard-driver-')), 'steps.json');
   writeFileSync(f, JSON.stringify([W, { text: 'æøå€' }]), 'utf8');
   const raw = execFileSync(process.execPath, [PLAN, f], { encoding: 'utf8' });
   assert.match(raw, /^[\n\r\x20-\x7e]*$/);

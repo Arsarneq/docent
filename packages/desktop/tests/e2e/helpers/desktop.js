@@ -7,34 +7,30 @@
  * or the executable `DOCENT_DESKTOP_EXE` names. It starts with WebView2's
  * DevTools port open, so the panel is driven as a page through its own
  * handlers and the real backend, the way the extension suite drives its side
- * panel. Each test starts the app on fresh data: its data and WebView folders
- * are removed first.
+ * panel. The panel's buttons are clicked through that protocol, not with
+ * operating-system input, so a click on the panel does not move the
+ * foreground. Each test starts the app on a data folder of its own: `APPDATA`
+ * points at a new temporary folder, where the app keeps its projects, so a
+ * run never reads or removes the data of a Docent installed on the machine.
  */
 
 import { test as base, chromium } from '@playwright/test';
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const IDENTIFIER = 'com.docent.desktop';
 const DEVTOOLS_PORT = 9333;
 
 export const APP_EXE =
   process.env.DOCENT_DESKTOP_EXE ??
   resolve(here, '../../../src-tauri/target/release/docent-desktop.exe');
-export const APP_PROCESS = 'docent-desktop';
+/** The app's process name, as `Get-Process` and the driver's guard know it. */
+export const APP_PROCESS = basename(APP_EXE, '.exe');
 
 const POWERSHELL = ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File'];
-
-/** Removes the app's data and WebView folders, so a run starts on no state. */
-function clearAppData() {
-  for (const root of [process.env.APPDATA, process.env.LOCALAPPDATA]) {
-    if (root) rmSync(join(root, IDENTIFIER), { recursive: true, force: true });
-  }
-}
 
 async function waitForDevTools(child, timeoutMs) {
   const deadline = Date.now() + timeoutMs;
@@ -82,10 +78,11 @@ function killTree(pid) {
 /** Starts the built app on fresh data and returns its panel as a page. */
 export async function launchApp() {
   if (!existsSync(APP_EXE)) throw new Error(`no app build at ${APP_EXE}`);
-  clearAppData();
+  const appData = mkdtempSync(join(tmpdir(), 'docent-e2e-data-'));
   const child = spawn(APP_EXE, [], {
     env: {
       ...process.env,
+      APPDATA: appData,
       WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${DEVTOOLS_PORT}`,
     },
     stdio: 'ignore',
@@ -99,18 +96,21 @@ export async function launchApp() {
       async close() {
         await browser.close().catch(() => {});
         killTree(child.pid);
+        rmSync(appData, { recursive: true, force: true, maxRetries: 5 });
       },
     };
   } catch (e) {
     killTree(child.pid);
+    rmSync(appData, { recursive: true, force: true, maxRetries: 5 });
     throw e;
   }
 }
 
 /**
  * Brings a process's window to the foreground (helpers/front.ps1). With
- * `dialog`, the process's open dialog window. The Alt press it needs is input:
- * call it before a recording starts.
+ * `dialog`, the process's open dialog window, waited for until it opens. A
+ * window already in front is left alone; otherwise the unlock key press it
+ * sends (front.ps1) is input, so call it before a recording starts.
  */
 export function bringToFront(processName, { dialog = false, timeoutMs = 15_000 } = {}) {
   const args = [
@@ -171,14 +171,17 @@ export async function readWhenWritten(path, timeoutMs = 15_000) {
   throw new Error(`${path} was not written within ${timeoutMs} ms`);
 }
 
+const reported = new WeakSet();
+
 /**
  * What was on the screen when a test failed: the windows (printed, so the job
- * log has them) and a screenshot (attached to the test's results). A spec
- * registers it with `test.afterEach`, which runs before the test's fixtures
- * end the app or Notepad.
+ * log has them) and a screenshot (attached to the test's results). The
+ * fixtures call it as they end, before they end the app or Notepad, so every
+ * spec that uses them gets the report; it runs once per test.
  */
-export function reportScreenOnFailure(testInfo) {
-  if (testInfo.status === testInfo.expectedStatus) return;
+function reportScreenOnFailure(testInfo) {
+  if (testInfo.status === testInfo.expectedStatus || reported.has(testInfo)) return;
+  reported.add(testInfo);
   const png = testInfo.outputPath('screen.png');
   const r = spawnSync('powershell', [...POWERSHELL, join(here, 'screen.ps1'), '-Png', png], {
     encoding: 'utf8',
@@ -188,25 +191,29 @@ export function reportScreenOnFailure(testInfo) {
     testInfo.attachments.push({ name: 'screen', path: png, contentType: 'image/png' });
 }
 
-/** The suite's test: `app` is the built app, started fresh for the test. */
+/**
+ * The suite's test. `app` is the built app, started fresh for the test;
+ * `notepad` is Notepad, started for the test. Both end after it, and a failed
+ * test reports the screen first.
+ */
 export const test = base.extend({
-  // Notepad, started for the test and ended after it (after the hooks, so a
-  // failed test's screen still shows it).
   // eslint-disable-next-line no-empty-pattern
-  notepad: async ({}, use) => {
+  notepad: async ({}, use, testInfo) => {
     const child = spawn('notepad.exe', [], { stdio: 'ignore' });
     try {
       await use(child);
     } finally {
+      reportScreenOnFailure(testInfo);
       killTree(child.pid);
     }
   },
   // eslint-disable-next-line no-empty-pattern
-  app: async ({}, use) => {
+  app: async ({}, use, testInfo) => {
     const app = await launchApp();
     try {
       await use(app);
     } finally {
+      reportScreenOnFailure(testInfo);
       await app.close();
     }
   },

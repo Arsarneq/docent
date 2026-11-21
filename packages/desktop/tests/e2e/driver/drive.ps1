@@ -5,9 +5,11 @@
 # Runs plan.mjs (node) on the steps file and sends the events with SendInput,
 # the way a person's keyboard does: the Windows key, real key presses for
 # "chars" (mapped on the foreground window's own layout, AltGr included), and
-# Unicode injection for "text". Before every input op it checks the foreground
-# window against the guard the steps named, so input never lands in a window
-# the steps did not name. Every event goes to the log with a timestamp.
+# Unicode injection for "text". Before each input step it checks the foreground
+# window against the guard the steps named, and stops if another window is in
+# front. The check is per step: the keys of one step follow a single check, so
+# a window that takes the foreground in the middle of a long "chars" step gets
+# the rest of it. Every event goes to the log with a timestamp.
 #
 # Exit: 0 done · 2 the planner refused the steps · 3 the foreground window did
 # not match the guard (nothing more is sent) · 4 a character is not on the

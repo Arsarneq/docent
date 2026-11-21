@@ -151,6 +151,7 @@ packages/
     src-tauri/      Rust backend — capture layer, Tauri commands
     tests/unit/     Desktop JavaScript unit tests (node --test)
     tests/integration/  Desktop Playwright tests (mocked Tauri backend)
+    tests/e2e/      Desktop E2E tests (Playwright + the built app, Windows)
 scripts/            Build, sync, and automation scripts
 ```
 
@@ -173,6 +174,7 @@ Tests are organized by test-pyramid layer. Run them by layer or by package:
 npm run test:unit          # shared + desktop + extension unit tests
 npm run test:integration   # desktop integration (Playwright + mocked Tauri)
 npm run test:e2e           # extension end-to-end (Playwright + real Chrome)
+npm run test:e2e:desktop   # desktop end-to-end (Playwright + the built app, Windows only)
 
 # By package
 npm run test:extension     # extension unit tests (syncs shared code first)

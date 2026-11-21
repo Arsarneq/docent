@@ -13,7 +13,7 @@
 //   physical key; without it keys go by virtual key only.
 //   { "wait": 500 }       milliseconds
 // Every input op needs a guard before it, and the executor re-checks the guard
-// before each op: input never lands in a window the steps did not name.
+// before each op. The check is per op: the keys of one op follow one check.
 //
 // CLI: node plan.mjs <steps.json>  -> prints the event list as JSON.
 
@@ -67,7 +67,10 @@ const VK = {
 };
 // Keys a keyboard sends with the extended mark (E0 prefix): the navigation
 // block, the right-hand Ctrl and Alt, the Windows keys, NumLock and the
-// keypad's Enter and slash (Microsoft's list of extended keys). Only scan mode sends the mark; the VK path never did.
+// keypad's Enter and slash (Microsoft's list of extended keys). The planner
+// marks them for scan mode. Without scan, the executor's virtual-key path sets
+// the mark itself for the navigation keys, the Windows keys and the right-hand
+// Ctrl and Alt (Extended in drive.ps1), not for NumLock or the keypad keys.
 const EXTENDED = new Set([
   'left',
   'up',

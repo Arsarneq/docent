@@ -1453,19 +1453,12 @@ jobs:
           path: packages/desktop/tests/integration/test-results/
           retention-days: 7
 
-  # Reference Sync Server tests (repo/testing artifact, excluded from releases).
-  # Runs the server's own pyramid-layered suites — tests/unit + tests/integration
-  # under reference-implementations/sync-server — which run NOWHERE else in CI.
-  # The unit layer includes the samples-conformance guard: it validates the
-  # bundled seed samples against the platform schemas composed from source, so a
-  # schema-shape change that a sample no longer matches fails HERE, on the PR.
-  # Gated on the reference server, the schemas it validates against, and shared
-  # (the validator/digest the conformance test composes through).
-  # The desktop end-to-end suite (QA's): the release build on a pinned
-  # Windows image, its panel driven over WebView2's DevTools port and other
-  # programs given real keyboard input by the suite's driver. It reports on
-  # its own until it has a green week on main; ci-gate does not wait for it
-  # yet. docs/test/e2e/desktop.md is the suite's page.
+  # The desktop end-to-end suite: the release build on a pinned Windows image,
+  # its panel driven over WebView2's DevTools port and other programs given
+  # real keyboard input by the suite's driver. It reports on its own until it
+  # has a green week on main: ci-gate does not wait for it, and it does not run
+  # for a release, so a red run blocks neither a merge nor a desktop publish.
+  # docs/test/e2e/desktop.md is the suite's page.
   desktop-e2e-tests:
     needs: [lint, changes]
     if: |
@@ -1476,9 +1469,7 @@ jobs:
           needs.changes.outputs.corpus == 'true' ||
           needs.changes.outputs.schema == 'true' ||
           needs.changes.outputs.ciCore == 'true' ||
-          needs.changes.outputs.buildScripts == 'true')) ||
-      ((github.event_name == 'release' || github.event_name == 'workflow_dispatch') &&
-        (inputs.platform == '' || inputs.platform == 'desktop'))
+          needs.changes.outputs.buildScripts == 'true'))
     timeout-minutes: 60
     runs-on: windows-2022
     steps:
@@ -1494,6 +1485,15 @@ jobs:
 
       - name: Install root dependencies
         run: npm ci
+
+      - name: Keyboard driver planner tests
+        run: node --test --import ./packages/shared/tests/support/git-env-preload.js packages/desktop/tests/e2e/driver/plan.test.mjs
+
+      # The driver's own window test, before the build: a red here means the
+      # keys do not arrive on this runner, and the job stops in minutes.
+      - name: Keyboard driver test
+        timeout-minutes: 5
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File packages/desktop/tests/e2e/driver/drive.test.ps1
 
       - name: Sync shared code
         run: npm run sync-shared
@@ -1542,15 +1542,6 @@ jobs:
         working-directory: packages/desktop/tests/e2e
         run: npm ci
 
-      - name: Keyboard driver planner tests
-        run: node --test --import ./packages/shared/tests/support/git-env-preload.js packages/desktop/tests/e2e/driver/plan.test.mjs
-
-      # The driver's own window test first: a red here means the keys do not
-      # arrive on this runner, whatever the suite then reports.
-      - name: Keyboard driver test
-        timeout-minutes: 5
-        run: powershell -NoProfile -ExecutionPolicy Bypass -File packages/desktop/tests/e2e/driver/drive.test.ps1
-
       - name: Run desktop end-to-end tests
         working-directory: packages/desktop/tests/e2e
         timeout-minutes: 15
@@ -1565,6 +1556,14 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
+  # Reference Sync Server tests (repo/testing artifact, excluded from releases).
+  # Runs the server's own pyramid-layered suites — tests/unit + tests/integration
+  # under reference-implementations/sync-server — which run NOWHERE else in CI.
+  # The unit layer includes the samples-conformance guard: it validates the
+  # bundled seed samples against the platform schemas composed from source, so a
+  # schema-shape change that a sample no longer matches fails HERE, on the PR.
+  # Gated on the reference server, the schemas it validates against, and shared
+  # (the validator/digest the conformance test composes through).
   reference-server-tests:
     needs: [lint, changes]
     if: |

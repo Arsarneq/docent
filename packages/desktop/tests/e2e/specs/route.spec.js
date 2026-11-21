@@ -24,15 +24,9 @@ import {
   typeKeys,
   readWhenWritten,
   APP_PROCESS,
-  reportScreenOnFailure,
 } from '../helpers/desktop.js';
 
-// Playwright reads the fixtures a hook asks for from its first parameter, which
-// must be an object pattern, so this hook asks for none.
-// eslint-disable-next-line no-empty-pattern
-test.afterEach(async ({}, testInfo) => reportScreenOnFailure(testInfo));
-
-/** A fresh folder with a short path, for files the dialogs write. */
+/** A fresh folder for the files the dialogs write. */
 const freshDir = () => mkdtempSync(join(tmpdir(), 'docent-e2e-'));
 
 test('the built app starts and its panel shows the projects view', async ({ app }) => {
@@ -43,15 +37,9 @@ test('keys typed into Notepad land in the file its save dialog writes', async ({
   expect(notepad.pid).toBeTruthy();
   const file = join(freshDir(), 'typed.txt');
   bringToFront('notepad');
-  typeKeys([
-    { window: { process: 'notepad.exe' } },
-    { chars: 'keep aa' },
-    { key: 'ctrl+s' },
-    { wait: 1500 },
-    { window: { process: 'notepad.exe' } },
-    { chars: file },
-    { key: 'enter' },
-  ]);
+  typeKeys([{ window: { process: 'notepad.exe' } }, { chars: 'keep aa' }, { key: 'ctrl+s' }]);
+  bringToFront('notepad', { dialog: true });
+  typeKeys([{ window: { process: 'notepad.exe' } }, { chars: file }, { key: 'enter' }]);
   expect((await readWhenWritten(file)).replace(/^\uFEFF/, '')).toBe('keep aa');
 });
 
