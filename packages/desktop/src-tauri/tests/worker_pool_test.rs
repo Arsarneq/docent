@@ -9220,11 +9220,183 @@ fn a_value_reported_again_behind_a_waiting_dead_key_leaves_it_to_be_written() {
 /// A dead key as the hook read it for the press itself: the layout asked
 /// about the key with the modifiers held (docent#769).
 fn dead_key_as_pressed(seq: u64, modifiers: (bool, bool, bool, bool), dead: bool) -> RawEvent {
+    key_as_pressed(seq, modifiers, dead.then_some('\u{60}'))
+}
+
+/// The same with the accent the layout named for the press: `None` for a key
+/// that is no dead key as pressed.
+fn key_as_pressed(seq: u64, modifiers: (bool, bool, bool, bool), accent: Option<char>) -> RawEvent {
+    use docent_desktop_lib::capture::held_keys::{dead_as_pressed_param, AsPressed};
     let mut key = dead_key(seq);
     key.modifiers = modifiers;
-    key.callback_params[3] |=
-        docent_desktop_lib::capture::held_keys::dead_as_pressed_param(Some(dead));
+    key.callback_params[3] |= dead_as_pressed_param(Some(match accent {
+        Some(accent) => AsPressed::DeadKey {
+            accent: accent as u16,
+        },
+        None => AsPressed::NoDeadKey,
+    }));
     key
+}
+
+/// Set the value the dialog's field holds.
+fn field_holds(scene: &std::sync::Mutex<FocusScene>, value: &str) {
+    let mut scene = scene.lock().unwrap();
+    scene.element.text = Some(value.to_string());
+    scene.element.value = Some(value.to_string());
+}
+
+/// A dead key pressed twice: the program enters both accents as characters
+/// at the second press. The `type` holds them, and neither press is a `key`
+/// beside it (docent#769).
+#[test]
+fn regression_769_a_dead_key_pressed_twice_is_the_text_the_program_enters() {
+    let (backend, scene, _) = MovingFocusBackend::new(file_name_field(""));
+    let harness = WorkerTestHarness::new(backend);
+    harness.send_event(dead_key(1));
+    thread::sleep(Duration::from_millis(900));
+    harness.send_event(dead_key(2));
+    field_holds(&scene, "\u{b4}\u{b4}");
+    harness.send_event(in_dialog(value_change(3, now_ms(), DIALOG)));
+    thread::sleep(Duration::from_millis(900));
+    harness.event_tx.send(WorkerMessage::EndTyping).unwrap();
+    assert_eq!(
+        types_and_keys(&harness.shutdown()),
+        vec!["type \u{b4}\u{b4}"]
+    );
+}
+
+/// The same where the second press is a key dead with Shift (the grave
+/// accent on the Danish acute key): both accents are in the `type`
+/// (docent#769).
+#[test]
+fn regression_769_a_dead_key_and_a_shifted_dead_key_are_the_text_the_program_enters() {
+    let (backend, scene, _) = MovingFocusBackend::new(file_name_field(""));
+    let harness = WorkerTestHarness::new(backend);
+    harness.send_event(dead_key(1));
+    thread::sleep(Duration::from_millis(150));
+    harness.send_event(key_as_pressed(
+        2,
+        (false, true, false, false),
+        Some('\u{60}'),
+    ));
+    field_holds(&scene, "\u{b4}\u{60}");
+    harness.send_event(in_dialog(value_change(3, now_ms(), DIALOG)));
+    thread::sleep(Duration::from_millis(900));
+    harness.event_tx.send(WorkerMessage::EndTyping).unwrap();
+    assert_eq!(
+        types_and_keys(&harness.shutdown()),
+        vec!["type \u{b4}\u{60}"]
+    );
+}
+
+/// A dead key pressed three times: the first two are the text the program
+/// entered at the second press, and the third still waits for the key after
+/// it. With no such key it is a `key` when the typing ends.
+#[test]
+fn a_dead_key_pressed_a_third_time_waits_behind_the_text_of_the_first_two() {
+    let (backend, scene, _) = MovingFocusBackend::new(file_name_field(""));
+    let harness = WorkerTestHarness::new(backend);
+    harness.send_event(dead_key(1));
+    thread::sleep(Duration::from_millis(150));
+    harness.send_event(dead_key(2));
+    harness.send_event(dead_key(3));
+    thread::sleep(Duration::from_millis(150));
+    field_holds(&scene, "\u{b4}\u{b4}");
+    harness.send_event(in_dialog(value_change(4, now_ms(), DIALOG)));
+    thread::sleep(Duration::from_millis(900));
+    harness.event_tx.send(WorkerMessage::EndTyping).unwrap();
+    assert_eq!(
+        types_and_keys(&harness.shutdown()),
+        vec!["type \u{b4}\u{b4}", "key \u{b4}"]
+    );
+}
+
+/// A dead key and then a key that is no typing key, in a program that enters
+/// nothing for the two (Tab in a dialog moves the focus): both are keys, in
+/// the order pressed, once the wait for a value change is over.
+#[test]
+fn a_dead_key_and_a_key_that_enters_nothing_are_keys_in_the_order_pressed() {
+    let (backend, _scene, _) = MovingFocusBackend::new(file_name_field(""));
+    let harness = WorkerTestHarness::new(backend);
+    harness.send_event(dead_key(1));
+    harness.send_event(in_dialog(layout_key(2, now_ms(), 0x09)));
+    thread::sleep(Duration::from_millis(900));
+    let mut written = Vec::new();
+    while let Ok(event) = harness.action_rx.try_recv() {
+        written.push(event);
+    }
+    assert_eq!(
+        types_and_keys(&written),
+        vec!["key \u{b4}", "key Tab"],
+        "written at the wait, before the recording stops"
+    );
+    assert!(types_and_keys(&harness.shutdown()).is_empty());
+}
+
+/// The same where the person clicks before the wait is over: the two keys
+/// are written ahead of the click, in the order pressed.
+#[test]
+fn a_dead_key_and_the_key_behind_it_are_written_ahead_of_a_click() {
+    let (backend, _scene, _) = MovingFocusBackend::new(file_name_field(""));
+    let harness = WorkerTestHarness::new(backend);
+    harness.send_event(dead_key(1));
+    harness.send_event(in_dialog(layout_key(2, now_ms(), 0x09)));
+    harness.send_event(click_on("Button"));
+    let events = harness.shutdown();
+    let order: Vec<String> = events
+        .iter()
+        .filter_map(|e| match &e.payload {
+            ActionPayload::Key { key, .. } => Some(format!("key {key}")),
+            ActionPayload::Click { .. } => Some("click".to_string()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(order, vec!["key \u{b4}", "key Tab", "click"]);
+}
+
+/// A dead key, a key that is no typing key, and a value that holds no more
+/// of the accent than before (the program took the key and dropped the
+/// accent): the dead key entered nothing and is a `key`, ahead of the key
+/// behind it.
+#[test]
+fn a_dead_key_whose_accent_the_program_does_not_enter_is_a_key() {
+    let (backend, scene, _) = MovingFocusBackend::new(file_name_field(""));
+    let harness = WorkerTestHarness::new(backend);
+    harness.send_event(in_dialog(layout_key(1, now_ms(), 0x43)));
+    field_holds(&scene, "c");
+    harness.send_event(in_dialog(value_change(2, now_ms(), DIALOG)));
+    thread::sleep(Duration::from_millis(150));
+    harness.send_event(dead_key(3));
+    harness.send_event(in_dialog(layout_key(4, now_ms(), 0x09)));
+    field_holds(&scene, "c\t");
+    harness.send_event(in_dialog(value_change(5, now_ms(), DIALOG)));
+    thread::sleep(Duration::from_millis(900));
+    assert_eq!(
+        types_and_keys(&harness.shutdown()),
+        vec!["type c", "key \u{b4}", "key Tab", "type c\t"]
+    );
+}
+
+/// A field that held the accent already: the value after the dead key and
+/// Tab holds one more of it, so the dead key is text; a value that holds as
+/// many as before leaves it a `key`.
+#[test]
+fn a_dead_key_is_text_only_where_the_field_gained_its_accent() {
+    for (after, expected) in [
+        ("\u{b4}\u{b4}\t", vec!["key Tab", "type \u{b4}\u{b4}\t"]),
+        ("\u{b4}\t", vec!["key \u{b4}", "key Tab", "type \u{b4}\t"]),
+    ] {
+        let (backend, scene, _) = MovingFocusBackend::new(file_name_field("\u{b4}"));
+        field_holds(&scene, "\u{b4}");
+        let harness = WorkerTestHarness::new(backend);
+        harness.send_event(dead_key(1));
+        thread::sleep(Duration::from_millis(150));
+        harness.send_event(in_dialog(layout_key(2, now_ms(), 0x09)));
+        field_holds(&scene, after);
+        harness.send_event(in_dialog(value_change(3, now_ms(), DIALOG)));
+        thread::sleep(Duration::from_millis(900));
+        assert_eq!(types_and_keys(&harness.shutdown()), expected, "{after:?}");
+    }
 }
 
 #[test]

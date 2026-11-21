@@ -2966,7 +2966,7 @@ unsafe fn foreground_dead_as_pressed(
     scan_code: u32,
     modifiers: (bool, bool, bool, bool),
     thread_id: u32,
-) -> Option<bool> {
+) -> Option<super::held_keys::AsPressed> {
     let (ctrl, shift, alt, meta) = modifiers;
     // Ctrl and Alt together are AltGr; either alone, or Meta, is a shortcut,
     // which enters no text and is asked nothing.
@@ -3017,7 +3017,7 @@ unsafe fn layout_has_no_accent_pending(hkl: HKL) -> bool {
 }
 
 /// What layout `hkl` answers for the key with Shift or AltGr held: whether it
-/// is a dead key. `None` for no layout, and where an accent is pending before
+/// is a dead key, and the accent it names for one. `None` for no layout, and where an accent is pending before
 /// or after the question, since the answer then says what the key does to
 /// that accent and not what the key is.
 unsafe fn dead_as_pressed(
@@ -3026,7 +3026,8 @@ unsafe fn dead_as_pressed(
     shift: bool,
     alt_gr: bool,
     hkl: HKL,
-) -> Option<bool> {
+) -> Option<super::held_keys::AsPressed> {
+    use super::held_keys::AsPressed;
     if hkl.0.is_null() || !layout_has_no_accent_pending(hkl) {
         return None;
     }
@@ -3039,8 +3040,7 @@ unsafe fn dead_as_pressed(
         state[0x12] = 0x80;
     }
     let mut entered = [0u16; 8];
-    // A negative answer is a dead key; its accent is in the buffer and is
-    // not used here.
+    // A negative answer is a dead key, with its accent in the buffer.
     let answer = ToUnicodeEx(
         vk,
         scan_code,
@@ -3050,7 +3050,12 @@ unsafe fn dead_as_pressed(
         LEAVE_KEY_STATE,
         Some(hkl),
     );
-    layout_has_no_accent_pending(hkl).then_some(answer < 0)
+    let read = if answer < 0 {
+        AsPressed::DeadKey { accent: entered[0] }
+    } else {
+        AsPressed::NoDeadKey
+    };
+    layout_has_no_accent_pending(hkl).then_some(read)
 }
 
 /// The character `vk` enters with no modifier on keyboard layout `hkl`, with
@@ -4490,6 +4495,7 @@ mod tests {
         if !super::layout_read_leaves_key_state() {
             return; // a Windows before 10.0.14393: the layout is not asked
         }
+        use crate::capture::held_keys::AsPressed;
         let danish = LoadedLayout::load("00000406", 0x0406);
         let acute = danish.vk_at(0x0D);
         let diaeresis = danish.vk_at(0x1B);
@@ -4498,14 +4504,19 @@ mod tests {
             // SAFETY: a read of a loaded layout's tables that leaves the key state.
             unsafe { super::dead_as_pressed(vk, scan, shift, alt_gr, danish.hkl) }
         };
+        let dead = |accent: char| {
+            Some(AsPressed::DeadKey {
+                accent: accent as u16,
+            })
+        };
         for _ in 0..2 {
-            assert_eq!(ask(acute, 0x0D, false, false), Some(true));
-            assert_eq!(ask(acute, 0x0D, true, false), Some(true));
-            assert_eq!(ask(acute, 0x0D, false, true), Some(false));
-            assert_eq!(ask(diaeresis, 0x1B, false, false), Some(true));
-            assert_eq!(ask(diaeresis, 0x1B, true, false), Some(true));
-            assert_eq!(ask(diaeresis, 0x1B, false, true), Some(true));
-            assert_eq!(ask(e, 0x12, false, false), Some(false));
+            assert_eq!(ask(acute, 0x0D, false, false), dead('\u{b4}'));
+            assert_eq!(ask(acute, 0x0D, true, false), dead('\u{60}'));
+            assert_eq!(ask(acute, 0x0D, false, true), Some(AsPressed::NoDeadKey));
+            assert_eq!(ask(diaeresis, 0x1B, false, false), dead('\u{a8}'));
+            assert_eq!(ask(diaeresis, 0x1B, true, false), dead('\u{5e}'));
+            assert_eq!(ask(diaeresis, 0x1B, false, true), dead('\u{7e}'));
+            assert_eq!(ask(e, 0x12, false, false), Some(AsPressed::NoDeadKey));
         }
         // SAFETY: reads of a loaded layout's tables.
         assert!(unsafe { super::layout_has_no_accent_pending(danish.hkl) });
@@ -4544,7 +4555,7 @@ mod tests {
         assert!(!pending, "an accent is pending after the dead key");
         assert_eq!(answered, None, "the layout is not asked while one is");
         assert!(unsafe { super::layout_has_no_accent_pending(danish.hkl) });
-        assert_eq!(ask(e, 0x12, false, false), Some(false));
+        assert_eq!(ask(e, 0x12, false, false), Some(AsPressed::NoDeadKey));
     }
 
     #[test]

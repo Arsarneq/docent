@@ -53,11 +53,11 @@ pub const KEY_REPEAT_PARAM: i64 = 1 << 32;
 
 /// The layout character a keyboard event carries: the low 32 bits of
 /// `RawEvent::callback_params[3]`, below the repeat mark
-/// ([`KEY_REPEAT_PARAM`]), without the two marks of the dead-key read
-/// ([`dead_as_pressed_of`]) that sit in bits the layout's value leaves clear.
+/// ([`KEY_REPEAT_PARAM`]), without the dead-key read
+/// ([`dead_as_pressed_of`]) that sits in bits the layout's value leaves clear.
 /// What the value means is `worker_pool::punctuation_key_name`'s to state.
 pub const fn layout_char_of(param: i64) -> u32 {
-    (param & !(KEY_DEAD_READ_PARAM | KEY_DEAD_AS_PRESSED_PARAM)) as u32
+    (param & !(KEY_DEAD_READ_PARAM | KEY_DEAD_AS_PRESSED_PARAM | KEY_DEAD_ACCENT_MASK)) as u32
 }
 
 /// The mark that the keyboard hook asked the layout whether the key is a dead
@@ -68,24 +68,50 @@ const KEY_DEAD_READ_PARAM: i64 = 1 << 29;
 /// The answer, beside the read mark: set where the key is dead as pressed.
 const KEY_DEAD_AS_PRESSED_PARAM: i64 = 1 << 30;
 
+/// Where the accent a dead key carries as pressed sits, below the two marks:
+/// bits 16 to 28, which the layout's value leaves clear as well.
+const KEY_DEAD_ACCENT_SHIFT: u32 = 16;
+/// The accents that fit there: every character below U+2000. An accent above
+/// is carried as none named.
+const DEAD_ACCENT_MAX: u16 = 0x1FFF;
+const KEY_DEAD_ACCENT_MASK: i64 = (DEAD_ACCENT_MAX as i64) << KEY_DEAD_ACCENT_SHIFT;
+
+/// What a keyboard layout answers about a key with the modifiers held.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AsPressed {
+    /// The key enters a character or nothing.
+    NoDeadKey,
+    /// The key is a dead key. `accent` is the character the layout names for
+    /// it, the one a program enters where no character takes the accent; `0`
+    /// where the layout named none.
+    DeadKey { accent: u16 },
+}
+
 /// What the keyboard hook read of the key as pressed, as a keyboard event
-/// carries it: `Some(true)` for a dead key with the modifiers held,
-/// `Some(false)` for a key that enters a character or nothing with them, and
-/// `None` where the hook did not ask.
-pub const fn dead_as_pressed_param(read: Option<bool>) -> i64 {
+/// carries it; `None` where the hook did not ask.
+pub const fn dead_as_pressed_param(read: Option<AsPressed>) -> i64 {
     match read {
         None => 0,
-        Some(false) => KEY_DEAD_READ_PARAM,
-        Some(true) => KEY_DEAD_READ_PARAM | KEY_DEAD_AS_PRESSED_PARAM,
+        Some(AsPressed::NoDeadKey) => KEY_DEAD_READ_PARAM,
+        Some(AsPressed::DeadKey { accent }) => {
+            let carried = if accent > DEAD_ACCENT_MAX { 0 } else { accent };
+            KEY_DEAD_READ_PARAM
+                | KEY_DEAD_AS_PRESSED_PARAM
+                | (carried as i64) << KEY_DEAD_ACCENT_SHIFT
+        }
     }
 }
 
 /// The read [`dead_as_pressed_param`] put into `callback_params[3]`.
-pub const fn dead_as_pressed_of(param: i64) -> Option<bool> {
+pub const fn dead_as_pressed_of(param: i64) -> Option<AsPressed> {
     if param & KEY_DEAD_READ_PARAM == 0 {
         None
+    } else if param & KEY_DEAD_AS_PRESSED_PARAM == 0 {
+        Some(AsPressed::NoDeadKey)
     } else {
-        Some(param & KEY_DEAD_AS_PRESSED_PARAM != 0)
+        Some(AsPressed::DeadKey {
+            accent: ((param & KEY_DEAD_ACCENT_MASK) >> KEY_DEAD_ACCENT_SHIFT) as u16,
+        })
     }
 }
 
@@ -99,8 +125,9 @@ pub const fn dead_as_pressed_of(param: i64) -> Option<bool> {
 /// allocates nor locks.
 pub struct DeadKeyAnswers {
     layout: isize,
-    /// Per key code and modifier state: 0 not asked, 1 no dead key, 2 dead.
-    answers: [u8; 256 * 4],
+    /// Per key code and modifier state: 0 not asked, 1 no dead key, 2 a dead
+    /// key with no accent named, any other value a dead key's accent.
+    answers: [u16; 256 * 4],
 }
 
 impl DeadKeyAnswers {
@@ -116,23 +143,43 @@ impl DeadKeyAnswers {
     }
 
     /// The answer kept for this key on `layout`; `None` where none was taken.
-    pub fn get(&self, layout: isize, key_code: u32, shift: bool, alt_gr: bool) -> Option<bool> {
+    pub fn get(
+        &self,
+        layout: isize,
+        key_code: u32,
+        shift: bool,
+        alt_gr: bool,
+    ) -> Option<AsPressed> {
         if layout != self.layout {
             return None;
         }
         match self.answers[Self::index(key_code, shift, alt_gr)] {
             0 => None,
-            answer => Some(answer == 2),
+            1 => Some(AsPressed::NoDeadKey),
+            2 => Some(AsPressed::DeadKey { accent: 0 }),
+            accent => Some(AsPressed::DeadKey { accent }),
         }
     }
 
-    /// Keep `dead` as `layout`'s answer for this key.
-    pub fn learn(&mut self, layout: isize, key_code: u32, shift: bool, alt_gr: bool, dead: bool) {
+    /// Keep `answer` as `layout`'s answer for this key. An accent below 3 is
+    /// no accent character and is kept as none named.
+    pub fn learn(
+        &mut self,
+        layout: isize,
+        key_code: u32,
+        shift: bool,
+        alt_gr: bool,
+        answer: AsPressed,
+    ) {
         if layout != self.layout {
             self.layout = layout;
             self.answers = [0; 256 * 4];
         }
-        self.answers[Self::index(key_code, shift, alt_gr)] = if dead { 2 } else { 1 };
+        self.answers[Self::index(key_code, shift, alt_gr)] = match answer {
+            AsPressed::NoDeadKey => 1,
+            AsPressed::DeadKey { accent } if accent < 3 => 2,
+            AsPressed::DeadKey { accent } => accent,
+        };
     }
 }
 
@@ -606,27 +653,51 @@ mod tests {
         // A layout's answers are kept per key and modifier state, and only
         // for the layout they were taken from.
         let mut answers = DeadKeyAnswers::new();
+        let grave = AsPressed::DeadKey { accent: 0x60 };
+        let unnamed = AsPressed::DeadKey { accent: 0 };
         assert_eq!(answers.get(7, 0xDB, false, false), None);
-        answers.learn(7, 0xDB, false, false, true);
-        answers.learn(7, 0xDB, false, true, false);
-        assert_eq!(answers.get(7, 0xDB, false, false), Some(true));
-        assert_eq!(answers.get(7, 0xDB, false, true), Some(false));
+        answers.learn(7, 0xDB, false, false, grave);
+        answers.learn(7, 0xDB, false, true, AsPressed::NoDeadKey);
+        answers.learn(7, 0xDB, true, true, AsPressed::DeadKey { accent: 1 });
+        assert_eq!(answers.get(7, 0xDB, false, false), Some(grave));
+        assert_eq!(
+            answers.get(7, 0xDB, false, true),
+            Some(AsPressed::NoDeadKey)
+        );
+        assert_eq!(answers.get(7, 0xDB, true, true), Some(unnamed));
         assert_eq!(answers.get(7, 0xDB, true, false), None);
         assert_eq!(answers.get(7, 0xBA, false, false), None);
         assert_eq!(answers.get(8, 0xDB, false, false), None);
-        answers.learn(8, 0x45, false, false, false);
-        assert_eq!(answers.get(8, 0x45, false, false), Some(false));
+        answers.learn(8, 0x45, false, false, AsPressed::NoDeadKey);
+        assert_eq!(
+            answers.get(8, 0x45, false, false),
+            Some(AsPressed::NoDeadKey)
+        );
         assert_eq!(answers.get(7, 0xDB, false, false), None);
         assert_eq!(answers.get(8, 0xDB, false, false), None);
-        // The dead-key read shares the layout character's word and leaves
-        // the character, its dead-key flag and the repeat mark as they are.
+        // The dead-key read shares the layout character's parameter and
+        // leaves the character, its dead-key flag and the repeat mark as
+        // they are.
         let layout = 0x8000_00B4_i64;
-        for read in [None, Some(false), Some(true)] {
+        for read in [
+            None,
+            Some(AsPressed::NoDeadKey),
+            Some(grave),
+            Some(unnamed),
+            Some(AsPressed::DeadKey { accent: 0x1FFF }),
+        ] {
             let param = layout | KEY_REPEAT_PARAM | dead_as_pressed_param(read);
             assert_eq!(dead_as_pressed_of(param), read);
             assert_eq!(layout_char_of(param), 0x8000_00B4);
             assert_ne!(param & KEY_REPEAT_PARAM, 0);
         }
+        // An accent that does not fit is carried as none named.
+        assert_eq!(
+            dead_as_pressed_of(dead_as_pressed_param(Some(AsPressed::DeadKey {
+                accent: 0x2000
+            }))),
+            Some(unnamed)
+        );
         assert_eq!(input_method_of(0), None);
         // The scan code and the extended mark share the parameter and are
         // no input-method read.
