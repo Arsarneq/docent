@@ -59,6 +59,63 @@ pub const fn layout_char_of(param: i64) -> u32 {
     param as u32
 }
 
+/// What the keyboard hook read of the input method at a key press: whether
+/// one was on for the control that held the keyboard focus, and its
+/// conversion mode, the value the system gave (the session-format document
+/// states its bits). A `key` action states both as read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct InputMethodState {
+    /// Whether the input method was on (its open status).
+    pub open: bool,
+    /// The conversion mode as read, its low 28 bits; the four above them are
+    /// reserved by the system and are not carried.
+    pub conversion_mode: u32,
+}
+
+/// The mark that an input method was read, as a keyboard event carries it in
+/// `RawEvent::callback_params[3]`, above the repeat mark
+/// ([`KEY_REPEAT_PARAM`]). Clear where none was read.
+const KEY_INPUT_METHOD_READ_PARAM: i64 = 1 << 33;
+/// The input method's open status, beside the read mark.
+const KEY_INPUT_METHOD_OPEN_PARAM: i64 = 1 << 34;
+/// Where the conversion mode sits, above the open status: 28 bits, up to the
+/// sign bit.
+const KEY_INPUT_METHOD_MODE_SHIFT: u32 = 35;
+/// The bits of a conversion mode that are carried.
+const INPUT_METHOD_MODE_MASK: u32 = 0x0FFF_FFFF;
+
+/// What a keyboard event carries of the input method read at the press, to
+/// be set into `RawEvent::callback_params[3]` beside the layout character and
+/// the repeat mark; 0 where none was read.
+pub const fn input_method_param(state: Option<InputMethodState>) -> i64 {
+    match state {
+        Some(state) => {
+            KEY_INPUT_METHOD_READ_PARAM
+                | if state.open {
+                    KEY_INPUT_METHOD_OPEN_PARAM
+                } else {
+                    0
+                }
+                | (((state.conversion_mode & INPUT_METHOD_MODE_MASK) as i64)
+                    << KEY_INPUT_METHOD_MODE_SHIFT)
+        }
+        None => 0,
+    }
+}
+
+/// The input method read a keyboard event carries
+/// (`RawEvent::callback_params[3]`, see [`input_method_param`]); `None` where
+/// none was read.
+pub const fn input_method_of(param: i64) -> Option<InputMethodState> {
+    if param & KEY_INPUT_METHOD_READ_PARAM == 0 {
+        return None;
+    }
+    Some(InputMethodState {
+        open: param & KEY_INPUT_METHOD_OPEN_PARAM != 0,
+        conversion_mode: ((param >> KEY_INPUT_METHOD_MODE_SHIFT) as u32) & INPUT_METHOD_MODE_MASK,
+    })
+}
+
 /// One past the highest key code the record tracks.
 const KEYS: usize = 0x200;
 
@@ -396,6 +453,50 @@ impl DragStartKeys {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn regression_237_an_input_method_read_survives_its_trip_on_a_key_event() {
+        for state in [
+            InputMethodState {
+                open: true,
+                conversion_mode: 0x9,
+            },
+            InputMethodState {
+                open: false,
+                conversion_mode: 0,
+            },
+            InputMethodState {
+                open: false,
+                conversion_mode: 0x0FFF_FFFF,
+            },
+        ] {
+            assert_eq!(
+                input_method_of(input_method_param(Some(state))),
+                Some(state)
+            );
+        }
+        assert_eq!(input_method_param(None), 0);
+        assert_eq!(input_method_of(0), None);
+        // The layout character and the repeat mark share the parameter and
+        // are no input-method read.
+        assert_eq!(input_method_of(0xFFFF_FFFF | KEY_REPEAT_PARAM), None);
+        // The four bits the system reserves are not carried.
+        let reserved = InputMethodState {
+            open: true,
+            conversion_mode: 0xF000_0009,
+        };
+        assert_eq!(
+            input_method_of(input_method_param(Some(reserved))),
+            Some(InputMethodState {
+                open: true,
+                conversion_mode: 0x9
+            })
+        );
+        // The read leaves the layout character and the repeat mark as they are.
+        let param = i64::from(u32::MAX) | KEY_REPEAT_PARAM | input_method_param(Some(reserved));
+        assert_eq!(layout_char_of(param), u32::MAX);
+        assert_ne!(param & KEY_REPEAT_PARAM, 0);
+    }
 
     const ENTER: u32 = 0x0D;
     const SPACE: u32 = 0x20;

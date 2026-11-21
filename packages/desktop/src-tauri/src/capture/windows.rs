@@ -48,22 +48,23 @@ use super::win32_bindings::{
     GetCurrentThreadId, GetDoubleClickTime, GetForegroundWindow, GetGUIThreadInfo,
     GetKeyboardLayout, GetMessageW, GetParent, GetSystemMetrics, GetUserPreferredUILanguages,
     GetWindow, GetWindowLongW, GetWindowTextW, GetWindowThreadProcessId, IUIAutomation,
-    IUIAutomationCondition, IUIAutomationElement, IUIAutomationSelectionPattern, IsWindow,
-    IsWindowVisible, LCIDToLocaleName, MapVirtualKeyExW, PeekMessageW, PostThreadMessageW,
-    RegGetValueW, SetProcessDpiAwarenessContext, SetWinEventHook, SetWindowsHookExW,
-    TranslateMessage, TreeScope_Descendants, TreeScope_Subtree, UnhookWinEvent,
-    UnhookWindowsHookEx, WindowFromPoint, CHILDID_SELF, CLSCTX_ALL, COINIT_APARTMENTTHREADED,
-    COINIT_MULTITHREADED, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, EVENT_OBJECT_CREATE,
-    EVENT_OBJECT_DESTROY, EVENT_OBJECT_FOCUS, EVENT_OBJECT_SELECTION, EVENT_OBJECT_VALUECHANGE,
-    EVENT_SYSTEM_FOREGROUND, GA_ROOT, GA_ROOTOWNER, GUITHREADINFO, GWL_STYLE, GW_OWNER, HANDLE,
-    HHOOK, HKEY_CURRENT_USER, HKL, HWINEVENTHOOK, HWND, INVALID_HANDLE_VALUE, KBDLLHOOKSTRUCT,
-    LCID, LLKHF_EXTENDED, LOCALE_ALLOW_NEUTRAL_NAMES, LOCALE_NAME_MAX_LENGTH, LPARAM, LRESULT,
-    MAPVK_VK_TO_CHAR, MSG, MSLLHOOKSTRUCT, MUI_LANGUAGE_NAME, OBJID_WINDOW, PM_NOREMOVE, POINT,
-    PROPERTYID, RRF_RT_REG_DWORD, RRF_RT_REG_SZ, SM_CXDOUBLECLK, SM_CYDOUBLECLK, UIA_HWND,
-    VK_CONTROL, VK_LWIN, VK_MENU, VK_RWIN, VK_SHIFT, VT_EMPTY, WH_KEYBOARD_LL, WH_MOUSE_LL,
-    WINEVENT_OUTOFCONTEXT, WM_APP, WM_KEYDOWN, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN,
-    WM_MOUSEHWHEEL, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_NULL, WM_QUIT, WM_RBUTTONDOWN, WM_SYSKEYDOWN,
-    WM_USER, WPARAM, WS_CHILD,
+    IUIAutomationCondition, IUIAutomationElement, IUIAutomationSelectionPattern,
+    ImmGetDefaultIMEWnd, IsWindow, IsWindowVisible, LCIDToLocaleName, MapVirtualKeyExW,
+    PeekMessageW, PostThreadMessageW, RegGetValueW, SendMessageTimeoutW,
+    SetProcessDpiAwarenessContext, SetWinEventHook, SetWindowsHookExW, TranslateMessage,
+    TreeScope_Descendants, TreeScope_Subtree, UnhookWinEvent, UnhookWindowsHookEx, WindowFromPoint,
+    CHILDID_SELF, CLSCTX_ALL, COINIT_APARTMENTTHREADED, COINIT_MULTITHREADED,
+    DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, EVENT_OBJECT_CREATE, EVENT_OBJECT_DESTROY,
+    EVENT_OBJECT_FOCUS, EVENT_OBJECT_SELECTION, EVENT_OBJECT_VALUECHANGE, EVENT_SYSTEM_FOREGROUND,
+    GA_ROOT, GA_ROOTOWNER, GUITHREADINFO, GWL_STYLE, GW_OWNER, HANDLE, HHOOK, HKEY_CURRENT_USER,
+    HKL, HWINEVENTHOOK, HWND, INVALID_HANDLE_VALUE, KBDLLHOOKSTRUCT, LCID, LLKHF_EXTENDED,
+    LOCALE_ALLOW_NEUTRAL_NAMES, LOCALE_NAME_MAX_LENGTH, LPARAM, LRESULT, MAPVK_VK_TO_CHAR, MSG,
+    MSLLHOOKSTRUCT, MUI_LANGUAGE_NAME, OBJID_WINDOW, PM_NOREMOVE, POINT, PROPERTYID,
+    RRF_RT_REG_DWORD, RRF_RT_REG_SZ, SMTO_ABORTIFHUNG, SMTO_BLOCK, SM_CXDOUBLECLK, SM_CYDOUBLECLK,
+    UIA_HWND, VK_CONTROL, VK_LWIN, VK_MENU, VK_RWIN, VK_SHIFT, VT_EMPTY, WH_KEYBOARD_LL,
+    WH_MOUSE_LL, WINEVENT_OUTOFCONTEXT, WM_APP, WM_IME_CONTROL, WM_KEYDOWN, WM_LBUTTONDOWN,
+    WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MOUSEHWHEEL, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_NULL, WM_QUIT,
+    WM_RBUTTONDOWN, WM_SYSKEYDOWN, WM_USER, WPARAM, WS_CHILD,
 };
 use windows_core::{Error, Interface, BOOL, BSTR, PWSTR};
 
@@ -491,6 +492,11 @@ thread_local! {
     /// timeout, for a pre-capture started at a later click.
     static INPUT_PRE_CAPTURE_BUDGET: std::cell::Cell<Duration> =
         const { std::cell::Cell::new(Duration::ZERO) };
+    /// How long the keyboard hook waits for each answer of a key press's
+    /// input-method read, set at the session's start from the system's hook
+    /// timeout (`timing::input_method_read_timeout_ms`); 0 until then, and
+    /// where the hook does not read.
+    static INPUT_METHOD_READ_TIMEOUT_MS: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
 
     /// Timestamp of the most recent low-level input event (button press or
     /// release, key press, or wheel). Used to correlate WinEvent callbacks
@@ -1609,6 +1615,8 @@ fn start_click_pre_capture() -> Option<ClickPreCapture> {
     let budget_ms = timing::pre_capture_budget_ms(hook_timeout_ms);
     hook_diagnostics::session_bounds(hook_timeout_ms, budget_ms);
     INPUT_PRE_CAPTURE_BUDGET.with(|b| b.set(Duration::from_millis(budget_ms)));
+    INPUT_METHOD_READ_TIMEOUT_MS
+        .with(|t| t.set(timing::input_method_read_timeout_ms(hook_timeout_ms) as u32));
     match spawn_click_pre_capture() {
         Ok(pre_capture) => {
             match pre_capture.wait_ready(PRE_CAPTURE_READY_TIMEOUT) {
@@ -2670,6 +2678,13 @@ unsafe extern "system" fn input_keyboard_ll_proc(
                     KeyAttribution::NoWindow => 0,
                     _ => focused_control_of_thread(thread_id),
                 };
+                // What the input method of that control says of itself at
+                // this press, before the key takes effect; none for a key
+                // with no window.
+                let input_method = match attribution {
+                    KeyAttribution::NoWindow => None,
+                    _ => input_method_state_of(control, hwnd),
+                };
                 input_dispatch_raw_event(RawEvent {
                     event_type: RawEventType::Keyboard,
                     sequence_id: 0,
@@ -2693,7 +2708,9 @@ unsafe extern "system" fn input_keyboard_ll_proc(
                     // Then the character a punctuation key enters on the
                     // foreground window's layout, read above (docent#691), and
                     // above it whether the key was already down at this
-                    // key-down: a press key repeat generated (docent#696).
+                    // key-down: a press key repeat generated (docent#696),
+                    // and above that what was read of the input method
+                    // (docent#237).
                     // Above the scan code sits the hook's extended mark,
                     // which tells apart two keys that share a key code;
                     // the two together name the physical key (docent#717).
@@ -2711,7 +2728,8 @@ unsafe extern "system" fn input_keyboard_ll_proc(
                                 super::held_keys::KEY_REPEAT_PARAM
                             } else {
                                 0
-                            },
+                            }
+                            | super::held_keys::input_method_param(input_method),
                     ],
                     pre_captured_element: None,
                     focus_epoch: 0,
@@ -2728,6 +2746,74 @@ unsafe extern "system" fn input_keyboard_ll_proc(
     }
 
     CallNextHookEx(None, n_code, w_param, l_param)
+}
+
+/// The `WM_IME_CONTROL` command that asks an input-method window whether its
+/// input method is on (`IMC_GETOPENSTATUS`).
+const IMC_GETOPENSTATUS: usize = 0x0005;
+/// The `WM_IME_CONTROL` command that asks an input-method window for its
+/// conversion mode (`IMC_GETCONVERSIONMODE`).
+const IMC_GETCONVERSIONMODE: usize = 0x0001;
+
+/// What the input method says of itself for the control `control` (the
+/// control that holds the keyboard focus; the foreground window `foreground`
+/// where none was read): whether it is on, and its conversion mode. `None`
+/// where the window has no input-method window, where that window gave no
+/// answer within the session's time limit
+/// (`timing::input_method_read_timeout_ms`), or where that limit is 0.
+///
+/// Called on the keyboard hook. The input-method window belongs to the
+/// program's own thread, which has to answer, so each of the two asks waits
+/// for at most the time limit and gives up at once on a thread the system
+/// knows to be hung; the second is not sent when the first got no answer.
+/// The wait dispatches no message to this thread (`SMTO_BLOCK`), so no hook
+/// call runs inside it.
+unsafe fn input_method_state_of(
+    control: i64,
+    foreground: HWND,
+) -> Option<super::held_keys::InputMethodState> {
+    let timeout_ms = INPUT_METHOD_READ_TIMEOUT_MS.with(|t| t.get());
+    if timeout_ms == 0 {
+        return None;
+    }
+    let window = if control != 0 {
+        HWND(control as *mut core::ffi::c_void)
+    } else {
+        foreground
+    };
+    if window.0.is_null() {
+        return None;
+    }
+    let input_method_window = ImmGetDefaultIMEWnd(window);
+    if input_method_window.0.is_null() {
+        return None;
+    }
+    let open = ask_input_method(input_method_window, IMC_GETOPENSTATUS, timeout_ms)?;
+    let conversion_mode = ask_input_method(input_method_window, IMC_GETCONVERSIONMODE, timeout_ms)?;
+    Some(super::held_keys::InputMethodState {
+        open: open != 0,
+        conversion_mode: conversion_mode as u32,
+    })
+}
+
+/// Ask an input-method window one `WM_IME_CONTROL` question; `None` when no
+/// answer came within the time limit.
+unsafe fn ask_input_method(
+    input_method_window: HWND,
+    command: usize,
+    timeout_ms: u32,
+) -> Option<usize> {
+    let mut answer = 0usize;
+    let sent = SendMessageTimeoutW(
+        input_method_window,
+        WM_IME_CONTROL as u32,
+        WPARAM(command),
+        LPARAM(0),
+        (SMTO_ABORTIFHUNG | SMTO_BLOCK) as u32,
+        timeout_ms,
+        Some(&mut answer),
+    );
+    (sent.0 != 0).then_some(answer)
 }
 
 /// What the keyboard layout of the foreground window's thread (`thread_id`,
@@ -4849,6 +4935,7 @@ mod tests {
                 },
                 repeat: false,
                 code: None,
+                input_method: Default::default(),
                 held: crate::capture::HeldKeysAtAction::default(),
                 element: ElementDescription {
                     tag: "Edit".to_string(),

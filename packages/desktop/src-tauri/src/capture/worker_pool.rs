@@ -127,6 +127,9 @@ pub struct RawEvent {
     /// ([`super::held_keys::KEY_REPEAT_PARAM`]): set on a key-down for a key
     /// that was already down (a press key repeat generated while the key was
     /// held), clear on the press itself (see [`super::held_keys::HeldKeys`]).
+    /// Above the repeat mark sits what the hook read of the input method at
+    /// the press ([`super::held_keys::input_method_param`]): nothing where
+    /// none was read.
     /// `[button, 0, 0, 0]` from the mouse hook's click paths, where
     /// [`CLICK_COMPLETES_DOUBLE_CLICK`] marks the second click of a
     /// double-click (read by the pool's routing and the click arm) and
@@ -1644,6 +1647,13 @@ fn physical_key_of(raw: &RawEvent) -> Option<&'static str> {
     let params = raw.callback_params[0];
     // The low half is the hook's scan code, a 32-bit value.
     physical_key_code(params as u32, params & KEY_EXTENDED_PARAM != 0)
+}
+
+/// What the keyboard hook read of the input method at a keystroke (the fourth
+/// callback parameter, above the repeat mark; see
+/// [`RawEvent::callback_params`]), as the `key` action states it.
+fn input_method_at(raw: &RawEvent) -> super::InputMethodAtKey {
+    super::held_keys::input_method_of(raw.callback_params[3]).into()
 }
 
 /// The key names that enter no character: editing, navigation, lock, system
@@ -3305,6 +3315,7 @@ fn handle_keyboard<B: AccessibilityBackend>(
                 key,
                 modifiers: modifiers_of(raw),
                 code: physical_key_of(raw),
+                input_method: input_method_at(raw),
                 repeat: is_repeat(raw),
                 held: held_at(raw),
                 element,
@@ -3448,6 +3459,7 @@ fn handle_keyboard<B: AccessibilityBackend>(
             modifiers: modifiers_of(raw),
             repeat: is_repeat(raw),
             code: physical_key_of(raw),
+            input_method: input_method_at(raw),
             held: held_at(raw),
             element,
         },
@@ -3728,6 +3740,7 @@ mod tests {
                 },
                 repeat: false,
                 code: None,
+                input_method: Default::default(),
                 held: HeldKeysAtAction::default(),
                 element: ElementDescription {
                     tag: "Edit".to_string(),

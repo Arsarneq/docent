@@ -284,6 +284,15 @@
           "type": "string",
           "description": "The physical key that was pressed, named by the W3C UI Events `code` values (KeyA, Minus, NumpadEnter, etc.): the key's place on the keyboard, the same whatever the active keyboard layout makes of the key. Absent where the press had no physical key the capture layer could name, and in a recording made before the field existed."
         },
+        "input_method_open": {
+          "type": "boolean",
+          "description": "Whether an input method (the system's own entry of composed text, as for Japanese, Chinese or Korean) was on for the control that held the keyboard focus, as read at the press, before the key took effect. Absent where the capture layer did not read it; the session-format document states which do, and when."
+        },
+        "input_method_conversion_mode": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "The input method's conversion mode as the platform gave it at the press, before the key took effect: a set of bits the session-format document states. Written together with `input_method_open`, and absent with it."
+        },
         "held_keys": {
           "type": "array",
           "items": {

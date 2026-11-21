@@ -81,6 +81,21 @@ pub const SCROLL_MIN_DISTANCE_PX: f64 = 200.0;
 /// is written when the typing in it ends, however long the pauses in it.
 pub const KEY_TEXT_WAIT_MS: u64 = 500;
 
+/// The most the keyboard hook waits for each of the two answers of a key
+/// press's input-method read (milliseconds). The read asks the focused
+/// control's input-method window, which the program's own thread answers;
+/// with no answer by then the key is dispatched with no input-method state.
+pub const INPUT_METHOD_READ_TIMEOUT_MS: u64 = 20;
+
+/// How long the keyboard hook waits for each answer of the input-method
+/// read, given the system's low-level hook timeout:
+/// [`INPUT_METHOD_READ_TIMEOUT_MS`], or an eighth of the hook timeout where
+/// that is less, so the two waits take at most a quarter of it. 0 means the
+/// hook does not read at all (a hook timeout too short to wait in).
+pub fn input_method_read_timeout_ms(hook_timeout_ms: u64) -> u64 {
+    INPUT_METHOD_READ_TIMEOUT_MS.min(hook_timeout_ms / 8)
+}
+
 // ─── Worker ─────────────────────────────────────────────────────────────────
 
 /// Timeout for worker `recv_timeout` — used for periodic flush of scroll and
@@ -213,6 +228,21 @@ mod tests {
     use super::*;
 
     // ─── the hook timeout and the pre-capture budget ────────────────────────
+
+    #[test]
+    fn regression_237_the_input_method_read_waits_within_a_quarter_of_the_hook_timeout() {
+        assert_eq!(input_method_read_timeout_ms(HOOK_TIMEOUT_DEFAULT_MS), 20);
+        assert_eq!(input_method_read_timeout_ms(HOOK_TIMEOUT_CAP_MS), 20);
+        assert_eq!(input_method_read_timeout_ms(160), 20);
+        assert_eq!(input_method_read_timeout_ms(80), 10);
+        assert_eq!(input_method_read_timeout_ms(7), 0);
+        for timeout in 1..=HOOK_TIMEOUT_CAP_MS {
+            assert!(
+                2 * input_method_read_timeout_ms(timeout) <= timeout / 4,
+                "{timeout}"
+            );
+        }
+    }
 
     // Regression: #741 review — the budget follows the system's hook timeout,
     // so the hook waits for a click's description as long as the system

@@ -283,6 +283,8 @@ function _maskedTypeFromKey(action) {
     modifiers: _modifiers,
     repeat: _repeat,
     code: _code,
+    input_method_open: _inputMethodOpen,
+    input_method_conversion_mode: _inputMethodConversionMode,
     held_keys: _heldKeys,
     ...rest
   } = action;

@@ -332,6 +332,11 @@ pub unsafe fn GetWindowThreadProcessId(hwnd: HWND, lpdwprocessid: Option<*mut u3
     unsafe { GetWindowThreadProcessId(hwnd, lpdwprocessid.unwrap_or(core::mem::zeroed()) as _) }
 }
 #[inline]
+pub unsafe fn ImmGetDefaultIMEWnd(param0: HWND) -> HWND {
+    windows_core::link!("imm32.dll" "system" fn ImmGetDefaultIMEWnd(param0 : HWND) -> HWND);
+    unsafe { ImmGetDefaultIMEWnd(param0) }
+}
+#[inline]
 pub unsafe fn IsWindow(hwnd: Option<HWND>) -> windows_core::BOOL {
     windows_core::link!("user32.dll" "system" fn IsWindow(hwnd : HWND) -> windows_core::BOOL);
     unsafe { IsWindow(hwnd.unwrap_or(core::mem::zeroed()) as _) }
@@ -519,6 +524,29 @@ pub unsafe fn ScrollWindow(
             yamount,
             lprect.unwrap_or(core::mem::zeroed()) as _,
             lpcliprect.unwrap_or(core::mem::zeroed()) as _,
+        )
+    }
+}
+#[inline]
+pub unsafe fn SendMessageTimeoutW(
+    hwnd: HWND,
+    msg: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+    fuflags: u32,
+    utimeout: u32,
+    lpdwresult: Option<*mut usize>,
+) -> LRESULT {
+    windows_core::link!("user32.dll" "system" fn SendMessageTimeoutW(hwnd : HWND, msg : u32, wparam : WPARAM, lparam : LPARAM, fuflags : u32, utimeout : u32, lpdwresult : *mut usize) -> LRESULT);
+    unsafe {
+        SendMessageTimeoutW(
+            hwnd,
+            msg,
+            wparam,
+            lparam,
+            fuflags,
+            utimeout,
+            lpdwresult.unwrap_or(core::mem::zeroed()) as _,
         )
     }
 }
@@ -4669,6 +4697,8 @@ impl Default for SHFILEINFOW {
     }
 }
 pub const SHGFI_DISPLAYNAME: i32 = 512;
+pub const SMTO_ABORTIFHUNG: i32 = 2;
+pub const SMTO_BLOCK: i32 = 1;
 pub const SM_CXDOUBLECLK: i32 = 36;
 pub const SM_CXVIRTUALSCREEN: i32 = 78;
 pub const SM_CYDOUBLECLK: i32 = 37;
@@ -4863,6 +4893,7 @@ pub const WINEVENT_OUTOFCONTEXT: i32 = 0;
 pub const WM_APP: i32 = 32768;
 pub const WM_CLOSE: i32 = 16;
 pub const WM_GETOBJECT: i32 = 61;
+pub const WM_IME_CONTROL: i32 = 643;
 pub const WM_KEYDOWN: i32 = 256;
 pub const WM_KEYUP: i32 = 257;
 pub const WM_LBUTTONDOWN: i32 = 513;
