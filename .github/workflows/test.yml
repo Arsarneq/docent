@@ -516,6 +516,9 @@ jobs:
       - name: Install desktop integration dependencies
         run: cd packages/desktop/tests/integration && npm ci
 
+      - name: Install desktop e2e dependencies
+        run: cd packages/desktop/tests/e2e && npm ci
+
       - name: Install control client dependencies
         run: cd reference-implementations/control-client && npm ci
 
