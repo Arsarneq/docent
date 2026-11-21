@@ -199,7 +199,7 @@ machinery under `scripts/`.
 
 ### `check-clause-form.test.js`
 
-- An issue linked from one clause passing with the counts stated, and one linked from two clauses red naming both.
+- An issue linked from one clause passing with the counts stated, one linked from two clauses of one document red naming both and the document, and one linked once in each of two documents passing.
 - A link repeated inside one clause read as one home.
 - A run of words standing in two clauses red with the run quoted, and a run one word short passing.
 - Text before the first clause, link targets and fenced blocks left out of the comparison.
@@ -207,6 +207,8 @@ machinery under `scripts/`.
 - A baseline entry admitting exactly the case it names: a further clause, pair or long unit red beside it.
 - A baseline entry the tree does not need red until it is removed or lowered, and one naming a clause the registry does not hold, one admitting nothing, and a pair listed twice or out of order, each red.
 - A baseline entry of the wrong type as the machinery verdict.
+- A baseline held against the one at the base: a list that admits more than the base red though the entry is listed, an equal or smaller list and an entry moved to another clause passing, a base without a baseline not compared, and a base baseline out of shape as the machinery verdict.
+- A baseline entry naming more clauses than still link the issue, and one naming clauses of two documents, each red.
 - The longest of several long units quoted.
 - An issue read from any link to it, a `1)` list item read as its own unit, and a list item kept with its indented continuation.
 - An unreadable document, a clause marker its document does not carry, a registry that is not JSON, and a baseline that is not JSON or lacks a list, each the machinery verdict.

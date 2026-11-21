@@ -107,7 +107,12 @@ The detail for each:
   - **Meaning and justification.** A clause's meaning lives in the doctrine
     text; a row's justification states how compliance is verified and why no
     check decides it, never the clause's meaning.
-  - **One home and unit length.** A rule is stated in one clause. Another clause that needs it cites that clause by its id and does not state it again. A departure or an open case is linked to its issue from one clause. A paragraph, a list item or a table row in a clause's scope holds at most 150 words; a longer one is split into paragraphs or a list. The limit is on one unit, never on how much a clause or a document says. `lint:clause-form` holds this: it reds on an issue linked from two clauses, on a run of 12 words standing in two clauses, and on a unit over the limit. [`scripts/clause-form-baseline.json`](../../scripts/clause-form-baseline.json) lists the cases the check admits, and that list only shrinks. A rule restated in other words shares no run of words, so the check does not see it: that stays a review judgment.
+  - **One home and unit length.** `lint:clause-form` holds the rules below. The [lint table](ci.md#the-lint-and-freshness-gates) states what it reds on and where its list of admitted cases lives.
+    - A rule is stated in one clause. Another clause that needs it cites that clause by its id.
+    - Within a document, a departure or an open case is linked to its issue from one clause. A case that holds on two platforms is linked once in each platform's document, on that platform's exception list.
+    - A sentence two platform documents both need is stated in the cross-platform clause, and each platform clause cites that clause.
+    - A paragraph, a list item or a table row holds at most 150 words. A longer one is split into paragraphs or a list. The limit is on one unit, never on how much a clause or a document says.
+    - A red is fixed in the clause. No entry is added to the list of admitted cases.
   - **Lists.** A list inside a clause's scope — bulleted, numbered, a table's
     rows, or an inline series of three or more members of one set — states
     whether it is closed.

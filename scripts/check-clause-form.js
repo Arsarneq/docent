@@ -10,9 +10,11 @@
  * marker to the next marker or heading, and reds on three things:
  *
  *   - One home for a linked issue. An issue of this repository linked from
- *     two clauses (by any link whose target is the issue's address) is a
- *     departure or an open case stated twice. It is stated in
- *     one clause, and any other clause cites that clause by its identifier.
+ *     two clauses of one document (by any link whose target is the issue's
+ *     address) is a departure or an open case stated twice. Within a
+ *     document it is linked from one clause, and any other clause cites that
+ *     clause by its identifier. Two documents may each link the issue once:
+ *     a case that holds on two platforms stands on each platform's own list.
  *   - One home for a run of words. A run of RUN_WORDS words that stands in two
  *     clauses is a rule stated twice. Words are compared lowercased, with link
  *     targets and fenced blocks left out and a code span counted as one word,
@@ -28,7 +30,12 @@
  * units in a clause), a case beyond it reds, and an entry the tree does not
  * need reds until it is removed or lowered. An entry naming a clause the
  * registry does not hold, an entry that admits nothing, and a pair listed
- * twice or out of order red as well.
+ * twice or out of order red as well. Given a base ref, the check also holds
+ * the list against the same file at the merge base of that ref and HEAD: a
+ * list that admits more than it does there (clauses under issues, pairs,
+ * long units, each counted as a total) reds, so a new case cannot be admitted
+ * by adding an entry. An entry may move to another clause. Without a base
+ * ref, and when the base holds no baseline, the lists are not compared.
  *
  * Honest limits: a rule restated in other words shares no run and is not
  * seen; that stays a review judgment. Inside a listed pair, further shared
@@ -37,12 +44,13 @@
  *
  * A registered document that cannot be read, a registered clause whose marker
  * its document does not carry, and a baseline that is not JSON or lacks one of
- * its three lists in their shape are the machinery verdict, on this check's own exit code
+ * its three lists in their shape (now or at the base) are the machinery verdict, on this check's own exit code
  * (exit 2), never a pass and never a form problem (exit 1).
  *
- * Usage: node scripts/check-clause-form.js   # or: npm run lint:clause-form
+ * Usage: node scripts/check-clause-form.js [baseRef]   # or: npm run lint:clause-form
  */
 
+import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -52,7 +60,7 @@ import { REGISTRY_INPUT_ERROR_NAME, REGISTRY_PATH, loadRegistry } from './govern
 const SELF_PATH = selfPath(import.meta.filename);
 const ROOT = resolve(import.meta.dirname, '..');
 
-/** The list of cases the tree held when the check arrived. */
+/** The list of cases the check admits. */
 export const BASELINE_PATH = 'scripts/clause-form-baseline.json';
 /** The length, in words, of a run that counts as the same text. */
 export const RUN_WORDS = 12;
@@ -66,6 +74,7 @@ const LIST_ITEM_RE = /^\s*(?:[-*+]|\d+[.)])\s+/;
 const TABLE_ROW_RE = /^\s*\|/;
 const TABLE_RULE_RE = /^\s*\|[\s|:-]+\|\s*$/;
 const ONE_HOME_RULE = 'and any other clause cites that clause';
+const ISSUE_HOME_RULE = `within one document a departure or an open case is linked from one clause, ${ONE_HOME_RULE}`;
 
 /**
  * An input this check reads that answered with something other than what it
@@ -140,22 +149,23 @@ export function clauseUnits(section) {
 }
 
 /**
- * The baseline, read and held to its shape.
- * @param {(path: string) => string} readFile repo-relative reader
+ * A baseline, read and held to its shape.
+ * @param {() => string} readText the baseline's text
+ * @param {string} [name] what the baseline is called in a refusal
  * @returns {{ 'issue-homes': Record<string, string[]>, 'shared-text': string[],
  *   'long-units': Record<string, number> }}
  * @throws {InputError} when it cannot be read, is not JSON, or lacks a list
  */
-function loadBaseline(readFile) {
+function loadBaseline(readText, name = BASELINE_PATH) {
   let parsed;
   try {
-    parsed = JSON.parse(readFile(BASELINE_PATH));
+    parsed = JSON.parse(readText());
   } catch (error) {
-    throw new InputError(`${BASELINE_PATH} does not read as JSON: ${error.message}`);
+    throw new InputError(`${name} does not read as JSON: ${error.message}`);
   }
   for (const list of BASELINE_LISTS) {
     if (parsed === null || typeof parsed !== 'object' || !(list in parsed)) {
-      throw new InputError(`${BASELINE_PATH} carries no "${list}" list`);
+      throw new InputError(`${name} carries no "${list}" list`);
     }
   }
   const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -168,7 +178,7 @@ function loadBaseline(readFile) {
     Object.values(parsed['long-units']).every((count) => Number.isInteger(count) && count >= 0);
   if (!shaped) {
     throw new InputError(
-      `${BASELINE_PATH} is out of shape: "issue-homes" maps an issue number to a list of clause ids, ` +
+      `${name} is out of shape: "issue-homes" maps an issue number to a list of clause ids, ` +
         '"shared-text" is a list of "<clause>|<clause>" pairs, and "long-units" maps a clause id to a whole number',
     );
   }
@@ -198,16 +208,49 @@ function loadClauses(readFile) {
 }
 
 /**
+ * How much a baseline admits, per list.
+ * @param {ReturnType<typeof loadBaseline>} baseline the baseline
+ * @returns {Array<{ what: string, count: number }>}
+ */
+function admittedCounts(baseline) {
+  const sum = (numbers) => numbers.reduce((total, n) => total + n, 0);
+  return [
+    {
+      what: 'clause(s) linking an issue a second time',
+      count: sum(Object.values(baseline['issue-homes']).map((clauses) => clauses.length)),
+    },
+    { what: 'pair(s) of clauses sharing text', count: baseline['shared-text'].length },
+    {
+      what: `unit(s) over ${UNIT_WORD_LIMIT} words`,
+      count: sum(Object.values(baseline['long-units'])),
+    },
+  ];
+}
+
+/**
  * The verdict over the registered clauses and the baseline.
  * @param {(path: string) => string} readFile repo-relative reader
+ * @param {(path: string) => string | null} [readBaseFile] the file's text at the base commit, or null when the base lacks it; absent when the run has no base
  * @returns {{ clauseCount: number, docCount: number, listed: number, problems: string[] }}
  * @throws {InputError} on an input out of shape
  */
-export function auditClauseForm(readFile) {
-  const baseline = loadBaseline(readFile);
+export function auditClauseForm(readFile, readBaseFile) {
+  const baseline = loadBaseline(() => readFile(BASELINE_PATH));
   const clauses = loadClauses(readFile);
   const known = new Set(clauses.map((c) => c.clause));
+  const docOf = new Map(clauses.map((c) => [c.clause, c.doc]));
   const problems = [];
+
+  // The list only shrinks: no list admits more than it does at the base.
+  const baseText = readBaseFile?.(BASELINE_PATH) ?? null;
+  if (baseText !== null) {
+    const atBase = admittedCounts(loadBaseline(() => baseText, `${BASELINE_PATH} at the base`));
+    for (const [i, { what, count }] of admittedCounts(baseline).entries()) {
+      if (count > atBase[i].count) {
+        problems.push(`${BASELINE_PATH} admits ${count} ${what} where the base admits ${atBase[i].count} — the list only shrinks: fix the clause and take the new entry out`); // prettier-ignore
+      }
+    }
+  }
 
   const named = [
     ...Object.values(baseline['issue-homes']).flat(),
@@ -220,14 +263,21 @@ export function auditClauseForm(readFile) {
     }
   }
 
-  // One home for a linked issue.
-  const homes = new Map();
-  for (const { clause, text } of clauses) {
-    for (const issue of issueLinks(text)) homes.set(issue, [...(homes.get(issue) ?? []), clause]);
+  // One home for a linked issue, within a document.
+  const linking = new Map();
+  for (const { clause, doc, text } of clauses) {
+    for (const issue of issueLinks(text)) {
+      if (!linking.has(issue)) linking.set(issue, new Map());
+      linking.get(issue).set(doc, [...(linking.get(issue).get(doc) ?? []), clause]);
+    }
   }
-  const issues = new Set([...homes.keys(), ...Object.keys(baseline['issue-homes'])]);
+  const inDocs = (list) => [...new Set(list.map((clause) => docOf.get(clause)))].sort().join(', ');
+  const issues = new Set([...linking.keys(), ...Object.keys(baseline['issue-homes'])]);
   for (const issue of [...issues].sort((a, b) => a - b)) {
-    const found = (homes.get(issue) ?? []).sort();
+    const found = [...(linking.get(issue)?.values() ?? [])]
+      .filter((inOneDoc) => inOneDoc.length > 1)
+      .flat()
+      .sort();
     const admitted = baseline['issue-homes'][issue];
     if (admitted !== undefined && admitted.length < 2) {
       problems.push(`${BASELINE_PATH} lists docent#${issue} for one clause, which admits nothing — remove the entry`); // prettier-ignore
@@ -235,16 +285,17 @@ export function auditClauseForm(readFile) {
     }
     if (admitted === undefined) {
       if (found.length > 1) {
-        problems.push(`docent#${issue} is linked from ${found.join(' and ')} — a departure or an open case is stated in one clause, ${ONE_HOME_RULE}`); // prettier-ignore
+        problems.push(`docent#${issue} is linked from ${found.join(' and ')} in ${inDocs(found)} — ${ISSUE_HOME_RULE}`); // prettier-ignore
       }
       continue;
     }
     const extra = found.filter((clause) => !admitted.includes(clause));
     if (extra.length > 0) {
-      problems.push(`docent#${issue} is linked from ${extra.join(', ')} as well as the clauses ${BASELINE_PATH} lists for it (${admitted.join(', ')}) — a departure or an open case is stated in one clause, ${ONE_HOME_RULE}`); // prettier-ignore
+      problems.push(`docent#${issue} is linked from ${extra.join(', ')} in ${inDocs(extra)} as well as the clauses ${BASELINE_PATH} lists for it (${admitted.join(', ')}) — ${ISSUE_HOME_RULE}`); // prettier-ignore
+    } else if (found.length === 0) {
+      problems.push(`${BASELINE_PATH} lists docent#${issue} for ${admitted.join(', ')}, and no two clauses of one document link it now — remove the entry`); // prettier-ignore
     } else if (found.length < admitted.length) {
-      const now = found.length === 0 ? 'no clause' : `${found.join(', ')} only`;
-      problems.push(`${BASELINE_PATH} lists docent#${issue} for ${admitted.join(', ')}, and it is now linked from ${now} — remove the entry`); // prettier-ignore
+      problems.push(`${BASELINE_PATH} lists docent#${issue} for ${admitted.join(', ')}, and it is now linked from ${found.join(', ')} only — cut the entry to those`); // prettier-ignore
     }
   }
 
@@ -271,7 +322,8 @@ export function auditClauseForm(readFile) {
   }
   for (const pair of [...sharing.keys()].sort()) {
     if (baseline['shared-text'].includes(pair)) continue;
-    problems.push(`${pair.split('|').join(' and ')} both state "${sharing.get(pair)}" — a rule is stated in one clause, ${ONE_HOME_RULE}`); // prettier-ignore
+    const both = pair.split('|').map((clause) => `${clause} (${docOf.get(clause)})`);
+    problems.push(`${both.join(' and ')} both state "${sharing.get(pair)}" — a rule is stated in one clause, ${ONE_HOME_RULE}`); // prettier-ignore
   }
   for (const [i, pair] of baseline['shared-text'].entries()) {
     const ordered = pair.split('|').sort().join('|');
@@ -285,7 +337,7 @@ export function auditClauseForm(readFile) {
   }
 
   // Units a reader can take in.
-  for (const { clause, text } of clauses) {
+  for (const { clause, doc, text } of clauses) {
     const long = clauseUnits(text)
       .map((unit) => ({ unit, count: clauseWords(unit).length }))
       .filter(({ count }) => count > UNIT_WORD_LIMIT)
@@ -296,7 +348,7 @@ export function auditClauseForm(readFile) {
     } else if (long.length > admitted) {
       const opens = long[0].unit.split(/\s+/).slice(0, 6).join(' ');
       const beside = admitted === 0 ? '' : ` where ${BASELINE_PATH} admits ${admitted}`;
-      problems.push(`${clause} holds ${long.length} unit(s) over ${UNIT_WORD_LIMIT} words (a paragraph, a list item or a table row)${beside} — split it into paragraphs or a list; the longest runs ${long[0].count} words and opens "${opens}"`); // prettier-ignore
+      problems.push(`${clause} (${doc}) holds ${long.length} unit(s) over ${UNIT_WORD_LIMIT} words (a paragraph, a list item or a table row)${beside} — split it into paragraphs or a list; the longest runs ${long[0].count} words and opens "${opens}"`); // prettier-ignore
     } else if (long.length < admitted) {
       const fix = long.length === 0 ? 'remove the entry' : `lower the entry to ${long.length}`;
       problems.push(`${BASELINE_PATH} admits ${admitted} unit(s) over ${UNIT_WORD_LIMIT} words in ${clause}, and it holds ${long.length} now — ${fix}`); // prettier-ignore
@@ -318,14 +370,15 @@ export function auditClauseForm(readFile) {
  * The command line's verdict over the given seams, as its exit code.
  * @param {object} seams the reads and the output sinks
  * @param {(path: string) => string} seams.readFile repo-relative reader
+ * @param {(path: string) => string | null} [seams.readBaseFile] the file's text at the base commit, or null; absent when the run has no base
  * @param {(line: string) => void} seams.log the green-line sink
  * @param {(line: string) => void} seams.error the red-line sink
  * @returns {number} 0 when every clause passes, 1 on a problem, 2 on an input out of shape
  */
-export function main({ readFile, log, error }) {
+export function main({ readFile, readBaseFile, log, error }) {
   let audit;
   try {
-    audit = auditClauseForm(readFile);
+    audit = auditClauseForm(readFile, readBaseFile);
   } catch (e) {
     if (!(e instanceof InputError) && e?.name !== REGISTRY_INPUT_ERROR_NAME) throw e;
     const what = e instanceof InputError ? e.message : `${REGISTRY_PATH} ${e.problem}`;
@@ -336,12 +389,12 @@ export function main({ readFile, log, error }) {
     for (const problem of audit.problems) error(`✗ ${problem}`);
     error(
       `\n${audit.problems.length} problem${audit.problems.length === 1 ? '' : 's'}. ` +
-        `See ${SELF_PATH} and ${BASELINE_PATH}.`,
+        `Fix the clause; do not add an entry to ${BASELINE_PATH}. ${SELF_PATH} holds the rules.`,
     );
     return 1;
   }
   log(
-    `✓ ${audit.clauseCount} clause(s) in ${audit.docCount} document(s): no issue linked from two clauses, ` +
+    `✓ ${audit.clauseCount} clause(s) in ${audit.docCount} document(s): no issue linked from two clauses of one document, ` +
       `no run of ${RUN_WORDS} words standing in two clauses and no unit over ${UNIT_WORD_LIMIT} words, ` +
       `beyond the ${audit.listed} case(s) ${BASELINE_PATH} lists.`,
   );
@@ -351,8 +404,20 @@ export function main({ readFile, log, error }) {
 /* c8 ignore start -- CLI wrapper: main() is unit-tested over injected seams;
  * this glue binds it to the tree and the process. */
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  const git = (args) =>
+    execFileSync('git', args, { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+  const baseRef = process.argv[2];
+  const base = baseRef === undefined ? undefined : git(['merge-base', baseRef, 'HEAD']).trim();
+  const readBaseFile = (rel) => {
+    try {
+      return git(['show', `${base}:${rel}`]);
+    } catch {
+      return null;
+    }
+  };
   process.exitCode = main({
     readFile: (rel) => readFileSync(join(ROOT, rel), 'utf8'),
+    readBaseFile: base === undefined ? undefined : readBaseFile,
     log: (line) => console.log(line),
     error: (line) => console.error(line),
   });

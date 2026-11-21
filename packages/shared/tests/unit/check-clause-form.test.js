@@ -31,7 +31,8 @@ const DOC_A = 'docs/a.md';
 const DOC_B = 'docs/b.md';
 const ISSUE = (n) => `[docent#${n}](https://github.com/Arsarneq/docent/issues/${n})`;
 const EMPTY = { 'issue-homes': {}, 'shared-text': [], 'long-units': {} };
-const SEE = `See scripts/check-clause-form.js and ${BASELINE_PATH}.`;
+const SEE = `Fix the clause; do not add an entry to ${BASELINE_PATH}. scripts/check-clause-form.js holds the rules.`;
+const ONE_DOC = { 'AA-1': DOC_A, 'AA-2': DOC_A };
 
 /** `count` distinct words, so no run of them repeats by accident. */
 const words = (count, stem) => Array.from({ length: count }, (_, i) => `${stem}${i}`).join(' ');
@@ -46,9 +47,10 @@ const registry = (rows) =>
  * @param {Record<string, string>} tree.rows clause id → document path
  * @param {Record<string, string | Error>} tree.docs document path → text, or the read's error
  * @param {object | string} [tree.baseline] the baseline, or its raw text
+ * @param {object | string | null} [tree.base] the baseline at the base commit, its raw text, or null when the base holds none; absent when the run has no base
  * @returns {{ code: number, out: string[], err: string[] }}
  */
-function run({ rows, docs, baseline = EMPTY }) {
+function run({ rows, docs, baseline = EMPTY, base }) {
   const out = [];
   const err = [];
   const files = {
@@ -62,6 +64,14 @@ function run({ rows, docs, baseline = EMPTY }) {
       if (files[path] instanceof Error) throw files[path];
       return files[path];
     },
+    readBaseFile:
+      base === undefined
+        ? undefined
+        : (path) => {
+            assert.equal(path, BASELINE_PATH);
+            if (base === null) return null;
+            return typeof base === 'string' ? base : JSON.stringify(base);
+          },
     log: (line) => out.push(line),
     error: (line) => err.push(line),
   });
@@ -82,24 +92,35 @@ describe('main — one home for a linked issue', () => {
     assert.equal(code, 0);
     assert.deepEqual(err, []);
     assert.deepEqual(out, [
-      `✓ 2 clause(s) in 2 document(s): no issue linked from two clauses, no run of ${RUN_WORDS} words standing in two clauses and no unit over ${UNIT_WORD_LIMIT} words, beyond the 0 case(s) ${BASELINE_PATH} lists.`,
+      `✓ 2 clause(s) in 2 document(s): no issue linked from two clauses of one document, no run of ${RUN_WORDS} words standing in two clauses and no unit over ${UNIT_WORD_LIMIT} words, beyond the 0 case(s) ${BASELINE_PATH} lists.`,
     ]);
   });
 
-  it('an issue linked from two clauses reds naming both', () => {
+  it('an issue linked from two clauses of one document reds naming both and the document', () => {
     const { code, err } = run({
-      rows: TWO,
+      rows: ONE_DOC,
       docs: {
-        [DOC_A]: `**AA-1.** A rule, tracked in ${ISSUE(7)}.\n`,
-        [DOC_B]: `**BB-1.** The same gap again (${ISSUE(7)}).\n`,
+        [DOC_A]: `**AA-1.** A rule, tracked in ${ISSUE(7)}.\n\n**AA-2.** The same gap again (${ISSUE(7)}).\n`,
       },
     });
     assert.equal(code, 1);
     assert.equal(
       err[0],
-      '✗ docent#7 is linked from AA-1 and BB-1 — a departure or an open case is stated in one clause, and any other clause cites that clause',
+      `✗ docent#7 is linked from AA-1 and AA-2 in ${DOC_A} — within one document a departure or an open case is linked from one clause, and any other clause cites that clause`,
     );
     assert.equal(err[1], `\n1 problem. ${SEE}`);
+  });
+
+  it('an issue linked from one clause in each of two documents passes', () => {
+    const { code, err } = run({
+      rows: TWO,
+      docs: {
+        [DOC_A]: `**AA-1.** A rule, tracked in ${ISSUE(7)}.\n`,
+        [DOC_B]: `**BB-1.** The same gap on this side (${ISSUE(7)}).\n`,
+      },
+    });
+    assert.deepEqual(err, []);
+    assert.equal(code, 0);
   });
 
   it('a link repeated inside one clause is one home', () => {
@@ -114,35 +135,63 @@ describe('main — one home for a linked issue', () => {
   });
 
   it('a baseline entry admits the clauses it names and no further one', () => {
-    const rows = { ...TWO, 'BB-2': DOC_B };
-    const docs = {
-      [DOC_A]: `**AA-1.** A rule, tracked in ${ISSUE(7)}.\n`,
-      [DOC_B]: `**BB-1.** Again (${ISSUE(7)}).\n\n**BB-2.** Something else.\n`,
-    };
-    const baseline = { ...EMPTY, 'issue-homes': { 7: ['AA-1', 'BB-1'] } };
+    const rows = { ...ONE_DOC, 'AA-3': DOC_A };
+    const two = `**AA-1.** A rule, tracked in ${ISSUE(7)}.\n\n**AA-2.** Again (${ISSUE(7)}).\n\n`;
+    const docs = { [DOC_A]: `${two}**AA-3.** Something else.\n` };
+    const baseline = { ...EMPTY, 'issue-homes': { 7: ['AA-1', 'AA-2'] } };
     assert.equal(run({ rows, docs, baseline }).code, 0);
-    docs[DOC_B] = `**BB-1.** Again (${ISSUE(7)}).\n\n**BB-2.** And again (${ISSUE(7)}).\n`;
+    docs[DOC_A] = `${two}**AA-3.** And again (${ISSUE(7)}).\n`;
     const { code, err } = run({ rows, docs, baseline });
     assert.equal(code, 1);
     assert.equal(
       err[0],
-      `✗ docent#7 is linked from BB-2 as well as the clauses ${BASELINE_PATH} lists for it (AA-1, BB-1) — a departure or an open case is stated in one clause, and any other clause cites that clause`,
+      `✗ docent#7 is linked from AA-3 in ${DOC_A} as well as the clauses ${BASELINE_PATH} lists for it (AA-1, AA-2) — within one document a departure or an open case is linked from one clause, and any other clause cites that clause`,
     );
   });
 
   it('a baseline entry naming a clause that no longer links the issue reds until it is removed', () => {
     const { code, err } = run({
+      rows: ONE_DOC,
+      docs: {
+        [DOC_A]: `**AA-1.** A rule, tracked in ${ISSUE(7)}.\n\n**AA-2.** Another rule, citing AA-1.\n`,
+      },
+      baseline: { ...EMPTY, 'issue-homes': { 7: ['AA-1', 'AA-2'] } },
+    });
+    assert.equal(code, 1);
+    assert.equal(
+      err[0],
+      `✗ ${BASELINE_PATH} lists docent#7 for AA-1, AA-2, and no two clauses of one document link it now — remove the entry`,
+    );
+  });
+
+  it('a baseline entry naming more clauses than still link the issue asks for the entry to be cut to them', () => {
+    const { code, err } = run({
+      rows: { ...ONE_DOC, 'AA-3': DOC_A },
+      docs: {
+        [DOC_A]: `**AA-1.** A rule, tracked in ${ISSUE(7)}.\n\n**AA-2.** Again (${ISSUE(7)}).\n\n**AA-3.** Another rule.\n`,
+      },
+      baseline: { ...EMPTY, 'issue-homes': { 7: ['AA-1', 'AA-2', 'AA-3'] } },
+    });
+    assert.equal(code, 1);
+    assert.equal(
+      err[0],
+      `✗ ${BASELINE_PATH} lists docent#7 for AA-1, AA-2, AA-3, and it is now linked from AA-1, AA-2 only — cut the entry to those`,
+    );
+  });
+
+  it('a baseline entry naming clauses of two documents admits nothing and reds', () => {
+    const { code, err } = run({
       rows: TWO,
       docs: {
         [DOC_A]: `**AA-1.** A rule, tracked in ${ISSUE(7)}.\n`,
-        [DOC_B]: '**BB-1.** Another rule, citing AA-1.\n',
+        [DOC_B]: `**BB-1.** The same gap on this side (${ISSUE(7)}).\n`,
       },
       baseline: { ...EMPTY, 'issue-homes': { 7: ['AA-1', 'BB-1'] } },
     });
     assert.equal(code, 1);
     assert.equal(
       err[0],
-      `✗ ${BASELINE_PATH} lists docent#7 for AA-1, BB-1, and it is now linked from AA-1 only — remove the entry`,
+      `✗ ${BASELINE_PATH} lists docent#7 for AA-1, BB-1, and no two clauses of one document link it now — remove the entry`,
     );
   });
 });
@@ -161,7 +210,7 @@ describe('main — one home for a run of words', () => {
     assert.equal(code, 1);
     assert.equal(
       err[0],
-      `✗ AA-1 and BB-1 both state "${shared}" — a rule is stated in one clause, and any other clause cites that clause`,
+      `✗ AA-1 (${DOC_A}) and BB-1 (${DOC_B}) both state "${shared}" — a rule is stated in one clause, and any other clause cites that clause`,
     );
   });
 
@@ -230,7 +279,7 @@ describe('main — units a reader can take in', () => {
     assert.equal(code, 1);
     assert.equal(
       err[0],
-      `✗ AA-1 holds 1 unit(s) over ${UNIT_WORD_LIMIT} words (a paragraph, a list item or a table row) — split it into paragraphs or a list; the longest runs ${UNIT_WORD_LIMIT + 1} words and opens "w0 w1 w2 w3 w4 w5"`,
+      `✗ AA-1 (${DOC_A}) holds 1 unit(s) over ${UNIT_WORD_LIMIT} words (a paragraph, a list item or a table row) — split it into paragraphs or a list; the longest runs ${UNIT_WORD_LIMIT + 1} words and opens "w0 w1 w2 w3 w4 w5"`,
     );
   });
 
@@ -264,7 +313,7 @@ describe('main — units a reader can take in', () => {
     assert.equal(two.code, 1);
     assert.match(
       two.err[0],
-      /^✗ AA-1 holds 2 unit\(s\) over 150 words .* where scripts\/clause-form-baseline\.json admits 1 — /,
+      /^✗ AA-1 \(docs\/a\.md\) holds 2 unit\(s\) over 150 words .* where scripts\/clause-form-baseline\.json admits 1 — /,
     );
     const none = run({ rows, docs: { [DOC_A]: '**AA-1.** Lead.\n' }, baseline });
     assert.equal(none.code, 1);
@@ -332,7 +381,7 @@ describe('main — the remaining verdicts', () => {
     assert.equal(code, 1);
     assert.equal(
       err[0],
-      `✗ ${BASELINE_PATH} lists docent#7 for AA-1, BB-1, and it is now linked from no clause — remove the entry`,
+      `✗ ${BASELINE_PATH} lists docent#7 for AA-1, BB-1, and no two clauses of one document link it now — remove the entry`,
     );
   });
 
@@ -425,6 +474,71 @@ describe('main — the baseline is held to its shape and to what the tree needs'
       },
     });
     assert.match(err[0], /the longest runs 159 words and opens "b0 b1 b2 b3 b4 b5"$/);
+  });
+});
+
+describe('main — the baseline admits no more than the base it is compared with', () => {
+  const long = (stem) => words(UNIT_WORD_LIMIT + 1, stem);
+  const shared = words(RUN_WORDS, 'same');
+  const rows = { ...ONE_DOC, 'BB-1': DOC_B };
+  const docs = {
+    [DOC_A]: `**AA-1.** First ${shared}, see ${ISSUE(7)}.\n\n**AA-2.** ${long('a')}, see ${ISSUE(7)}.\n`,
+    [DOC_B]: `**BB-1.** Second ${shared}.\n`,
+  };
+  const baseline = {
+    'issue-homes': { 7: ['AA-1', 'AA-2'] },
+    'shared-text': ['AA-1|BB-1'],
+    'long-units': { 'AA-2': 1 },
+  };
+
+  it('a baseline equal to the base passes, and so does one that admits less', () => {
+    assert.equal(run({ rows, docs, baseline, base: baseline }).code, 0);
+    const wider = {
+      'issue-homes': { 7: ['AA-1', 'AA-2'], 9: ['AA-1', 'AA-2'] },
+      'shared-text': ['AA-1|BB-1', 'AA-2|BB-1'],
+      'long-units': { 'AA-2': 3 },
+    };
+    assert.equal(run({ rows, docs, baseline, base: wider }).code, 0);
+  });
+
+  it('a pair the base does not admit reds though the baseline lists it', () => {
+    const { code, err } = run({ rows, docs, baseline, base: { ...baseline, 'shared-text': [] } });
+    assert.equal(code, 1);
+    assert.equal(
+      err[0],
+      `✗ ${BASELINE_PATH} admits 1 pair(s) of clauses sharing text where the base admits 0 — the list only shrinks: fix the clause and take the new entry out`,
+    );
+    assert.equal(err[1], `\n1 problem. ${SEE}`);
+  });
+
+  it('a further clause under an issue, and a higher count of long units, each red the same way', () => {
+    const issue = run({ rows, docs, baseline, base: { ...baseline, 'issue-homes': {} } });
+    assert.equal(issue.code, 1);
+    assert.equal(
+      issue.err[0],
+      `✗ ${BASELINE_PATH} admits 2 clause(s) linking an issue a second time where the base admits 0 — the list only shrinks: fix the clause and take the new entry out`,
+    );
+    const units = run({ rows, docs, baseline, base: { ...baseline, 'long-units': {} } });
+    assert.equal(units.code, 1);
+    assert.equal(
+      units.err[0],
+      `✗ ${BASELINE_PATH} admits 1 unit(s) over ${UNIT_WORD_LIMIT} words where the base admits 0 — the list only shrinks: fix the clause and take the new entry out`,
+    );
+  });
+
+  it('an entry moved to another clause keeps the count and passes', () => {
+    const moved = { ...baseline, 'long-units': { 'BB-1': 1 } };
+    assert.equal(run({ rows, docs, baseline, base: moved }).code, 0);
+  });
+
+  it('a base that holds no baseline is not compared', () => {
+    assert.equal(run({ rows, docs, baseline, base: null }).code, 0);
+  });
+
+  it('a base baseline out of shape is the machinery verdict', () => {
+    const { code, err } = run({ rows, docs, baseline, base: '{ not json' });
+    assert.equal(code, 2);
+    assert.match(err.join('\n'), /at the base/);
   });
 });
 
