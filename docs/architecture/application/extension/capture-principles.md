@@ -503,9 +503,13 @@ with a caveat):
   a departure (core CP-19;
   [docent#717](https://github.com/Arsarneq/docent/issues/717))
 - A `key` states nothing of the input method: the browser gives a page and
-  an extension no reading of whether one is on or of its mode, where the
-  desktop writes `input_method_open` and `input_method_conversion_mode` on
-  each `key` from what Windows tells it; a difference that comes from the
+  an extension no interface that reads whether one is on or its mode, where
+  the desktop writes `input_method_open` and `input_method_conversion_mode` on
+  each `key` from what Windows tells it. What the layer reads is the key's
+  own event, whose `isComposing` says a composition is open and nothing of
+  whether an input method is on or of its mode; the extension interface that
+  addresses an input method (`chrome.input.ime`) is for an extension that is
+  the input method, on ChromeOS only. A difference that comes from the
   platforms themselves (core CP-19;
   [docent#237](https://github.com/Arsarneq/docent/issues/237))
 - A key the input method takes: not written as a `key`. Its text arrives as
@@ -513,7 +517,8 @@ with a caveat):
   composition is given up with no text leaves no record; a departure (core
   CP-18), and one from the desktop, whose keyboard hook is handed each key
   ahead of the input method and can read nothing that says a composition is
-  open, so it writes the keys pressed inside one as `key` actions, a typing
+  open (the desktop capture document, DCP-13, names the interfaces measured),
+  so it writes the keys pressed inside one as `key` actions, a typing
   key among them where the field reports no value change for it; the
   composed text is one `type` on both; a difference that comes from the
   platforms themselves (core CP-19;
@@ -554,30 +559,41 @@ with a caveat):
   each arrow key reaches the page and is written as the `key`, and the option
   it chooses as the `select` its `change` commits
 - A key that is down but was pressed while another document had the focus
-  (another frame, another tab or window) is not among an action's `held_keys`,
-  and no key is known to be down once the document's window loses the focus
-  or a drag starts:
-  the browser delivers a key's events to the focused document only, sends the
-  page none while a drag lasts, and offers
-  no reading of the keyboard's state. From the moment the focus leaves a
-  document, nothing the browser delivers says whether a key that was down
-  still is: its release can reach another frame, a page the extension does not
-  run in, the browser's own interface or another program. Carrying the key
-  over from the document that saw it go down would state a key as down that
-  could already have been released, so it is not done. The desktop's keyboard
-  hook is
-  handed every key wherever the focus is and names such a key; the difference
-  comes from the platforms themselves (core CP-19). Two things are exact all
-  the same: the modifiers held at an action, wherever they were pressed,
-  which the action's own event states and `modifiers` carries; and a key
-  still held when the focus arrives or returns or the drag has ended, which
-  is named again from its next repeat in the document that has the focus.
+  is not among an action's `held_keys`, and no key is known to be down once
+  the document's window loses the focus or a drag starts. The desktop's
+  keyboard hook is handed every key wherever the focus is and names such a
+  key. Two cases differ:
+  - A key held in one frame of a tab while the person acts in another frame
+    of the same tab, both recorded: the key's release reaches the frame that
+    has the focus, where the recorder runs, so the fact can be read and
+    leaving the key out is a departure (core CP-19;
+    [docent#779](https://github.com/Arsarneq/docent/issues/779)).
+  - Every other case (another tab or window, a frame the browser does not
+    let the extension run in, the window losing the focus, a drag): the
+    browser delivers a key's events to the focused document only, sends the
+    page none while a drag lasts, and gives a page and an extension no
+    interface that reads the keyboard's state. What the layer tries is to
+    follow each key from its press to its release in the document that saw
+    it go down; from the moment the focus leaves that document, the release
+    can reach a page the extension does not run in, the browser's own
+    interface or another program, none of which tells the extension, so
+    carrying the key over would state a key as down that could already have
+    been released. A difference that comes from the platforms themselves
+    (core CP-19).
+
+  Two things are
+  exact all the same: the modifiers held at an action, wherever they were
+  pressed, which the action's own event states and `modifiers` carries; and a
+  key still held when the focus arrives or returns or the drag has ended,
+  which is named again from its next repeat in the document that has the
+  focus.
   What is left out is a key other than a modifier, held in one document
   while the person acts in another, until that key repeats there. A key
   pressed while the Meta key was held is treated the same way from the
   release of the Meta key: some systems send the page no release for such a
   key, so it is no longer known to be down, and is named again from its next
   repeat
+
 - Back/forward between same-document entries (an SPA's history) — a
   browser-chrome action; the worker's committed-navigation listener does not
   report it
