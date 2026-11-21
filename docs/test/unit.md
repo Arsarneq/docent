@@ -207,7 +207,7 @@ machinery under `scripts/`.
 - A baseline entry admitting exactly the case it names: a further clause, pair or long unit red beside it.
 - A baseline entry the tree does not need red until it is removed or lowered, and one naming a clause the registry does not hold, one admitting nothing, and a pair listed twice or out of order, each red.
 - A baseline entry of the wrong type as the machinery verdict.
-- A baseline held against the one at the base: an entry the base does not hold red though the baseline lists it, also when another entry left the list, an equal or smaller list passing, a base without a baseline not compared, and a base baseline out of shape as the machinery verdict.
+- A baseline held against the one at the base: an entry the base does not hold red though the baseline lists it, also when another entry left the list, the base's list, or one holding only its entries, passing, a base without a baseline not compared, and a base baseline out of shape as the machinery verdict.
 - A baseline entry naming more clauses than still link the issue, and one naming clauses of two documents, each red.
 - The longest of several long units quoted.
 - An issue read from any link to it, a `1)` list item read as its own unit, and a list item kept with its indented continuation.
