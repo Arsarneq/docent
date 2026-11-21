@@ -838,6 +838,7 @@ export function extractColonCites(docText, docPath) {
 export const REGISTERED_COLON_CITES = [
   'corpus:check:desktop',
   'lint:area-map',
+  'lint:clause-form',
   'lint:clause-governance',
   'lint:clause-preamble',
   'lint:clause-registry',
