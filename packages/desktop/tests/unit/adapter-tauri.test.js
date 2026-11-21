@@ -305,7 +305,7 @@ describe("the panel's mirror-back over one session blob", () => {
   for (const { member, save, mirror, read, lost, kept } of SAVE_MEMBERS) {
     it(`loses a ${member} write the panel never mirrored back`, async () => {
       installSessionStore();
-      const sessionState = await loadSessionState(mockInvoke);
+      const { state: sessionState } = await loadSessionState(mockInvoke);
 
       await save();
       // The seam's write landed: its own load counterpart reads the value back
@@ -321,7 +321,7 @@ describe("the panel's mirror-back over one session blob", () => {
 
     it(`keeps a ${member} write the panel mirrored back`, async () => {
       installSessionStore();
-      const sessionState = await loadSessionState(mockInvoke);
+      const { state: sessionState } = await loadSessionState(mockInvoke);
 
       await save();
       mirror(sessionState.settings);
@@ -336,7 +336,7 @@ describe("the panel's mirror-back over one session blob", () => {
       projects: [],
       settings: { syncUrl: 'https://sync.test', syncApiKey: 'key1' },
     });
-    const sessionState = await loadSessionState(mockInvoke);
+    const { state: sessionState } = await loadSessionState(mockInvoke);
 
     await adapter.saveSyncSettings('', '');
     const adapterWrite = JSON.parse(store.saves.at(-1)).settings;

@@ -12,7 +12,8 @@
 // Governance declared in scripts/area-map.json (see its declared-governance entry): the capture events these commands relay become .docent.json action data; the per-platform schemas are authoritative for field semantics.
 
 use std::fs;
-use std::path::PathBuf;
+use std::io::Write;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -41,6 +42,9 @@ pub struct AppState {
     /// enabled/disabled. Shared as an `Arc<AtomicBool>` so the `lib.rs` window
     /// event handler can read it without locking the capture mutex.
     pub auto_sync_keepalive: Arc<AtomicBool>,
+    /// The gate on the session file's reads and writes (`load_state` /
+    /// `save_state`); see [`SessionGuard`].
+    pub session: SessionGuard,
 }
 
 // ---------------------------------------------------------------------------
@@ -149,6 +153,46 @@ pub fn list_windows(state: State<'_, AppState>) -> Result<Vec<WindowInfo>, Strin
 // Persistence commands
 // ---------------------------------------------------------------------------
 
+/// Why `load_state` could not hand back the session file, sent to the
+/// frontend as the command's error (`{ "kind": "set_aside", ... }`).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum LoadError {
+    /// The file could not be read, or held no JSON object, and was moved to
+    /// `kept_as` in the same folder. Saving goes on to a new session file.
+    SetAside {
+        path: String,
+        kept_as: String,
+        reason: String,
+    },
+    /// The file could not be read, or held no JSON object, and could not be
+    /// moved either. It stays at `path`, and every save is refused for the
+    /// rest of the run so nothing replaces it.
+    KeptInPlace { path: String, reason: String },
+    /// The session file's location could not be found. Every save is refused
+    /// for the rest of the run.
+    NoLocation { reason: String },
+}
+
+/// The one gate every read and write of the session file passes through.
+///
+/// It serializes the session file's I/O, and it remembers, for the rest of
+/// the run, that a load left an unreadable file in place: from then on every
+/// save is refused, so the file is never written over. The refusal is never
+/// lifted while the app runs, since the panel's copy in memory started empty.
+#[derive(Debug, Default)]
+pub struct SessionGuard {
+    /// `Some(reason)` once saves are refused.
+    refused: Mutex<Option<String>>,
+}
+
+impl SessionGuard {
+    /// Whether every save is refused for the rest of the run.
+    pub fn saves_refused(&self) -> bool {
+        self.refused.lock().map(|r| r.is_some()).unwrap_or(true)
+    }
+}
+
 /// Re-inject the API keys held in the OS credential store into a raw
 /// session JSON string read from disk.
 ///
@@ -180,26 +224,113 @@ fn inject_secrets_into_json(contents: String, store: &dyn SecretStore) -> String
 /// Public so integration tests can drive the filesystem path with a
 /// [`secret_store::DisabledStore`], exercising real load/save without touching
 /// the machine-global credential store.
-pub fn load_state_impl(store: &dyn SecretStore) -> Result<String, String> {
-    let path = session_file_path()?;
+pub fn load_state_impl(store: &dyn SecretStore, guard: &SessionGuard) -> Result<String, LoadError> {
+    load_guarded(session_file_path(), store, guard, &|from, to| {
+        fs::rename(from, to)
+    })
+}
 
-    let contents = match fs::read_to_string(&path) {
-        Ok(contents) => contents,
+/// [`load_from`] under the guard's lock, recording a refusal of every later
+/// save when the file stayed in place or its location is unknown.
+fn load_guarded(
+    path: Result<PathBuf, String>,
+    store: &dyn SecretStore,
+    guard: &SessionGuard,
+    rename: &dyn Fn(&Path, &Path) -> std::io::Result<()>,
+) -> Result<String, LoadError> {
+    let mut refused = guard.refused.lock().unwrap_or_else(|p| p.into_inner());
+    let result = match path {
+        Ok(path) => load_from(&path, store, rename),
+        Err(reason) => Err(LoadError::NoLocation { reason }),
+    };
+    if let Err(LoadError::KeptInPlace { reason, .. } | LoadError::NoLocation { reason }) = &result {
+        refused.get_or_insert_with(|| reason.clone());
+    }
+    result
+}
+
+/// Read the session file at `path`.
+///
+/// A missing file reads as `{}`. A file that cannot be read, or that holds
+/// no JSON object, is never handed back as empty: it is moved aside with
+/// `rename` and the error says where it was kept, or, when the move fails,
+/// that it stayed in place.
+fn load_from(
+    path: &Path,
+    store: &dyn SecretStore,
+    rename: &dyn Fn(&Path, &Path) -> std::io::Result<()>,
+) -> Result<String, LoadError> {
+    let reason = match fs::read(path) {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
             // No persistence file yet — start with empty state.
-            "{}".to_string()
+            return Ok("{}".to_string());
         }
-        Err(e) => {
-            // File exists but is unreadable — log warning, start empty.
-            eprintln!(
-                "Warning: failed to read session file at {}: {e}",
-                path.display()
-            );
-            "{}".to_string()
-        }
+        Err(e) => format!("it could not be read: {e}"),
+        Ok(bytes) => match String::from_utf8(bytes) {
+            Err(_) => "it is not text".to_string(),
+            Ok(contents) => match serde_json::from_str::<serde_json::Value>(&contents) {
+                Ok(value) if value.is_object() => {
+                    return Ok(inject_secrets_into_json(contents, store));
+                }
+                Ok(_) => "it does not hold a JSON object".to_string(),
+                Err(e) => format!("it is not valid JSON: {e}"),
+            },
+        },
     };
+    let shown = path.display().to_string();
+    eprintln!("Warning: the session file at {shown} cannot be used, {reason}");
+    let kept_as = set_aside_path(path);
+    match rename(path, &kept_as) {
+        Ok(()) => Err(LoadError::SetAside {
+            path: shown,
+            kept_as: kept_as.display().to_string(),
+            reason,
+        }),
+        Err(e) => Err(LoadError::KeptInPlace {
+            path: shown,
+            reason: format!("{reason}, and it could not be moved aside: {e}"),
+        }),
+    }
+}
 
-    Ok(inject_secrets_into_json(contents, store))
+/// A name beside `path` that nothing holds yet:
+/// `session.unreadable-<UTC time>.json`, with `-2`, `-3`, … added when a file
+/// set aside in the same second already holds it.
+fn set_aside_path(path: &Path) -> PathBuf {
+    let dir = path.parent().map(Path::to_path_buf).unwrap_or_default();
+    let stamp = utc_stamp(std::time::SystemTime::now());
+    let mut candidate = dir.join(format!("session.unreadable-{stamp}.json"));
+    let mut n = 2;
+    while candidate.symlink_metadata().is_ok() {
+        candidate = dir.join(format!("session.unreadable-{stamp}-{n}.json"));
+        n += 1;
+    }
+    candidate
+}
+
+/// `YYYYMMDDTHHMMSSZ` for `time`, in UTC.
+fn utc_stamp(time: std::time::SystemTime) -> String {
+    let secs = time
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let (days, rem) = (secs / 86_400, secs % 86_400);
+    // Civil date from days since 1970-01-01 (Howard Hinnant's algorithm).
+    let z = days as i64 + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = yoe + era * 400 + i64::from(month <= 2);
+    format!(
+        "{year:04}{month:02}{day:02}T{:02}{:02}{:02}Z",
+        rem / 3_600,
+        rem % 3_600 / 60,
+        rem % 60
+    )
 }
 
 /// Strip the API keys out of a raw session JSON string and persist them to the
@@ -226,34 +357,63 @@ fn strip_secrets_from_json(data: String, store: &dyn SecretStore) -> Result<Stri
 ///
 /// Public so integration tests can drive the filesystem path with a
 /// [`secret_store::DisabledStore`].
-pub fn save_state_impl(data: String, store: &dyn SecretStore) -> Result<(), String> {
+pub fn save_state_impl(
+    data: String,
+    store: &dyn SecretStore,
+    guard: &SessionGuard,
+) -> Result<(), String> {
+    let refused = guard.refused.lock().unwrap_or_else(|p| p.into_inner());
+    if let Some(reason) = refused.as_ref() {
+        return Err(format!(
+            "Not saved: the session file could not be read at startup and is kept as it is ({reason})"
+        ));
+    }
     let sanitized = strip_secrets_from_json(data, store)?;
 
     ensure_session_dir()?;
     let path = session_file_path()?;
+    save_to(&path, &sanitized)
+}
 
-    fs::write(&path, sanitized)
-        .map_err(|e| format!("Failed to write session file at {}: {e}", path.display()))
+/// Write `contents` as the session file at `path` without ever leaving it
+/// half-written: the bytes go to a temporary file in the same folder, are
+/// flushed to disk, and the temporary file is then renamed over `path`.
+fn save_to(path: &Path, contents: &str) -> Result<(), String> {
+    let tmp = path.with_extension("json.tmp");
+    let written = (|| -> std::io::Result<()> {
+        let mut file = fs::File::create(&tmp)?;
+        file.write_all(contents.as_bytes())?;
+        file.sync_all()?;
+        drop(file);
+        fs::rename(&tmp, path)
+    })();
+    written.map_err(|e| {
+        let _ = fs::remove_file(&tmp);
+        format!("Failed to write session file at {}: {e}", path.display())
+    })
 }
 
 /// Load session state from the filesystem.
 ///
 /// Returns the raw JSON string, or an empty object `"{}"` if the file does
-/// not exist or is unreadable. API keys are re-injected from
+/// not exist. A file that cannot be read or holds no JSON object answers with
+/// a [`LoadError`] and is never written over. API keys are re-injected from
 /// the OS credential store before returning.
 #[tauri::command]
-pub fn load_state() -> Result<String, String> {
-    load_state_impl(secret_store::default_store().as_ref())
+pub fn load_state(state: State<'_, AppState>) -> Result<String, LoadError> {
+    load_state_impl(secret_store::default_store().as_ref(), &state.session)
 }
 
 /// Save session state to the filesystem.
 ///
-/// Writes the provided JSON string to `%APPDATA%/com.docent.desktop/session.json`.
+/// Writes the provided JSON string to `%APPDATA%/com.docent.desktop/session.json`
+/// through a temporary file and a rename, and refuses while [`SessionGuard`]
+/// holds an unreadable file in place.
 /// API keys are stripped out and stored in the OS credential store rather
 /// than written to the file.
 #[tauri::command]
-pub fn save_state(data: String) -> Result<(), String> {
-    save_state_impl(data, secret_store::default_store().as_ref())
+pub fn save_state(state: State<'_, AppState>, data: String) -> Result<(), String> {
+    save_state_impl(data, secret_store::default_store().as_ref(), &state.session)
 }
 
 // ---------------------------------------------------------------------------
@@ -791,6 +951,154 @@ mod tests {
         set_target_pid_impl(&cap, None).unwrap();
 
         assert_eq!(rec.lock().unwrap().included_pid, None);
+    }
+
+    // ── the session file's load guard ───────────────────────────────────
+    //
+    // The filesystem cases run through the public entry points in
+    // tests/commands_test.rs. These reach what those cannot: a move aside
+    // that fails, and the refusal it leaves for the rest of the run.
+    mod session_guard {
+        use super::super::*;
+        use crate::secret_store::DisabledStore;
+
+        fn failing_rename(_: &Path, _: &Path) -> std::io::Result<()> {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "held by another program",
+            ))
+        }
+
+        fn real_rename(from: &Path, to: &Path) -> std::io::Result<()> {
+            fs::rename(from, to)
+        }
+
+        #[test]
+        fn a_file_that_cannot_be_moved_stays_in_place_and_every_later_save_is_refused() {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("session.json");
+            fs::write(&path, "{cut off").unwrap();
+            let guard = SessionGuard::default();
+
+            let result = load_guarded(Ok(path.clone()), &DisabledStore, &guard, &failing_rename);
+
+            match result {
+                Err(LoadError::KeptInPlace { path: p, reason }) => {
+                    assert_eq!(p, path.display().to_string());
+                    assert!(reason.contains("held by another program"), "{reason}");
+                }
+                other => panic!("expected KeptInPlace, got {other:?}"),
+            }
+            assert_eq!(fs::read_to_string(&path).unwrap(), "{cut off");
+            assert!(guard.saves_refused());
+
+            let saved = save_state_impl(r#"{"projects":[]}"#.to_string(), &DisabledStore, &guard);
+            assert!(saved.unwrap_err().starts_with("Not saved:"));
+            assert_eq!(
+                fs::read_to_string(&path).unwrap(),
+                "{cut off",
+                "the file is untouched"
+            );
+        }
+
+        #[test]
+        fn the_refusal_holds_even_when_a_later_load_reads_the_file() {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("session.json");
+            fs::write(&path, "{cut off").unwrap();
+            let guard = SessionGuard::default();
+            let _ = load_guarded(Ok(path.clone()), &DisabledStore, &guard, &failing_rename);
+
+            // The file becomes readable later in the run (say, another
+            // program let go of it). The panel's copy in memory started
+            // empty, so a save would still replace the user's data.
+            fs::write(&path, r#"{"projects":[{"project_id":"p1"}]}"#).unwrap();
+            let later = load_guarded(Ok(path.clone()), &DisabledStore, &guard, &real_rename);
+            assert!(later.is_ok());
+            assert!(
+                guard.saves_refused(),
+                "the refusal is never lifted during the run"
+            );
+        }
+
+        #[test]
+        fn an_unknown_location_refuses_every_later_save() {
+            let guard = SessionGuard::default();
+            let result = load_guarded(
+                Err("APPDATA environment variable not set".to_string()),
+                &DisabledStore,
+                &guard,
+                &real_rename,
+            );
+            assert_eq!(
+                result,
+                Err(LoadError::NoLocation {
+                    reason: "APPDATA environment variable not set".to_string()
+                })
+            );
+            assert!(guard.saves_refused());
+        }
+
+        #[test]
+        fn a_set_aside_and_a_missing_file_leave_saving_on() {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("session.json");
+            let guard = SessionGuard::default();
+
+            assert_eq!(
+                load_guarded(Ok(path.clone()), &DisabledStore, &guard, &real_rename),
+                Ok("{}".to_string())
+            );
+            fs::write(&path, "nope").unwrap();
+            let set_aside = load_guarded(Ok(path.clone()), &DisabledStore, &guard, &real_rename);
+            assert!(
+                matches!(set_aside, Err(LoadError::SetAside { .. })),
+                "{set_aside:?}"
+            );
+            assert!(!guard.saves_refused());
+        }
+
+        #[test]
+        fn the_error_reaches_the_frontend_tagged_by_kind() {
+            let err = LoadError::SetAside {
+                path: "C:\\a\\session.json".to_string(),
+                kept_as: "C:\\a\\session.unreadable-20261121T171500Z.json".to_string(),
+                reason: "it is not text".to_string(),
+            };
+            let v = serde_json::to_value(&err).unwrap();
+            assert_eq!(v["kind"], "set_aside");
+            assert_eq!(
+                v["kept_as"],
+                "C:\\a\\session.unreadable-20261121T171500Z.json"
+            );
+            let v = serde_json::to_value(LoadError::KeptInPlace {
+                path: "p".to_string(),
+                reason: "r".to_string(),
+            })
+            .unwrap();
+            assert_eq!(v["kind"], "kept_in_place");
+            let v = serde_json::to_value(LoadError::NoLocation {
+                reason: "r".to_string(),
+            })
+            .unwrap();
+            assert_eq!(v["kind"], "no_location");
+        }
+
+        #[test]
+        fn utc_stamp_names_the_moment_in_utc() {
+            use std::time::{Duration, UNIX_EPOCH};
+            assert_eq!(utc_stamp(UNIX_EPOCH), "19700101T000000Z");
+            // 2026-11-21 17:15:00 UTC
+            assert_eq!(
+                utc_stamp(UNIX_EPOCH + Duration::from_secs(1_795_281_300)),
+                "20261121T171500Z"
+            );
+            // A leap day: 2024-02-29 23:59:59 UTC
+            assert_eq!(
+                utc_stamp(UNIX_EPOCH + Duration::from_secs(1_709_251_199)),
+                "20240229T235959Z"
+            );
+        }
     }
 
     // ── secret-at-rest JSON wrappers ────────────────────────────────────

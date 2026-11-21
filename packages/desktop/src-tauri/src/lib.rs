@@ -57,6 +57,7 @@ pub fn run() {
         capture: Mutex::new(capture_layer),
         action_sender: action_tx,
         auto_sync_keepalive: Arc::clone(&auto_sync_keepalive),
+        session: commands::SessionGuard::default(),
     };
 
     tauri::Builder::default()

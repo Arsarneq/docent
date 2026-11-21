@@ -2,7 +2,7 @@
  * Unit tests for persistence.js — Desktop session persistence
  *
  * Tests the full public API: emptyState, serializeState, deserializeState,
- * loadSessionState, and saveSessionState.
+ * loadSessionState, loadProblemMessage, and saveSessionState.
  *
  * This file is part of Docent.
  * Licensed under the GNU General Public License v3.0
@@ -19,6 +19,7 @@ import {
   deserializeState,
   loadSessionState,
   saveSessionState,
+  loadProblemMessage,
 } from '../../src/persistence.js';
 
 // ─── emptyState() ─────────────────────────────────────────────────────────────
@@ -115,36 +116,93 @@ describe('deserializeState()', () => {
   });
 
   it('returns null for non-object JSON (array)', () => {
-    // Arrays are typeof "object" but the code checks parsed === null
-    // Actually arrays pass typeof === 'object' and !== null, so they return the array
-    // Let's verify the actual behavior
-    const result = deserializeState('[1,2,3]');
-    // Arrays are objects in JS, so they pass the check
-    assert.deepStrictEqual(result, [1, 2, 3]);
+    // An array is no session state: reading it as one would start the app
+    // empty over a file that held something else.
+    assert.strictEqual(deserializeState('[1,2,3]'), null);
   });
 });
 
 // ─── loadSessionState() ───────────────────────────────────────────────────────
 
 describe('loadSessionState()', () => {
-  it('returns empty state when invoke throws (file missing)', async () => {
-    const invoke = mock.fn(async () => {
-      throw new Error('File not found');
-    });
-    const state = await loadSessionState(invoke);
-    assert.deepStrictEqual(state, emptyState());
+  // The backend answers a missing file with "{}" and rejects for a file it
+  // could not use (commands.rs, LoadError): the rejection names what it did
+  // with the file, and the panel needs that to tell the user and to know
+  // whether saving may go on.
+  const KEPT_AS =
+    'C:\\Users\\me\\AppData\\Roaming\\com.docent.desktop\\session.unreadable-20261121T171500Z.json';
+  const PATH = 'C:\\Users\\me\\AppData\\Roaming\\com.docent.desktop\\session.json';
+
+  it('reports no problem for a file that loads', async () => {
+    const invoke = mock.fn(async () => '{}');
+    const { state, problem } = await loadSessionState(invoke);
+    assert.deepStrictEqual(state.projects, []);
+    assert.deepStrictEqual(state.settings, emptyState().settings);
+    assert.strictEqual(problem, null);
   });
 
-  it('returns empty state when invoke returns invalid JSON', async () => {
-    const invoke = mock.fn(async () => 'not valid json');
-    const state = await loadSessionState(invoke);
+  it('starts empty and keeps saving on when the backend set the file aside', async () => {
+    const invoke = mock.fn(async () => {
+      throw { kind: 'set_aside', path: PATH, kept_as: KEPT_AS, reason: 'it is not valid JSON' };
+    });
+    const { state, problem } = await loadSessionState(invoke);
     assert.deepStrictEqual(state, emptyState());
+    assert.deepStrictEqual(problem, {
+      kind: 'set_aside',
+      path: PATH,
+      keptAs: KEPT_AS,
+      savingStopped: false,
+    });
+  });
+
+  it('starts empty and stops saving when the backend left the file in place', async () => {
+    const invoke = mock.fn(async () => {
+      throw { kind: 'kept_in_place', path: PATH, reason: 'it could not be read' };
+    });
+    const { state, problem } = await loadSessionState(invoke);
+    assert.deepStrictEqual(state, emptyState());
+    assert.deepStrictEqual(problem, {
+      kind: 'kept_in_place',
+      path: PATH,
+      keptAs: null,
+      savingStopped: true,
+    });
+  });
+
+  it('stops saving on any other load failure', async () => {
+    for (const thrown of [
+      { kind: 'no_location', reason: 'APPDATA environment variable not set' },
+      new Error('invoke failed'),
+      'a bare string',
+    ]) {
+      const invoke = mock.fn(async () => {
+        throw thrown;
+      });
+      const { state, problem } = await loadSessionState(invoke);
+      assert.deepStrictEqual(state, emptyState());
+      assert.deepStrictEqual(problem, {
+        kind: 'unknown',
+        path: null,
+        keptAs: null,
+        savingStopped: true,
+      });
+    }
+  });
+
+  it('stops saving when the answer is not a JSON object', async () => {
+    for (const answer of ['not valid json', '[1,2,3]', 'null']) {
+      const invoke = mock.fn(async () => answer);
+      const { state, problem } = await loadSessionState(invoke);
+      assert.deepStrictEqual(state, emptyState());
+      assert.strictEqual(problem.savingStopped, true, answer);
+      assert.strictEqual(problem.kind, 'unknown', answer);
+    }
   });
 
   it('returns parsed state with defaults filled in when invoke returns valid JSON', async () => {
     const partial = { projects: [{ project_id: 'p1' }] };
     const invoke = mock.fn(async () => JSON.stringify(partial));
-    const state = await loadSessionState(invoke);
+    const { state } = await loadSessionState(invoke);
 
     // Defaults should be filled in across the full settings shape.
     assert.strictEqual(state.settings.endpointUrl, null);
@@ -173,7 +231,7 @@ describe('loadSessionState()', () => {
       },
     };
     const invoke = mock.fn(async () => JSON.stringify(full));
-    const state = await loadSessionState(invoke);
+    const { state } = await loadSessionState(invoke);
 
     assert.deepStrictEqual(state.projects, full.projects);
     assert.deepStrictEqual(state.syncState, full.syncState);
@@ -206,11 +264,49 @@ describe('loadSessionState()', () => {
       },
     };
     const invoke = mock.fn(async () => JSON.stringify(full));
-    const state = await loadSessionState(invoke);
+    const { state } = await loadSessionState(invoke);
     assert.strictEqual(state.settings.syncUrl, 'https://sync.example.com');
     assert.strictEqual(state.settings.syncApiKey, 'sk');
     assert.strictEqual(state.settings.recordingMode, 'simple');
     assert.deepStrictEqual(state.syncState, full.syncState);
+  });
+});
+
+// ─── loadProblemMessage() ─────────────────────────────────────────────────────
+
+describe('loadProblemMessage()', () => {
+  it('names where a set-aside file was kept and that saving goes on', () => {
+    const text = loadProblemMessage({
+      kind: 'set_aside',
+      path: 'C:\\d\\session.json',
+      keptAs: 'C:\\d\\session.unreadable-20261121T171500Z.json',
+      savingStopped: false,
+    });
+    assert.match(text, /could not read your saved projects/);
+    assert.ok(text.includes('C:\\d\\session.unreadable-20261121T171500Z.json'), text);
+    assert.match(text, /saved as usual/);
+  });
+
+  it('names the file left in place and that nothing will be saved', () => {
+    const text = loadProblemMessage({
+      kind: 'kept_in_place',
+      path: 'C:\\d\\session.json',
+      keptAs: null,
+      savingStopped: true,
+    });
+    assert.ok(text.includes('C:\\d\\session.json'), text);
+    assert.match(text, /will not save anything until you restart it/);
+  });
+
+  it('says nothing will be saved when the cause is unknown', () => {
+    const text = loadProblemMessage({
+      kind: 'unknown',
+      path: null,
+      keptAs: null,
+      savingStopped: true,
+    });
+    assert.match(text, /could not read your saved projects/);
+    assert.match(text, /will not save anything until you restart it/);
   });
 });
 
