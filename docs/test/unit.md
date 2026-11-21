@@ -124,6 +124,7 @@ machinery under `scripts/`.
 | `regression.test.js` | Regression cases for the session model: fixes named by the PR that landed them, edge cases by the behaviour they hold. |
 | `render-views.test.js` | The shared list and detail rendering functions, and the structure of the fragment they render into. |
 | `render.test.js` | The shared rendering helpers: escaping, action description, and the canonical active-view resolver they run through. |
+| `report-clause-doc-words.test.js` | The word report for documents that hold clauses: words before, after and the difference per changed document, the job summary copy, and an exit code growth never changes. |
 | `reported-counts.property.test.js` | A completed cycle's reported sets equal the sets the cycle actually produced. |
 | `resolution-append-only-tombstone.property.test.js` | Resolution preserves the append-only history and never resurrects a tombstoned step. |
 | `resolution-clear-vs-retain.property.test.js` | A completed resolution clears its record; one that fails or is abandoned retains it and changes nothing. |
