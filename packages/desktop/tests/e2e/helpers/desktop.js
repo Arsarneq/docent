@@ -177,7 +177,7 @@ export async function readWhenWritten(path, timeoutMs = 15_000) {
  * registers it with `test.afterEach`, which runs before the test's fixtures
  * end the app or Notepad.
  */
-export function reportScreenOnFailure(_fixtures, testInfo) {
+export function reportScreenOnFailure(testInfo) {
   if (testInfo.status === testInfo.expectedStatus) return;
   const png = testInfo.outputPath('screen.png');
   const r = spawnSync('powershell', [...POWERSHELL, join(here, 'screen.ps1'), '-Png', png], {

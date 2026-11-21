@@ -27,7 +27,10 @@ import {
   reportScreenOnFailure,
 } from '../helpers/desktop.js';
 
-test.afterEach(reportScreenOnFailure);
+// Playwright reads the fixtures a hook asks for from its first parameter, which
+// must be an object pattern, so this hook asks for none.
+// eslint-disable-next-line no-empty-pattern
+test.afterEach(async ({}, testInfo) => reportScreenOnFailure(testInfo));
 
 /** A fresh folder with a short path, for files the dialogs write. */
 const freshDir = () => mkdtempSync(join(tmpdir(), 'docent-e2e-'));
