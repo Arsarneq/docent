@@ -140,7 +140,8 @@ proptest! {
                             wc.fetch_add(1, Ordering::SeqCst);
                         }
                         Ok(WorkerMessage::Flush(_)) => {}
-                        Ok(WorkerMessage::EndTyping) | Ok(WorkerMessage::MenuCommand) => {}
+                        Ok(WorkerMessage::EndTyping) | Ok(WorkerMessage::MenuCommand)
+                            | Ok(WorkerMessage::LookAtFocus) => {}
                         Ok(WorkerMessage::Shutdown) => break,
                         Err(_) => break,
                     }
@@ -238,7 +239,8 @@ proptest! {
                             _ => {}
                         },
                         Ok(WorkerMessage::Flush(_)) => {}
-                        Ok(WorkerMessage::EndTyping) | Ok(WorkerMessage::MenuCommand) => {}
+                        Ok(WorkerMessage::EndTyping) | Ok(WorkerMessage::MenuCommand)
+                            | Ok(WorkerMessage::LookAtFocus) => {}
                         Ok(WorkerMessage::Shutdown) => break,
                         Err(_) => break,
                     }
@@ -323,7 +325,8 @@ proptest! {
                             events.lock().unwrap().push(event_name.to_string());
                         }
                         Ok(WorkerMessage::Flush(_)) => {}
-                        Ok(WorkerMessage::EndTyping) | Ok(WorkerMessage::MenuCommand) => {}
+                        Ok(WorkerMessage::EndTyping) | Ok(WorkerMessage::MenuCommand)
+                            | Ok(WorkerMessage::LookAtFocus) => {}
                         Ok(WorkerMessage::Shutdown) => break,
                         Err(_) => break,
                     }
@@ -425,8 +428,8 @@ use std::thread;
 use std::time::Duration;
 
 use docent_desktop_lib::capture::worker_pool::{
-    focus_names_a_part, worker_loop, AccessibilityBackend, ContextIntroductions, ControlLook,
-    ControlNature, PartFocusNote, PendingBuffers, FOCUS_EPOCH_PERSON_STEP,
+    focus_names_a_part, key_number_param, worker_loop, AccessibilityBackend, ContextIntroductions,
+    ControlLook, ControlNature, PartFocusNote, PendingBuffers, FOCUS_EPOCH_PERSON_STEP,
 };
 use docent_desktop_lib::capture::{
     ActionPayload, CaptureError, CaptureMode, ElementDescription, Modifiers,
@@ -959,7 +962,9 @@ fn worker_panic_respawns_and_redistributes() {
                             wc.fetch_add(1, Ordering::SeqCst);
                         }
                         Ok(WorkerMessage::Flush(_)) => {}
-                        Ok(WorkerMessage::EndTyping) | Ok(WorkerMessage::MenuCommand) => {}
+                        Ok(WorkerMessage::EndTyping)
+                        | Ok(WorkerMessage::MenuCommand)
+                        | Ok(WorkerMessage::LookAtFocus) => {}
                         Ok(WorkerMessage::Shutdown) => break,
                         Err(_) => break,
                     }
@@ -1033,7 +1038,9 @@ fn repeatedly_failing_workers_get_respawned_and_shutdown_completes() {
                         panic!("simulated worker panic");
                     }
                     Ok(WorkerMessage::Flush(_)) => {}
-                    Ok(WorkerMessage::EndTyping) | Ok(WorkerMessage::MenuCommand) => {}
+                    Ok(WorkerMessage::EndTyping)
+                    | Ok(WorkerMessage::MenuCommand)
+                    | Ok(WorkerMessage::LookAtFocus) => {}
                     Ok(WorkerMessage::Shutdown) => {}
                     Err(_) => {}
                 }
@@ -2264,6 +2271,97 @@ fn foreground_event_produces_context_switch() {
     );
 }
 
+/// A window that has closed by the time its foreground change is described:
+/// asked by its handle it names no process ("pid:0", as the Windows backend
+/// gives it), while the process the Input_Thread read at the event is still
+/// named by its id.
+struct ClosedWindowBackend(MockBackend);
+
+impl AccessibilityBackend for ClosedWindowBackend {
+    fn init(&mut self) -> Result<(), CaptureError> {
+        Ok(())
+    }
+    fn cleanup(&mut self) {}
+    fn element_at_point(&self, x: i32, y: i32) -> Option<ElementDescription> {
+        self.0.element_at_point(x, y)
+    }
+    fn focused_element(&self) -> Option<ElementDescription> {
+        self.0.focused_element()
+    }
+    fn window_title(&self, _window_handle: i64) -> String {
+        String::new()
+    }
+    fn process_name(&self, _window_handle: i64) -> String {
+        "pid:0".to_string()
+    }
+    fn process_name_of(&self, process_id: u32) -> Option<String> {
+        (process_id == 4242).then(|| "notepad.exe".to_string())
+    }
+    fn read_file_dialog_path(&self, _window_handle: i64) -> Option<(String, String)> {
+        None
+    }
+    fn root_window_handle(&self, window_handle: i64) -> i64 {
+        window_handle
+    }
+    fn window_rect(&self, _window_handle: i64) -> Option<docent_desktop_lib::capture::WindowRect> {
+        None
+    }
+    fn selected_item_name(&self, _window_handle: i64) -> Option<(ElementDescription, String)> {
+        None
+    }
+}
+
+// Regression: #761 — a context_switch into a window that closed before the
+// worker described it named its source "pid:0"
+// https://github.com/Arsarneq/docent/issues/761
+#[test]
+fn regression_761_context_switch_names_its_source_by_the_event_process() {
+    let harness = WorkerTestHarness::new(ClosedWindowBackend(MockBackend::new()));
+    let mut raw = make_raw_event(RawEventType::Foreground, 66168);
+    raw.sequence_id = 1;
+    raw.process_id = 4242;
+    harness.send_event(raw);
+
+    thread::sleep(Duration::from_millis(200));
+    let events = harness.shutdown();
+
+    let sources: Vec<&str> = events
+        .iter()
+        .filter_map(|e| match &e.payload {
+            ActionPayload::ContextSwitch { source, .. } => Some(source.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        sources,
+        vec!["notepad.exe"],
+        "the switch is named by the process read at the event, not by the closed window"
+    );
+}
+
+/// A process the backend cannot name by its id leaves the switch named by
+/// its window, as before.
+#[test]
+fn a_context_switch_whose_process_has_no_name_by_id_is_named_by_its_window() {
+    let harness = WorkerTestHarness::new(MockBackend::new());
+    let mut raw = make_raw_event(RawEventType::Foreground, 200);
+    raw.sequence_id = 1;
+    raw.process_id = 4242;
+    harness.send_event(raw);
+
+    thread::sleep(Duration::from_millis(200));
+    let events = harness.shutdown();
+
+    let sources: Vec<&str> = events
+        .iter()
+        .filter_map(|e| match &e.payload {
+            ActionPayload::ContextSwitch { source, .. } => Some(source.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(sources, vec!["test.exe"]);
+}
+
 /// Test: right-click event produces a RightClick action.
 #[test]
 fn right_click_event_produces_right_click_action() {
@@ -3021,7 +3119,7 @@ fn regression_237_a_key_states_the_input_method_read_at_its_press() {
     ] {
         let harness = WorkerTestHarness::new(MockBackend::new());
         let mut enter = layout_key(1, now_ms(), 0x0D);
-        enter.callback_params[3] |= input_method_param(Some(state));
+        enter.callback_params[0] |= input_method_param(Some(state));
         harness.send_event(enter);
         thread::sleep(Duration::from_millis(100));
         let events = harness.shutdown();
@@ -3040,7 +3138,7 @@ fn regression_237_a_key_states_the_input_method_read_at_its_press() {
 fn regression_237_a_key_states_the_open_status_alone_where_the_mode_was_not_read() {
     let harness = WorkerTestHarness::new(MockBackend::new());
     let mut enter = layout_key(1, now_ms(), 0x0D);
-    enter.callback_params[3] |= input_method_param(Some(InputMethodState {
+    enter.callback_params[0] |= input_method_param(Some(InputMethodState {
         open: true,
         conversion_mode: None,
     }));
@@ -3079,12 +3177,11 @@ fn regression_237_the_input_method_read_leaves_the_key_name_and_the_repeat_mark(
     let harness = WorkerTestHarness::new(MockBackend::new());
     let mut plus = layout_key(1, now_ms(), 0xBB);
     plus.modifiers = (true, false, false, false);
-    plus.callback_params[3] = i64::from(u32::from('+'))
-        | KEY_REPEAT_PARAM
-        | input_method_param(Some(InputMethodState {
-            open: true,
-            conversion_mode: Some(0x07FF_FFFF),
-        }));
+    plus.callback_params[3] = i64::from(u32::from('+')) | KEY_REPEAT_PARAM;
+    plus.callback_params[0] |= input_method_param(Some(InputMethodState {
+        open: true,
+        conversion_mode: Some(0x07FF_FFFF),
+    }));
     harness.send_event(plus);
     thread::sleep(Duration::from_millis(100));
     let events = harness.shutdown();
@@ -3239,7 +3336,8 @@ proptest! {
                             }
                         }
                         Ok(WorkerMessage::Flush(_)) => {}
-                        Ok(WorkerMessage::EndTyping) | Ok(WorkerMessage::MenuCommand) => {}
+                        Ok(WorkerMessage::EndTyping) | Ok(WorkerMessage::MenuCommand)
+                            | Ok(WorkerMessage::LookAtFocus) => {}
                         Ok(WorkerMessage::Shutdown) => break,
                         Err(_) => break,
                     }
@@ -4041,7 +4139,8 @@ fn regression_719_the_event_that_ends_the_typing_writes_the_type() {
 }
 
 /// What each worker of a three-worker pool is sent when `events` are
-/// dispatched in order: "event" for an event, "end typing" for the signal.
+/// dispatched in order: "event" for an event, "end typing" and "look at
+/// focus" for the signals.
 fn messages_sent_for(events: Vec<RawEvent>) -> Vec<Vec<&'static str>> {
     let (action_tx, _action_rx) = mpsc::channel::<ActionEvent>();
     let sent: Vec<Arc<Mutex<Vec<&'static str>>>> =
@@ -4057,6 +4156,7 @@ fn messages_sent_for(events: Vec<RawEvent>) -> Vec<Vec<&'static str>> {
                     Ok(WorkerMessage::Event(_)) => sent.lock().unwrap().push("event"),
                     Ok(WorkerMessage::EndTyping) => sent.lock().unwrap().push("end typing"),
                     Ok(WorkerMessage::MenuCommand) => sent.lock().unwrap().push("menu command"),
+                    Ok(WorkerMessage::LookAtFocus) => sent.lock().unwrap().push("look at focus"),
                     Ok(WorkerMessage::Flush(_)) => {}
                     Ok(WorkerMessage::Shutdown) | Err(_) => break,
                 }
@@ -4086,6 +4186,55 @@ fn regression_719_the_typing_worker_is_told_when_the_typing_ends() {
             "{name}: the worker that got the key is told behind it, got {sent:?}"
         );
     }
+}
+
+/// A window that comes to the front has the typing worker look at the
+/// control focused in it, behind the end of the typing (docent#761); no other
+/// event does.
+#[test]
+fn a_window_that_comes_to_the_front_has_the_typing_worker_look_at_its_focus() {
+    let sent = messages_sent_for(vec![
+        layout_key(1, 1000, 0x41),
+        make_raw_event(RawEventType::Foreground, 1234),
+    ]);
+    assert!(
+        sent.iter()
+            .any(|worker| worker == &["event", "end typing", "look at focus"]),
+        "got {sent:?}"
+    );
+    for (name, event_type) in typing_enders()
+        .into_iter()
+        .filter(|(_, t)| !matches!(t, RawEventType::Foreground))
+        .chain([
+            ("scroll", RawEventType::Scroll),
+            ("focus", RawEventType::Focus),
+            ("key", RawEventType::Keyboard),
+        ])
+    {
+        let sent = messages_sent_for(vec![
+            layout_key(1, 1000, 0x41),
+            make_raw_event(event_type, 1234),
+        ]);
+        assert!(
+            sent.iter().all(|w| !w.contains(&"look at focus")),
+            "{name}: got {sent:?}"
+        );
+    }
+}
+
+/// Before any key, the look chooses the typing worker, and the keys follow
+/// it there.
+#[test]
+fn a_look_before_any_key_chooses_the_typing_worker() {
+    let sent = messages_sent_for(vec![
+        make_raw_event(RawEventType::Foreground, 1234),
+        layout_key(2, 1000, 0x41),
+    ]);
+    assert!(
+        sent.iter()
+            .any(|worker| worker.ends_with(&["look at focus", "event"])),
+        "got {sent:?}"
+    );
 }
 
 /// An event that ends no typing sends the typing worker nothing.
@@ -4308,6 +4457,17 @@ struct Controls {
     descriptions: u64,
     value_reads: u64,
     nature_looks: u64,
+    /// The number of the latest key the Input_Thread dispatched, by window;
+    /// a window not in it answers `0`, the platform numbering none.
+    latest_keys: HashMap<i64, u64>,
+    /// Scripted value reads, first first: the value a control read answers
+    /// and the number of the latest key dispatched in the control's window
+    /// once the read finished.
+    reads: VecDeque<(&'static str, u64)>,
+    /// The dialog's window answers no message in time (a hung program).
+    hung: bool,
+    /// The id of the process that owns the dialog.
+    process_id: u32,
 }
 
 impl Controls {
@@ -4431,7 +4591,30 @@ impl AccessibilityBackend for MovingFocusBackend {
     fn control_value(&self, control: i64) -> Option<String> {
         let mut controls = self.controls.lock().unwrap();
         controls.value_reads += 1;
+        if let Some((value, latest)) = controls.reads.pop_front() {
+            controls
+                .latest_keys
+                .insert(self.root_window_handle(control), latest);
+            return Some(value.to_string());
+        }
         controls.own.get(&control).and_then(|e| e.text.clone())
+    }
+
+    fn keys_dispatched(&self, window: i64) -> u64 {
+        let controls = self.controls.lock().unwrap();
+        controls.latest_keys.get(&window).copied().unwrap_or(0)
+    }
+
+    fn answers_promptly(&self, control: i64) -> bool {
+        !(self.controls.lock().unwrap().hung && self.root_window_handle(control) == DIALOG)
+    }
+
+    fn process_id_of(&self, window_handle: i64) -> u32 {
+        if window_handle == DIALOG {
+            self.controls.lock().unwrap().process_id
+        } else {
+            0
+        }
     }
 
     fn window_title(&self, _window_handle: i64) -> String {
@@ -6522,7 +6705,8 @@ fn a_click_completing_a_double_click_routes_to_the_previous_clicks_worker() {
                     Ok(WorkerMessage::Event(raw)) => got.lock().unwrap().push(raw.sequence_id),
                     Ok(WorkerMessage::Flush(_))
                     | Ok(WorkerMessage::EndTyping)
-                    | Ok(WorkerMessage::MenuCommand) => {}
+                    | Ok(WorkerMessage::MenuCommand)
+                    | Ok(WorkerMessage::LookAtFocus) => {}
                     Ok(WorkerMessage::Shutdown) | Err(_) => break,
                 }
             })
@@ -8339,4 +8523,475 @@ fn an_action_with_no_key_down_writes_an_empty_held_keys() {
     assert_eq!(written[1]["held_presses"], serde_json::json!([1]));
     // The payload's own grouping is not part of what is written.
     assert!(written[1].get("held").is_none(), "{:?}", written[1]);
+}
+
+// ---------------------------------------------------------------------------
+// A typed value is taken only when it was read in time (docent#761)
+// ---------------------------------------------------------------------------
+//
+// The Input_Thread numbers the keys it dispatches per window. A value read
+// for a value change is taken only while no later key of the window was
+// dispatched by the time the read finished; the `type` keeps the last value
+// taken, and the keys after it are written as keys after it.
+
+/// The file-name field's selector, as the `type` and `key` actions name it.
+const IN_FIELD: &str = "on Dialog > Edit:File name";
+
+/// A key typed into the dialog's field, numbered `number` among the dialog's
+/// keys.
+fn numbered_in_field(raw: RawEvent, number: u64) -> RawEvent {
+    let mut raw = in_field(raw);
+    raw.callback_params[3] |= key_number_param(number);
+    raw
+}
+
+/// The field's controls, with the value reads the test scripts.
+fn field_with_reads(reads: &[(&'static str, u64)]) -> Controls {
+    Controls {
+        reads: reads.iter().copied().collect(),
+        ..field_controls("")
+    }
+}
+
+/// `a`, `a`, Backspace typed into the field, each key followed by the value
+/// change it caused, the reads answering as `reads` scripts.
+fn type_aa_backspace(reads: &[(&'static str, u64)]) -> Vec<String> {
+    let (backend, _scene, _queries, _controls) =
+        MovingFocusBackend::with_controls(save_button_focused(), field_with_reads(reads));
+    let harness = WorkerTestHarness::new(backend);
+    let t = now_ms();
+    harness.send_event(numbered_in_field(packet_key(1, t, u16::from(b'a')), 1));
+    harness.send_event(control_value_change(2, t + 1, FIELD));
+    harness.send_event(numbered_in_field(packet_key(3, t + 2, u16::from(b'a')), 2));
+    harness.send_event(control_value_change(4, t + 3, FIELD));
+    harness.send_event(numbered_in_field(layout_key(5, t + 4, 0x08), 3)); // Backspace
+    harness.send_event(control_value_change(6, t + 5, FIELD));
+    thread::sleep(Duration::from_millis(300));
+    typed_actions_of(&harness.shutdown())
+}
+
+/// `field` the actions, each as `typed_actions_of` writes it.
+fn on_field(actions: &[&str]) -> Vec<String> {
+    actions.iter().map(|a| format!("{a} {IN_FIELD}")).collect()
+}
+
+// Regression: #761 — the value of the second `a` was read after the
+// Backspace had landed, and the `type` written at the Backspace held "a"
+// where the person had "aa".
+// https://github.com/Arsarneq/docent/issues/761
+#[test]
+fn regression_761_a_value_read_after_a_later_key_is_not_the_type() {
+    let actions = type_aa_backspace(&[
+        ("a", 1), // read before the second `a` was dispatched
+        ("a", 3), // read after the Backspace was dispatched
+        ("a", 3), // the Backspace's own change, read in time
+    ]);
+    assert_eq!(
+        actions,
+        on_field(&["type a", "key a", "key Backspace"]),
+        "the type keeps the value read in time; the key after it is a key"
+    );
+}
+
+/// The issue's runs: every read of the run was made after the Backspace was
+/// dispatched (the first value change waited on the field's description). No
+/// value was read in time, so every key is a key, none dropped or doubled;
+/// the Backspace's own change, read in time, is the field's next `type`.
+#[test]
+fn regression_761_a_run_with_no_value_read_in_time_is_its_keys() {
+    let actions = type_aa_backspace(&[("a", 3), ("a", 3), ("a", 3)]);
+    assert_eq!(
+        actions,
+        on_field(&["key a", "key a", "key Backspace", "type a"])
+    );
+}
+
+/// KNOWN OPEN CASE, not the behavior wanted (docent#762): the program raised
+/// the value change of the first `a` only after the second `a` was
+/// dispatched, and the read, made before the Backspace, found the second `a`
+/// not yet applied. The read counts (no key after the second `a` had been
+/// dispatched), so the `type` holds "a"; the second `a` is in neither the
+/// `type` nor a `key`. The worker has nothing that tells this read from one
+/// that holds the second `a`. Pinned so a change to it is seen; a value
+/// source exact as of the change closes it.
+#[test]
+fn open_case_762_a_value_read_in_time_can_lack_the_last_key_before_it() {
+    let (backend, _scene, _queries, _controls) = MovingFocusBackend::with_controls(
+        save_button_focused(),
+        field_with_reads(&[("a", 2), ("a", 3)]),
+    );
+    let harness = WorkerTestHarness::new(backend);
+    let t = now_ms();
+    harness.send_event(numbered_in_field(packet_key(1, t, u16::from(b'a')), 1));
+    harness.send_event(numbered_in_field(packet_key(2, t + 1, u16::from(b'a')), 2));
+    harness.send_event(control_value_change(3, t + 2, FIELD)); // raised for the first `a`
+    harness.send_event(numbered_in_field(layout_key(4, t + 3, 0x08), 3)); // Backspace
+    harness.send_event(control_value_change(5, t + 4, FIELD)); // raised for the second `a`
+    thread::sleep(Duration::from_millis(300));
+    assert_eq!(
+        typed_actions_of(&harness.shutdown()),
+        on_field(&["type a", "key Backspace"]),
+        "the open case: the second `a` is recorded nowhere"
+    );
+}
+
+/// Keys are numbered per window: a key pressed in another window before the
+/// field's value was read makes the read no later, and the value is the
+/// field's `type`.
+#[test]
+fn a_key_in_another_window_leaves_a_read_in_time() {
+    let (backend, _scene, _queries, _controls) = MovingFocusBackend::with_controls(
+        save_button_focused(),
+        Controls {
+            latest_keys: HashMap::from([(OTHER_WINDOW, 2)]),
+            ..field_with_reads(&[("a", 1)])
+        },
+    );
+    let harness = WorkerTestHarness::new(backend);
+    let t = now_ms();
+    harness.send_event(numbered_in_field(packet_key(1, t, u16::from(b'a')), 1));
+    harness.send_event(control_value_change(2, t + 1, FIELD)); // read after `x`
+    let mut x = packet_key(3, t + 2, u16::from(b'x'));
+    x.window_handle = OTHER_WINDOW;
+    x.focus_epoch = 1;
+    x.callback_params[3] |= key_number_param(2);
+    harness.send_event(x);
+    thread::sleep(Duration::from_millis(300));
+    let field: Vec<String> = typed_actions_of(&harness.shutdown())
+        .into_iter()
+        .filter(|a| a.ends_with(IN_FIELD))
+        .collect();
+    assert_eq!(field, on_field(&["type a"]));
+}
+
+/// A value read late in the middle of a run splits nothing: the next value
+/// read in time supersedes the keys kept after the late one, and the field
+/// has one `type`.
+#[test]
+fn a_late_read_followed_by_a_read_in_time_leaves_one_type() {
+    let (backend, _scene, _queries, _controls) = MovingFocusBackend::with_controls(
+        save_button_focused(),
+        field_with_reads(&[("a", 2), ("ab", 2)]),
+    );
+    let harness = WorkerTestHarness::new(backend);
+    let t = now_ms();
+    harness.send_event(numbered_in_field(packet_key(1, t, u16::from(b'a')), 1));
+    harness.send_event(control_value_change(2, t + 1, FIELD));
+    harness.send_event(numbered_in_field(packet_key(3, t + 2, u16::from(b'b')), 2));
+    harness.send_event(control_value_change(4, t + 3, FIELD));
+    thread::sleep(Duration::from_millis(300));
+    assert_eq!(
+        typed_actions_of(&harness.shutdown()),
+        on_field(&["type ab"])
+    );
+}
+
+/// The keys kept after the value read in time survive a commit or a stop: the
+/// drain writes them after the `type`.
+#[test]
+fn keys_kept_after_the_type_are_written_by_a_drain() {
+    let (backend, _scene, _queries, _controls) = MovingFocusBackend::with_controls(
+        save_button_focused(),
+        field_with_reads(&[("a", 1), ("ab", 3)]),
+    );
+    let harness = WorkerTestHarness::new(backend);
+    let t = now_ms();
+    harness.send_event(numbered_in_field(packet_key(1, t, u16::from(b'a')), 1));
+    harness.send_event(control_value_change(2, t + 1, FIELD));
+    harness.send_event(numbered_in_field(packet_key(3, t + 2, u16::from(b'b')), 2));
+    harness.send_event(control_value_change(4, t + 3, FIELD));
+    thread::sleep(Duration::from_millis(300));
+    harness.flush();
+    assert_eq!(
+        typed_actions_of(&harness.drain_actions()),
+        on_field(&["type a", "key b"])
+    );
+    harness.shutdown();
+}
+
+/// A pause ends nothing for kept keys either: they had a value change, so the
+/// wait for keys that took no text does not write them, and a value read in
+/// time after the pause makes them part of the one `type`, not doubled.
+#[test]
+fn keys_kept_after_the_type_wait_through_a_pause() {
+    let (backend, _scene, _queries, _controls) = MovingFocusBackend::with_controls(
+        save_button_focused(),
+        field_with_reads(&[("a", 1), ("ab", 3), ("abc", 3)]),
+    );
+    let harness = WorkerTestHarness::new(backend);
+    let t = now_ms();
+    harness.send_event(numbered_in_field(packet_key(1, t, u16::from(b'a')), 1));
+    harness.send_event(control_value_change(2, t + 1, FIELD));
+    harness.send_event(numbered_in_field(packet_key(3, t + 2, u16::from(b'b')), 2));
+    harness.send_event(control_value_change(4, t + 3, FIELD));
+    thread::sleep(Duration::from_millis(900));
+    let t = now_ms();
+    harness.send_event(numbered_in_field(packet_key(5, t, u16::from(b'c')), 3));
+    harness.send_event(control_value_change(6, t + 1, FIELD));
+    thread::sleep(Duration::from_millis(300));
+    assert_eq!(
+        typed_actions_of(&harness.shutdown()),
+        on_field(&["type abc"])
+    );
+}
+
+/// The same rule where the key's element is described by focus: a value
+/// read after a later key of the window was dispatched is not taken.
+#[test]
+fn regression_761_a_value_described_after_a_later_key_is_not_the_type() {
+    let (backend, _scene, _queries, controls) = MovingFocusBackend::with_controls(
+        FocusScene {
+            epoch: 1,
+            foreground: DIALOG,
+            element: scene_element("Edit", "Dialog > Edit:Name", Some("a")),
+        },
+        Controls {
+            latest_keys: HashMap::from([(DIALOG, 3)]),
+            ..Default::default()
+        },
+    );
+    let harness = WorkerTestHarness::new(backend);
+    let numbered = |raw: RawEvent, number: u64| {
+        let mut raw = in_dialog(raw);
+        raw.callback_params[3] |= key_number_param(number);
+        raw
+    };
+    let t = now_ms();
+    harness.send_event(numbered(packet_key(1, t, u16::from(b'a')), 1));
+    harness.send_event(in_dialog(value_change(2, t + 1, DIALOG)));
+    harness.send_event(numbered(packet_key(3, t + 2, u16::from(b'a')), 2));
+    harness.send_event(in_dialog(value_change(4, t + 3, DIALOG)));
+    harness.send_event(numbered(layout_key(5, t + 4, 0x08), 3)); // Backspace
+    harness.send_event(in_dialog(value_change(6, t + 5, DIALOG)));
+    thread::sleep(Duration::from_millis(300));
+    assert_eq!(
+        typed_actions_of(&harness.shutdown()),
+        vec![
+            "key a on Dialog > Edit:Name",
+            "key a on Dialog > Edit:Name",
+            "key Backspace on Dialog > Edit:Name",
+            "type a on Dialog > Edit:Name"
+        ]
+    );
+    drop(controls);
+}
+
+// ---------------------------------------------------------------------------
+// The focused control is looked at ahead of its keys (docent#761)
+// ---------------------------------------------------------------------------
+
+/// Capture started, or a window came to the front: the typing worker looks at
+/// the control that holds the focus, so the first key typed into it takes no
+/// description, and the field's first value is read without waiting on one.
+/// The key only looks again at what the control is.
+#[test]
+fn the_focused_control_is_described_ahead_of_its_first_key() {
+    let (backend, _scene, queries, controls) =
+        MovingFocusBackend::with_controls(save_button_focused(), field_controls("c"));
+    let harness = WorkerTestHarness::new(backend);
+    harness.event_tx.send(WorkerMessage::LookAtFocus).unwrap();
+    thread::sleep(Duration::from_millis(150));
+    assert_eq!(
+        controls.lock().unwrap().descriptions,
+        1,
+        "described on the look"
+    );
+
+    let t = now_ms();
+    harness.send_event(in_field(packet_key(1, t, u16::from(b'c'))));
+    harness.send_event(control_value_change(2, t + 1, FIELD));
+    thread::sleep(Duration::from_millis(300));
+    let events = harness.shutdown();
+
+    assert_eq!(typed_actions_of(&events), on_field(&["type c"]));
+    let controls = controls.lock().unwrap();
+    assert_eq!(controls.descriptions, 1, "the key took no description");
+    assert_eq!(controls.nature_looks, 1, "the key looked at what it is");
+    assert_eq!(queries.load(Ordering::SeqCst), 0);
+}
+
+/// A look with no focused control, or at a control already known, describes
+/// nothing.
+#[test]
+fn a_look_with_nothing_new_in_focus_describes_nothing() {
+    let (backend, _scene, _queries, controls) = MovingFocusBackend::with_controls(
+        save_button_focused(),
+        Controls {
+            focused: 0,
+            ..field_controls("c")
+        },
+    );
+    let harness = WorkerTestHarness::new(backend);
+    harness.event_tx.send(WorkerMessage::LookAtFocus).unwrap();
+    thread::sleep(Duration::from_millis(100));
+    assert_eq!(controls.lock().unwrap().descriptions, 0);
+    controls.lock().unwrap().focused = FIELD;
+    harness.event_tx.send(WorkerMessage::LookAtFocus).unwrap();
+    harness.event_tx.send(WorkerMessage::LookAtFocus).unwrap();
+    thread::sleep(Duration::from_millis(100));
+    assert_eq!(controls.lock().unwrap().descriptions, 1);
+    assert!(harness.shutdown().is_empty(), "a look writes nothing");
+}
+
+/// A look at a control whose program answers no message in time describes
+/// nothing: no key waits on the look, and the first key describes the
+/// control itself.
+#[test]
+fn a_look_at_a_control_whose_program_answers_late_describes_nothing() {
+    let (backend, _scene, _queries, controls) = MovingFocusBackend::with_controls(
+        save_button_focused(),
+        Controls {
+            hung: true,
+            ..field_controls("c")
+        },
+    );
+    let harness = WorkerTestHarness::new(backend);
+    harness.event_tx.send(WorkerMessage::LookAtFocus).unwrap();
+    thread::sleep(Duration::from_millis(100));
+    assert_eq!(controls.lock().unwrap().descriptions, 0);
+    let t = now_ms();
+    harness.send_event(in_field(packet_key(1, t, u16::from(b'c'))));
+    harness.send_event(control_value_change(2, t + 1, FIELD));
+    thread::sleep(Duration::from_millis(300));
+    assert_eq!(typed_actions_of(&harness.shutdown()), on_field(&["type c"]));
+    assert_eq!(
+        controls.lock().unwrap().descriptions,
+        1,
+        "the key described it"
+    );
+}
+
+/// A look at a control of the excluded process (Docent's own window in
+/// front) describes nothing.
+#[test]
+fn a_look_at_a_control_of_the_excluded_process_describes_nothing() {
+    let (backend, _scene, _queries, controls) = MovingFocusBackend::with_controls(
+        save_button_focused(),
+        Controls {
+            process_id: 42,
+            ..field_controls("c")
+        },
+    );
+    let harness = WorkerTestHarness::new(backend);
+    harness._excluded_pid.store(42, Ordering::SeqCst);
+    harness.event_tx.send(WorkerMessage::LookAtFocus).unwrap();
+    thread::sleep(Duration::from_millis(100));
+    assert_eq!(controls.lock().unwrap().descriptions, 0);
+    harness._excluded_pid.store(7, Ordering::SeqCst);
+    harness.event_tx.send(WorkerMessage::LookAtFocus).unwrap();
+    thread::sleep(Duration::from_millis(100));
+    assert_eq!(
+        controls.lock().unwrap().descriptions,
+        1,
+        "another process excluded"
+    );
+    harness.shutdown();
+}
+
+/// `type` and `key` actions as `typed_actions_of` writes them, in the order
+/// the recording holds them: by sequence id, as the frontend orders them
+/// (DCP-2), the `type` under the id of its last value change.
+fn typed_in_recorded_order(events: &[ActionEvent]) -> Vec<String> {
+    let mut events: Vec<&ActionEvent> = events.iter().collect();
+    events.sort_by_key(|e| e.sequence_id);
+    typed_actions_of(&events.into_iter().cloned().collect::<Vec<_>>())
+}
+
+/// `1` read in time, `5` read only after `x` was dispatched, and `x`, which
+/// the field refused (no value change), sent into the field.
+fn one_five_refused_x(harness: &WorkerTestHarness) {
+    let t = now_ms();
+    harness.send_event(numbered_in_field(packet_key(1, t, u16::from(b'1')), 1));
+    harness.send_event(control_value_change(2, t + 1, FIELD));
+    harness.send_event(numbered_in_field(packet_key(3, t + 2, u16::from(b'5')), 2));
+    harness.send_event(control_value_change(4, t + 3, FIELD)); // read after `x`
+    harness.send_event(numbered_in_field(packet_key(5, t + 4, u16::from(b'x')), 3));
+}
+
+/// A key that got no value change, buffered behind a kept key, is written
+/// once the wait for keys that took no text has passed, and the commit then
+/// writes the `type` and the kept key: every key once.
+#[test]
+fn a_key_with_no_value_change_behind_a_kept_key_is_written_after_the_wait() {
+    let (backend, _scene, _queries, _controls) = MovingFocusBackend::with_controls(
+        save_button_focused(),
+        field_with_reads(&[("1", 1), ("15", 3)]),
+    );
+    let harness = WorkerTestHarness::new(backend);
+    one_five_refused_x(&harness);
+    thread::sleep(Duration::from_millis(1200));
+    let mut events = harness.drain_actions();
+    assert_eq!(
+        typed_actions_of(&events),
+        on_field(&["key x"]),
+        "the wait writes `x` alone"
+    );
+    harness.flush();
+    events.extend(harness.drain_actions());
+    harness.shutdown();
+    assert_eq!(
+        typed_in_recorded_order(&events),
+        on_field(&["type 1", "key 5", "key x"])
+    );
+}
+
+/// The same keys drained by a commit before the wait has passed: the drain
+/// writes the `type`, the kept key and the key behind it.
+#[test]
+fn a_commit_writes_every_buffered_key_behind_the_type() {
+    let (backend, _scene, _queries, _controls) = MovingFocusBackend::with_controls(
+        save_button_focused(),
+        field_with_reads(&[("1", 1), ("15", 3)]),
+    );
+    let harness = WorkerTestHarness::new(backend);
+    one_five_refused_x(&harness);
+    thread::sleep(Duration::from_millis(150));
+    harness.flush();
+    let events = harness.drain_actions();
+    harness.shutdown();
+    assert_eq!(
+        typed_in_recorded_order(&events),
+        on_field(&["type 1", "key 5", "key x"])
+    );
+}
+
+/// And by a stop.
+#[test]
+fn a_stop_writes_every_buffered_key_behind_the_type() {
+    let (backend, _scene, _queries, _controls) = MovingFocusBackend::with_controls(
+        save_button_focused(),
+        field_with_reads(&[("1", 1), ("15", 3)]),
+    );
+    let harness = WorkerTestHarness::new(backend);
+    one_five_refused_x(&harness);
+    assert_eq!(
+        typed_in_recorded_order(&harness.shutdown()),
+        on_field(&["type 1", "key 5", "key x"])
+    );
+}
+
+/// KNOWN OPEN CASE, not the behavior wanted (docent#762): a value change no
+/// buffered key carries the text of (a paste, an accepted suggestion, a
+/// composed character), read only after a later key was dispatched, is not
+/// taken, and no key carries its text: the pasted text is recorded nowhere.
+/// Taking the late value could record a value the person never had.
+#[test]
+fn open_case_762_a_pasted_value_read_late_is_recorded_nowhere() {
+    let (backend, _scene, _queries, _controls) = MovingFocusBackend::with_controls(
+        save_button_focused(),
+        field_with_reads(&[("pasted", 2)]),
+    );
+    let harness = WorkerTestHarness::new(backend);
+    let t = now_ms();
+    let mut ctrl_v = numbered_in_field(layout_key(1, t, 0x56), 1);
+    ctrl_v.modifiers = (true, false, false, false);
+    harness.send_event(ctrl_v);
+    harness.send_event(control_value_change(2, t + 1, FIELD)); // read after Enter
+    harness.send_event(numbered_in_field(layout_key(3, t + 2, 0x0D), 2)); // Enter
+    thread::sleep(Duration::from_millis(300));
+    assert_eq!(
+        typed_actions_of(&harness.shutdown()),
+        on_field(&["key V", "key Enter"]),
+        "the open case: the pasted text is recorded nowhere"
+    );
 }

@@ -100,8 +100,8 @@ pub fn read_input_method(
 }
 
 /// The mark that an input method was read, as a keyboard event carries it in
-/// `RawEvent::callback_params[3]`, above the repeat mark
-/// ([`KEY_REPEAT_PARAM`]). Clear where none was read.
+/// `RawEvent::callback_params[0]`, above the extended mark
+/// ([`KEY_EXTENDED_PARAM`]). Clear where none was read.
 const KEY_INPUT_METHOD_READ_PARAM: i64 = 1 << 33;
 /// The input method's open status, beside the read mark.
 const KEY_INPUT_METHOD_OPEN_PARAM: i64 = 1 << 34;
@@ -114,8 +114,8 @@ const KEY_INPUT_METHOD_MODE_SHIFT: u32 = 36;
 pub const INPUT_METHOD_MODE_MASK: u32 = 0x07FF_FFFF;
 
 /// What a keyboard event carries of the input method read at the press, to
-/// be set into `RawEvent::callback_params[3]` beside the layout character and
-/// the repeat mark; 0 where none was read.
+/// be set into `RawEvent::callback_params[0]` beside the scan code and
+/// the extended mark; 0 where none was read.
 pub const fn input_method_param(state: Option<InputMethodState>) -> i64 {
     let Some(state) = state else {
         return 0;
@@ -136,7 +136,7 @@ pub const fn input_method_param(state: Option<InputMethodState>) -> i64 {
 }
 
 /// The input method read a keyboard event carries
-/// (`RawEvent::callback_params[3]`, see [`input_method_param`]); `None` where
+/// (`RawEvent::callback_params[0]`, see [`input_method_param`]); `None` where
 /// none was read.
 pub const fn input_method_of(param: i64) -> Option<InputMethodState> {
     if param & KEY_INPUT_METHOD_READ_PARAM == 0 {
@@ -521,9 +521,9 @@ mod tests {
         }
         assert_eq!(input_method_param(None), 0);
         assert_eq!(input_method_of(0), None);
-        // The layout character and the repeat mark share the parameter and
-        // are no input-method read.
-        assert_eq!(input_method_of(0xFFFF_FFFF | KEY_REPEAT_PARAM), None);
+        // The scan code and the extended mark share the parameter and are
+        // no input-method read.
+        assert_eq!(input_method_of(0xFFFF_FFFF | KEY_EXTENDED_PARAM), None);
         // The bits above the carried ones, the four the system reserves
         // among them, are not carried, and the sign bit stays clear.
         let reserved = InputMethodState {
@@ -542,10 +542,10 @@ mod tests {
             conversion_mode: Some(u32::MAX),
         };
         assert!(input_method_param(Some(full)) > 0);
-        // The read leaves the layout character and the repeat mark as they are.
-        let param = i64::from(u32::MAX) | KEY_REPEAT_PARAM | input_method_param(Some(full));
-        assert_eq!(layout_char_of(param), u32::MAX);
-        assert_ne!(param & KEY_REPEAT_PARAM, 0);
+        // The read leaves the scan code and the extended mark as they are.
+        let param = i64::from(u32::MAX) | KEY_EXTENDED_PARAM | input_method_param(Some(full));
+        assert_eq!(param as u32, u32::MAX);
+        assert_ne!(param & KEY_EXTENDED_PARAM, 0);
     }
 
     #[test]
