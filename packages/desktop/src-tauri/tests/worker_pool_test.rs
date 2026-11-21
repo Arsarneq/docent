@@ -5593,6 +5593,71 @@ fn regression_744_a_dead_key_is_a_key_when_no_character_follows() {
     );
 }
 
+/// A key that is no typing key follows a dead key, and the program enters the
+/// bare accent as a character with it (Notepad at Tab: the accent and a tab
+/// character). The `type` holds what was entered, so the dead key is part of
+/// that text and is no `key` beside it (docent#769). The key that followed is
+/// a `key` as always.
+#[test]
+fn regression_769_a_dead_key_whose_accent_the_program_enters_is_text() {
+    let (backend, scene, _) = MovingFocusBackend::new(file_name_field(""));
+    let harness = WorkerTestHarness::new(backend);
+
+    harness.send_event(dead_key(1));
+    thread::sleep(Duration::from_millis(150));
+    harness.send_event(in_dialog(layout_key(2, now_ms(), 0x09)));
+    {
+        let mut scene = scene.lock().unwrap();
+        scene.element.text = Some("\u{b4}\t".to_string());
+        scene.element.value = Some("\u{b4}\t".to_string());
+    }
+    harness.send_event(in_dialog(value_change(3, now_ms(), DIALOG)));
+
+    thread::sleep(Duration::from_millis(900));
+    let events = harness.shutdown();
+
+    assert_eq!(type_values_of(&events), vec!["\u{b4}\t"], "got {events:?}");
+    assert_eq!(key_names_of(&events), vec!["Tab"], "got {events:?}");
+}
+
+/// The same behind typed text and with a pause before the key that is no
+/// typing key (Enter): the text typed first is its own `type`, and the
+/// accent the program entered at Enter is in the next one, with no `key` for
+/// the dead key (docent#769).
+#[test]
+fn regression_769_a_dead_key_behind_typed_text_whose_accent_the_program_enters_is_text() {
+    let (backend, scene, _) = MovingFocusBackend::new(file_name_field(""));
+    let harness = WorkerTestHarness::new(backend);
+
+    harness.send_event(in_dialog(layout_key(1, now_ms(), 0x43)));
+    {
+        let mut scene = scene.lock().unwrap();
+        scene.element.text = Some("c".to_string());
+        scene.element.value = Some("c".to_string());
+    }
+    harness.send_event(in_dialog(value_change(2, now_ms(), DIALOG)));
+    thread::sleep(Duration::from_millis(900));
+    harness.send_event(dead_key(3));
+    thread::sleep(Duration::from_millis(900));
+    harness.send_event(in_dialog(layout_key(4, now_ms(), 0x0D)));
+    {
+        let mut scene = scene.lock().unwrap();
+        scene.element.text = Some("c\u{b4}\r\n".to_string());
+        scene.element.value = Some("c\u{b4}\r\n".to_string());
+    }
+    harness.send_event(in_dialog(value_change(5, now_ms(), DIALOG)));
+
+    thread::sleep(Duration::from_millis(900));
+    let events = harness.shutdown();
+
+    assert_eq!(
+        type_values_of(&events),
+        vec!["c", "c\u{b4}\r\n"],
+        "got {events:?}"
+    );
+    assert_eq!(key_names_of(&events), vec!["Enter"], "got {events:?}");
+}
+
 /// A dead key still waiting when the typing ends (a pointer press, a window
 /// change) is written then, ahead of what follows.
 #[test]
