@@ -155,7 +155,7 @@ pub fn list_windows(state: State<'_, AppState>) -> Result<Vec<WindowInfo>, Strin
 
 /// Why `load_state` could not hand back the session file, sent to the
 /// frontend as the command's error (`{ "kind": "set_aside", ... }`).
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[derive(Clone, PartialEq, Eq, serde::Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum LoadError {
     /// The file could not be read, or held no JSON object, and was moved to
@@ -180,6 +180,36 @@ pub enum LoadError {
     /// The session file's location could not be found. Every save is refused
     /// for the rest of the run.
     NoLocation { reason: String },
+}
+
+/// Written by hand so a set-aside's `state`, which carries the API keys from
+/// the credential store, never reaches a log or a test message.
+impl std::fmt::Debug for LoadError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            LoadError::SetAside {
+                path,
+                kept_as,
+                reason,
+                ..
+            } => f
+                .debug_struct("SetAside")
+                .field("path", path)
+                .field("kept_as", kept_as)
+                .field("reason", reason)
+                .field("state", &"<withheld>")
+                .finish(),
+            LoadError::KeptInPlace { path, reason } => f
+                .debug_struct("KeptInPlace")
+                .field("path", path)
+                .field("reason", reason)
+                .finish(),
+            LoadError::NoLocation { reason } => f
+                .debug_struct("NoLocation")
+                .field("reason", reason)
+                .finish(),
+        }
+    }
 }
 
 impl LoadError {
@@ -1151,6 +1181,19 @@ mod tests {
         }
 
         #[test]
+        fn a_set_aside_shows_no_stored_key_when_printed() {
+            let err = LoadError::SetAside {
+                path: "p".to_string(),
+                kept_as: "k".to_string(),
+                reason: "r".to_string(),
+                state: r#"{"settings":{"apiKey":"stored-key"}}"#.to_string(),
+            };
+            let shown = format!("{err:?}");
+            assert!(!shown.contains("stored-key"), "{}", shown.len());
+            assert!(shown.contains("<withheld>"));
+        }
+
+        #[test]
         fn a_set_aside_starts_from_the_stored_keys_so_a_save_keeps_them() {
             let dir = tempfile::tempdir().unwrap();
             let path = dir.path().join("session.json");
@@ -1166,7 +1209,7 @@ mod tests {
             match result {
                 Err(LoadError::SetAside { state, .. }) => {
                     let v: serde_json::Value = serde_json::from_str(&state).unwrap();
-                    assert_eq!(v["settings"]["apiKey"], "stored-key", "{state}");
+                    assert_eq!(v["settings"]["apiKey"], "stored-key");
                 }
                 other => panic!("expected SetAside, got {other:?}"),
             }
