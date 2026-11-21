@@ -194,7 +194,8 @@ fn assert_captured_keys_well_formed(events: &[ActionEvent]) {
             assert!(
                 input_method
                     .input_method_conversion_mode
-                    .is_none_or(|mode| mode <= 0x07FF_FFFF),
+                    .is_none_or(|mode| mode
+                        <= docent_desktop_lib::capture::held_keys::INPUT_METHOD_MODE_MASK),
                 "a conversion mode beyond the carried bits, got {input_method:?}"
             );
         }

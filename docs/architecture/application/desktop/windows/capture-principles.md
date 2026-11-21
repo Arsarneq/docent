@@ -433,6 +433,7 @@ waits for at most `INPUT_METHOD_READ_TIMEOUT_MS` (20 ms), or an eighth of
 the system's low-level hook timeout where that is less
 (`src/capture/timing.rs`), gives up at once on a thread Windows knows to be
 hung, and dispatches no message to the hook's own thread while it waits.
+With a hook timeout under 8 ms that limit is 0 and the hook asks nothing.
 Where the first ask gets no answer, or is refused, nothing was read and the
 second is not sent; where the first is answered and the second is not, the
 open status is written alone, a fact that was read being written (core

@@ -84,7 +84,9 @@ pub const KEY_TEXT_WAIT_MS: u64 = 500;
 /// The most the keyboard hook waits for each of the two answers of a key
 /// press's input-method read (milliseconds). The read asks the focused
 /// control's input-method window, which the program's own thread answers;
-/// with no answer by then the key is dispatched with no input-method state.
+/// with no answer to the first by then the key is dispatched with no
+/// input-method state, and with none to the second it carries the open
+/// status alone.
 pub const INPUT_METHOD_READ_TIMEOUT_MS: u64 = 20;
 
 /// How long the keyboard hook waits for each answer of the input-method

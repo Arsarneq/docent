@@ -496,7 +496,7 @@ thread_local! {
     /// input-method read, set at the session's start from the system's hook
     /// timeout (`timing::input_method_read_timeout_ms`); 0 until then, and
     /// where the hook does not read.
-    static INPUT_METHOD_READ_TIMEOUT_MS: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+    static INPUT_METHOD_QUESTION_LIMIT_MS: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
 
     /// Timestamp of the most recent low-level input event (button press or
     /// release, key press, or wheel). Used to correlate WinEvent callbacks
@@ -1603,8 +1603,9 @@ fn spawn_click_pre_capture() -> std::io::Result<ClickPreCapture> {
     )
 }
 
-/// Set the session's pre-capture budget from the system's low-level hook
-/// timeout, start the click pre-capture's describers (DCP-1), and wait, for
+/// Set the session's pre-capture budget and the time limit of the keyboard
+/// hook's questions to an input-method window from the system's low-level
+/// hook timeout, start the click pre-capture's describers (DCP-1), and wait, for
 /// at most `PRE_CAPTURE_READY_TIMEOUT`, for the first to build its
 /// accessibility client, so the first click is pre-captured. `None`, logged,
 /// when no describer can be started (a later click tries again); a warning
@@ -1613,10 +1614,10 @@ fn spawn_click_pre_capture() -> std::io::Result<ClickPreCapture> {
 fn start_click_pre_capture() -> Option<ClickPreCapture> {
     let hook_timeout_ms = timing::hook_timeout_ms(&read_hook_timeout_setting());
     let budget_ms = timing::pre_capture_budget_ms(hook_timeout_ms);
-    hook_diagnostics::session_bounds(hook_timeout_ms, budget_ms);
+    let question_limit_ms = timing::input_method_read_timeout_ms(hook_timeout_ms);
+    hook_diagnostics::session_bounds(hook_timeout_ms, budget_ms, question_limit_ms);
     INPUT_PRE_CAPTURE_BUDGET.with(|b| b.set(Duration::from_millis(budget_ms)));
-    INPUT_METHOD_READ_TIMEOUT_MS
-        .with(|t| t.set(timing::input_method_read_timeout_ms(hook_timeout_ms) as u32));
+    INPUT_METHOD_QUESTION_LIMIT_MS.with(|t| t.set(question_limit_ms as u32));
     match spawn_click_pre_capture() {
         Ok(pre_capture) => {
             match pre_capture.wait_ready(PRE_CAPTURE_READY_TIMEOUT) {
@@ -2775,29 +2776,40 @@ unsafe fn input_method_state_of(
     foreground: HWND,
 ) -> Option<super::held_keys::InputMethodState> {
     use super::held_keys::InputMethodQuestion;
-    let timeout_ms = INPUT_METHOD_READ_TIMEOUT_MS.with(|t| t.get());
+    use hook_diagnostics::InputMethodReadOutcome;
+    let timeout_ms = INPUT_METHOD_QUESTION_LIMIT_MS.with(|t| t.get());
     if timeout_ms == 0 {
         return None;
     }
+    let started = Instant::now();
     let window = if control != 0 {
         HWND(control as *mut core::ffi::c_void)
     } else {
         foreground
     };
-    if window.0.is_null() {
-        return None;
-    }
-    let input_method_window = ImmGetDefaultIMEWnd(window);
+    let input_method_window = if window.0.is_null() {
+        window
+    } else {
+        ImmGetDefaultIMEWnd(window)
+    };
     if input_method_window.0.is_null() {
+        hook_diagnostics::input_method_read(started.elapsed(), InputMethodReadOutcome::NoWindow);
         return None;
     }
-    super::held_keys::read_input_method(|question| {
+    let state = super::held_keys::read_input_method(|question| {
         let command = match question {
             InputMethodQuestion::OpenStatus => IMC_GETOPENSTATUS,
             InputMethodQuestion::ConversionMode => IMC_GETCONVERSIONMODE,
         };
         ask_input_method(input_method_window, command, timeout_ms)
-    })
+    });
+    let outcome = match state {
+        None => InputMethodReadOutcome::NoAnswer,
+        Some(state) if state.conversion_mode.is_none() => InputMethodReadOutcome::OpenStatusAlone,
+        Some(_) => InputMethodReadOutcome::Answered,
+    };
+    hook_diagnostics::input_method_read(started.elapsed(), outcome);
+    state
 }
 
 /// Ask an input-method window one `WM_IME_CONTROL` question; `None` when no

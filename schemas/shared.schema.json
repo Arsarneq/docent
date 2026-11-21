@@ -291,6 +291,7 @@
         "input_method_conversion_mode": {
           "type": "integer",
           "minimum": 0,
+          "maximum": 134217727,
           "description": "The input method's conversion mode as the platform gave it at the press, before the key took effect: a set of bits the session-format document states. Written only beside `input_method_open`; absent where it was not read."
         },
         "held_keys": {
