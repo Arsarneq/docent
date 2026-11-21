@@ -1065,7 +1065,9 @@ test.describe('Every key press that is not text', () => {
             isComposing: true,
           }),
         );
-        field.dispatchEvent(new window.CompositionEvent('compositionend', { bubbles: true, data: 'h' }));
+        field.dispatchEvent(
+          new window.CompositionEvent('compositionend', { bubbles: true, data: 'h' }),
+        );
       });
       await blur(testPage);
       expect(await written(serviceWorker, testPage)).toEqual([['key', 'a']]);
@@ -1175,6 +1177,36 @@ test.describe('Every key press that is not text', () => {
         ['click', undefined],
       ]);
     });
+
+    for (const [name, target, after] of [
+      ['in_the_field', '#text', [['key', 'Enter']]],
+      ['elsewhere', '#btn', []],
+    ]) {
+      test(`regression_744_a_composition_the_browser_ends_at_a_press_${name}_is_written_once`, async ({
+        testPage,
+        serviceWorker,
+        context,
+      }) => {
+        // A press with the pointer commits the text being composed: the
+        // browser ends the composition first and sends the press after it.
+        // The Enter that follows in the field is a plain key.
+        await holds(testPage, 'に');
+        await testPage.focus('#text');
+        const ime = await inputMethod(context, testPage);
+        await testPage.keyboard.press('Control+a');
+        await ime.compose('に');
+        await ime.insert('に');
+        await testPage.click(target);
+        if (target === '#text') await testPage.keyboard.press('Enter');
+        await blur(testPage);
+        expect(await written(serviceWorker, testPage)).toEqual([
+          ['key', 'a'],
+          ['type', 'に'],
+          ['click', undefined],
+          ...after,
+        ]);
+      });
+    }
 
     test('regression_751_the_same_text_pasted_over_itself_is_written_again', async ({
       testPage,

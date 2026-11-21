@@ -140,7 +140,7 @@ proptest! {
                             wc.fetch_add(1, Ordering::SeqCst);
                         }
                         Ok(WorkerMessage::Flush(_)) => {}
-                        Ok(WorkerMessage::EndTyping) => {}
+                        Ok(WorkerMessage::EndTyping) | Ok(WorkerMessage::MenuCommand) => {}
                         Ok(WorkerMessage::Shutdown) => break,
                         Err(_) => break,
                     }
@@ -236,7 +236,7 @@ proptest! {
                             }
                         }
                         Ok(WorkerMessage::Flush(_)) => {}
-                        Ok(WorkerMessage::EndTyping) => {}
+                        Ok(WorkerMessage::EndTyping) | Ok(WorkerMessage::MenuCommand) => {}
                         Ok(WorkerMessage::Shutdown) => break,
                         Err(_) => break,
                     }
@@ -343,7 +343,7 @@ proptest! {
                             events.lock().unwrap().push(event_name.to_string());
                         }
                         Ok(WorkerMessage::Flush(_)) => {}
-                        Ok(WorkerMessage::EndTyping) => {}
+                        Ok(WorkerMessage::EndTyping) | Ok(WorkerMessage::MenuCommand) => {}
                         Ok(WorkerMessage::Shutdown) => break,
                         Err(_) => break,
                     }
@@ -979,7 +979,7 @@ fn worker_panic_respawns_and_redistributes() {
                             wc.fetch_add(1, Ordering::SeqCst);
                         }
                         Ok(WorkerMessage::Flush(_)) => {}
-                        Ok(WorkerMessage::EndTyping) => {}
+                        Ok(WorkerMessage::EndTyping) | Ok(WorkerMessage::MenuCommand) => {}
                         Ok(WorkerMessage::Shutdown) => break,
                         Err(_) => break,
                     }
@@ -1053,7 +1053,7 @@ fn repeatedly_failing_workers_get_respawned_and_shutdown_completes() {
                         panic!("simulated worker panic");
                     }
                     Ok(WorkerMessage::Flush(_)) => {}
-                    Ok(WorkerMessage::EndTyping) => {}
+                    Ok(WorkerMessage::EndTyping) | Ok(WorkerMessage::MenuCommand) => {}
                     Ok(WorkerMessage::Shutdown) => {}
                     Err(_) => {}
                 }
@@ -3119,7 +3119,7 @@ proptest! {
                             }
                         }
                         Ok(WorkerMessage::Flush(_)) => {}
-                        Ok(WorkerMessage::EndTyping) => {}
+                        Ok(WorkerMessage::EndTyping) | Ok(WorkerMessage::MenuCommand) => {}
                         Ok(WorkerMessage::Shutdown) => break,
                         Err(_) => break,
                     }
@@ -3512,6 +3512,7 @@ fn messages_sent_for(events: Vec<RawEvent>) -> Vec<Vec<&'static str>> {
                 match rx.recv() {
                     Ok(WorkerMessage::Event(_)) => sent.lock().unwrap().push("event"),
                     Ok(WorkerMessage::EndTyping) => sent.lock().unwrap().push("end typing"),
+                    Ok(WorkerMessage::MenuCommand) => sent.lock().unwrap().push("menu command"),
                     Ok(WorkerMessage::Flush(_)) => {}
                     Ok(WorkerMessage::Shutdown) | Err(_) => break,
                 }
@@ -4733,6 +4734,133 @@ fn regression_751_a_value_change_reported_twice_after_a_paste_is_one_type() {
     assert_eq!(type_values_of(&events), vec!["h"], "got {events:?}");
 }
 
+/// Paste "h" into the dialog's field with the paste key, so the field's last
+/// recorded value is "h".
+fn paste_h_with_the_key(harness: &WorkerTestHarness, scene: &Arc<Mutex<FocusScene>>) {
+    let mut paste = layout_key(1, now_ms(), 0x56);
+    paste.modifiers = (true, false, false, false);
+    harness.send_event(in_dialog(paste));
+    thread::sleep(Duration::from_millis(150));
+    {
+        let mut scene = scene.lock().unwrap();
+        scene.element.text = Some("h".to_string());
+        scene.element.value = Some("h".to_string());
+    }
+    harness.send_event(in_dialog(value_change(2, now_ms(), DIALOG)));
+    thread::sleep(Duration::from_millis(150));
+}
+
+/// The same text pasted over itself from a menu: the click on the menu item
+/// ends the typing and is a command to the field typed into last, so that
+/// field's next value change is the person's entry, also where it repeats
+/// the value recorded for the field.
+#[test]
+fn regression_751_the_same_text_pasted_over_itself_from_a_menu_is_recorded() {
+    let (backend, scene, _) = MovingFocusBackend::new(file_name_field(""));
+    let harness = WorkerTestHarness::new(backend);
+    paste_h_with_the_key(&harness, &scene);
+
+    // The click on the menu's Paste item, as the dispatcher tells the typing
+    // worker of it; the program then reports the field's value, again "h".
+    harness.event_tx.send(WorkerMessage::EndTyping).unwrap();
+    harness.event_tx.send(WorkerMessage::MenuCommand).unwrap();
+    harness.send_event(in_dialog(value_change(3, now_ms(), DIALOG)));
+
+    thread::sleep(Duration::from_millis(900));
+    let events = harness.shutdown();
+
+    assert_eq!(type_values_of(&events), vec!["h", "h"], "got {events:?}");
+}
+
+/// A menu command stands for one value change: the same value reported again
+/// after it is a repeated report.
+#[test]
+fn regression_751_a_value_change_reported_twice_after_a_menu_command_is_one_type() {
+    let (backend, scene, _) = MovingFocusBackend::new(file_name_field(""));
+    let harness = WorkerTestHarness::new(backend);
+    paste_h_with_the_key(&harness, &scene);
+
+    harness.event_tx.send(WorkerMessage::EndTyping).unwrap();
+    harness.event_tx.send(WorkerMessage::MenuCommand).unwrap();
+    harness.send_event(in_dialog(value_change(3, now_ms(), DIALOG)));
+    thread::sleep(Duration::from_millis(150));
+    harness.send_event(in_dialog(value_change(4, now_ms(), DIALOG)));
+
+    thread::sleep(Duration::from_millis(900));
+    let events = harness.shutdown();
+
+    assert_eq!(type_values_of(&events), vec!["h", "h"], "got {events:?}");
+}
+
+/// A menu command with no field typed into before it waits for nothing: the
+/// first text of a field is recorded as ever.
+#[test]
+fn regression_751_a_menu_command_before_any_typing_leaves_the_first_text_one_type() {
+    let (backend, scene, _) = MovingFocusBackend::new(file_name_field(""));
+    let harness = WorkerTestHarness::new(backend);
+
+    harness.event_tx.send(WorkerMessage::EndTyping).unwrap();
+    harness.event_tx.send(WorkerMessage::MenuCommand).unwrap();
+    {
+        let mut scene = scene.lock().unwrap();
+        scene.element.text = Some("h".to_string());
+        scene.element.value = Some("h".to_string());
+    }
+    harness.send_event(in_dialog(value_change(1, now_ms(), DIALOG)));
+    thread::sleep(Duration::from_millis(150));
+    harness.send_event(in_dialog(value_change(2, now_ms(), DIALOG)));
+
+    thread::sleep(Duration::from_millis(900));
+    let events = harness.shutdown();
+
+    assert_eq!(type_values_of(&events), vec!["h"], "got {events:?}");
+}
+
+/// A click whose element is `tag`, as the Input_Thread describes it at the
+/// press.
+fn click_on(tag: &str) -> RawEvent {
+    let mut click = make_raw_event(RawEventType::Click, 1234);
+    click.sequence_id = 2;
+    click.pre_captured_element = Some(ElementDescription {
+        tag: tag.to_string(),
+        ..file_name_field("").element
+    });
+    click
+}
+
+/// A click on a menu item is routed like any click, to a worker that is
+/// seldom the typing worker; the dispatcher tells the typing worker of the
+/// command, behind the end of the typing.
+#[test]
+fn regression_751_the_typing_worker_is_told_of_a_click_on_a_menu_item() {
+    let sent = messages_sent_for(vec![layout_key(1, 1000, 0x41), click_on("MenuItem")]);
+    assert!(
+        sent.iter()
+            .any(|worker| worker.starts_with(&["event", "end typing", "menu command"])),
+        "got {sent:?}"
+    );
+}
+
+/// A click on anything else, and a click whose element was not described at
+/// the press, is no menu command.
+#[test]
+fn regression_751_a_click_on_no_menu_item_is_no_menu_command() {
+    let plain = make_raw_event(RawEventType::Click, 1234);
+    let mut right_click = click_on("MenuItem");
+    right_click.event_type = RawEventType::RightClick;
+    for (name, click) in [
+        ("a button", click_on("Button")),
+        ("an element not described", plain),
+        ("a right click on a menu item", right_click),
+    ] {
+        let sent = messages_sent_for(vec![layout_key(1, 1000, 0x41), click]);
+        assert!(
+            sent.iter().all(|w| !w.contains(&"menu command")),
+            "{name}: got {sent:?}"
+        );
+    }
+}
+
 /// A program that reports one change twice writes one `type`: the second
 /// report repeats the field's value and no key was typed for it.
 #[test]
@@ -5673,7 +5801,9 @@ fn a_click_completing_a_double_click_routes_to_the_previous_clicks_worker() {
             thread::spawn(move || loop {
                 match rx.recv() {
                     Ok(WorkerMessage::Event(raw)) => got.lock().unwrap().push(raw.sequence_id),
-                    Ok(WorkerMessage::Flush(_)) | Ok(WorkerMessage::EndTyping) => {}
+                    Ok(WorkerMessage::Flush(_))
+                    | Ok(WorkerMessage::EndTyping)
+                    | Ok(WorkerMessage::MenuCommand) => {}
                     Ok(WorkerMessage::Shutdown) | Err(_) => break,
                 }
             })

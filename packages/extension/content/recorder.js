@@ -863,7 +863,9 @@
     return (
       takesEntry(el) &&
       fieldsEditedByKey.has(el) &&
-      (el.value !== fieldValueAtFocus.get(el) || entryMadeAgain.has(el) || composesUnwrittenText(el))
+      (el.value !== fieldValueAtFocus.get(el) ||
+        entryMadeAgain.has(el) ||
+        composesUnwrittenText(el))
     );
   }
 

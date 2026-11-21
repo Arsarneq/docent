@@ -644,13 +644,19 @@ with a caveat):
   change of a field after a paste key pressed in it (Ctrl+V, Ctrl+Shift+V or
   Shift+Insert: the same text pasted over itself), also where other keys
   were pressed before the program reported it; a paste key that pasted
-  nothing leaves the field's next value change taken for its text. A value set twice to the same text with neither
-  key (the same text pasted over itself from a menu) is one value change the
-  worker cannot tell from a repeated report, and for a password field, whose
-  value is the mask, so is every value change after the first that neither a
-  text-entering keystroke nor a paste key accompanies; a departure (core
-  CP-18), and for the paste from a menu one from the extension, which writes
-  it (core CP-19;
+  nothing leaves the field's next value change taken for its text. A click
+  on a menu item counts as a paste key pressed in the field typed into last
+  (the same text pasted over itself from the field's context menu or the
+  window's menu), whichever item it is: the item's name is in the
+  application's language and is not read, so an item that changes no text
+  leaves the field's next value change taken for an entry too. A value set
+  twice to the same text with neither a key nor a click on an element
+  described as a menu item (a menu that is not exposed as one, a drop) is
+  one value change the worker cannot tell from a repeated report, and for a
+  password field, whose value is the mask, so is every value change after
+  the first that neither a text-entering keystroke, a paste key nor a menu
+  item accompanies; a departure (core CP-18), and for such a paste one from
+  the extension, which writes it (core CP-19;
   [docent#751](https://github.com/Arsarneq/docent/issues/751))
 - A focus whose selector equals the worker's last — not written; a departure
   (core CP-18)

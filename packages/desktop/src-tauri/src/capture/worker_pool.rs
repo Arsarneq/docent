@@ -270,6 +270,10 @@ pub enum WorkerMessage {
     /// channel, so it is processed after every keystroke and value change
     /// dispatched before it.
     EndTyping,
+    /// A menu item was clicked: a command to the field typed into last (its
+    /// Paste, where the menu is the field's own). Sent to the typing worker
+    /// only, behind the [`WorkerMessage::EndTyping`] of the same click.
+    MenuCommand,
     /// Poison pill — drain remaining events then exit.
     Shutdown,
 }
@@ -608,19 +612,24 @@ impl WorkerPool {
     /// worker stays the respawned index.
     pub fn dispatch(&mut self, event: RawEvent) {
         if ends_typing(&event.event_type) {
-            self.end_typing();
+            self.tell_typing_worker(WorkerMessage::EndTyping);
+        }
+        if is_menu_command(&event) {
+            self.tell_typing_worker(WorkerMessage::MenuCommand);
         }
         let worker_index = self.select_worker(&event);
         self.send_to_worker(worker_index, event);
     }
 
-    /// Tell the typing worker that the typing in a field has ended. With no
-    /// typing worker yet there is no pending `type`; a worker whose channel is
-    /// gone has its buffers drained when it is respawned.
-    fn end_typing(&mut self) {
+    /// Send the typing worker a message that is no event: that the typing in
+    /// a field has ended, or that a menu item was clicked. With no typing
+    /// worker yet there is no pending `type` and no field typed into; a
+    /// worker whose channel is gone has its buffers drained when it is
+    /// respawned.
+    fn tell_typing_worker(&mut self, message: WorkerMessage) {
         let index = self.typing_worker.load(Ordering::SeqCst);
         if let Some(worker) = self.workers.get(index) {
-            let _ = worker.sender.send(WorkerMessage::EndTyping);
+            let _ = worker.sender.send(message);
         }
     }
 
@@ -1764,6 +1773,7 @@ pub fn worker_loop<B: AccessibilityBackend>(
                 // In-memory buffer mutation only — no backend calls inside.
                 lock_buffers(&pending).flush_pending_type_only(&action_sender);
             }
+            Ok(WorkerMessage::MenuCommand) => note_menu_command(&mut state),
             Ok(WorkerMessage::Shutdown) => {
                 // Drain remaining events in the queue. A message that is no
                 // event does not end the drain: the events behind it are the
@@ -1787,6 +1797,7 @@ pub fn worker_loop<B: AccessibilityBackend>(
                         WorkerMessage::EndTyping => {
                             lock_buffers(&pending).flush_pending_type_only(&action_sender);
                         }
+                        WorkerMessage::MenuCommand => note_menu_command(&mut state),
                         WorkerMessage::Flush(ack) => {
                             lock_buffers(&pending).drain_into(&action_sender);
                             let _ = ack.send(worker_index);
@@ -1853,10 +1864,12 @@ struct WorkerState {
     last_focus_selector: String,
     /// The value of the field typed into last, as last taken for its `type`.
     last_value: Option<LastValue>,
-    /// The field a paste key (see [`is_paste_key`]) was pressed in, until a
-    /// value change is taken for that field: that one is the pasted text,
-    /// also where it repeats the field's value. A program can report the
-    /// paste after the keys that follow it, so no later key ends the wait.
+    /// The field a paste key (see [`is_paste_key`]) was pressed in, or the
+    /// field typed into last when a menu item was clicked (see
+    /// [`note_menu_command`]), until a value change is taken for that field:
+    /// that one is the pasted text, also where it repeats the field's value.
+    /// A program can report the paste after the keys that follow it, so no
+    /// later key ends the wait.
     pasted_into: Option<LastValue>,
     last_drag_element: Option<ElementDescription>,
     /// The file the last click selected in a file dialog's item view, read
@@ -3066,6 +3079,34 @@ impl LastValue {
     }
 }
 
+/// Whether `event` is a click on a menu item. Only a click whose element the
+/// Input_Thread described at the press is known to be one.
+fn is_menu_command(event: &RawEvent) -> bool {
+    matches!(event.event_type, RawEventType::Click)
+        && event
+            .pre_captured_element
+            .as_ref()
+            .is_some_and(|element| element.tag == "MenuItem")
+}
+
+/// A menu item was clicked. A menu's Paste puts text into the field typed
+/// into last with no key pressed, so that field's next value change is taken
+/// as the person's entry, also where it repeats the field's recorded value
+/// (the same text pasted over itself). Which item was clicked is not asked:
+/// its name is in the application's language. An item that changes no text
+/// (Copy) therefore leaves the field waiting, and a repeated report of its
+/// value that comes later is then written as one more `type`.
+fn note_menu_command(state: &mut WorkerState) {
+    if let Some(last) = &state.last_value {
+        state.pasted_into = Some(LastValue {
+            context_id: last.context_id,
+            selector: last.selector.clone(),
+            place: last.place.clone(),
+            value: String::new(),
+        });
+    }
+}
+
 /// Whether two descriptions read in one window are of the same element.
 ///
 /// The selector holds the window's title, and a title changes while the
@@ -3909,7 +3950,7 @@ mod tests {
                     Ok(WorkerMessage::Flush(ack)) => {
                         let _ = ack.send(idx);
                     }
-                    Ok(WorkerMessage::EndTyping) => {}
+                    Ok(WorkerMessage::EndTyping) | Ok(WorkerMessage::MenuCommand) => {}
                     Ok(WorkerMessage::Shutdown) | Err(_) => break,
                 }
             })
