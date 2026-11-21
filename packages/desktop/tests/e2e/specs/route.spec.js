@@ -23,7 +23,7 @@ import {
   bringToFront,
   typeKeys,
   readWhenWritten,
-  APP_PROCESS,
+  exportProject,
 } from '../helpers/desktop.js';
 
 /** A fresh folder for the files the dialogs write. */
@@ -52,11 +52,7 @@ test("the panel's Export writes the project through the app's save dialog", asyn
   await panel.click('#btn-new-project-create');
   await expect(panel.locator('#view-project')).toBeVisible();
 
-  await panel.click('#btn-export-project');
-  bringToFront(APP_PROCESS, { dialog: true });
-  typeKeys([{ window: { process: `${APP_PROCESS}.exe` } }, { chars: file }, { key: 'enter' }]);
-
-  const exported = JSON.parse(await readWhenWritten(file));
+  const exported = await exportProject(app, file);
   expect(exported.docent_format).toBeTruthy();
   expect(exported.project.name).toBe('Route probe');
 });

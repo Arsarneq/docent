@@ -130,6 +130,16 @@ test('numpad digits are their own keys, apart from the top-row digits', () => {
   assert.equal(plan([W, { key: '7' }])[1].vk, '0x37');
 });
 
+test('function keys F1 to F12 have names, so Alt+F4 can be sent', () => {
+  assert.equal(plan([W, { key: 'f1' }])[1].vk, '0x70');
+  assert.equal(plan([W, { key: 'f12' }])[1].vk, '0x7b');
+  const ev = plan([W, { key: 'alt+f4', scan: true }]);
+  assert.deepEqual(
+    ev.slice(1).map((e) => `${e.vk}${e.up ? '^' : 'v'}`),
+    ['0x12v', '0x73v', '0x73^', '0x12^'],
+  );
+});
+
 // Scan-code mode (2026-11-20): a key sent with its scan code, as a keyboard
 // does, so the app's hook sees a physical key and can name it (`code`).
 test('a step with scan sends its keys with scan codes', () => {
