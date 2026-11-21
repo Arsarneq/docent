@@ -53,6 +53,27 @@ async function waitForDevTools(child, timeoutMs) {
   throw new Error(`the app's DevTools port did not answer within ${timeoutMs} ms (${last})`);
 }
 
+/**
+ * The panel's page. The DevTools port can answer before the WebView has
+ * created the page, so this waits for it.
+ */
+async function waitForPanel(browser, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  let pages = [];
+  while (Date.now() < deadline) {
+    pages = browser.contexts().flatMap((c) => c.pages());
+    const panel = pages.find((p) => !p.url().startsWith('devtools:') && p.url() !== 'about:blank');
+    if (panel) {
+      await panel.waitForLoadState('domcontentloaded');
+      return panel;
+    }
+    await new Promise((r) => setTimeout(r, 250));
+  }
+  throw new Error(
+    `no panel page within ${timeoutMs} ms among [${pages.map((p) => p.url()).join(', ')}]`,
+  );
+}
+
 /** Ends a process and its children (the WebView2 processes). */
 function killTree(pid) {
   spawnSync('taskkill', ['/PID', String(pid), '/T', '/F'], { stdio: 'ignore' });
@@ -72,9 +93,7 @@ export async function launchApp() {
   try {
     await waitForDevTools(child, 60_000);
     const browser = await chromium.connectOverCDP(`http://127.0.0.1:${DEVTOOLS_PORT}`);
-    const pages = browser.contexts().flatMap((c) => c.pages());
-    const panel = pages.find((p) => !p.url().startsWith('devtools:'));
-    if (!panel) throw new Error(`no panel page among ${pages.map((p) => p.url()).join(', ')}`);
+    const panel = await waitForPanel(browser, 30_000);
     return {
       panel,
       async close() {
@@ -152,8 +171,36 @@ export async function readWhenWritten(path, timeoutMs = 15_000) {
   throw new Error(`${path} was not written within ${timeoutMs} ms`);
 }
 
+/**
+ * What was on the screen when a test failed: the windows (printed, so the job
+ * log has them) and a screenshot (attached to the test's results). A spec
+ * registers it with `test.afterEach`, which runs before the test's fixtures
+ * end the app or Notepad.
+ */
+export function reportScreenOnFailure(_fixtures, testInfo) {
+  if (testInfo.status === testInfo.expectedStatus) return;
+  const png = testInfo.outputPath('screen.png');
+  const r = spawnSync('powershell', [...POWERSHELL, join(here, 'screen.ps1'), '-Png', png], {
+    encoding: 'utf8',
+  });
+  console.log(`[screen] ${testInfo.title}\n${r.stdout}${r.stderr}`);
+  if (existsSync(png))
+    testInfo.attachments.push({ name: 'screen', path: png, contentType: 'image/png' });
+}
+
 /** The suite's test: `app` is the built app, started fresh for the test. */
 export const test = base.extend({
+  // Notepad, started for the test and ended after it (after the hooks, so a
+  // failed test's screen still shows it).
+  // eslint-disable-next-line no-empty-pattern
+  notepad: async ({}, use) => {
+    const child = spawn('notepad.exe', [], { stdio: 'ignore' });
+    try {
+      await use(child);
+    } finally {
+      killTree(child.pid);
+    }
+  },
   // eslint-disable-next-line no-empty-pattern
   app: async ({}, use) => {
     const app = await launchApp();

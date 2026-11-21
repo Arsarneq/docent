@@ -14,7 +14,6 @@
  * machine does not give.
  */
 
-import { spawn, spawnSync } from 'node:child_process';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -25,7 +24,10 @@ import {
   typeKeys,
   readWhenWritten,
   APP_PROCESS,
+  reportScreenOnFailure,
 } from '../helpers/desktop.js';
+
+test.afterEach(reportScreenOnFailure);
 
 /** A fresh folder with a short path, for files the dialogs write. */
 const freshDir = () => mkdtempSync(join(tmpdir(), 'docent-e2e-'));
@@ -34,24 +36,20 @@ test('the built app starts and its panel shows the projects view', async ({ app 
   await expect(app.panel.locator('#view-projects')).toBeVisible();
 });
 
-test('keys typed into Notepad land in the file its save dialog writes', async () => {
+test('keys typed into Notepad land in the file its save dialog writes', async ({ notepad }) => {
+  expect(notepad.pid).toBeTruthy();
   const file = join(freshDir(), 'typed.txt');
-  const notepad = spawn('notepad.exe', [], { stdio: 'ignore' });
-  try {
-    bringToFront('notepad');
-    typeKeys([
-      { window: { process: 'notepad.exe' } },
-      { chars: 'keep aa' },
-      { key: 'ctrl+s' },
-      { wait: 1500 },
-      { window: { process: 'notepad.exe' } },
-      { chars: file },
-      { key: 'enter' },
-    ]);
-    expect((await readWhenWritten(file)).replace(/^\uFEFF/, '')).toBe('keep aa');
-  } finally {
-    spawnSync('taskkill', ['/PID', String(notepad.pid), '/T', '/F'], { stdio: 'ignore' });
-  }
+  bringToFront('notepad');
+  typeKeys([
+    { window: { process: 'notepad.exe' } },
+    { chars: 'keep aa' },
+    { key: 'ctrl+s' },
+    { wait: 1500 },
+    { window: { process: 'notepad.exe' } },
+    { chars: file },
+    { key: 'enter' },
+  ]);
+  expect((await readWhenWritten(file)).replace(/^\uFEFF/, '')).toBe('keep aa');
 });
 
 test("the panel's Export writes the project through the app's save dialog", async ({ app }) => {

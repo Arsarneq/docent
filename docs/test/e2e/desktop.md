@@ -9,9 +9,9 @@ The suite lives in `packages/desktop/tests/e2e/`. It runs in the `desktop-e2e-te
 Each test drives the app with two hands:
 
 - **The panel**, as a page. The fixture (`helpers/desktop.js`) starts the release build with WebView2's DevTools port open (`WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=…`) and connects Playwright to it. A test clicks the panel's own buttons, so each click runs the panel's handler and the real backend command behind it.
-- **Other programs and dialogs**, with real keyboard input. The [keyboard driver](../../../packages/desktop/tests/e2e/driver/README.md) sends `SendInput` keys from a steps file and checks the foreground window before every input. `helpers/front.ps1` brings a program's window, or its open dialog, to the front first. It presses Alt to be allowed to, so it is called before a recording starts.
+- **Other programs and dialogs**, with real keyboard input. The [keyboard driver](../../../packages/desktop/tests/e2e/driver/README.md) sends `SendInput` keys from a steps file and checks the foreground window before every input. `helpers/front.ps1` brings a program's window, or its open dialog, to the front first. When the window is not already in front, it presses an unassigned key to be allowed to (not Alt, which would put a window with a menu bar in menu mode and lose the next key), so it is called before a recording starts.
 
-Each test starts the app on fresh data: the fixture removes the app's data and WebView folders before it starts the app, and ends the app and its WebView processes afterwards.
+Each test starts the app on fresh data: the fixture removes the app's data and WebView folders before it starts the app, and ends the app and its WebView processes afterwards. A test that fails prints every visible window (process, class, title) to the job log and attaches a screenshot (`helpers/screen.ps1`), before its fixtures end the app or Notepad.
 
 ## What the suite covers
 
