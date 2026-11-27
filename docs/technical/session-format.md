@@ -435,8 +435,9 @@ whether an accent begun in one window is used in another, and a program can
 hold an accent from before the recording started; the desktop can read
 neither. So where it does not know whether an accent waits for a key, a key
 that some dead key of its layout makes one character or an accent with is
-`Unidentified`, and every other key keeps its own name. That is so for the
-first key that gives something in each thread:
+`Unidentified`, and every other key keeps its own name; where the key may
+have made an accent, the key behind it is not known either. That is so for
+the first key that gives something in each thread:
 
 - after the recording started, and so for the key behind a dead key that was
   the first key in its thread;

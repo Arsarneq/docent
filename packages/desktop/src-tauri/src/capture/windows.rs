@@ -3276,8 +3276,8 @@ fn layout_composed(
                 Err(why) => {
                     eprintln!(
                         "[WindowsCapture] The dead-key list of keyboard layout {:08X} was not \
-                         read ({why}): a key pressed behind a dead key is named Unidentified \
-                         on this layout.",
+                         read ({why}): a key an accent may rename is named Unidentified on \
+                         this layout.",
                         layout as u32
                     );
                     None

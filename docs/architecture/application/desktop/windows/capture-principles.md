@@ -671,8 +671,9 @@ After a typing worker gives its role up at a commit, two things hold for deliver
       would rename it;
   - a layout whose list could not be read (a layout file built for another
     processor, as on Windows on ARM, or in another form than the one read):
-    the key behind a dead key is `Unidentified`, so is every key that gives
-    a character where the desktop does not know which accent waits, and the
+    the key behind a dead key is `Unidentified`, and where the desktop does
+    not know which accent waits so is every key that gives a character,
+    until a key that gives none (Enter, Tab) was pressed in the thread. The
     log says so once for the layout;
   - a key named among the `held_keys` of a pointer action before its own
     key-down was named: the action waits for the names of its held keys for

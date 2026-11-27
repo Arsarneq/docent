@@ -99,13 +99,34 @@ impl Compositions {
     }
 
     /// What the list answers for `accent` and `base`: [`of`](Self::of) for
-    /// one accent; for any accent, something where
-    /// [`any_with`](Self::any_with) holds and `None` where it does not.
+    /// one accent. For any accent: `None` where none makes anything with
+    /// `base` ([`any_with`](Self::any_with)); an accent (which one is not
+    /// said) where some accent makes an accent that waits in its turn; a
+    /// character (which one is not said) otherwise.
     pub fn asked(&self, accent: Accent, base: char) -> Option<Composed> {
         match accent {
             Accent::This(accent) => self.of(accent, base),
-            Accent::Any => self.any_with(base).then_some(Composed::Char(base)),
+            Accent::Any if !self.any_with(base) => None,
+            Accent::Any if self.any_makes_an_accent_with(base) => Some(Composed::Dead(base)),
+            Accent::Any => Some(Composed::Char(base)),
         }
+    }
+
+    /// Whether some accent of the layout makes, with `base`, an accent that
+    /// waits in its turn.
+    fn any_makes_an_accent_with(&self, base: char) -> bool {
+        let Ok(base) = u16::try_from(u32::from(base)) else {
+            return false;
+        };
+        let mut seen: Vec<u16> = Vec::new();
+        self.entries.iter().any(|entry| {
+            // The first entry for an accent and the character stands.
+            if entry.base != base || seen.contains(&entry.accent) {
+                return false;
+            }
+            seen.push(entry.accent);
+            entry.dead
+        })
     }
 
     /// Whether some accent of the layout makes one character or an accent
@@ -649,7 +670,11 @@ mod tests {
         assert!(list.any_with('f'), "another accent's entry counts");
         assert!(!list.any_with('\u{1F600}'), "no character of the list");
         assert_eq!(list.asked(Accent::Any, 'q'), None);
-        assert!(list.asked(Accent::Any, 'e').is_some());
+        assert_eq!(list.asked(Accent::Any, 'e'), Some(Composed::Char('e')));
+        assert_eq!(list.asked(Accent::Any, 'x'), Some(Composed::Dead('x')));
+        // An accent's later entry that waits does not stand.
+        let later = Compositions::of_entries(&[('´', 'e', 'é', false), ('´', 'e', 'ˇ', true)]);
+        assert_eq!(later.asked(Accent::Any, 'e'), Some(Composed::Char('e')));
         assert_eq!(
             list.asked(Accent::This('´'), 'e'),
             Some(Composed::Char('é'))
