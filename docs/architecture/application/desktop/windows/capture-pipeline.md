@@ -157,7 +157,6 @@ Windows hands a program a message another thread sent it ahead of the key presse
 
 The [session format](../../../../technical/session-format.md#key-names) states what the key pressed behind a dead key is named. The typing worker names it, since the key-downs go to it in the order pressed:
 
-- It keeps the accent that waits, one a keyboard layout, as Windows does whichever window the keys go to.
 - Each key-down is taken in by what the layout's table gives the key with the modifiers as held, and what it does to the accent is the session format's table.
 - Where the worker cannot know which accent waits, it says so and guesses none: the next key an accent would rename is `Unidentified` (DCP-13 lists the cases). When the keyboard hook is set, the input thread asks each loaded layout whether an accent waits on it, with the read that leaves the keyboard state alone, and tells the worker ahead of every key. A worker that takes the typing over from another, and the replacement of one that ended, is told that it did not get the keys before it. A key-down whose processing failed leaves every layout not known.
 - A key-down in a window that is not recorded counts like any other. The keyboard hook sends the worker its layout, key code and modifiers, the worker takes it into what waits, and nothing is written, logged or kept of it.

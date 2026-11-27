@@ -1066,6 +1066,7 @@ mod tests {
             callback_params: [i64::from(scan_code), 0, 0, 0],
             key_value: 0,
             keyboard_layout: 0,
+            keyboard_thread: 0,
             caps_lock: false,
             pre_captured_element: None,
             focus_epoch: 0,

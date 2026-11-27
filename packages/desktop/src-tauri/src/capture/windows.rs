@@ -125,6 +125,7 @@ enum BridgeMessage {
     /// press. FIFO-ordered among the keys sent.
     UnrecordedKey {
         layout: i64,
+        thread: u32,
         key_code: u32,
         held: u8,
     },
@@ -971,9 +972,10 @@ impl CaptureLayer for WindowsCapture {
                     BridgeMessage::TypingEnded => pool.end_typing(),
                     BridgeMessage::UnrecordedKey {
                         layout,
+                        thread,
                         key_code,
                         held,
-                    } => pool.unrecorded_key(layout, key_code, held),
+                    } => pool.unrecorded_key(layout, thread, key_code, held),
                     BridgeMessage::AccentWaitedAtStart { layout } => {
                         pool.accent_not_known_on(layout);
                     }
@@ -1583,15 +1585,15 @@ fn input_dropped_window_event(event: u32) {
 
 /// Tell the pool of a key that went down in a window the recording keeps
 /// nothing of ([`BridgeMessage::UnrecordedKey`]). The key can be a dead key,
-/// or take a waiting accent away, like any other, and Windows keeps one
-/// waiting accent a layout whichever window the keys go to: the typing worker
-/// takes the key into the accents that wait, so the next key recorded is
-/// named right. Nothing is written or logged for the key, and the worker
+/// or take a waiting accent away, like any other: the typing worker takes
+/// the key into the accents that wait, with the thread of the window it went
+/// to, so the next key recorded is named right or as not known. Nothing is written or logged for the key, and the worker
 /// keeps nothing of it but what waits afterwards.
 ///
 /// Called on the keyboard hook: one send, like a key's own.
 fn input_send_unrecorded_key(
     layout: i64,
+    thread: u32,
     key_code: u32,
     held: super::key_value::Held,
     system_may_take: bool,
@@ -1605,6 +1607,7 @@ fn input_send_unrecorded_key(
         if let Some(sender) = s.borrow().as_ref() {
             let _ = sender.send(BridgeMessage::UnrecordedKey {
                 layout,
+                thread,
                 key_code,
                 held: held.index() as u8 | system_may_take,
             });
@@ -2061,6 +2064,7 @@ unsafe fn input_win_event_handle(
                 callback_params: [id_object as i64, id_child as i64, 0, 0],
                 key_value: 0,
                 keyboard_layout: 0,
+                keyboard_thread: 0,
                 caps_lock: false,
                 pre_captured_element: None,
                 focus_epoch: 0,
@@ -2106,6 +2110,7 @@ unsafe fn input_win_event_handle(
                 callback_params: [id_object as i64, id_child as i64, 0, 0],
                 key_value: 0,
                 keyboard_layout: 0,
+                keyboard_thread: 0,
                 caps_lock: false,
                 pre_captured_element: None,
                 focus_epoch: 0,
@@ -2173,6 +2178,7 @@ unsafe fn input_win_event_handle(
                         callback_params: [id_object as i64, id_child as i64, 0, 0],
                         key_value: 0,
                         keyboard_layout: 0,
+                        keyboard_thread: 0,
                         caps_lock: false,
                         pre_captured_element: None,
                         focus_epoch: 0,
@@ -2225,6 +2231,7 @@ unsafe fn input_win_event_handle(
                 ],
                 key_value: 0,
                 keyboard_layout: 0,
+                keyboard_thread: 0,
                 caps_lock: false,
                 pre_captured_element: None,
                 focus_epoch: 0,
@@ -2283,6 +2290,7 @@ unsafe fn input_win_event_handle(
                 callback_params: [id_object as i64, id_child as i64, 0, 0],
                 key_value: 0,
                 keyboard_layout: 0,
+                keyboard_thread: 0,
                 caps_lock: false,
                 pre_captured_element: None,
                 focus_epoch: 0,
@@ -2352,6 +2360,7 @@ unsafe fn input_win_event_handle(
                 callback_params: [id_object as i64, id_child as i64, 0, 0],
                 key_value: 0,
                 keyboard_layout: 0,
+                keyboard_thread: 0,
                 caps_lock: false,
                 pre_captured_element: None,
                 focus_epoch: 0,
@@ -2437,6 +2446,7 @@ unsafe fn input_press_switch(point_hwnd: HWND, fg_hwnd: HWND, timestamp: u64) {
         callback_params: [0, 0, 0, 0],
         key_value: 0,
         keyboard_layout: 0,
+        keyboard_thread: 0,
         caps_lock: false,
         pre_captured_element: None,
         focus_epoch: 0,
@@ -2583,6 +2593,7 @@ unsafe fn input_mouse_ll_handle(n_code: i32, w_param: WPARAM, l_param: LPARAM) {
                             callback_params: [0, 0, 0, 0],
                             key_value: 0,
                             keyboard_layout: 0,
+                            keyboard_thread: 0,
                             caps_lock: false,
                             pre_captured_element: None,
                             focus_epoch: 0,
@@ -2604,6 +2615,7 @@ unsafe fn input_mouse_ll_handle(n_code: i32, w_param: WPARAM, l_param: LPARAM) {
                             callback_params: [0, 0, 0, 0],
                             key_value: 0,
                             keyboard_layout: 0,
+                            keyboard_thread: 0,
                             caps_lock: false,
                             pre_captured_element: None,
                             focus_epoch: 0,
@@ -2638,6 +2650,7 @@ unsafe fn input_mouse_ll_handle(n_code: i32, w_param: WPARAM, l_param: LPARAM) {
                             ],
                             key_value: 0,
                             keyboard_layout: 0,
+                            keyboard_thread: 0,
                             caps_lock: false,
                             pre_captured_element: pre_element,
                             focus_epoch: 0,
@@ -2669,6 +2682,7 @@ unsafe fn input_mouse_ll_handle(n_code: i32, w_param: WPARAM, l_param: LPARAM) {
                         callback_params: [0, 0, 0, 0],
                         key_value: 0,
                         keyboard_layout: 0,
+                        keyboard_thread: 0,
                         caps_lock: false,
                         pre_captured_element: None,
                         focus_epoch: 0,
@@ -2693,6 +2707,7 @@ unsafe fn input_mouse_ll_handle(n_code: i32, w_param: WPARAM, l_param: LPARAM) {
                         callback_params: [1, 0, 0, 0], // 1 = horizontal axis
                         key_value: 0,
                         keyboard_layout: 0,
+                        keyboard_thread: 0,
                         caps_lock: false,
                         pre_captured_element: None,
                         focus_epoch: 0,
@@ -2727,6 +2742,7 @@ unsafe fn input_mouse_ll_handle(n_code: i32, w_param: WPARAM, l_param: LPARAM) {
                             callback_params: [down_dispatch_click_mark(msg), 0, 0, 0],
                             key_value: 0,
                             keyboard_layout: 0,
+                            keyboard_thread: 0,
                             caps_lock: false,
                             pre_captured_element: pre_element,
                             focus_epoch: 0,
@@ -2943,6 +2959,7 @@ unsafe extern "system" fn input_keyboard_ll_proc(
                     // layout what the key gives as pressed (docent#717).
                     key_value: 0,
                     keyboard_layout,
+                    keyboard_thread: thread_id,
                     caps_lock,
                     pre_captured_element: None,
                     focus_epoch: 0,
@@ -2956,6 +2973,7 @@ unsafe extern "system" fn input_keyboard_ll_proc(
                 let (ctrl, shift, alt, _meta) = modifiers;
                 input_send_unrecorded_key(
                     keyboard_layout,
+                    thread_id,
                     kb_struct.vkCode,
                     super::key_value::Held {
                         shift,
@@ -5463,9 +5481,9 @@ mod tests {
                         let of = |a: char, b: char| Ok(list.of(a, b));
                         let dead_meets =
                             met_by_an_accent(as_held(dead_vk, dead_held), dead_vk, dead_held);
-                        accents.press(layout, dead_meets, of);
+                        accents.press(layout, 1, dead_meets, of);
                         let key = as_held(vk, held);
-                        let named = accents.press(layout, met_by_an_accent(key, vk, held), of);
+                        let named = accents.press(layout, 1, met_by_an_accent(key, vk, held), of);
                         let waits = accents.waiting_on(layout);
 
                         // The key is renamed where Windows enters one
