@@ -647,10 +647,10 @@ After a typing worker gives its role up at a commit, two things hold for deliver
     layout would rename it. That is so:
     - in each thread from the start of the recording: a program can hold an
       accent from before it. The cost is carried by every recording on a
-      layout with dead keys: on the Danish layout the first key press in a
-      window is `Unidentified` where it is a vowel, a space or another key an
-      accent takes, and a dead key pressed first leaves the key behind it
-      `Unidentified`. Not touched: a layout with no dead key, text typed
+      layout with dead keys: on the Danish layout the first key that gives
+      something in each thread is `Unidentified` where it is a vowel, a
+      space or another key an accent takes, and a dead key pressed first
+      leaves the key behind it `Unidentified`. Not touched: a layout with no dead key, text typed
       into a field (written as `type`), a letter key pressed with Ctrl, and
       every key no dead key of the layout makes anything with. A key pressed
       with Alt is touched like the key alone, since Windows lets an accent
@@ -673,7 +673,8 @@ After a typing worker gives its role up at a commit, two things hold for deliver
     processor, as on Windows on ARM, or in another form than the one read):
     the key behind a dead key is `Unidentified`, and where the desktop does
     not know which accent waits so is every key that gives a character,
-    until a key that gives none (Enter, Tab) was pressed in the thread. The
+    until a key that gives something that is no character (Enter, Tab) was
+    pressed in the thread. The
     log says so once for the layout;
   - a key named among the `held_keys` of a pointer action before its own
     key-down was named: the action waits for the names of its held keys for

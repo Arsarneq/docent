@@ -149,8 +149,9 @@ impl OnLayout {
         }
     }
 
-    /// `thread` went from `before` to `after` by a key that gives something.
-    fn take(&mut self, thread: u32, before: Waiting, after: Waiting) {
+    /// `thread` went from `before` to `after` by a key that gives something,
+    /// a dead key or not.
+    fn take(&mut self, thread: u32, before: Waiting, after: Waiting, is_dead: bool) {
         match (before, after) {
             (Waiting::Accent(_), Waiting::Accent(accent)) => {
                 self.begun = Some((thread, Some(accent)));
@@ -161,9 +162,12 @@ impl OnLayout {
             }
             (Waiting::None, Waiting::None) => {}
             (Waiting::NotKnown, Waiting::None) => self.had_its_key(thread),
+            // A character in a thread that is not known: what it made may
+            // wait there, and the thread stays not known. With no dead key
+            // pressed there it leaves nothing for another thread.
+            (Waiting::NotKnown, Waiting::NotKnown) if !is_dead => {}
             // A dead key in a thread that is not known, or with no thread
-            // read; a key that may have made an accent that waits in its
-            // turn; an accent whose list could not be read.
+            // read; an accent whose list could not be read.
             _ => self.may_wait_in(thread),
         }
     }
@@ -216,10 +220,10 @@ impl WaitingAccents {
         let before = on.before(thread);
         let (named, after) = step(before, gives, composed);
         // Taken by the system, the key leaves what waited; translated, it
-        // leaves `after`. Where what waited is not known and the key would
-        // only take it away, that is not known as before.
-        let stays_not_known = before == Waiting::NotKnown && after == Waiting::None;
-        if after != before && !stays_not_known {
+        // leaves `after`. A dead key may leave its accent; any other key
+        // changes what is known only where an accent is known to wait.
+        let is_dead = matches!(gives, LayoutAnswer::Dead(_));
+        if is_dead || (matches!(before, Waiting::Accent(_)) && after != before) {
             on.may_wait_in(thread);
         }
         match named {
@@ -262,7 +266,12 @@ impl WaitingAccents {
         let on = self.on(layout);
         let before = on.before(thread);
         let (named, after) = step(before, gives, composed);
-        on.take(thread, before, after);
+        on.take(
+            thread,
+            before,
+            after,
+            matches!(gives, LayoutAnswer::Dead(_)),
+        );
         named
     }
 
@@ -1291,6 +1300,62 @@ mod tests {
         assert_eq!(press(NOTEPAD, character('e')), NotKnown);
         assert_eq!(press(CALCULATOR, character('e')), NotKnown);
         assert_eq!(press(NOTEPAD, character('e')), AsPressed);
+    }
+
+    /// A character pressed in a thread that is not known, with no dead key
+    /// pressed there: whatever it made there, a thread that had its key
+    /// since the last dead key holds none. Behind a dead key pressed there
+    /// it is otherwise: what the two made may wait for any thread.
+    #[test]
+    fn a_character_in_a_thread_not_known_leaves_the_others_known() {
+        let no_list = |_: Accent, _: char| Err(NoList);
+        let mut waiting = WaitingAccents::new();
+        assert_eq!(
+            waiting.press(DANISH, NOTEPAD, character('q'), list),
+            AsPressed
+        );
+        assert_eq!(
+            waiting.press(DANISH, CALCULATOR, character('x'), list),
+            NotKnown
+        );
+        assert_eq!(
+            waiting.press(DANISH, NOTEPAD, character('e'), list),
+            AsPressed
+        );
+        assert_eq!(
+            waiting.press(DANISH, PANEL, character('q'), no_list),
+            NotKnown
+        );
+        assert_eq!(
+            waiting.press(DANISH, NOTEPAD, character('e'), list),
+            AsPressed
+        );
+        // Behind a dead key in that thread.
+        let mut waiting = WaitingAccents::new();
+        let mut press = |thread, key| waiting.press(DANISH, thread, key, list);
+        assert_eq!(press(NOTEPAD, character('q')), AsPressed);
+        assert_eq!(press(CALCULATOR, dead(ACUTE)), AsPressed);
+        assert_eq!(press(CALCULATOR, character('x')), NotKnown);
+        assert_eq!(press(NOTEPAD, character('e')), NotKnown);
+    }
+
+    /// A dead key the system may take, pressed in a thread that is not
+    /// known: translated, its accent may wait for any thread.
+    #[test]
+    fn a_dead_key_the_system_may_take_in_a_thread_not_known_may_leave_an_accent() {
+        let mut waiting = WaitingAccents::new();
+        assert_eq!(
+            waiting.press(DANISH, NOTEPAD, character('q'), list),
+            AsPressed
+        );
+        assert_eq!(
+            waiting.press_the_system_may_take(DANISH, CALCULATOR, dead(ACUTE), list),
+            AsPressed
+        );
+        assert_eq!(
+            waiting.press(DANISH, NOTEPAD, character('e'), list),
+            NotKnown
+        );
     }
 
     /// A key the system may take, pressed in a thread that is not known,
