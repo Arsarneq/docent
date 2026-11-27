@@ -485,8 +485,7 @@ key carries (a paste, an accepted suggestion, a composed character), read
 only after a later key was dispatched, is not taken, and its text is in no
 action; the value read then could hold what later keys did, which the person
 did not have. For example, the person pastes into the field with Ctrl+V and
-presses Enter, and the pasted value is read after Enter was dispatched: the
-file holds `key` V with Control, then `key` Enter, and no action holds the
+presses Enter, and the pasted value is read after Enter was dispatched: the file holds `key` `v` with Control, then `key` Enter, and no action holds the
 pasted text. A keystroke
 injected as Unicode (`VK_PACKET`, the path of IME results, remote-desktop
 stacks, software keyboards and automation) is printable input whatever it
@@ -494,12 +493,11 @@ carries: the hook passes on its scan code, which is the injected UTF-16 code
 unit, and the worker names the key by that character (a space as `Space`,
 and a unit that is no character on its own as `Unidentified`), so the same
 text is never recorded twice. A key is named as the
-[session format](../../../../technical/session-format.md)'s `key` row states:
-the hook reads the keyboard layout of the thread that holds the keyboard
-focus and whether Caps Lock is on, two reads that leave the keyboard state
-alone, and the worker names the key from the table built for that layout
-(`Unidentified` where no layout was read and the key
-has no fixed name). For a punctuation key (the codes `0xBA`–`0xC2`,
+[session format](../../../../technical/session-format.md#key-names) states
+under Key names: the hook reads the keyboard layout of the foreground
+window's thread and whether Caps Lock is on, two reads that leave the
+keyboard state alone, and the worker names the key from the table built for
+that layout. For a punctuation key (the codes `0xBA`–`0xC2`,
 `0xDB`–`0xDF`, `0xE1`–`0xE4`, `0xE6`, whose character each layout assigns
 for itself) the hook also reads the character the key enters with no
 modifier on that layout, which tells the worker whether the key is a dead

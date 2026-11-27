@@ -271,7 +271,7 @@
         },
         "key": {
           "type": "string",
-          "description": "What the press means on the active keyboard layout with the modifiers held, named by the W3C UI Events `key` values: a key that gives a character is that character (a, A, ?, 1), a space written as Space; any other key has its W3C name (Enter, Escape, Tab, ArrowUp, etc.); a dead key is Dead and a key with no name is Unidentified. The session-format document states each platform's source for the name."
+          "description": "What the press means on the active keyboard layout, named by the W3C UI Events `key` values (a, A, ?, Enter, ArrowUp), a space written as Space. The session-format document states the whole rule under Key names."
         },
         "modifiers": {
           "$ref": "#/$defs/modifiers"
