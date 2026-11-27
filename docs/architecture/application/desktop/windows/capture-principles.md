@@ -222,8 +222,9 @@ to be dispatched in a top-level window outside that set has a
 timestamp, and the window joins the set. A close introduces nothing, and a
 lone Shift, Ctrl or Alt press, which the worker drops (DCP-13), counts for
 nothing, as does a key attributed to no window (DCP-14), which has no window
-to introduce. A window introduced once takes no further switch when actions return
-to it, and an action in a window introduced earlier carries that window's
+to introduce. A window introduced once takes no further switch from the
+Input_Thread when actions return to it (a focus the worker records in another
+window can write one, below), and an action in a window introduced earlier carries that window's
 `context_id` with no switch before it (after a wheel over an inactive window,
 a key in the window in front, for example). The foreground row's
 deduplication compares with the last switch into the window in front: a
@@ -256,9 +257,23 @@ description resolved it:
 | Another window of the event's process                                 | In that window's context, with its rectangle                     |
 | Another window of another process, or of a process that can't be read | Not at all: the scope filters (DCP-5) judged the event's process |
 
-The Input_Thread introduces the event's window, not the element's (above), so a
-focus recorded in a window the session introduced no other way has no
-`context_switch` before it.
+The Input_Thread introduces the event's window, not the element's (above).
+Where no event dispatched before the focus introduced the element's window, the
+worker writes a `context_switch` into that window ahead of the focus, at the
+focus's place in the recording. That switch is named by the event's process,
+the one the scope filters judged, and titled by the window's title as read when
+the focus is described, read once, so a window with no title gives a switch
+with none. Nothing is written where the window no longer belongs to the
+event's process after its title is read.
+
+The Input_Thread does not learn of that switch, and the focus worker keeps the
+windows it wrote one for only in its own state, which a respawned or newly
+chosen focus worker starts without. One of these three switches into the same
+window can therefore follow:
+
+- the window's activation;
+- a switch the Input_Thread dispatches before the first action it sees there;
+- a new focus worker's switch ahead of a later focus.
 
 **DCP-8.** **Window-scoping:** Value changes and selections are only
 correlated with input from the same root window — value changes against the keyboard input's
@@ -394,7 +409,7 @@ The worker reads the field when it takes the press, which can be after the progr
 | A value taken for the field                                                                                                      | The value decides what the dead keys were. The held key is written behind those that are keys, ahead of the `type` the value starts |
 | No such value within the 500 ms, the next key, or any other action (a turn of the wheel included, whose scroll is written later) | The dead keys and the held key, as keys                                                                                             |
 
-**The extension.** The extension decides the same question by the browser's `input` for typed text in the dead key's field (extension capture principles, Capture Surface). The desktop has no such event and counts the accent in the value.
+**The extension.** The extension decides the same question by the browser's `input` for typed text in the dead key's field (extension capture principles, ECP-14). The desktop has no such event and counts the accent in the value.
 
 **Where the layout was not asked.** A key pressed with Shift or AltGr is then taken for an ordinary key, and one that is dead with them is written as a `key` after the wait; a departure (core CP-18). That holds in these four cases, a closed list:
 

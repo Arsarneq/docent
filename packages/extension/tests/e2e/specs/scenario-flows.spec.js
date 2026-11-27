@@ -237,7 +237,7 @@ test.describe('A range input', () => {
     expect(end).toBe('7');
     const actions = await getPendingActions(serviceWorker);
     // Space on an input that takes no typed text is a key press, and none of
-    // these keys was held (ECP-6, `keydown`). The value each arrow stepped the
+    // these keys was held (ECP-13; ECP-18). The value each arrow stepped the
     // range to is a committed value the range reports at once (ECP-6,
     // `change`), so the file ends on the value the range ends on.
     expect(summary(actions)).toEqual([
@@ -313,9 +313,9 @@ test.describe('A number field', () => {
     const actions = await getPendingActions(serviceWorker);
     // Space enters no text into a number field and is a key press; a press
     // made while the field holds an entry not yet written writes that entry
-    // first (ECP-6, `keydown`). ArrowUp is a key press too, and the value it
+    // first (ECP-15). ArrowUp is a key press too, and the value it
     // stepped the field to is written ahead of the pointer press that ends the
-    // typing in the field (ECP-6, `mousedown`), so the file ends on it.
+    // typing in the field (ECP-15), so the file ends on it.
     expect(summary(actions)).toEqual([
       ['click', '#num'],
       ['type', '#num', '4'],

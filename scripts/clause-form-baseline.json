@@ -3,19 +3,10 @@
   "issue-homes": {
     "710": ["DCP-13", "DCP-9"]
   },
-  "shared-text": [
-    "DCP-12|DCP-7",
-    "DCP-13|ECP-12",
-    "DCP-4|ECP-6",
-    "DI-15|SP-25",
-    "ECP-12|ECP-6",
-    "SP-1|SP-4",
-    "SP-3|SP-4"
-  ],
+  "shared-text": ["DCP-12|DCP-7", "DCP-13|ECP-12", "DI-15|SP-25", "SP-1|SP-4", "SP-3|SP-4"],
   "long-units": {
     "SF-11": 1,
     "SF-13": 1,
-    "ECP-6": 4,
     "ERT-5": 1,
     "DCP-7": 1,
     "DCP-12": 1,
@@ -41,7 +32,6 @@
     "LC-1": 1,
     "LC-4": 1,
     "LC-8": 1,
-    "LC-9": 1,
-    "ECP-12": 1
+    "LC-9": 1
   }
 }

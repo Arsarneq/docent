@@ -377,7 +377,7 @@ export const ADMITTED_REGISTRATIONS = [
     file: RECORDER_PATH,
     api: 'chrome.runtime.onMessage',
     occurrences: 1,
-    why: "The worker's two requests: to end the typing (at a step commit, at a stop, and at a pointer press in another frame of the tab, the recorder writes the entry typed so far, ECP-6), and to name the last report of held keys it sent (ECP-12). It observes no user interaction of its own; what it writes was captured by the `document` listeners.",
+    why: "The worker's two requests: to end the typing (at a step commit, at a stop, and at a pointer press in another frame of the tab, the recorder writes the entry typed so far, ECP-15), and to name the last report of held keys it sent (ECP-18). It observes no user interaction of its own; what it writes was captured by the `document` listeners.",
   },
   {
     file: WORKER_PATH,
@@ -395,7 +395,7 @@ export const ADMITTED_REGISTRATIONS = [
     file: WORKER_PATH,
     api: 'chrome.windows.onFocusChanged',
     occurrences: 1,
-    why: 'Another window or program took the focus: the worker forgets the keys held across the frames of its tabs, whose release can then go unreported (ECP-12). It writes no action; a switch between windows is recorded by no proxy (ECP-12).',
+    why: 'Another window or program took the focus: the worker forgets the keys held across the frames of its tabs, whose release can then go unreported (ECP-18). It writes no action; a switch between windows is recorded by no proxy (ECP-12).',
   },
   {
     file: WORKER_PATH,

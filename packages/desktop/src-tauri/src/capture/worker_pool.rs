@@ -1495,6 +1495,17 @@ pub trait AccessibilityBackend: Send + 'static {
         0
     }
 
+    /// Whether the context of the top-level window `window` was introduced
+    /// by an event the Input_Thread dispatched before the event numbered
+    /// `sequence_id`: a `context_switch` or `context_open` into it, or the
+    /// session's first action, in it (DCP-7). A worker that records an
+    /// action in a window other than the one its event named asks this, as
+    /// the Input_Thread introduced only that one. A platform that does not
+    /// keep the record returns `true` always.
+    fn context_introduced_before(&self, _window: i64, _sequence_id: u64) -> bool {
+        true
+    }
+
     /// The number of the latest key press the Input_Thread dispatched in
     /// `window`; each keystroke carries its own number
     /// ([`RawEvent::callback_params`], see [`KeyNumbers`]). While the two are
@@ -2582,6 +2593,9 @@ pub fn worker_loop<B: AccessibilityBackend>(
 struct WorkerState {
     /// The focus last written: its context and its element's selector.
     last_focus: Option<(Option<i64>, String)>,
+    /// The windows a focus took a `context_switch` into, written by this
+    /// worker before it because no event introduced them (docent#817).
+    introduced_by_focus: std::collections::HashSet<i64>,
     /// The value of the field typed into last, as last taken for its `type`.
     last_value: Option<LastValue>,
     /// The field a paste key (see [`is_paste_key`]) was pressed in, or the
@@ -2620,6 +2634,7 @@ impl WorkerState {
             accents: WaitingAccents::new(),
             named_presses,
             last_focus: None,
+            introduced_by_focus: Default::default(),
             last_value: None,
             pasted_into: None,
             last_drag_element: None,
@@ -2996,6 +3011,21 @@ impl ContextIntroductions {
         switched
     }
 
+    /// Whether the session has introduced `root`: by a switch or open into
+    /// it, or by an action in it.
+    pub fn is_introduced(&self, root: i64) -> bool {
+        self.introduced.contains(&root)
+    }
+
+    /// The number the Input_Thread notes for `root` ([`ContextsIntroducedAt`])
+    /// once it has dispatched the event numbered `event`, and ahead of it the
+    /// switch numbered `switch` where [`switch_before`](Self::switch_before)
+    /// dispatched one: the switch's where there was one, the event's
+    /// otherwise; none where `root` is not introduced.
+    pub fn introduced_by(&self, root: i64, switch: Option<u64>, event: u64) -> Option<u64> {
+        self.is_introduced(root).then(|| switch.unwrap_or(event))
+    }
+
     fn introduces(&mut self, event: &RawEvent, root: i64) -> bool {
         if root == 0 {
             return false;
@@ -3011,6 +3041,74 @@ impl ContextIntroductions {
                 let first = self.introduced.is_empty();
                 self.introduced.insert(root) && !first
             }
+        }
+    }
+}
+
+/// The number of the event that introduced each context of a capture session,
+/// by top-level window handle: the `context_switch` or `context_open` into it,
+/// or its first action where that introduced it ([`ContextIntroductions`]).
+/// Noted by the Input_Thread as it dispatches, and read by a worker that
+/// records an action in a window other than the one its event named
+/// (docent#817), so it is shared, behind a lock held only for the map's own
+/// work.
+#[derive(Debug, Default)]
+pub struct ContextsIntroducedAt {
+    at: Mutex<std::collections::BTreeMap<i64, u64>>,
+}
+
+impl ContextsIntroducedAt {
+    /// None introduced, as a `static` can hold it.
+    pub const fn new() -> Self {
+        Self {
+            at: Mutex::new(std::collections::BTreeMap::new()),
+        }
+    }
+
+    /// Note that the event numbered `sequence_id` introduced `root`; a window
+    /// noted already keeps its number.
+    pub fn note(&self, root: i64, sequence_id: u64) {
+        let mut at = self.at.lock().unwrap_or_else(|e| e.into_inner());
+        at.entry(root).or_insert(sequence_id);
+    }
+
+    /// Whether an event dispatched before the event numbered `sequence_id`
+    /// introduced `root`.
+    pub fn introduced_before(&self, root: i64, sequence_id: u64) -> bool {
+        let at = self.at.lock().unwrap_or_else(|e| e.into_inner());
+        at.get(&root).is_some_and(|noted| *noted < sequence_id)
+    }
+
+    /// Forget every context, for a new capture session.
+    pub fn clear(&self) {
+        self.at.lock().unwrap_or_else(|e| e.into_inner()).clear();
+    }
+}
+
+/// The Input_Thread's dispatch of `event`, whose window's top-level window is
+/// `root`, while `foreground_root` is in front: where
+/// [`ContextIntroductions::switch_before`] says the window needs one, the
+/// switch `switch_into` makes for it is sent ahead of the event; then the
+/// event. `send` sends one event and answers the number it gave it. Where
+/// this dispatch introduced `root`, `introduced_at` notes the number of the
+/// switch, or of the event where it took none (docent#817).
+pub fn dispatch_introducing(
+    contexts: &mut ContextIntroductions,
+    introduced_at: &ContextsIntroducedAt,
+    event: RawEvent,
+    root: i64,
+    foreground_root: i64,
+    switch_into: impl FnOnce(&RawEvent) -> RawEvent,
+    mut send: impl FnMut(RawEvent) -> u64,
+) {
+    let known = contexts.is_introduced(root);
+    let switch = contexts
+        .switch_before(&event, root, foreground_root)
+        .then(|| send(switch_into(&event)));
+    let sequence_id = send(event);
+    if !known {
+        if let Some(by) = contexts.introduced_by(root, switch, sequence_id) {
+            introduced_at.note(root, by);
         }
     }
 }
@@ -3396,6 +3494,7 @@ fn process_raw_event<B: AccessibilityBackend>(
                 action_sender,
                 context_id,
                 &mut state.last_focus,
+                &mut state.introduced_by_focus,
                 window_rect.clone(),
             );
         }
@@ -3753,6 +3852,7 @@ fn handle_focus<B: AccessibilityBackend>(
     action_sender: &mpsc::Sender<ActionEvent>,
     context_id: Option<i64>,
     last_focus: &mut Option<(Option<i64>, String)>,
+    introduced_by_focus: &mut std::collections::HashSet<i64>,
     window_rect: Option<WindowRect>,
 ) {
     let (mut element, element_window) = match backend.focused_element_in_window() {
@@ -3796,7 +3896,44 @@ fn handle_focus<B: AccessibilityBackend>(
     if last_focus.as_ref() == Some(&key) {
         return;
     }
+
+    // The Input_Thread introduced the window the event named, not the
+    // element's (DCP-7). Where no event before this one introduced the
+    // element's window, the focus is the first action in its context, and a
+    // `context_switch` into it is written first, at the focus's own place in
+    // the recording (docent#817). It is named by the event's process, the
+    // one the scope filters judged, and titled as the window reads now. The
+    // window's process is read again after its title, and nothing about the
+    // window is read after that: a window that changed process since the
+    // check above (it closed, and its handle went to another process's
+    // window) is one no filter judged, and nothing is written.
+    let switch = if elsewhere
+        && !introduced_by_focus.contains(&element_window)
+        && !backend.context_introduced_before(element_window, raw.sequence_id)
+    {
+        let title = backend.window_title(element_window);
+        if backend.process_id_of(element_window) != raw.process_id {
+            return;
+        }
+        let source = backend
+            .process_name_of(raw.process_id)
+            .unwrap_or_else(|| format!("pid:{}", raw.process_id));
+        Some((source, title))
+    } else {
+        None
+    };
     *last_focus = Some(key);
+    if let Some((source, title)) = switch {
+        introduced_by_focus.insert(element_window);
+        send_context_switch(
+            raw,
+            source,
+            title,
+            action_sender,
+            context_id,
+            window_rect.clone(),
+        );
+    }
 
     let _ = action_sender.send(ActionEvent {
         timestamp: raw.timestamp,
@@ -4643,6 +4780,19 @@ fn handle_foreground<B: AccessibilityBackend>(
             by_window => by_window,
         });
 
+    send_context_switch(raw, source, title, action_sender, context_id, window_rect);
+}
+
+/// Send the `context_switch` for `raw`, named `source` and titled `title`
+/// (none where empty).
+fn send_context_switch(
+    raw: &RawEvent,
+    source: String,
+    title: String,
+    action_sender: &mpsc::Sender<ActionEvent>,
+    context_id: Option<i64>,
+    window_rect: Option<WindowRect>,
+) {
     let _ = action_sender.send(ActionEvent {
         timestamp: raw.timestamp,
         context_id,
@@ -5222,6 +5372,196 @@ mod tests {
             vec![0, 1],
             "worker 0 took the first event and wedged with nothing queued \
              behind it; after the barrier the next one reaches worker 1"
+        );
+        pool.shutdown_with_timeout(Duration::from_millis(200));
+    }
+
+    /// What [`role_pool`] workers note: (index, spawn of that index, key code).
+    type Received = Arc<Mutex<Vec<(usize, usize, u32)>>>;
+
+    /// The key code that makes a [`role_pool`] worker end its thread when it
+    /// receives the event, as a worker that died would.
+    const DIES: u32 = 0xFF;
+
+    /// The key code that makes a [`role_pool`] worker count its queue as
+    /// empty, as a worker that has caught up would. Its queue otherwise only
+    /// grows, so a choice by queue depends on the order of dispatch alone.
+    const CATCHES_UP: u32 = 0xFE;
+
+    /// A pool of `count` workers that note each event they receive as
+    /// (index, the spawn of that index counted from 0, key code), and end
+    /// their thread on an event whose key code is [`DIES`], and count their
+    /// queue as empty on one whose key code is [`CATCHES_UP`]. A worker answers a
+    /// flush barrier unless `answers(index, spawn)` says it does not.
+    fn role_pool(count: usize, answers: fn(usize, usize) -> bool) -> (WorkerPool, Received) {
+        // The workers note on their own threads, so `received` holds each
+        // worker's events in order, not one order across workers: compare it
+        // with `sorted`.
+        let received: Received = Arc::new(Mutex::new(Vec::new()));
+        let spawns: Arc<Mutex<HashMap<usize, usize>>> = Arc::new(Mutex::new(HashMap::new()));
+        let (action_tx, _action_rx) = mpsc::channel::<ActionEvent>();
+        let seen = Arc::clone(&received);
+        let pool = WorkerPool::new(count, action_tx, move |idx, rx, queue_len, _sender, _p| {
+            let seen = Arc::clone(&seen);
+            let spawn = {
+                let mut spawns = spawns.lock().unwrap();
+                let next = spawns.entry(idx).or_insert(0);
+                *next += 1;
+                *next - 1
+            };
+            thread::spawn(move || loop {
+                match rx.recv() {
+                    Ok(WorkerMessage::Event(event)) => {
+                        seen.lock().unwrap().push((idx, spawn, event.key_code));
+                        if event.key_code == DIES {
+                            break;
+                        }
+                        if event.key_code == CATCHES_UP {
+                            queue_len.store(0, Ordering::SeqCst);
+                        }
+                    }
+                    Ok(WorkerMessage::Flush(ack)) => {
+                        if answers(idx, spawn) {
+                            let _ = ack.send(idx);
+                        }
+                    }
+                    Ok(WorkerMessage::EndTyping)
+                    | Ok(WorkerMessage::MenuCommand)
+                    | Ok(WorkerMessage::WriteHeldKey)
+                    | Ok(WorkerMessage::UnrecordedKey { .. })
+                    | Ok(WorkerMessage::LookAtFocus) => {}
+                    Ok(WorkerMessage::Shutdown) | Err(_) => break,
+                }
+            })
+        });
+        (pool, received)
+    }
+
+    /// What `received` holds, sorted.
+    fn sorted(received: &Received) -> Vec<(usize, usize, u32)> {
+        let mut all = received.lock().unwrap().clone();
+        all.sort_unstable();
+        all
+    }
+
+    /// An event of `event_type` in `window_handle` with key code `key_code`.
+    fn role_event(event_type: RawEventType, window_handle: i64, key_code: u32) -> RawEvent {
+        RawEvent {
+            event_type,
+            sequence_id: 0,
+            timestamp: 1,
+            screen_x: 0,
+            screen_y: 0,
+            window_handle,
+            process_id: 1,
+            key_code,
+            modifiers: (false, false, false, false),
+            scroll_delta: 0.0,
+            callback_params: [0; 4],
+            key_value: 0,
+            keyboard_layout: 0,
+            caps_lock: false,
+            pre_captured_element: None,
+            focus_epoch: 0,
+            held: Vec::new(),
+            window_title: None,
+        }
+    }
+
+    #[test]
+    fn a_respawned_typing_worker_keeps_the_role_at_its_index() {
+        a_role_stays_at_its_index_across_a_respawn(RawEventType::Keyboard);
+    }
+
+    #[test]
+    fn a_respawned_focus_worker_keeps_the_role_at_its_index() {
+        a_role_stays_at_its_index_across_a_respawn(RawEventType::Focus);
+    }
+
+    /// The replacement for a dead worker is installed at its index, and a
+    /// role stays with the index: worker 1 takes the role, worker 0 catches
+    /// up, worker 1 dies, and its replacement takes the events of the role
+    /// after it, where the role chosen again, as the replacement is installed
+    /// or after, would reach worker 0 (an empty queue, or a tie, which goes
+    /// to the lower index).
+    fn a_role_stays_at_its_index_across_a_respawn(event_type: RawEventType) {
+        let (mut pool, received) = role_pool(2, |_, _| true);
+        pool.dispatch(role_event(RawEventType::Click, 1, 0x41)); // to worker 0
+        pool.dispatch(role_event(event_type.clone(), 1, 0x42)); // worker 1 takes the role
+        pool.dispatch(role_event(RawEventType::Click, 1, CATCHES_UP)); // to worker 0, on the tie
+        pool.dispatch(role_event(event_type.clone(), 1, DIES)); // worker 1 dies
+        thread::sleep(Duration::from_millis(50));
+        pool.dispatch(role_event(event_type.clone(), 1, 0x43)); // worker 1 is respawned
+        pool.dispatch(role_event(event_type, 1, 0x44));
+        thread::sleep(Duration::from_millis(100));
+
+        assert_eq!(
+            sorted(&received),
+            vec![
+                (0, 0, 0x41),
+                (0, 0, CATCHES_UP),
+                (1, 0, 0x42),
+                (1, 0, DIES),
+                (1, 1, 0x43),
+                (1, 1, 0x44),
+            ]
+        );
+        pool.shutdown_with_timeout(Duration::from_millis(200));
+    }
+
+    #[test]
+    fn a_respawned_worker_counts_as_one_that_answered_the_last_flush_barrier() {
+        // Workers 0 and 1 miss a barrier, and worker 0 then dies; its
+        // replacement has missed none, while worker 1 still has, so the first
+        // keystroke takes the shorter queue of workers 0 and 2 (a tie, so
+        // worker 0). Worker 0 still counted as missing would leave worker 2,
+        // and worker 1 counted as answering would win on its empty queue.
+        let (mut pool, received) = role_pool(3, |idx, spawn| !(idx == 1 || idx == 0 && spawn == 0));
+        let missed = pool.flush_all(1, Duration::from_millis(200));
+        assert_eq!(missed, vec![0, 1]);
+        pool.dispatch(role_event(RawEventType::Selection, 7, 0x41)); // to worker 0
+        pool.dispatch(role_event(RawEventType::Selection, 8, 0x42)); // to worker 1
+        pool.dispatch(role_event(RawEventType::Selection, 9, 0x43)); // to worker 2
+        pool.dispatch(role_event(RawEventType::Selection, 8, CATCHES_UP)); // worker 1 catches up
+        pool.dispatch(role_event(RawEventType::Selection, 7, DIES)); // worker 0 dies
+        thread::sleep(Duration::from_millis(50));
+        pool.dispatch(role_event(RawEventType::Selection, 7, 0x44)); // to worker 0: respawned
+        pool.dispatch(role_event(RawEventType::Keyboard, 1, 0x45));
+        thread::sleep(Duration::from_millis(100));
+
+        assert_eq!(
+            sorted(&received),
+            vec![
+                (0, 0, 0x41),
+                (0, 0, DIES),
+                (0, 1, 0x44),
+                (0, 1, 0x45),
+                (1, 0, 0x42),
+                (1, 0, CATCHES_UP),
+                (2, 0, 0x43),
+            ]
+        );
+        pool.shutdown_with_timeout(Duration::from_millis(200));
+    }
+
+    #[test]
+    fn a_role_nobody_holds_goes_to_the_shortest_queue_when_every_worker_missed_the_barrier() {
+        // With no worker that answered the last barrier, a role chosen then
+        // goes to the shortest queue among all workers: the typing role to
+        // worker 1, as worker 0 holds a click, and then the focus role to
+        // worker 0, the two queues being even and ties going to the lower
+        // index.
+        let (mut pool, received) = role_pool(2, |_, _| false);
+        pool.dispatch(role_event(RawEventType::Click, 1, 0x41)); // to worker 0
+        let missed = pool.flush_all(1, Duration::from_millis(200));
+        assert_eq!(missed, vec![0, 1]);
+        pool.dispatch(role_event(RawEventType::Keyboard, 1, 0x42));
+        pool.dispatch(role_event(RawEventType::Focus, 1, 0x43));
+        thread::sleep(Duration::from_millis(100));
+
+        assert_eq!(
+            sorted(&received),
+            vec![(0, 0, 0x41), (0, 0, 0x43), (1, 0, 0x42)]
         );
         pool.shutdown_with_timeout(Duration::from_millis(200));
     }

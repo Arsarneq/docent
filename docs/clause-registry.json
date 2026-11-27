@@ -501,6 +501,144 @@
       "justification": "Whether a proposed entry meets the exceptions admission test hoisted to core CP-15 — the surface description alone would mislead without it — is judgment at review. On the close side of a listed entry, packages/extension/tests/e2e/specs/registry-departures.spec.js exercises both of that entry's conjuncts: with the close held inside the timing window it varies the membership — the proxy suppressed with the set membership present, appended with it lost — and with the membership held planted it varies the window, a close landing past the recent-action window appending the proxy that same membership suppresses inside it; the tab-creation side is exercised by the service-worker message-protocol suite the end-to-end suite document lists. That is evidence about the listed entries, not about admitting a new one, so the admission judgment above stands as stated."
     },
     {
+      "doc": "docs/architecture/application/extension/capture-principles.md",
+      "clause": "ECP-13",
+      "tag": "check-exists",
+      "check-ref": "The session format's key row holds which presses are a key and which are text; this row covers how the recorder tells the two apart. The kinds of key press, the shortcut modifiers, the elements typing can change and the date and time fields are pinned by the keyPressKind, isShortcut, mayTakeText and takesTextByParts cases of packages/extension/tests/unit/recorder-logic.test.js (npm run test:unit), which reads packages/extension/content/recorder-logic.js; that packages/extension/content/recorder.js mirrors that file is held by packages/extension/tests/unit/recorder-mirror-parity.test.js. The cases named here (packages/extension/tests/e2e/specs/keyboard.spec.js and packages/extension/tests/e2e/specs/end-of-typing.spec.js; npm run test:e2e) pin in a real browser: Shift, Ctrl and Alt pressed alone, a key the input method takes and a key pressed while a composition is open, none written (AltGr pressed alone is pressed by no case, and is under the review step below); a press written at once (a letter on a button, a shortcut in a field, a letter in a field that takes no text); a press that became text by the browser's input, by the page entering the character itself, and in the field the page moved the focus to; a press written as the key it was while it is still down, ahead of the action after it; the digits of a date field written as keys when the window loses the focus, when the page is left, at a stop and at a step commit; the digits of a date field as text, and as keys at a press of another kind, and a space in one; a character key in a password field; and each repeated press with its mark. Checked by no case named here, all in packages/extension/content/recorder.js: that AltGr pressed alone writes nothing; that the release of a key, the next key press and a pointer press end the wait; that an action the browser causes while it handles the press ends nothing, beyond the entry of the field the focus moved to; that a press held back in a field other than a date or time field is written at the window losing the focus, at the page being left, at a stop and at a step commit; and, for the keys of a date or time field, a key pressed elsewhere, a pointer press and any other action written in a later task. The reviewer of any pull request that changes that code or this clause reads the one against the other and records the outcome in that pull request's change record. The step passes when the code does what the clause states; a difference is a finding of that review.",
+      "test-cases": [
+        "regression_702_a_modifier_pressed_alone_writes_nothing",
+        "regression_702_a_key_the_input_method_takes_writes_no_key",
+        "regression_702_a_key_pressed_while_a_composition_is_open_writes_no_key",
+        "regression_702_a_letter_on_a_button_is_a_key",
+        "regression_702_ctrl_a_in_a_text_field_is_a_key_with_its_modifier",
+        "regression_702_a_letter_in_a_field_that_takes_no_text_is_a_key",
+        "regression_702_a_letter_typed_into_a_field_is_text_and_no_key",
+        "regression_702_text_typed_into_a_textarea_and_into_editable_content_is_no_key",
+        "regression_702_digits_a_page_cancels_and_enters_itself_are_the_field_s_text",
+        "regression_702_text_that_lands_in_the_field_the_page_moved_the_focus_to_is_no_key",
+        "regression_702_a_key_that_took_no_text_is_written_while_it_is_still_down",
+        "regression_702_a_key_that_took_no_text_is_written_ahead_of_the_action_after_it",
+        "regression_702_keys_that_wait_are_written_when_the_window_loses_the_focus",
+        "regression_702_a_key_still_waiting_is_written_when_the_page_is_left",
+        "keys_still_waiting_to_be_known_as_text_are_written_at_the_stop",
+        "keys_still_waiting_to_be_known_as_text_are_written_into_the_step_committed",
+        "regression_702_digits_typed_into_a_date_field_are_its_text_and_no_key",
+        "regression_702_digits_that_gave_a_date_field_no_value_are_keys",
+        "regression_695_space_on_a_date_field_is_a_key",
+        "regression_702_a_key_typed_into_a_password_field_is_never_a_key",
+        "regression_695_held_space_writes_each_press_with_its_repeat_flag"
+      ]
+    },
+    {
+      "doc": "docs/architecture/application/extension/capture-principles.md",
+      "clause": "ECP-14",
+      "tag": "check-exists",
+      "check-ref": "The cases named here (packages/extension/tests/e2e/specs/keyboard.spec.js; npm run test:e2e) pin in a real browser: a dead key as text when a character follows it into the field and as a key otherwise; a dead key pressed before the timer of the key before it has run; a dead key as a key where the key behind it changes the field or enters text in another field; and a dead key and a key that enters nothing written as keys in the order pressed. Three more groups of cases in that file have titles built per kind of field, which this row cannot name one by one: the titles that begin regression_769_a_dead_key_whose_accent_is_entered_with_the_next_key_is_text_in, regression_769_text_in_editable_content_is_read_at_the_press_of_the_key_behind_a_dead_key_on and regression_769_text_in_editable_content_stands_ahead_of_a_dead_key_and_the_key_behind_it_on. They pin the bare accent entered with a key of another kind, and where the text of editable content is read. Checked by no case named here, all in packages/extension/content/recorder.js: that Shift, Ctrl, Alt or AltGr pressed alone and a key the input method takes leave a dead key waiting; that a dead key with nothing behind it is written at a pointer press, at the window losing the focus, at the page being left, at a step commit, at a stop and at any other action written in a later task; which of ECP-13's ends end the wait of a dead key and the key behind it; and that composing text counts as typed text for a dead key with no key of another kind behind it. The reviewer of any pull request that changes that code or this clause reads the one against the other and records the outcome in that pull request's change record. The step passes when the code does what the clause states; a difference is a finding of that review.",
+      "test-cases": [
+        "regression_702_a_dead_key_is_a_key_unless_a_character_follows_it_into_the_field",
+        "regression_789_a_dead_key_pressed_before_the_timer_of_the_key_before_it_is_text",
+        "a_dead_key_is_a_key_where_the_key_behind_it_changes_the_field_or_enters_text_elsewhere",
+        "a_dead_key_and_a_key_that_enters_nothing_are_keys_in_the_order_pressed"
+      ]
+    },
+    {
+      "doc": "docs/architecture/application/extension/capture-principles.md",
+      "clause": "ECP-15",
+      "tag": "check-exists",
+      "check-ref": "The session format's type row holds what the action carries and the pause rule; this row covers what an entry is and what ends the typing. The cases named here (packages/extension/tests/e2e/specs/keyboard.spec.js, packages/extension/tests/e2e/specs/end-of-typing.spec.js and packages/extension/tests/e2e/specs/recorder-coverage.spec.js; npm run test:e2e) pin in a real browser: three of the four things that make a new entry (text typed again over itself or after an undo, text pasted over itself, text a key the input method took enters; the fourth, a composition that ends with text, is pinned by the cases the ECP-16 row names), a key that entered no text making none (a composition given up is pinned under ECP-16), and a value the page sets being no entry; the entry written ahead of Enter and of Tab, once, and no type where no entry was made; the entry written when the field loses the focus; a pointer press that ends the entry in the element, in the field being typed into and where it leaves the focus in the host; a press in the parent page that ends the typing in a frame's host and field; and the entry written into the step committed and at a stop, and not again when the field then loses the focus. That the worker waits no longer than its bound for a frame that never answers, at a step commit and at a press, is pinned by the two cases named here from packages/extension/tests/unit/service-worker.test.js (npm run test:unit). Checked by no case named here: that typing beginning in another host ends the typing in the one before, in packages/extension/content/recorder.js. The reviewer of any pull request that changes that code or this clause reads the one against the other and records the outcome in that pull request's change record. The step passes when the code does what the clause states; a difference is a finding of that review.",
+      "test-cases": [
+        "regression_736_the_same_text_typed_over_itself_is_written_again",
+        "regression_736_a_value_typed_undone_and_typed_again_is_written_again",
+        "regression_751_the_same_text_pasted_over_itself_is_written_again",
+        "regression_744_text_a_taken_key_enters_with_no_composition_is_an_entry",
+        "regression_744_a_taken_key_counts_until_the_next_key_press_in_the_field",
+        "regression_736_a_key_that_entered_no_text_makes_no_new_entry",
+        "regression_703_a_value_the_page_sets_is_not_written_as_an_entry",
+        "regression_703_text_typed_before_Enter_is_written_before_the_Enter",
+        "regression_703_text_typed_before_Tab_is_written_before_the_Tab",
+        "regression_703_an_entry_is_written_once_when_the_field_is_left_afterwards",
+        "regression_703_a_key_pressed_with_no_entry_before_it_writes_no_type",
+        "regression_736_text_typed_again_is_written_when_the_field_loses_the_focus",
+        "a_pointer_press_in_the_element_ends_the_entry",
+        "a_pointer_press_in_the_field_being_typed_into_ends_its_entry",
+        "a_pointer_press_that_leaves_the_focus_in_the_host_ends_its_entry",
+        "a_press_in_the_parent_page_ends_the_typing_in_an_iframe_host",
+        "a_press_in_the_parent_page_ends_the_typing_in_an_iframe_field",
+        "a_field_entry_still_in_focus_is_written_into_the_step_committed",
+        "an_editable_entry_still_in_focus_is_written_into_the_step_committed",
+        "the_entry_written_at_the_commit_is_not_written_again_when_the_field_loses_the_focus",
+        "an_entry_still_in_focus_is_written_at_the_stop",
+        "a step commit does not wait past the bound for a frame that never answers",
+        "what the pressing frame writes next waits no longer than the bound for a frame that never answers"
+      ]
+    },
+    {
+      "doc": "docs/architecture/application/extension/capture-principles.md",
+      "clause": "ECP-16",
+      "tag": "check-exists",
+      "check-ref": "The cases named here (packages/extension/tests/e2e/specs/keyboard.spec.js; npm run test:e2e) pin in a real browser, with composition events the test sends through the browser's own input interface: a composition that enters text and writes no key; a composition given up; text still being composed at a pointer press, written once; text written while composed and then confirmed as it was, and composed further; composed text equal to the entry written before; a composition that ends while the recording is off, and a recording that begins inside one; composition events a page sends; a composition end a page sends, taken back; and composing text a page removes, written ahead of the next key. Checked by no case named here: that a real input method's events arrive as the test sends them. The author of a pull request that changes the composition handling in packages/extension/content/recorder.js runs one composition by hand with an input method of the system and records the run in that pull request's change record. The run passes when the composed text is one type and no key of the composition is written.",
+      "test-cases": [
+        "regression_702_text_a_composition_enters_writes_no_key",
+        "regression_736_a_composition_given_up_makes_no_entry",
+        "regression_736_text_still_being_composed_at_a_pointer_press_is_written_once",
+        "regression_736_text_written_while_being_composed_is_no_new_entry_when_confirmed_as_it_was",
+        "regression_736_text_written_while_being_composed_and_composed_further_is_a_new_entry",
+        "regression_744_composed_text_equal_to_the_entry_written_before_is_written_again",
+        "regression_744_a_composition_that_ends_while_the_recording_is_off_is_forgotten",
+        "regression_744_a_recording_that_begins_inside_a_composition_takes_its_text",
+        "regression_744_composition_events_a_page_sends_make_no_entry",
+        "regression_744_a_composition_end_a_page_sends_is_taken_back_when_the_text_is_then_removed",
+        "regression_744_composing_text_a_page_removes_is_an_entry_ahead_of_the_next_key"
+      ]
+    },
+    {
+      "doc": "docs/architecture/application/extension/capture-principles.md",
+      "clause": "ECP-17",
+      "tag": "check-exists",
+      "check-ref": "The session format's click and right_click rows hold which clicks and menu requests are written; this row covers the signs by which the recorder tells them apart. The cases named here (packages/extension/tests/e2e/specs/interactions.spec.js and packages/extension/tests/e2e/specs/keyboard.spec.js; npm run test:e2e) pin in a real browser: the right-click written at the press of the button, once when the menu request follows, and no second one when another button is pressed meanwhile; no click for Space on a button, for an arrow key in a radio group and where the page's handler is slow; a pointer click right after a key activation, written; no click when a native select closes with Enter, and the pointer click on a select written; and a context menu asked for with a key, recorded as the key alone. Checked by no case named here, all in packages/extension/content/recorder.js: the menu request with no right button outside a key's events (a long press on a touch screen); the click with no click count dropped within the window after a select's choice, and that the recorder's own copy of that window is the 50 ms the clause states; and the order in which the rows are tried. The reviewer of any pull request that changes that code or this clause reads the one against the other and records the outcome in that pull request's change record. The step passes when the code does what the clause states; a difference is a finding of that review. A case that sends a touch long press through the browser's input interface would make it checkable.",
+      "test-cases": [
+        "regression_715_a_right_click_is_written_at_the_press_of_the_button",
+        "regression_715_a_right_click_is_written_once_when_the_menu_request_follows",
+        "regression_715_another_button_pressed_while_the_right_one_is_down_adds_no_right_click",
+        "regression_695_space_on_a_button_is_one_key_and_no_click",
+        "regression_695_arrow_key_in_a_radio_group_is_the_key_alone",
+        "regression_695_enter_and_space_stay_one_key_when_the_page_handler_is_slow",
+        "regression_695_pointer_click_right_after_a_key_activation_is_written",
+        "regression_704_closing_the_list_with_Enter_writes_no_click",
+        "regression_704_a_pointer_click_on_the_select_is_still_written",
+        "regression_702_a_context_menu_asked_for_with_a_key_is_the_key_alone"
+      ]
+    },
+    {
+      "doc": "docs/architecture/application/extension/capture-principles.md",
+      "clause": "ECP-18",
+      "tag": "check-exists",
+      "check-ref": "The session format's key row holds which keys are named and how; this row covers for how long a key is known to be down. In one document, the cases named here from packages/extension/tests/e2e/specs/keyboard.spec.js and packages/extension/tests/e2e/specs/interactions.spec.js (npm run test:e2e) pin: a held key named at a key press and at a click; a key released while the page was not focused or while the recording was off; a key pressed while the Meta key was held; and a drag, which names the key held at its start and none from then on. Across the frames of a tab, the worker's side is pinned by the regression_779 cases named here from packages/extension/tests/unit/service-worker-held-keys.test.js and by the cases of packages/extension/tests/unit/held-keys-relay.test.js, which reads packages/extension/lib/held-keys-relay.js (npm run test:unit): a key named ahead of the action's own, the hand-over at a press, the ask of the frame that holds a key, the wait for the report a frame names as its last, and the keys forgotten for a frame that does not answer, is gone or navigates, at another tab or window taking the focus, at a blur with no press and at a stop. In a real browser the regression_779 cases named here from packages/extension/tests/e2e/specs/keyboard.spec.js pin a click, a right-click and a key in one frame naming the key held in another, and a key whose repeat is text in the frame staying held until its release, which also pins that a recorder reports the release of a key it did not see go down. That the ask at an action with no press before it is bounded by half the bound of the end of typing or less is held by packages/extension/tests/unit/capture-timing.test.js. Checked by no case named here, all in packages/extension/content/recorder.js: that the focus of its window is reported only while a pointer press in it is handled; that a key still held is named again from its next repeat when the focus arrives or returns, after a drag and after the release of the Meta key; and that the modifiers of an action are those its own event states. The reviewer of any pull request that changes that code or this clause reads the one against the other and records the outcome in that pull request's change record. The step passes when the code does what the clause states; a difference is a finding of that review.",
+      "test-cases": [
+        "regression_706_a_key_pressed_while_another_is_held_names_the_held_key",
+        "regression_706_a_click_while_a_key_is_held_names_the_held_key",
+        "regression_706_a_key_released_while_the_page_was_not_focused_is_not_held",
+        "regression_706_a_key_released_while_recording_was_off_is_not_held",
+        "regression_702_a_key_pressed_while_the_meta_key_was_held_is_not_held_after_its_release",
+        "regression_706_a_drag_names_the_key_held_at_its_start_and_none_is_known_down_from_then_on",
+        "regression_779_an_action_names_the_key_held_in_another_frame_ahead_of_its_own",
+        "regression_779_a_press_hands_the_key_to_the_frame_it_gave_the_focus",
+        "regression_779_an_action_with_no_press_before_it_asks_the_frame_that_holds_the_key",
+        "regression_779_the_press_waits_for_the_report_a_frame_names_as_its_last",
+        "regression_779_the_keys_of_a_frame_that_does_not_answer_the_press_are_forgotten",
+        "regression_779_the_keys_of_a_frame_that_is_gone_at_the_press_are_forgotten",
+        "regression_779_a_frame_that_navigates_takes_its_keys_with_it",
+        "regression_779_another_tab_or_window_taking_the_focus_forgets_the_keys",
+        "regression_779_a_blur_with_no_press_forgets_the_key",
+        "regression_779_a_stop_of_the_recording_forgets_the_keys",
+        "regression_779_a_click_in_a_frame_names_the_key_held_outside_it",
+        "regression_779_a_right_click_and_a_key_in_a_frame_name_the_key_held_outside_it",
+        "regression_779_a_key_whose_repeat_is_text_in_the_frame_is_held_until_its_release",
+        "regression_706_a_repeat_keeps_the_held_key_in_its_place",
+        "regression_779_a_frame_whose_last_report_does_not_arrive_has_its_keys_forgotten"
+      ]
+    },
+    {
       "doc": "docs/architecture/application/extension/runtime.md",
       "clause": "ERT-1",
       "tag": "judgment-only",
@@ -583,7 +721,7 @@
       "doc": "docs/architecture/application/desktop/windows/capture-principles.md",
       "clause": "DCP-7",
       "tag": "check-exists",
-      "check-ref": "The correlation gates are exercised end-to-end by the enigo integration suites (real input, real WinEvents) and probed by the desktop corpus sessions (npm run test:desktop:rust for the integration tier; npm run corpus:check:desktop); the focus that writes nothing for its element's window is pinned by packages/desktop/src-tauri/tests/worker_pool_test.rs's a_focus_whose_element_is_in_another_process_s_window_writes_nothing and a_focus_whose_element_s_window_has_no_readable_process_writes_nothing (npm run test:desktop:rust)."
+      "check-ref": "The correlation gates are exercised end-to-end by the enigo integration suites (real input, real WinEvents) and probed by the desktop corpus sessions (npm run test:desktop:rust for the integration tier; npm run corpus:check:desktop); the focus that writes nothing for its element's window is pinned by packages/desktop/src-tauri/tests/worker_pool_test.rs's a_focus_whose_element_is_in_another_process_s_window_writes_nothing and a_focus_whose_element_s_window_has_no_readable_process_writes_nothing, and the switch written ahead of a focus in a window no earlier event introduced by regression_817_a_focus_in_a_window_no_event_before_it_introduced_is_preceded_by_a_switch, a_focus_in_a_window_introduced_before_it_takes_no_switch, a_second_focus_in_a_window_a_focus_introduced_takes_no_second_switch, a_focus_in_another_process_s_window_no_event_introduced_writes_no_switch, a_focus_whose_window_changes_process_before_its_switch_is_written_writes_nothing, a_focus_whose_window_changes_process_as_its_title_is_read_writes_nothing and the_switch_ahead_of_a_focus_reads_its_window_s_title_once, and the Input_Thread's note of the event that introduced each window by a_dispatched_event_notes_the_number_of_what_introduced_its_window (npm run test:desktop:rust); that the Windows hook thread calls that dispatch, and clears the record when it starts and stops, is checked by no case; a Windows integration case in which capture starts in a program's dialog, the dialog closes and the focus returns to its owner would check it."
     },
     {
       "doc": "docs/architecture/application/desktop/windows/capture-principles.md",
