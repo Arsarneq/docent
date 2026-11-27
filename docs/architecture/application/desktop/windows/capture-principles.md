@@ -677,11 +677,22 @@ After a typing worker gives its role up at a commit, two things hold for deliver
   - a program that does not use Windows' translation (it enters the two
     apart, or composes by a rule of its own): the `key` states a character
     the program did not enter;
-  - where the desktop does not know which accent waits, the next key an
-    accent would rename in each thread is `Unidentified`. That is so:
-    - on a layout an accent waited on when the recording started;
+  - where the desktop does not know which accent waits, the next key that
+    gives something in each thread is `Unidentified` where a dead key of the
+    layout would rename it. That is so:
+    - in each thread from the start of the recording: a program can hold an
+      accent from before it. The cost is carried by every recording on a
+      layout with dead keys: on the Danish layout the first key that gives
+      something in each thread is `Unidentified` where it is a vowel, a
+      space or another key an accent takes, and a dead key pressed first
+      leaves the key behind it `Unidentified`. Not touched: a layout with no dead key, text typed
+      into a field (written as `type`), a letter key pressed with Ctrl, and
+      every key no dead key of the layout makes anything with. A key pressed
+      with Alt is touched like the key alone, since Windows lets an accent
+      take it;
     - after a key that went down while its layout could not be asked (the
-      bullet above);
+      bullet above): in its own thread, and in each thread where the next
+      key goes to another thread, as behind a dead key;
     - after a key-down the typing worker lost (its processing failed), and
       for a worker that takes the typing over from one that stopped
       answering or ended;
@@ -696,8 +707,11 @@ After a typing worker gives its role up at a commit, two things hold for deliver
       would rename it;
   - a layout whose list could not be read (a layout file built for another
     processor, as on Windows on ARM, or in another form than the one read):
-    the key behind a dead key is `Unidentified`, so is the next key an
-    accent would rename, and the log says so once for the layout;
+    the key behind a dead key is `Unidentified`, and where the desktop does
+    not know which accent waits so is every key that gives a character,
+    until a key that gives something that is no character (Enter, Tab) was
+    pressed in the thread. The
+    log says so once for the layout;
   - a key named among the `held_keys` of a pointer action before its own
     key-down was named: the action waits for the names of its held keys for
     at most 5 s in all, and names a key `Unidentified` where none came.
