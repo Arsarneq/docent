@@ -2773,12 +2773,11 @@ impl ContextsIntroducedAt {
         }
     }
 
-    /// Note that the event numbered `sequence_id` introduced `root`; an
-    /// earlier event noted for it stays the one.
+    /// Note that the event numbered `sequence_id` introduced `root`; a window
+    /// noted already keeps its number.
     pub fn note(&self, root: i64, sequence_id: u64) {
         let mut at = self.at.lock().unwrap_or_else(|e| e.into_inner());
-        let noted = at.entry(root).or_insert(sequence_id);
-        *noted = (*noted).min(sequence_id);
+        at.entry(root).or_insert(sequence_id);
     }
 
     /// Whether an event dispatched before the event numbered `sequence_id`
@@ -2791,6 +2790,34 @@ impl ContextsIntroducedAt {
     /// Forget every context, for a new capture session.
     pub fn clear(&self) {
         self.at.lock().unwrap_or_else(|e| e.into_inner()).clear();
+    }
+}
+
+/// The Input_Thread's dispatch of `event`, whose window's top-level window is
+/// `root`, while `foreground_root` is in front: where
+/// [`ContextIntroductions::switch_before`] says the window needs one, the
+/// switch `switch_into` makes for it is sent ahead of the event; then the
+/// event. `send` sends one event and answers the number it gave it. Where
+/// this dispatch introduced `root`, `introduced_at` notes the number of the
+/// switch, or of the event where it took none (docent#817).
+pub fn dispatch_introducing(
+    contexts: &mut ContextIntroductions,
+    introduced_at: &ContextsIntroducedAt,
+    event: RawEvent,
+    root: i64,
+    foreground_root: i64,
+    switch_into: impl FnOnce(&RawEvent) -> RawEvent,
+    mut send: impl FnMut(RawEvent) -> u64,
+) {
+    let known = contexts.is_introduced(root);
+    let switch = contexts
+        .switch_before(&event, root, foreground_root)
+        .then(|| send(switch_into(&event)));
+    let sequence_id = send(event);
+    if !known {
+        if let Some(by) = contexts.introduced_by(root, switch, sequence_id) {
+            introduced_at.note(root, by);
+        }
     }
 }
 

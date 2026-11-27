@@ -257,22 +257,23 @@ description resolved it:
 | Another window of the event's process                                 | In that window's context, with its rectangle                     |
 | Another window of another process, or of a process that can't be read | Not at all: the scope filters (DCP-5) judged the event's process |
 
-The Input_Thread introduces the event's window, not the element's (above). It
-also keeps the number of the event that introduced each context. Where no event
-dispatched before the focus introduced the element's window, the worker writes
-a `context_switch` into that window ahead of the focus, at the focus's place in
-the recording. That switch is named by the event's process, the one the scope
-filters judged, and titled by the window's title as read when the focus is
-described, read once, so a window with no title gives a switch with none.
-Nothing is written where the window no longer belongs to the event's process
-after its title is read.
+The Input_Thread introduces the event's window, not the element's (above).
+Where no event dispatched before the focus introduced the element's window, the
+worker writes a `context_switch` into that window ahead of the focus, at the
+focus's place in the recording. That switch is named by the event's process,
+the one the scope filters judged, and titled by the window's title as read when
+the focus is described, read once, so a window with no title gives a switch
+with none. Nothing is written where the window no longer belongs to the
+event's process after its title is read.
 
 The Input_Thread does not learn of that switch, and the focus worker keeps the
 windows it wrote one for only in its own state, which a respawned or newly
 chosen focus worker starts without. Another switch into the same window can
-therefore follow: the window's activation, a switch the Input_Thread
-dispatches before the first action it sees there, or a new focus worker's
-switch ahead of a later focus.
+therefore follow:
+
+- the window's activation;
+- a switch the Input_Thread dispatches before the first action it sees there;
+- a new focus worker's switch ahead of a later focus.
 
 **DCP-8.** **Window-scoping:** Value changes and selections are only
 correlated with input from the same root window — value changes against the keyboard input's

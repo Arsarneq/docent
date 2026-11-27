@@ -1450,27 +1450,27 @@ fn focus_epoch_advance_by_person() {
 fn input_dispatch_raw_event(event: RawEvent) {
     let root = input_root_of(event.window_handle);
     let foreground_root = input_root_of(unsafe { GetForegroundWindow() }.0 as i64);
-    let switch =
-        if INPUT_CONTEXTS.with(|c| c.borrow_mut().switch_before(&event, root, foreground_root)) {
-            let mut process_id: u32 = 0;
-            unsafe { GetWindowThreadProcessId(HWND(root as *mut _), Some(&mut process_id)) };
-            Some(input_send_raw_event(
+    INPUT_CONTEXTS.with(|c| {
+        super::worker_pool::dispatch_introducing(
+            &mut c.borrow_mut(),
+            &CONTEXTS_INTRODUCED_AT,
+            event,
+            root,
+            foreground_root,
+            |action| {
+                let mut process_id: u32 = 0;
+                unsafe { GetWindowThreadProcessId(HWND(root as *mut _), Some(&mut process_id)) };
                 super::worker_pool::switch_before_event(
-                    &event,
+                    action,
                     root,
                     foreground_root,
                     process_id,
                     input_window_title(HWND(root as *mut _)),
-                ),
-            ))
-        } else {
-            None
-        };
-    let sequence_id = input_send_raw_event(event);
-    // A note of a later event leaves the earlier one.
-    if let Some(by) = INPUT_CONTEXTS.with(|c| c.borrow().introduced_by(root, switch, sequence_id)) {
-        CONTEXTS_INTRODUCED_AT.note(root, by);
-    }
+                )
+            },
+            input_send_raw_event,
+        )
+    });
 }
 
 /// The title of `hwnd` as the system holds it, read on the Input_Thread with
