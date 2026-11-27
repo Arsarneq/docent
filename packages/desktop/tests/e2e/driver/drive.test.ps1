@@ -1,10 +1,12 @@
-# drive.test.ps1: Windows integration test for the keyboard driver.
+# drive.test.ps1: Windows integration test for the input driver.
 #
 #   powershell -NoProfile -ExecutionPolicy Bypass -File packages/desktop/tests/e2e/driver/drive.test.ps1
 #
-# Opens its own small window with one text box (title "keyboard-driver-test"), drives
+# Opens its own small window with one text box (title "input-driver-test"), drives
 # real input into it with drive.ps1, and reads back what the box holds when the
-# window closes. Takes over the keyboard for about half a minute: run it only
+# window closes. The window also has a button, "click-me", that writes L into
+# the box on a left click and R on a right click, for the mouse case. Takes
+# over the keyboard and the mouse for about half a minute: run it only
 # on a machine nobody is using. The AltGr and layout-key cases need the Danish
 # layout; other layouts skip those cases.
 # Exit 0 when every case passes, 1 otherwise.
@@ -12,7 +14,7 @@
 $ErrorActionPreference = 'Stop'
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $drive = Join-Path $here 'drive.ps1'
-$work = Join-Path ([IO.Path]::GetTempPath()) ("keyboard-driver-test-" + [Guid]::NewGuid().ToString('N').Substring(0, 8))
+$work = Join-Path ([IO.Path]::GetTempPath()) ("input-driver-test-" + [Guid]::NewGuid().ToString('N').Substring(0, 8))
 New-Item -ItemType Directory -Path $work | Out-Null
 $host_exe = (Get-Process -Id $PID).Path
 $host_name = ([IO.Path]::GetFileName($host_exe)).ToLowerInvariant()
@@ -34,12 +36,17 @@ function Start-Target($out) {
   $form = @"
 Add-Type -AssemblyName System.Windows.Forms
 `$f = New-Object Windows.Forms.Form
-`$f.Text = 'keyboard-driver-test'
+`$f.Text = 'input-driver-test'
 `$f.TopMost = `$true
-`$f.Width = 500; `$f.Height = 120
+`$f.Width = 500; `$f.Height = 180
 `$t = New-Object Windows.Forms.TextBox
 `$t.Dock = 'Fill'; `$t.Multiline = `$true
 `$f.Controls.Add(`$t)
+`$b = New-Object Windows.Forms.Button
+`$b.Text = 'click-me'; `$b.Dock = 'Bottom'; `$b.Height = 50
+`$b.add_Click({ `$t.AppendText('L') })
+`$b.add_MouseUp({ if (`$_.Button -eq 'Right') { `$t.AppendText('R') } })
+`$f.Controls.Add(`$b)
 `$timer = New-Object Windows.Forms.Timer
 `$timer.Interval = 40000
 `$timer.add_Tick({ `$f.Close() })
@@ -53,7 +60,7 @@ Add-Type -AssemblyName System.Windows.Forms
   $deadline = (Get-Date).AddSeconds(15)
   while ((Get-Date) -lt $deadline) {
     $p.Refresh()
-    if ($p.MainWindowTitle -eq 'keyboard-driver-test') { break }
+    if ($p.MainWindowTitle -eq 'input-driver-test') { break }
     Start-Sleep -Milliseconds 200
   }
   Start-Sleep -Milliseconds 800
@@ -62,7 +69,9 @@ Add-Type -AssemblyName System.Windows.Forms
 
 function Write-Steps($steps) {
   $f = Join-Path $work ("steps-" + [Guid]::NewGuid().ToString('N').Substring(0, 6) + '.json')
-  [IO.File]::WriteAllText($f, ($steps | ConvertTo-Json -Depth 5 -Compress), (New-Object Text.UTF8Encoding $false))
+  # -InputObject keeps a one-step list an array; through the pipeline
+  # ConvertTo-Json unwraps it to a lone object (Windows PowerShell 5.1 has no -AsArray).
+  [IO.File]::WriteAllText($f, (ConvertTo-Json -InputObject @($steps) -Depth 5 -Compress), (New-Object Text.UTF8Encoding $false))
   return $f
 }
 
@@ -72,7 +81,7 @@ function Invoke-Drive($steps) {
   return $LASTEXITCODE
 }
 
-$guard = @{ window = @{ process = $host_name; title = '^keyboard-driver-test$' } }
+$guard = @{ window = @{ process = $host_name; title = '^input-driver-test$' } }
 $close = @{ key = 'alt+f4' }
 
 # Case 1: exact repeated letters, Unicode text, and a chord that closes.
@@ -125,9 +134,47 @@ $got = if (Test-Path $out) { [IO.File]::ReadAllText($out) } else { '<no output>'
 Say ($rc -eq 0) 'scan mode exits 0' "(rc=$rc)"
 Say ($got -ceq $expect4) 'scan mode types exactly what the steps say (Left is an extended key)' "(got '$got', wanted '$expect4')"
 
-# Case 3: the planner's refusal stops the run with exit 2 and no input.
-$rc = Invoke-Drive @(@{ chars = 'no guard' })
+# Case 5: mouse steps. A left and a right click on the button, found by its
+# name, then keys again in the same steps file: the waiting guard and the
+# click into the box bring the input back to it. UI Automation exposes the
+# WinForms button as ControlType.Pane, not Button,
+# so the control filter names Pane.
+$out = Join-Path $work 'case5.txt'
+$p = Start-Target $out
+$rc = Invoke-Drive @(
+  $guard,
+  @{ click = @{ name = 'click-me'; control = 'Pane' } },
+  @{ click = @{ name = 'click-me'; control = 'Pane' }; button = 'right' },
+  @{ move = @{ name = 'click-me' } },
+  @{ window = @{ process = $host_name; title = '^input-driver-test$' }; within = 3000 },
+  $close
+)
+$p.WaitForExit(10000) | Out-Null
+$got = if (Test-Path $out) { [IO.File]::ReadAllText($out) } else { '<no output>' }
+Say ($rc -eq 0) 'mouse steps exit 0' "(rc=$rc)"
+Say ($got -ceq 'LR') 'a left and a right click reached the button, once each' "(got '$got', wanted 'LR')"
+
+# Case 6: a mouse step whose element is not in the guard's windows sends nothing.
+$out = Join-Path $work 'case6.txt'
+$p = Start-Target $out
+$rc = Invoke-Drive @($guard, @{ click = @{ name = 'no-such-button' } })
+Say ($rc -eq 5) 'an element that is not there exits 5' "(rc=$rc)"
+$rc = Invoke-Drive @(@{ window = @{ process = 'notepad.exe' } }, @{ click = @{ name = 'click-me' } })
+Say ($rc -eq 5) 'an element in a window the guard does not name is not found' "(rc=$rc)"
+$rc2 = Invoke-Drive @($guard, $close)
+$p.WaitForExit(10000) | Out-Null
+$got = if (Test-Path $out) { [IO.File]::ReadAllText($out) } else { '<no output>' }
+Say ($got -ceq '') 'no click was sent for either' "(got '$got')"
+
+# Case 3: the planner's refusal stops the run with exit 2 and no input, and
+# the refusal is the missing guard, not a malformed steps file.
+$log = Join-Path $work 'drive.log'
+$eap = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
+$said = & $host_exe -NoProfile -ExecutionPolicy Bypass -File $drive -Steps (Write-Steps @(@{ chars = 'no guard' })) -Log $log 2>&1 | Out-String -Width 4096
+$rc = $LASTEXITCODE
+$ErrorActionPreference = $eap
 Say ($rc -eq 2) 'a steps file the planner refuses exits 2' "(rc=$rc)"
+Say ($said -match 'step 0: no window guard before this input') 'the refusal names the missing guard' "(said '$($said.Trim())')"
 
 $log = Join-Path $work 'drive.log'
 Say ((Test-Path $log) -and ((Get-Content $log | Measure-Object).Count -gt 0)) 'the driver writes an action log' ''

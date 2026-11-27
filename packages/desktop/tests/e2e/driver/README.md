@@ -1,12 +1,12 @@
-# Keyboard driver
+# Input driver (keys and mouse)
 
-The desktop end-to-end suite gives the app real keyboard input, the way a person's keyboard does. This driver sends it on Windows with `SendInput`, from a small steps file, and checks before each input step that the window in front is the one the steps named, stopping if it is not. The app's hooks see these keys as they see a person's.
+The desktop end-to-end suite gives the app real keyboard and mouse input, the way a person's keyboard and mouse do. This driver sends it on Windows with `SendInput`, from a small steps file, and checks before each input step that the input goes to the window the steps named, stopping if it does not. The app's hooks see this input as they see a person's.
 
 ## Files
 
 - `plan.mjs` turns a steps file into a flat list of input events. It is pure, so it is tested anywhere: `node --test packages/desktop/tests/e2e/driver/plan.test.mjs`.
-- `drive.ps1` is the Windows executor. It runs the planner, checks the foreground window before every input op, sends the events and writes a timestamped log.
-- `drive.test.ps1` is the Windows integration test. It opens its own small text-box window, drives input into it and reads back exactly what arrived. It takes over the keyboard for about half a minute, so run it only on a machine nobody is using, such as a CI runner.
+- `drive.ps1` is the Windows executor. It runs the planner, checks the guard's window before every input op, sends the events and writes a timestamped log.
+- `drive.test.ps1` is the Windows integration test. It opens its own small text-box window, drives input into it and reads back exactly what arrived. It takes over the keyboard and the mouse for about half a minute, so run it only on a machine nobody is using, such as a CI runner.
 
 ## Steps file
 
@@ -21,8 +21,13 @@ A JSON array, run in order:
 | `{ "text": "hello" }`                                            | Unicode injection, as an input method or a paste-like tool types. Use it for characters the layout has no key for.                                                                                                                                                                                                                                                                                 |
 | `"scan": true` on a `key` or `chars` step                        | Sends each key with its scan code (from the window's layout) and the extended mark where a keyboard sets it, so the app's hook sees a physical key and can name it (`code`). Without it, keys go by virtual key only and carry no physical key. Extra key names for it: `rctrl`, `numlock`, `numpad_enter`, `numpad_divide`, `numpad_multiply`, `numpad_subtract`, `numpad_add`, `numpad_decimal`. |
 | `{ "wait": 500 }`                                                | Pause, in milliseconds (0 to 60000).                                                                                                                                                                                                                                                                                                                                                               |
+| `{ "click": { "x": 448, "y": 259 } }`                            | A mouse click at a screen point, in physical pixels over all monitors (negative left of or above the main one).                                                                                                                                                                                                                                                                                    |
+| `{ "click": { "id": "btn-commit-step" } }`                       | A click on the middle of a UI Automation element, by automation id, or by name: `{ "name": "Paste", "control": "MenuItem" }` (`control` is optional). The element is looked for in the windows the guard names, for up to two seconds. Exactly one must match, or `"index"` picks one (from 0).                                                                                                    |
+| `"button": "right"` and `"count": 2` on a `click` step           | Right or middle button; a double click. The default is one left click.                                                                                                                                                                                                                                                                                                                             |
+| `{ "move": { ... } }`                                            | The pointer on the same kinds of target, with no button.                                                                                                                                                                                                                                                                                                                                           |
+| `"within": 3000` on a `window` step                              | Waits up to that long for the guard's window to be the foreground one, then goes on (or stops with exit 3). It replaces a fixed `wait` after anything that changes the window: a click that brings an app forward, a menu, a dialog.                                                                                                                                                               |
 
-Every input step needs a guard before it, and the guard is checked again before each input step. Layout keys go by virtual key, so the layout decides the character: on a Danish layout `oem_plus` types `+`.
+Every input step needs a guard before it, and the guard is checked again before each input step. For a key the guard is the foreground window. For a mouse step it is the window under the point, since a person clicks a window to bring it forward; a mouse step needs a guard that names a process or a title, never `any`. After each pointer move the driver reads the pointer back and stops with exit 4 if it is not there. Layout keys go by virtual key, so the layout decides the character: on a Danish layout `oem_plus` types `+`.
 
 Example, starting Notepad from the Start menu:
 
@@ -46,7 +51,9 @@ The process name of the Start search box differs between Windows versions: `sear
 powershell -NoProfile -ExecutionPolicy Bypass -File packages/desktop/tests/e2e/driver/drive.ps1 -Steps steps.json -Log run.log
 ```
 
-Exit codes: 0 done, 2 the planner refused the steps, 3 the foreground window did not match a guard (nothing more was sent), 4 a character has no key on the layout or Windows refused the input.
+Exit codes: 0 done, 2 the planner refused the steps, 3 a window did not match a guard (nothing more was sent), 4 a character has no key on the layout or Windows refused or dropped the input, 5 a mouse step's element was not found or several matched.
+
+Each call of `drive.ps1` costs about a second before the first input (PowerShell starts, compiles the input code and runs the planner), so put a whole sequence in one steps file, with `within` guards where the window changes, rather than one call per key.
 
 The log has one line per event with a UTC timestamp. Characters are logged as code points, so a password typed through the driver is in the log: type only throwaway values.
 
@@ -54,4 +61,5 @@ The log has one line per event with a UTC timestamp. Characters are logged as co
 
 - A dead key on the layout (on Danish, for example `´` and `¨`) is pressed once and types nothing on its own; use a `text` step for such characters.
 - Windows does not let a program send input into a window running with higher rights than itself, such as an elevated app.
-- The driver moves no mouse.
+- No drag and no wheel yet.
+- A pop-up of a WebView2 page (a context menu, a dropdown) is a window of `msedgewebview2.exe`, not of the app that hosts the page: name that process in the guard for the step that clicks in it.

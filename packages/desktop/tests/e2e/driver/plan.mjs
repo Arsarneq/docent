@@ -1,4 +1,4 @@
-// plan.mjs: turns a keyboard driver steps file into the low-level events the
+// plan.mjs: turns an input driver steps file into the low-level events the
 // Windows executor (drive.ps1) sends with SendInput. Pure, so it is tested
 // anywhere (plan.test.mjs); the executor does only input and the guard.
 //
@@ -12,8 +12,18 @@
 //   (and the extended mark where a keyboard sets it), so the app sees a
 //   physical key; without it keys go by virtual key only.
 //   { "wait": 500 }       milliseconds
+//   { "click": { "x": 448, "y": 259 } }   a mouse click at a screen point, or on
+//   a UI Automation element of the guard's process: { "id": "btn-commit-step" }
+//   or { "name": "Paste", "control": "MenuItem" } ("index" picks one of several
+//   matches). "button": left | right | middle, "count": 2 for a double click.
+//   { "move": { ... } }   the pointer on the same kinds of target, no button
+//   "within": 3000 on a guard waits up to that long for its window to be the
+//   foreground one, so one steps file can follow the input from window to window.
 // Every input op needs a guard before it, and the executor re-checks the guard
-// before each op. The check is per op: the keys of one op follow one check.
+// before each op: input never lands in a window the steps did not name. For a
+// key the guard is the foreground window; for a mouse step it is the window
+// under the point, since a person clicks a window to bring it forward. The
+// check is per op: the keys of one op follow one check.
 //
 // CLI: node plan.mjs <steps.json>  -> prints the event list as JSON.
 
@@ -99,6 +109,31 @@ for (let d = 0; d <= 9; d++) {
 
 const hex = (n) => `0x${n.toString(16)}`;
 
+// A mouse target: a screen point (whole pixels, negative on a monitor left of
+// or above the main one), or a UI Automation element by automation id, or by
+// name with an optional control type. Never both kinds at once.
+function mouseTarget(t, kind, at) {
+  const bad = () =>
+    new Error(`${at}: ${kind} takes { x, y } in whole screen pixels, { id } or { name, control }`);
+  if (!t || typeof t !== 'object' || Array.isArray(t)) throw bad();
+  const point = 'x' in t || 'y' in t;
+  const element = 'id' in t || 'name' in t || 'control' in t || 'index' in t;
+  if (point === element) throw bad();
+  if (point) {
+    if (!Number.isInteger(t.x) || !Number.isInteger(t.y)) throw bad();
+    return { x: t.x, y: t.y };
+  }
+  const has = (k) => typeof t[k] === 'string' && t[k] !== '';
+  if (has('id') === has('name')) throw bad();
+  if ('control' in t && !has('control')) throw bad();
+  if ('index' in t && (!Number.isInteger(t.index) || t.index < 0))
+    throw new Error(`${at}: index counts the matches from 0`);
+  const out = has('id') ? { id: t.id } : { name: t.name };
+  if (has('control')) out.control = t.control;
+  if ('index' in t) out.index = t.index;
+  return out;
+}
+
 export function plan(steps) {
   if (!Array.isArray(steps)) throw new Error('steps must be a JSON array');
   const events = [];
@@ -112,6 +147,8 @@ export function plan(steps) {
     if (step.window) {
       const w = step.window;
       if (w.any === true) {
+        if ('within' in step)
+          throw new Error(`${at}: within needs a guard that names a process or a title`);
         guard = { type: 'assert', any: true };
         return;
       }
@@ -129,12 +166,36 @@ export function plan(steps) {
         process: w.process ? String(w.process).toLowerCase() : null,
         title: w.title ?? null,
       };
+      if ('within' in step) {
+        if (!Number.isInteger(step.within) || step.within < 0 || step.within > 60000)
+          throw new Error(`${at}: within takes 0 to 60000 ms`);
+        events.push({ ...guard, within: step.within });
+      }
       return;
     }
     if ('wait' in step) {
       if (!Number.isInteger(step.wait) || step.wait < 0 || step.wait > 60000)
         throw new Error(`${at}: wait takes 0 to 60000 ms`);
       events.push({ type: 'sleep', ms: step.wait });
+      return;
+    }
+    if ('click' in step || 'move' in step) {
+      const kind = 'click' in step ? 'click' : 'move';
+      const target = mouseTarget(step[kind], kind, at);
+      if (!guard) throw new Error(`${at}: no window guard before this input`);
+      if (guard.any)
+        throw new Error(`${at}: a mouse step needs a guard that names a process or a title`);
+      const where = { process: guard.process, title: guard.title };
+      if (kind === 'move') {
+        events.push({ type: 'move', target, ...where });
+        return;
+      }
+      const button = step.button ?? 'left';
+      if (!['left', 'right', 'middle'].includes(button))
+        throw new Error(`${at}: button is left, right or middle`);
+      const count = step.count ?? 1;
+      if (count !== 1 && count !== 2) throw new Error(`${at}: count is 1 or 2`);
+      events.push({ type: 'click', target, button, count, ...where });
       return;
     }
     if ('scan' in step && typeof step.scan !== 'boolean')
@@ -193,7 +254,7 @@ if (import.meta.url === `file://${process.argv[1]}` || process.argv[1]?.endsWith
     );
     console.log(ascii);
   } catch (e) {
-    console.error(`keyboard-driver plan: ${e.message}`);
+    console.error(`input-driver plan: ${e.message}`);
     process.exit(2);
   }
 }
