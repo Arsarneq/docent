@@ -794,12 +794,12 @@ pub struct WorkerPool {
     /// ([`WorkerMessage::AccentsNotKnown`]).
     typing_worker_chosen_before: bool,
     /// The workers that did not answer the most recent flush barrier, one bit
-    /// per index. The typing role is not given to one of them while another
+    /// per index. The typing and focus roles are not given to one of them while another
     /// worker is available; a respawn clears its index's bit.
     missed_last_barrier: AtomicU64,
     /// The focus worker: the one worker every focus event reaches, whatever
-    /// window the event named, so the last focus it compares a focus with is
-    /// the focus before it (docent#735). Chosen like the typing worker, at
+    /// window the event named, so it compares each focus with the last focus
+    /// it wrote (docent#735). Chosen like the typing worker, at
     /// the first focus event, kept across a respawn of its index, and given up
     /// the same way when a flush barrier finds it unresponsive.
     /// `NO_FOCUS_WORKER` while none is chosen.
@@ -1517,7 +1517,7 @@ pub trait AccessibilityBackend: Send + 'static {
     /// Query the currently focused element together with the top-level window
     /// it is in, both read in one description; the window is `0` when the
     /// description resolved none. A focus action is recorded under the
-    /// context of that window (DCP-7).
+    /// context of that window (DCP-21).
     fn focused_element_in_window(&self) -> Option<(ElementDescription, i64)> {
         self.focused_element().map(|element| (element, 0))
     }
@@ -1544,7 +1544,7 @@ pub trait AccessibilityBackend: Send + 'static {
     /// Whether the context of the top-level window `window` was introduced
     /// by an event the Input_Thread dispatched before the event numbered
     /// `sequence_id`: a `context_switch` or `context_open` into it, or the
-    /// session's first action, in it (DCP-7). A worker that records an
+    /// session's first action, in it (DCP-20). A worker that records an
     /// action in a window other than the one its event named asks this, as
     /// the Input_Thread introduced only that one. A platform that does not
     /// keep the record returns `true` always.
@@ -3048,7 +3048,7 @@ fn key_number_of(raw: &RawEvent) -> u64 {
 }
 
 /// The Input_Thread's record of the contexts a capture session has
-/// introduced, by top-level window handle (DCP-7). A raw event that is to be
+/// introduced, by top-level window handle (DCP-20). A raw event that is to be
 /// dispatched in a window whose context the session has not introduced has a
 /// `context_switch` into that window dispatched before it, so the context's
 /// first action follows its establishment (core CP-17, session-format SF-10).
@@ -3983,7 +3983,7 @@ fn handle_focus<B: AccessibilityBackend>(
     // The element is the one focused when it is described, which need not be
     // in the window the focus event named: a dialog that closed as the focus
     // went back to its owner, for one (docent#709). The focus is recorded in
-    // the context of the element's own window (DCP-7), the event's where the
+    // the context of the element's own window (DCP-21), the event's where the
     // description resolved no window.
     let (context_id, window_rect) = if elsewhere {
         (Some(element_window), backend.window_rect(element_window))
@@ -3999,7 +3999,7 @@ fn handle_focus<B: AccessibilityBackend>(
     }
 
     // The Input_Thread introduced the window the event named, not the
-    // element's (DCP-7). Where no event before this one introduced the
+    // element's (DCP-20). Where no event before this one introduced the
     // element's window, the focus is the first action in its context, and a
     // `context_switch` into it is written first, at the focus's own place in
     // the recording (docent#817). It is named by the event's process, the
@@ -5097,7 +5097,7 @@ fn ends_typing(event: &RawEvent) -> bool {
 /// `process_id` and whose title, read with it, is `window_title`. Marked
 /// [`SWITCH_BEFORE_ITS_ACTION`] where `root` is not the window in front
 /// (`foreground_root`), which has then not come to the front; a switch into
-/// the window in front counts as its activation (DCP-7) and is not marked.
+/// the window in front counts as its activation (DCP-20) and is not marked.
 pub fn switch_before_event(
     action: &RawEvent,
     root: i64,

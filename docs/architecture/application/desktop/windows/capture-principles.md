@@ -177,14 +177,14 @@ CP-7):
 programmatic ones using **input correlation**: WinEvent callbacks MUST be
 dispatched only when correlated with a preceding low-level input event.
 
-| WinEvent                   | Correlation source  | Additional filter                                                                                                                                                                                                                                          |
-| -------------------------- | ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `EVENT_SYSTEM_FOREGROUND`  | Any low-level input | Skipped when its root window is the one the last switch into the window in front named (a left, right or middle press into a different window dispatches its switch at button-down, before the press; the switches that introduce a window count as below) |
-| `EVENT_OBJECT_FOCUS`       | Any low-level input | Suppressed while the left button is held or within `CLICK_REDUNDANCY_MS` of a click (redundant)                                                                                                                                                            |
-| `EVENT_OBJECT_CREATE`      | Any low-level input | A real, visible top-level window with no parent (no `WS_CHILD` style; `GetParent` returns nothing — for a popup window that is its owner); within `WINDOW_LIFECYCLE_CORRELATION_MS`                                                                        |
-| `EVENT_OBJECT_DESTROY`     | Any low-level input | A titled, unowned top-level window whose open was dispatched and whose root is not the foreground window; within `WINDOW_LIFECYCLE_CORRELATION_MS`                                                                                                         |
-| `EVENT_OBJECT_VALUECHANGE` | Keyboard input only | Same root window as keyboard                                                                                                                                                                                                                               |
-| `EVENT_OBJECT_SELECTION`   | Any low-level input | Same root window as the input; suppressed while the left button is held or within `CLICK_REDUNDANCY_MS` of a click (redundant)                                                                                                                             |
+| WinEvent                   | Correlation source  | Additional filter                                                                                                                                                                                                                                                  |
+| -------------------------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `EVENT_SYSTEM_FOREGROUND`  | Any low-level input | Skipped when its root window is the one the last switch into the window in front named (a left, right or middle press into a different window dispatches its switch at button-down, before the press; the switches that introduce a window count as DCP-20 states) |
+| `EVENT_OBJECT_FOCUS`       | Any low-level input | Suppressed while the left button is held or within `CLICK_REDUNDANCY_MS` of a click (redundant)                                                                                                                                                                    |
+| `EVENT_OBJECT_CREATE`      | Any low-level input | A real, visible top-level window with no parent (no `WS_CHILD` style; `GetParent` returns nothing — for a popup window that is its owner); within `WINDOW_LIFECYCLE_CORRELATION_MS`                                                                                |
+| `EVENT_OBJECT_DESTROY`     | Any low-level input | A titled, unowned top-level window whose open was dispatched and whose root is not the foreground window; within `WINDOW_LIFECYCLE_CORRELATION_MS`                                                                                                                 |
+| `EVENT_OBJECT_VALUECHANGE` | Keyboard input only | Same root window as keyboard                                                                                                                                                                                                                                       |
+| `EVENT_OBJECT_SELECTION`   | Any low-level input | Same root window as the input; suppressed while the left button is held or within `CLICK_REDUNDANCY_MS` of a click (redundant)                                                                                                                                     |
 
 Both click gates treat a focus or selection event as an effect of the left
 press, which the press's own action records (a `click`, or the
@@ -208,73 +208,6 @@ window the recording already introduced (the window behind one closed by its
 title-bar close button, which DCP-6 records as a `context_close`, for example). Recording them
 is a capture gap against core CP-17.
 
-A window can receive an action with no switch recorded for it: one that came
-in front while the foreground row classified its activation as programmatic
-(late after its input, or after input the scope filters dropped, as the
-exceptions list), or an inactive window under a wheel or a drop. Under core
-CP-17 the first action taken in such a window establishes its context. The
-Input_Thread keeps, per capture session, the top-level windows whose context it
-introduced: each window it dispatched a `context_switch` or a `context_open`
-for and, when the session's first dispatched action precedes every such
-switch and open, that action's window (the session's first context). An event
-to be dispatched in a top-level window outside that set has a
-`context_switch` into that window dispatched before it, with the event's
-timestamp, and the window joins the set. A close introduces nothing, and a
-lone Shift, Ctrl or Alt press, which the worker drops (DCP-13), counts for
-nothing, as does a key attributed to no window (DCP-14), which has no window
-to introduce. A window introduced once takes no further switch from the
-Input_Thread when actions return to it (a focus the worker records in another
-window can write one, below), and an action in a window introduced earlier carries that window's
-`context_id` with no switch before it (after a wheel over an inactive window,
-a key in the window in front, for example). The foreground row's
-deduplication compares with the last switch into the window in front: a
-switch dispatched this way into the window in front counts as its activation,
-so a late activation of it is not written again, while one into an inactive
-window does not, so a later click into that window or its activation is
-written. Four cases stay open. A capture session started again later in a
-recording begins in its first context with no switch, whether or not the
-recording's earlier sessions introduced that context. A switch dispatched
-before an event the worker then does not write (a focus whose selector equals
-the focus worker's last, for example) is written all the same. The Input_Thread
-reads an event's top-level window when it dispatches the event, a worker when
-it describes it: an event whose window is gone by then takes that window's own
-handle as its context, which no switch introduced. And the switch before an
-action in an inactive window records that window's context, not an activation
-the person made.
-
-A focus is recorded on the element focused when a worker describes it, which
-need not be the element the focus event named: the focus can move on before
-the worker describes it (a dialog that closed as the focus went back to its
-owner, for example) with no later focus event dispatched before the
-description (a focus described after one writes nothing, DCP-12). Where it is
-recorded follows from the top-level window that element is in, as its
-description resolved it:
-
-| The element's top-level window                                        | The focus is written                                             |
-| --------------------------------------------------------------------- | ---------------------------------------------------------------- |
-| None resolved                                                         | In the context and rectangle of the window the event named       |
-| The window the event named                                            | In that window's context, with its rectangle                     |
-| Another window of the event's process                                 | In that window's context, with its rectangle                     |
-| Another window of another process, or of a process that can't be read | Not at all: the scope filters (DCP-5) judged the event's process |
-
-The Input_Thread introduces the event's window, not the element's (above).
-Where no event dispatched before the focus introduced the element's window, the
-worker writes a `context_switch` into that window ahead of the focus, at the
-focus's place in the recording. That switch is named by the event's process,
-the one the scope filters judged, and titled by the window's title as read when
-the focus is described, read once, so a window with no title gives a switch
-with none. Nothing is written where the window no longer belongs to the
-event's process after its title is read.
-
-The Input_Thread does not learn of that switch, and the focus worker keeps the
-windows it wrote one for only in its own state, which a respawned or newly
-chosen focus worker starts without. One of these three switches into the same
-window can therefore follow:
-
-- the window's activation;
-- a switch the Input_Thread dispatches before the first action it sees there;
-- a new focus worker's switch ahead of a later focus.
-
 **DCP-8.** **Window-scoping:** Value changes and selections are only
 correlated with input from the same root window — value changes against the keyboard input's
 root, selections against the root of the most recent input of any kind. This
@@ -287,6 +220,76 @@ state; a right or middle button's release, and an extra button's press (see
 the exceptions), refresh none.
 
 Timing constants and correlation windows live in `src/capture/timing.rs`.
+
+### The switch ahead of a window's first action
+
+**DCP-20.** Besides the switches DCP-6 and DCP-7 record, a `context_switch` is written ahead of the first action in a top-level window the capture session has not introduced. Under core [CP-17](../../../../architecture/system/capture-principles.md#context-establishment) that action establishes the window's context. Such a window is, for example:
+
+- one that came in front while the foreground row (DCP-7) classified its activation as programmatic: late after its input, or after input the scope filters dropped, as the exceptions list (DCP-13);
+- an inactive window under a wheel or a drop.
+
+The Input_Thread keeps, per capture session, the top-level windows whose context it introduced. They are of these two kinds, a closed list:
+
+- each window it dispatched a `context_switch` or a `context_open` for;
+- the window of the session's first dispatched action, when that action precedes every such switch and open (the session's first context).
+
+An event to be dispatched in a top-level window outside that set has a `context_switch` into that window dispatched before it, with the event's timestamp, and the window joins the set.
+
+Three events take no switch and introduce no window:
+
+- a close;
+- a lone Shift, Ctrl or Alt press, which the worker drops (DCP-13);
+- a key attributed to no window (DCP-14), which has no window to introduce.
+
+A window introduced once takes no further switch from the Input_Thread when actions return to it (the focus worker can write one, below). An action in a window introduced earlier carries that window's `context_id` with no switch before it (after a wheel over an inactive window, a key in the window in front, for example).
+
+The Input_Thread introduces the window a focus event named, and the focus can be recorded in another window of that process (DCP-21's table). Where no event dispatched before the focus introduced that window, the focus worker writes a `context_switch` into it ahead of the focus, at the focus's place in the recording. That switch is named by the event's process, the one the scope filters judged, and titled by the window's title as read when the focus is described, read once, so a window with no title gives a switch with none. Nothing is written where the window no longer belongs to the event's process after its title is read.
+
+The Input_Thread does not learn of that switch, and the focus worker keeps the windows it wrote one for only in its own state, which a respawned or newly chosen focus worker starts without. One of these three switches into the same window can therefore follow:
+
+- the window's activation;
+- a switch the Input_Thread dispatches before the first action it sees there;
+- a new focus worker's switch ahead of a later focus.
+
+The foreground row's deduplication compares with the last switch into the window in front. A switch this clause dispatches counts for it by where the window is:
+
+| The switch is into  | It counts as that window's activation | So                                                            |
+| ------------------- | ------------------------------------- | ------------------------------------------------------------- |
+| The window in front | Yes                                   | A late activation of it is not written again                  |
+| An inactive window  | No                                    | A later click into that window, or its activation, is written |
+
+Four cases stay open:
+
+- A capture session started again later in a recording begins in its first context with no switch, whether or not the recording's earlier sessions introduced that context.
+- A switch dispatched before an event the worker then does not write (a focus DCP-21 leaves unwritten, for example) is written all the same.
+- The Input_Thread reads an event's top-level window when it dispatches the event, a worker when it describes it. An event whose window is gone by then takes that window's own handle as its context, which no switch introduced.
+- The switch before an action in an inactive window records that window's context, not an activation the person made.
+
+### Which focus is written, and where
+
+**DCP-21.** A focus is recorded on the element focused when a worker describes it. That need not be the element the focus event named: the focus can move on before the worker describes it (a dialog that closed as the focus went back to its owner, for example). So focus events naming two windows can describe one element.
+
+The focus worker ([Routing and ordering](capture-pipeline.md#routing-and-ordering)) compares a focus with the last focus it wrote, by its element's selector within the window it is recorded in. A focus on that element again is not written (DCP-13).
+
+The Input_Thread numbers the focus events it dispatches, counting each where it is sent, after the filters of DCP-5, DCP-14 and DCP-7 have kept it, so a focus change they drop never stops a focus from being written by its number, and nor does a foreground change. This number is not the focus count of DCP-16, which a foreground change does move. A focus event described after a later focus event was dispatched writes nothing and leaves the last focus as it was: the later event records the focus at its own place in the recording.
+
+A respawned worker has no last focus, and a worker that takes the role over has the one it wrote when it last held the role, or none. So the first focus after either is not compared with the focus written last.
+
+Where a focus is recorded follows from the top-level window its element is in, as the description resolved it. It is one of these four:
+
+| The element's top-level window                                        | The focus is written                                             |
+| --------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| None resolved                                                         | In the context and rectangle of the window the event named       |
+| The window the event named                                            | In that window's context, with its rectangle                     |
+| Another window of the event's process                                 | In that window's context, with its rectangle                     |
+| Another window of another process, or of a process that can't be read | Not at all: the scope filters (DCP-5) judged the event's process |
+
+For the third row, DCP-20 states the switch written ahead of the focus where nothing introduced that window.
+
+Two cases stay open:
+
+- The element the earlier event named is recorded by no focus, since the focus left it before any description could be made. The later event records where the focus went, and writes nothing when that is the element the focus worker wrote last (the person moved the focus away and back) or an element the accessibility layer cannot describe.
+- A description made after the focus moved but before the later focus event was dispatched, or after a focus change that sends no event, names the element focused by then and is written at the earlier event's place, save where the table above has it write nothing.
 
 ---
 
@@ -340,7 +343,7 @@ A dead key does not follow the 500 ms row (DCP-17). Which value read becomes the
 - a key is pressed that is no printable keystroke: a key that is no typing key, or a shortcut. A Shift, Ctrl or Alt pressed alone is not one of them: the worker drops it (DCP-13) and it ends nothing;
 - a printable keystroke is pressed in another element;
 - the pointer is pressed (a click, a right-click or a drag);
-- a `context_switch` is dispatched (DCP-7), save the one dispatched ahead of a first action in an inactive window (below), or a window the scope filters leave out comes to the front;
+- a `context_switch` is dispatched (DCP-6, DCP-7, DCP-20), save the one dispatched ahead of a first action in an inactive window (below), or a window the scope filters leave out comes to the front;
 - a value change is taken for another element;
 - a value change that is no `type` arrives while keys are buffered (DCP-9, DCP-16): the pending `type` is written ahead of those keys;
 - the step is committed or the recording stops;
@@ -358,7 +361,7 @@ Nothing else ends the typing. Five things that might seem to:
 | A pause between two keys                                                                                        | The session format's `type` row holds this for both platforms                                                                                                      |
 | A turn of the wheel                                                                                             | The pointer is not pressed                                                                                                                                         |
 
-A `context_switch` is dispatched ahead of the first action in a window the capture session has not introduced (DCP-7). Where that window is inactive, a turn of the wheel or a drop over it, the window has not come to the front, and the switch ends nothing: the action behind it ends the typing where it is one that does. So a person who types "ab", turns the wheel over a second recorded window and types "c" in the same field leaves the `context_switch`, the `scroll` and the one `type` "abc", as the extension does. A switch dispatched that way into the window in front is that window's activation (DCP-7), and ends the typing. A recorded window that comes to the front with no input that correlates dispatches no `context_switch` and ends nothing.
+Where the switch DCP-20 dispatches goes to an inactive window, a turn of the wheel or a drop over it, the window has not come to the front, and the switch ends nothing: the action behind it ends the typing where it is one that does. So a person who types "ab", turns the wheel over a second recorded window and types "c" in the same field leaves the `context_switch`, the `scroll` and the one `type` "abc", as the extension does. A DCP-20 switch into the window in front counts as that window's activation, and ends the typing. A recorded window that comes to the front with no input that correlates dispatches no `context_switch` and ends nothing.
 
 **Whether two descriptions are of one element.** The selector holds the window's title, so the selector alone cannot tell. Two descriptions read in one window are of the same element when the element's path under the window's root is the same, the root itself left out. The selector decides only where that path is not known. A title held by an element under the root (a document's own window inside an application's frame) is part of that path and still tells two fields apart, so a change of such a title does end the typing; a departure (core CP-18). The panel joins the masked typing of a sensitive field by the same path, read from the `tree_path` locator, where a root title that itself holds the path separator leaves the fields apart.
 
@@ -409,7 +412,7 @@ The worker reads the field when it takes the press, which can be after the progr
 | A value taken for the field                                                                                                      | The value decides what the dead keys were. The held key is written behind those that are keys, ahead of the `type` the value starts |
 | No such value within the 500 ms, the next key, or any other action (a turn of the wheel included, whose scroll is written later) | The dead keys and the held key, as keys                                                                                             |
 
-**The extension.** The extension decides the same question by the browser's `input` for typed text in the dead key's field (extension capture principles, ECP-14). The desktop has no such event and counts the accent in the value.
+**The extension.** The extension tells the same from the text the browser enters in the dead key's field (extension capture principles, ECP-14). The desktop has no such event and counts the accent in the value.
 
 **Where the layout was not asked.** A key pressed with Shift or AltGr is then taken for an ordinary key, and one that is dead with them is written as a `key` after the wait; a departure (core CP-18). That holds in these four cases, a closed list:
 
@@ -624,64 +627,16 @@ this clause admits, all of them input that never became a buffered action:
 - the pathological dispatch drop when every worker slot has been respawned
   and still cannot accept the event — surfaced on stderr, never silent.
 
-A worker panic is detected on the next dispatch, the worker is respawned in
-place at the same index, and the send is retried on the fresh worker; keyboard
-and value-change events all route to one worker, the typing worker,
-which stays that index across a respawn, so supersession and value
-deduplication (per element within its window) stay correct; a typing worker
-that does not answer a commit's flush barrier in time gives the role up, and
-the next keyboard or value-change event, or the next look at the focus
-(DCP-16), chooses a worker again by shortest queue among the workers that
-answered, so typing after that commit does not
-wait behind a wedged accessibility call. What was dispatched to the
-unanswering worker before that stays with it: lost if it never returns (the
-residue above), processed there if it does, where a keystroke whose value
-change was dispatched after the hand-over is written as a `key` beside the
-`type`; focus events all route to one worker, the focus worker, whatever
-window they name, chosen, kept across a respawn and given up at a missed flush
-barrier as the typing worker is. A worker describes the element focused when
-it reaches a focus event, which need not be in the window the event named, so
-focus events naming two windows can describe one element (a dialog that closed
-as the focus went back to its owner), and only on one worker are they compared
-with the same last focus (DCP-13). A focus is compared with the last focus
-written by its element's selector within the window it is recorded in. The
-input thread numbers the focus events it dispatches, counting each where it is
-sent, after every filter above has kept it. A focus event described after a
-later focus event was dispatched writes nothing and leaves the last focus as it
-was: the later event records the focus at its own place in the recording. A
-focus change the input thread sends no event for (in a process outside the
-capture's scope, outside the foreground process, uncorrelated with input, or
-redundant to a click) and a foreground change move no number, so they never
-stop a focus from being written by its number (a focus can still write nothing
-for where its element is, DCP-7). Three cases stay open. The element the earlier
-event named is recorded by no focus, since the focus left it before any
-description could be made; the later event records where the focus went, and
-writes nothing when that is the element of the last focus written (the person
-moved the focus away and back) or an element the accessibility layer cannot
-describe. A description made after the focus moved but before the later focus
-event was dispatched, or after a focus change that sends no event, names the
-element focused by then and is written at the earlier event's place, save
-where DCP-7 has it write nothing. And a
-platform that numbers no focus events (number `0`) writes every focus
-described. A respawned worker starts with no last
-focus, and a worker that takes the role over compares with the last focus it
-wrote itself, none unless it held the role before: the first focus after
-either is compared with that, not with the focus written last. Exactly the selection
-events route **sticky** — the same window handle always reaches the same worker
-— so one window's selections are processed in order; a drop routes to the
-worker that took its drag start; a click that completes a double-click (DCP-10) routes to the worker that
-took the click before it, so the file-dialog proxy (DCP-6) reads the pair on
-one worker; events without a routing affinity use shortest-queue dispatch.
+Which worker an event reaches, and how the typing and focus workers are chosen, kept and given up, is the capture pipeline's to state ([Routing and ordering](capture-pipeline.md#routing-and-ordering)). After a typing worker gives its role up at a commit, two things hold for delivery:
+
+- typing after that commit does not wait behind a wedged accessibility call;
+- what was dispatched to that worker before stays with it. It is lost if the worker never returns (the residue above) and processed there if it does, where a keystroke whose value change was dispatched after the hand-over is written as a `key` beside the `type`.
 
 ---
 
 ## Exceptions Within the Surface
 
-**DCP-13.** This platform's exceptions within the surface (core
-[CP-15](../../../../architecture/system/capture-principles.md#capture-surface)) —
-interactions that would appear to be inside the
-[capture surface](#capture-surface) above but are not captured (or are captured
-with a caveat):
+**DCP-13.** This platform's exceptions within the surface (core [CP-15](../../../../architecture/system/capture-principles.md#capture-surface)):
 
 - A lone Shift, Ctrl or Alt press — a keypress, but the worker drops it; these
   keys are recorded only within a combination (a lone Win press is recorded, as
@@ -751,12 +706,7 @@ with a caveat):
   input-correlation gates above classify their effects as programmatic. A
   known limitation of the correlation doctrine, affecting every correlated
   event class equally.
-- Scroll gestures are debounced and coalesced with a sub-threshold discard —
-  the shared rule in
-  [core CP-16](../../../../architecture/system/capture-principles.md#capture-surface);
-  the quantity here is the sum of the native wheel deltas the input layer feeds
-  (120 per detent), and the floor is `SCROLL_MIN_DISTANCE_PX` in
-  `src/capture/timing.rs`, whose `_PX` suffix is historical
+- A scroll follows [core CP-16](../../../../architecture/system/capture-principles.md#capture-surface). The quantity here is the sum of the native wheel deltas the input layer feeds (120 per detent), and the floor is `SCROLL_MIN_DISTANCE_PX` in `src/capture/timing.rs`, a name that says pixels for a quantity that is wheel delta
 - A file dialog confirmed from the keyboard (Enter on the filename field)
   produces no `file_dialog` action — the proxy triggers only on a left click
   of the dialog's Save/Open button and on a left double-click on a file in its
@@ -770,152 +720,54 @@ with a caveat):
   title test applies to the double-click as well, the button-name test to the
   button only; a departure (core CP-19;
   [docent#710](https://github.com/Arsarneq/docent/issues/710))
-- A file confirmed by a double-click in a file dialog's item view — captured
-  with a caveat: the second press closes the dialog, so the dialog is read at
-  the double-click's first click, which selected the file. The `file_dialog`
-  is written beside the second click when the first click landed on a list
-  item and that read found the dialog's File name equal to the item's name,
-  which selecting a file puts there. A double-click on a folder, whose
-  selection leaves the File name as it was, navigates the dialog and records
-  none — unless the File name already held that folder's name (typed there
-  earlier, for example), when a `file_dialog` naming the folder is written
-  though the dialog navigated; a departure (core CP-18). None is recorded
-  either when the read fails as the dialog closes, or finds the File name not
-  yet filled
-- A `file_dialog` whose `file_path` is the File name text as the dialog shows
-  it, joined to the dialog's folder, rather than a file on disk. The text
-  lacks a file's extension wherever the shell hides it (for known file types
-  where the system hides extensions, and for some types, such as shortcuts,
-  whatever the setting). For an Open dialog, `file_path` names the file the
-  text names: among the files in the dialog's folder named as the text
-  followed by an extension, the one whose name as the shell displays it is
-  the text (case aside), or the text's own path where that is a file, when
-  exactly one file is either; the lookup is made when the click is processed
-  and lists at most 64 of the folder's entries. The text as shown is recorded
-  where an Open dialog's text names no file or several, where more than 64
-  entries are listed, and where the path is not a full one (no folder was
-  read, or the text is relative). It is recorded for every Save and Save As
-  too: their text names the file to be written, which need not exist yet and
-  need not be a file already displayed under the same text (report.pdf,
-  displayed as "report" where extensions are hidden, while a report is saved
-  as a .docx), so the extension the dialog adds for the chosen file type is
-  not recorded; a departure (core CP-18). A dialog whose File name box is
-  empty records no `file_dialog`
-- A click whose element the pre-capture did not describe (DCP-1) — a left
-  click (at its mouse-up), a right or middle press, or either click of a
-  double-click, that got no element because:
+- A file confirmed by a double-click in a file dialog's item view — captured with a caveat. The second press closes the dialog, so the dialog is read at the double-click's first click, which selected the file. The `file_dialog` is written beside the second click only where the first click landed on a list item and that read found the dialog's File name equal to the item's name, which selecting a file puts there. So, for example:
+  - a double-click on a folder, whose selection leaves the File name as it was, navigates the dialog and records none, save in the next case;
+  - where the File name already held that folder's name (typed there earlier, for example), a `file_dialog` naming the folder is written though the dialog navigated; a departure (core CP-18);
+  - none is recorded when the read fails as the dialog closes, or finds the File name not yet filled.
+- A `file_dialog` whose `file_path` is the File name text as the dialog shows it, joined to the dialog's folder, rather than a file on disk; a departure (core CP-18). The text lacks a file's extension wherever the shell hides it (for known file types where the system hides extensions, and for some types, such as shortcuts, whatever the setting). What `file_path` holds, a closed list:
+  - For an Open dialog, `file_path` names the file the text names when exactly one file is either of these two: among the files in the dialog's folder named as the text followed by an extension, the one whose name as the shell displays it is the text (case aside); or the text's own path, where that is a file. The lookup is made when the click is processed and lists at most 64 of the folder's entries.
+  - For an Open dialog in every other case, the text as shown is recorded: where the text names no file or several, where more than 64 entries are listed, and where the path is not a full one (no folder was read, or the text is relative).
+  - The text as shown is recorded for every Save and Save As too. Their text names the file to be written, which need not exist yet and need not be a file already displayed under the same text (report.pdf, displayed as "report" where extensions are hidden, while a report is saved as a .docx). So the extension the dialog adds for the chosen file type is not recorded.
+
+  A dialog whose File name box is empty records no `file_dialog`.
+
+- A click whose element the pre-capture did not describe (DCP-1) — a left click (at its mouse-up), a right or middle press, or either click of a double-click, that got no element for one of these five reasons:
   - its pre-capture's answer did not come within [the budget](capture-pipeline.md#pre-capture-at-a-click);
-  - its application held a describer with an earlier click's pre-capture
-    and did not answer within the budget;
-  - no describer came free within the budget (each one on another click,
-    held, or still building its accessibility client, the first one at
-    start among them);
-  - the answer described nothing (`ElementFromPoint` or the description
-    failed, or the describer's accessibility client could not be built,
-    which start reports); or
-  - no pre-capture was running (none could be started, the process's
-    describers being at the cap, which start reports; a later click tries
-    again, at most once a second)
+  - its application held a describer with an earlier click's pre-capture and did not answer within the budget;
+  - no describer came free within the budget (each one on another click, held, or still building its accessibility client; start waits at most `PRE_CAPTURE_READY_TIMEOUT` for the first one before it registers the hooks);
+  - the answer described nothing (`ElementFromPoint` or the description failed, or the describer's accessibility client could not be built, which start reports);
+  - no pre-capture was running (none could be started, the process's describers being at the cap, which start reports; a later click tries again, at most once a second).
 
-  Such a click is described by its worker after the click has taken effect, from the
-  element then at the click's point: a different element, or none, where the
-  click changed what is there (a dialog's Save, OK or Open button that closes
-  the dialog, a menu item that closes its menu). A left click on a file
-  dialog's Save or Open button described so records no `file_dialog`, since
-  the proxy tests the clicked element (DCP-6), and a double-click on a file in
-  its item view records none when the dialog has closed before its first
-  click is described. When the hook made the call itself, it waited for the
-  answer however long it took, and dispatched the click with it. Two kinds of
-  click took their element that way and take this path here, departures
-  this bound makes:
-  - a click in a slow but responsive application, whose description takes
-    longer than the budget (the first case);
-  - a click in an application still holding a describer with an earlier
-    click's pre-capture when its budget runs out (the second case), where
-    the earlier call returned within the click's own hook timeout, the
-    last moments of [the margin](capture-pipeline.md#pre-capture-at-a-click) past its budget. When the hook made the call
-    itself, such a click then ran its own call and was recorded with its
-    element; where the earlier call returned later, Windows passed the click
-    on unrecorded. A click that finds no describer free, or no pre-capture
-    running, because describers are held by applications that have not
-    answered (the third and fifth cases) is the same kind, under the same
-    condition.
+  Such a click is described by its worker after the click has taken effect, from the element then at the click's point: a different element, or none, where the click changed what is there (a dialog's Save, OK or Open button that closes the dialog, a menu item that closes its menu). Two things follow for the file-dialog proxy (DCP-6):
+  - a left click on a file dialog's Save or Open button described so records no `file_dialog`, since the proxy tests the clicked element;
+  - a double-click on a file in its item view records none when the dialog has closed before its first click is described.
 
-  What the bound buys for them: the hook is never held past the system's
-  hook timeout, so Windows does not pass the clicks after a slow one on
-  unrecorded, as it did while a call made inside the hook ran past the
-  timeout, and probably does not remove the hook, which is not verified. A
-  click that waits for the first describer at start would not have reached a
-  hook at all: the hooks were registered only once the client was built. In
-  the fourth case the call made inside the hook could not describe the click
-  either. The extension records the element the click event names as its
-  target, whatever the page does after the click, so this is a departure
-  (core CP-18, CP-19;
-  [docent#745](https://github.com/Arsarneq/docent/issues/745))
+  The budget is what keeps the hook from being held past the system's hook timeout ([what the budget buys](capture-pipeline.md#pre-capture-at-a-click)). The extension records the element the click event names as its target, whatever the page does after the click, so this is a departure (core CP-18, CP-19; [docent#745](https://github.com/Arsarneq/docent/issues/745))
 
-- A value change that repeats the value just taken for the field typed into
-  last, with no typing key pressed for it (a program that reports one change
-  twice) — not written; a value the person types is written each time it is
-  typed, also where it equals the one written before (the same text typed
-  over itself, a value undone and typed again), and so is the first value
-  change of a field after a paste key pressed in it (Ctrl+V, Ctrl+Shift+V or
-  Shift+Insert: the same text pasted over itself), also where other keys
-  were pressed before the program reported it; a paste key that pasted
-  nothing leaves the field's next value change taken for its text. A click
-  on a menu item (a left click whose element was described as a menu item at
-  the release, in any window) counts as a paste key pressed in the field
-  typed into last (the same text pasted over itself from the field's context
-  menu or the window's menu), whichever item it is: the item's name is in
-  the application's language and is not read. So after a click on an item
-  that pastes nothing (Save, Copy, an item of another application), a
-  report that repeats that field's value is written as one more `type` the
-  person did not make; a departure (core CP-18), and one from the
-  extension, which writes no entry for a value set again by other means
-  than typing, composing or pasting (core CP-19;
-  [docent#751](https://github.com/Arsarneq/docent/issues/751)). A value set
-  twice to the same text with neither a key nor such a click (a menu that
-  is not exposed as menu items, an item chosen by pressing on the menu bar
-  and releasing on the item, an item that could not be described at the
-  release, a drop) is one value change the worker cannot tell from a
-  repeated report, and for a password field, whose value is the mask, so is
-  every value change after the first that neither a text-entering
-  keystroke, a paste key nor a menu item accompanies; a departure (core
-  CP-18), and for such a paste one from the extension, which writes it
-  (core CP-19;
-  [docent#751](https://github.com/Arsarneq/docent/issues/751))
+- A value change that repeats the value just taken for the field typed into last, with no typing key pressed for it (a program that reports one change twice) — not written. Two things the person enters again are written, a closed list:
+  - a value the person types is written each time it is typed, also where it equals the one written before (the same text typed over itself, a value undone and typed again);
+  - so is the first value change of a field after a paste key pressed in it (Ctrl+V, Ctrl+Shift+V or Shift+Insert: the same text pasted over itself), also where other keys were pressed before the program reported it. A paste key that pasted nothing leaves the field's next value change taken for its text.
+
+  A click on a menu item counts as a paste key pressed in the field typed into last (the same text pasted over itself from the field's context menu or the window's menu). A click on a menu item is a left click whose element was described as a menu item at the release, in any window, whichever item it is: the item's name is in the application's language and is not read.
+
+  Two departures follow:
+  - After a click on an item that pastes nothing (Save, Copy, an item of another application), a report that repeats that field's value is written as one more `type` the person did not make; a departure (core CP-18), and one from the extension (ECP-12's item on a value set again; core CP-19; [docent#751](https://github.com/Arsarneq/docent/issues/751)).
+  - A value set twice to the same text with neither a key nor such a click (a menu that is not exposed as menu items, an item chosen by pressing on the menu bar and releasing on the item, an item that could not be described at the release, a drop) is one value change the worker cannot tell from a repeated report. For a password field, whose value is the mask, so is every value change after the first that neither a text-entering keystroke, a paste key nor a menu item accompanies. A departure (core CP-18), and for such a paste one from the extension, which writes it (core CP-19; [docent#751](https://github.com/Arsarneq/docent/issues/751)).
+
 - Keys typed into a field whose value was not taken — written as `key` actions, not as the field's text; a departure DCP-18 states, with where those keys went in the field, which is missing data
 - A key, or text no key carries, that a value read leaves in no action — held facts left unwritten, a departure (core CP-18, CP-19); the two open cases DCP-18 states
-- A focus on the element of the last focus written (its selector within its
-  window; DCP-12) — not written; a departure (core CP-18)
-- A focus that a worker describes after the input thread dispatched a later
-  focus event (DCP-12) — not written: the element focused by then need not be
-  the one the event named, and the later event records where the focus went,
-  at its own place, save in the open cases DCP-12 states; a departure (core
-  CP-18)
-- A focus whose element is in a window of a process DCP-7 names as not
-  judged by the scope filters — not written; a departure (core CP-18)
-- A key pressed while an input method composes text (the letters of a
-  romanized reading, Space, the Enter that confirms, Escape, an arrow in the
-  candidate list, Backspace) — written as a `key`, a typing key among them
-  where the field reports no value change for it (a field that reports the
-  composing text as its value has those keys in its `type` instead); the
-  composed text is the field's `type` when it is confirmed, and a
-  composition given up leaves its keys, and no `type` where the field
-  reported no value for it. The keyboard hook is handed each key ahead of the input method, and
-  nothing a program outside the application can read says that a composition
-  is open: measured on Windows 11 with the Japanese Microsoft IME in Notepad
-  and in a WebView2 field, the input method's accessibility events
-  (`EVENT_OBJECT_IME_SHOW`, `_HIDE`, `_CHANGE`,
-  `EVENT_OBJECT_TEXTEDIT_CONVERSIONTARGETCHANGED`) never fired, neither
-  field supported UI Automation's text-edit pattern, and the layout, the
-  input method's open status and its conversion mode changed only when the
-  input method was switched. The extension, which the browser tells, writes
-  none of these keys; a departure (core CP-18), and a difference that comes
-  from the platforms themselves (core CP-19;
-  [docent#744](https://github.com/Arsarneq/docent/issues/744),
-  [docent#237](https://github.com/Arsarneq/docent/issues/237))
-- A focus whose selector equals the worker's last — not written; a departure
-  (core CP-18)
+- A focus on the element the focus worker wrote last (its selector within its window; DCP-21) — not written; a departure (core CP-18)
+- A focus that a worker describes after the input thread dispatched a later focus event (DCP-21) — not written, save in the open cases DCP-21 states; a departure (core CP-18)
+- A focus whose element is in a window of a process the scope filters did not judge (DCP-21's table) — not written; a departure (core CP-18)
+- A key pressed while an input method composes text (the letters of a romanized reading, Space, the Enter that confirms, Escape, an arrow in the candidate list, Backspace) — written as a `key`. A typing key is written so too, unless the field reports a value change for it: a field that reports the composing text as its value has those keys in its `type` instead. The composed text is the field's `type` when it is confirmed. A composition given up leaves its keys, and no `type` where the field reported no value for it.
+
+  The keyboard hook is handed each key ahead of the input method, and nothing a program outside the application can read says that a composition is open. Three things were measured on Windows 11 with the Japanese Microsoft IME in Notepad and in a WebView2 field:
+  - the input method's accessibility events (`EVENT_OBJECT_IME_SHOW`, `_HIDE`, `_CHANGE`, `EVENT_OBJECT_TEXTEDIT_CONVERSIONTARGETCHANGED`) never fired;
+  - neither field supported UI Automation's text-edit pattern;
+  - the layout, the input method's open status and its conversion mode changed only when the input method was switched.
+
+  The extension, which the browser tells, writes none of these keys; a departure (core CP-18) that comes from the platforms themselves (core CP-19; [docent#744](https://github.com/Arsarneq/docent/issues/744), [docent#237](https://github.com/Arsarneq/docent/issues/237))
+
 - A focus or value change on an element the accessibility layer cannot
   describe — not written; the keys buffered for the value change are
   superseded by nothing and are written as keys (DCP-16); a departure (core
@@ -928,7 +780,7 @@ with a caveat):
 - An owned popup window (a dialog such as Find, for example) — its creation
   records no `context_open` (DCP-7's `EVENT_OBJECT_CREATE` test), a
   `context_switch` introduces it when its activation correlates, and otherwise
-  before the first action taken in it (DCP-7), and its title-bar close records
+  before the first action taken in it (DCP-20), and its title-bar close records
   no `context_close` (DCP-7); a departure (core CP-18)
 - An owned top-level window without the popup style — `GetParent` returns
   nothing for it, so its creation, when DCP-7's create test passes, records a
@@ -964,14 +816,14 @@ with a caveat):
   example) — classified as programmatic: the `key` or `click` is written, the
   `context_switch`, `context_open` or `context_close` is not; a window that
   came in front this way and has no context the session introduced takes a
-  `context_switch` before the first action taken in it (DCP-7); a departure
+  `context_switch` before the first action taken in it (DCP-20); a departure
   (core CP-18)
 - A window activation, opening or close whose causing input fell outside the
   scope filters (a taskbar or Start-menu switch into a selected target, for
   example) — classified as programmatic: no `context_switch`, `context_open`
   or `context_close`; a window that came in front this way and has no context
   the session introduced takes a `context_switch` before the first action
-  taken in it (DCP-7)
+  taken in it (DCP-20)
 - An extra mouse button press (the back and forward buttons) — it reaches the
   mouse hook but is not written, the format having no action type for it
 - A drag that starts inside the captured scope and is released outside it —

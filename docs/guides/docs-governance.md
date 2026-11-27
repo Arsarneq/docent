@@ -165,8 +165,11 @@ Shorter is better, as long as the reader still gets what they need and gets it w
 
 - what another home already states: link the home;
 - what the reader does not need in order to act on the passage;
-- words that carry nothing.
+- words that carry nothing;
+- how the code reaches an outcome, in a capture clause, a row of the session format and the [capture pipeline](../architecture/application/desktop/windows/capture-pipeline.md) document: these state what the person does and what the file then holds, with the reason, the values it depends on and the departures. The steps live in the code and its tests. The capture pipeline document keeps the procedures it holds until its own cut.
 
 This list is open. A cut that takes away something the reader needs is a meaning change, not a cut. A form from the table above often says the same in fewer words than prose does.
+
+Cutting the steps is a cut only where every outcome they produced is still stated as what the person does and what the file holds. A registry row then names as checked by no case only an outcome a clause states.
 
 The pull request's reviewer names each touched passage that fails this, with its line, as a review finding recorded in the pull request's change record, and the rule passes when no such finding is open. For a document that holds clauses, Words before and after (above) shows the count.

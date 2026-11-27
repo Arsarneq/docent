@@ -4,7 +4,8 @@
  * exactly that.
  *
  * The expected recording was written from the specs before the code was read
- * (capture-principles DCP-6, DCP-7, DCP-9, DCP-10, DCP-11, DCP-13, DCP-14;
+ * (capture-principles DCP-6, DCP-7, DCP-9, DCP-10, DCP-11, DCP-13, DCP-14,
+ * DCP-20, DCP-21;
  * session-format;
  * sufficiency-lint SL-1). Where the specs fix a value the test asserts it;
  * where they bound it the test checks the bound; where they leave it to timing
@@ -165,7 +166,7 @@ test('typing in Notepad and closing it unsaved exports exactly those actions', a
   expectKey(a4, { key: 'a', code: 'KeyA', on: ['ctrl'], context: ctxA });
   expectKey(a5, { key: 'F4', code: 'F4', on: ['alt'], context: ctxA });
 
-  // B: the save-changes dialog, introduced by a switch (DCP-7, DCP-13), an
+  // B: the save-changes dialog, introduced by a switch (DCP-7, DCP-20, DCP-13), an
   // optional focus on its first control, then the answer.
   const [a6] = actions.slice(5);
   expect(a6.type).toBe('context_switch');
@@ -187,7 +188,7 @@ test('typing in Notepad and closing it unsaved exports exactly those actions', a
   // (DCP-5): it names Notepad's process, by name or by its id
   // (session-format, context_switch), and carries the main window's title,
   // which Notepad never leaves empty. A focus is in the context of its
-  // element's window (DCP-7), so in one of Notepad's two windows.
+  // element's window (DCP-21), so in one of Notepad's two windows.
   for (const a of actions.slice(answer + 1)) {
     expect(['context_switch', 'focus'], `after the answer: ${a.type}`).toContain(a.type);
     if (a.type === 'context_switch') {
@@ -255,7 +256,7 @@ test('clicks, Unicode typing, a long repeat and the Format menu in Notepad expor
   );
   expect(doc.project.name).toBe('Clicks');
 
-  // A: Notepad's main window, the session's first context (DCP-7): the first
+  // A: Notepad's main window, the session's first context (DCP-20): the first
   // click is in the window in front, so no switch comes before it. A click
   // ends the typing before it and its focus is redundant (DCP-7); a Unicode
   // injected key is a typing key (DCP-9), so the text is one `type`; the text
@@ -304,7 +305,7 @@ test('clicks, Unicode typing, a long repeat and the Format menu in Notepad expor
   const introduced = new Set([ctxA]);
   for (const a of rest) {
     if (a.type === 'context_open' || a.type === 'context_switch') introduced.add(a.context_id);
-    // Every action is in a context the recording introduced (DCP-7).
+    // Every action is in a context the recording introduced (DCP-20).
     expect(introduced.has(a.context_id), `${a.type} in context ${a.context_id}`).toBe(true);
   }
   const late = new Set();
