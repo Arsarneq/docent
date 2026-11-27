@@ -1,6 +1,6 @@
 # Capture Pipeline — Desktop Application
 
-How a Windows input event becomes a committed action: the delivery pipeline behind the desktop capture layer, its ordering and no-loss guarantees, and the shutdown doctrine. This document orients. The binding contracts are the clauses in [capture principles](capture-principles.md): the thread roles (DCP-1), ordered insertion and the commit flush barrier (DCP-2), and the worker delivery guarantees (DCP-12). [The capture seam](../capture-seam.md) documents the cross-platform boundary the pipeline sits behind.
+How a Windows input event becomes a committed action: the delivery pipeline behind the desktop capture layer, its ordering and no-loss guarantees, and the shutdown doctrine. The binding contracts are the clauses in [capture principles](capture-principles.md): the thread roles (DCP-1), ordered insertion and the commit flush barrier (DCP-2), the worker delivery guarantees (DCP-12) and the element of a keystroke (DCP-16). This document orients, and it holds the procedures those clauses cite: how the pre-capture budget is computed (DCP-1) and how a worker tells the element of a keystroke (DCP-16). [The capture seam](../capture-seam.md) documents the cross-platform boundary the pipeline sits behind.
 
 ---
 
@@ -15,13 +15,10 @@ hooks / WinEvents        bridge            worker pool               frontend
  click│  │element, or none            one action channel
       ▼  │(within the budget)         (emitted in order sent)
 pre-capture describers
-(asked + spare, ≤ 5 threads in the process)
+(asked + spare, capped)
 ```
 
-1. **Input_Thread.** The low-level hooks and WinEvent callbacks classify each OS event into a raw event, stamp it with a monotonic sequence id, and send it to the bridge. This thread performs no accessibility queries. The click pre-capture runs on a pre-capture describer. The mouse hook waits on it for at most a budget set at start from the system's low-level hook timeout, less a margin for the hook's own work (DCP-1), so hooks return within that timeout whatever the clicked application does. A describer an application leaves unanswered is left to that application, and a ready spare takes its place. A click that got no element within the budget is dispatched with none, in order, and its worker describes it (DCP-13). It also counts focus changes and stamps:
-   - every raw event with the count, so a worker can tell whether focus still is where a keystroke or value change happened;
-   - each keystroke with the window handle of the control that holds the keyboard focus (none for a key attributed to no window, DCP-14; read from the window system without a call into the program), and with the number of the latest focus change that named a part of that control (DCP-11).
-   - each foreground event with its window's process id and title, the title read from the window system without a message to the program, so a switch whose window has closed, or whose process has exited, before a worker gets to it is still named and titled (session format, `context_switch`).
+1. **Input_Thread.** The low-level hooks and WinEvent callbacks classify each OS event into a raw event, stamp it with a monotonic sequence id, and send it to the bridge. This thread performs no accessibility queries. The click pre-capture runs on a pre-capture describer, and the mouse hook waits on it within a budget ([pre-capture at a click](#pre-capture-at-a-click)). It also stamps every raw event with the focus count, and each keystroke with the window handle of the control that holds the keyboard focus and with the number of the latest focus change that named a part of that control ([the element of a keystroke](#the-element-of-a-keystroke)). A key attributed to no window (DCP-14) is stamped with no handle. It stamps each foreground event with its window's process id and title, the title read from the window system without a message to the program, so a switch whose window has closed, or whose process has exited, before a worker gets to it is still named and titled (session format, `context_switch`).
 
    The keyboard hook also keeps the record of which keys are down. It stamps each key-down with whether its key was already down: the mark a `key` action's `repeat` is written from (DCP-9). The scan code and extended mark the hook is handed travel with the key-down, and a `key` action's `code` is named from them (DCP-9). The hook also reads, at each key-down, whether the focused control's input method is on and its conversion mode, by two messages to that control's input-method window, each with a short time limit; a `key` action's `input_method_open` and `input_method_conversion_mode` are written from the read, and left out where it gave nothing (DCP-9). From the same record, each keystroke, click, right-click and drop is stamped at dispatch with the keys that are down and the key-down each is down by. A drag start is stamped with those the mouse hook read when the pointer first passed the drag threshold. An action's `held_keys` is written from these stamps. The mouse hook reads the modifier keys for the pointer actions as the keyboard hook does for a key.
 
@@ -30,13 +27,42 @@ pre-capture describers
 4. **Emission.** One forwarder thread drains the shared action channel. It emits each action to the frontend on the `capture:action` stream, in the order the channel received them.
 5. **Frontend.** The adapter inserts each arriving action into the pending list by sequence id (DCP-2's ordered insertion). It strips the internal id before anything is stored or exported.
 
+## Pre-capture at a click
+
+The mouse hook asks a pre-capture describer for the clicked element and waits for the answer within a budget (DCP-1).
+
+**The budget.** It is set when the capture session starts (`src/capture/timing.rs`):
+
+| The user's `LowLevelHooksTimeout` setting, as read at the session's start | Hook timeout used                                                                                          |
+| ------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| A `REG_DWORD`                                                             | The value, capped at `HOOK_TIMEOUT_CAP_MS` (1000 ms, the most Windows allows from Windows 10 version 1709) |
+| A `REG_SZ`                                                                | The value, capped at `HOOK_TIMEOUT_DEFAULT_MS`                                                             |
+| Absent, zero or not a number                                              | `HOOK_TIMEOUT_DEFAULT_MS` (300 ms)                                                                         |
+
+```text
+budget = hook timeout − HOOK_WORK_MARGIN_MS
+```
+
+`HOOK_WORK_MARGIN_MS` is 50 ms, kept for the hook's own work.
+
+**What the hook waits for inside the budget.** The describer's answer. Where the clicked application still holds a describer with an earlier click's pre-capture, the hook waits for that application to answer. Where no describer is free, it waits for one to come free. DCP-1 holds that these waits dispatch no message.
+
+**What the budget buys.** Windows passes input on without a low-level hook that does not return within the system's hook timeout. It is understood, though not verified here, that Windows can remove the hook after that, after which nothing the mouse does would be recorded. With the budget the hook is never held past the system's hook timeout, so Windows does not pass the clicks after a slow one on unrecorded, and probably does not remove the hook.
+
+**The describers.** Each runs the pre-capture's `ElementFromPoint` and the description built from it. At most `MAX_DESCRIBERS` (5) describer threads are alive in the process at a time, those left by a stopped capture session included.
+
+- One describer is asked and a second is kept ready as a spare.
+- When the describer asked is still on an earlier click, a click in another application goes to the spare. The held describer is left to the application holding it: its answer is discarded, and its thread ends when the application answers and is never joined. A new spare is started.
+- A click in the application that holds a describer is not given another, since it would hold that one too.
+- A capture session that cannot start a describer (the cap reached) tries again at a later click, at most once a second (`START_RETRY_INTERVAL`), without waiting for it: that click's ask waits for it within the budget.
+
 ## Routing and ordering
 
 Every worker's queue is FIFO, and all workers share one action channel. So per-worker order is preserved end to end, and only cross-worker interleaving is unordered (the frontend's ordered insertion restores it). Dispatch places events so the per-worker state that judges them stays coherent (DCP-12):
 
 - **Typing worker.** Every keyboard and value-change event reaches one worker. So a value change is processed after the keystrokes that caused it, and supersedes the buffered ones (DCP-9).
 - **End of typing.** An event that ends the typing in a field (a click, a drag, a window change) is routed like any other. The dispatcher tells the typing worker behind the events already sent to it, so the `type` that worker holds is written (DCP-9). A window the scope filters drop sends no event when it comes to the front; the input thread sends the bridge a typing-ended message in its place, and the dispatcher tells the typing worker the same way.
-- **A look at the focus.** When a capture starts, and behind each window change it dispatches, the dispatcher asks the typing worker to look at the control that holds the keyboard focus, choosing the typing worker if none holds the role yet. The look writes nothing; it makes the first key typed there find its control known, and it is skipped for a control of Docent's own process and for one whose window does not answer within 50 ms (DCP-11).
+- **A look at the focus.** When a capture starts, and behind each window change it dispatches, the dispatcher asks the typing worker to look at the control that holds the keyboard focus, choosing the typing worker if none holds the role yet. The look writes nothing; it makes the first key typed there find its control known. DCP-16 holds when it is skipped.
 - **Focus worker.** Every focus event reaches one worker, whatever window it names, so each focus is compared with the focus before it (DCP-12, DCP-13).
 - **Sticky routing.** Selection events for the same window handle always reach the same worker, which processes them in order.
 - **Drag pairing.** A drop routes to the worker that took its drag start, so the pair is built from the same recorded source element.
@@ -52,6 +78,68 @@ A respawned worker starts fresh: empty queue, empty dedup state, empty held buff
 - the teardown drains of a [stop](#shutdown-doctrine).
 
 Each drain empties the shared buffers under their lock, so whichever runs first wins and the others find nothing to re-emit.
+
+## The element of a keystroke
+
+A keystroke and a value change are described by a worker after they happened. This section holds how the worker tells which element they went to. DCP-16 holds the rule, the departure, when the look ahead of a key is not taken, and the open cases.
+
+### The focus count
+
+The input thread counts focus changes and stamps each event with the count at its dispatch. The count has two parts:
+
+- **What the person did that can move the focus:** a mouse-down, or a key from the closed table of keys that are not plain typing keys. These are counted on the hooks at the moment of the input.
+- **The focus and foreground changes programs reported.** These arrive a moment after they happen.
+
+### A keystroke settled on its control
+
+Where the focused control has a window handle of its own, the keystroke does not depend on a description of the focused element. The input thread reads the handle of the control that holds the keyboard focus when the key is pressed (the window system's record of the foreground thread's input state, read without sending the program a message) and stamps the keystroke with it. A handle names one control for as long as the control lives.
+
+A worker looks at a control once:
+
+- When nothing inside it can take the keyboard focus (an edit field), the control is the element of every keystroke stamped with its handle.
+- A window that holds other focusable elements (a browser's page) says nothing about which of them a key went to. Its keystrokes are [described by focus](#a-keystroke-described-by-focus).
+
+**The look ahead of any key.** The typing worker also looks at the control that holds the keyboard focus when a capture starts and when a window comes to the front (each foreground change the input thread dispatches). So the first keystroke typed into it, and the read of its first value (DCP-9), do not wait on its description; that keystroke looks again only at what the control is, which takes no description. The look writes nothing. DCP-16 holds the two cases in which it is not taken.
+
+**Looking again.** The worker looks again at what the control is: whether it still can hold the focus only itself, and whether it is a password field (a field can become one when the person unticks a box, and a page can finish loading and focus its password field). It does so at:
+
+- the first keystroke under each later count of the person's;
+- the first keystroke after a program reported a focus change that named a part of the control.
+
+The input thread notes those reported changes per window. A focus change names a window as a whole by the window's own object or its client area with no child, and a part of it by anything else. Each keystroke is stamped with the number of its control's latest one. The note remembers a fixed number of windows, and a window it let go answers the number of the latest change let go, so never one from before its own latest change.
+
+The second look takes no description. The control is described again when what it is changed, and at a new count of the person's also when the title of its window did, since the description names the window. Any other focus change a program reports (the suggestion list of a file-name field) asks for no look, because a look waits on the program, and a keystroke that waits while the person presses Enter finds its dialog gone.
+
+**When the handle is taken.** The first row that fits a keystroke decides:
+
+| The keystroke                                                                                                                                                                                                     | Is recorded on                                                                        |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| No reported change named a part of its control, and the person has done nothing, since the control was last looked at                                                                                             | The control, however late the keystroke is processed, after its window closed as well |
+| Its control is gone at the second look, it enters no text (Enter after a file name), and it is under the count of the person's the control was last looked at under                                               | The control, since what the control had become cannot put a character on record       |
+| Its control is gone at the second look, in any other case                                                                                                                                                         | The element [described by focus](#a-keystroke-described-by-focus)                     |
+| It is the first keystroke under a new count of the person's, and the present confirms its handle: the person has done nothing since that can move the focus, and the handle holds the focus when the worker looks | The control                                                                           |
+| It is the first keystroke under a new count of the person's, and the present does not confirm its handle                                                                                                          | The element described by focus                                                        |
+| Nothing at all was counted since the keystroke, its window is the foreground window, and its handle no longer holds the focus (a program moved the focus by itself)                                               | The element described by focus                                                        |
+
+The handle of a first keystroke needs that confirmation because it can be read before the program acted on what the person did just before the key (Tab, then a character at once).
+
+### A keystroke described by focus
+
+The first step that applies decides:
+
+1. A keystroke is recorded on the element described under its own count, however late it is processed.
+2. While that description is the worker's latest, the keystroke's window is the foreground window and the count has not moved, the worker first confirms that the focused element is that very element. It describes afresh when a program moved the focus without reporting it.
+3. When no element was described under its count, the focused element is taken only while the keystroke's window is still the foreground window and the person has not moved the focus since.
+4. Otherwise, and when the window gives no focused element, nothing the worker reads then says which element the keystroke went to, and the action names no element.
+
+A key that moves the focus itself (Tab) goes through the same steps; DCP-16 lists what that records among its open cases.
+
+### A value change
+
+A value change is judged against the keystroke before it in its window (DCP-16):
+
+- **Described by focus.** Whether the focused element is the element that keystroke was recorded on is judged on the element itself where the worker's latest description is still that keystroke's, and on the selector otherwise.
+- **Settled on its control.** A control reported a value change about itself when the event names the control's own client object with no child element (`value_change_control`); a child element or a scroll bar is not the control itself. The value is read from the control, not from the focused element. DCP-16 holds the outcome.
 
 ## Completed-but-held buffers
 
@@ -74,11 +162,15 @@ With no active capture, nothing is buffered and no barrier runs. `commit_barrier
 4. The pool waits for all acknowledgements against one shared deadline. If a worker does not acknowledge in time (wedged in an unresponsive accessibility call, or dead), the pool drains that worker's shared buffers in place, so its completed actions still land.
 5. Only after every acknowledgement or rescue does the pool emit the completion sentinel. It is last on the shared action channel, therefore behind every action belonging to the step. The sentinel is internal: the frontend consumes it to resolve the commit's bounded wait, and it never enters the pending list or an export.
 
-The barrier report carries the barrier id, the number of rescued workers, and **how the barrier completed**. A slow worker is surfaced, never hidden (DCP-2 explains why the report is never a per-id account).
+The barrier report carries the barrier id, the number of rescued workers, and **how the barrier completed**. A slow worker is surfaced, never hidden.
 
 The steps above are the marker-ordered completion. When the barrier request itself cannot complete (the Input_Thread is dead or its pump stalled past the bound, so the marker is never forwarded), the commit path drains every worker's shared buffers directly through the pool's drain directory (no input thread or bridge involved), and emits the completion sentinel after them: the fallback-drained completion. Every buffered action is still recovered, and the sentinel still resolves the frontend's wait. What is given up is marker-exactness: recovered actions enter the stream at drain time, with sequence ids still splicing them into place where present.
 
 The report states which completion happened, so a caller can never read a timeout as a marker-ordered success. If the marker-ordered flush completes late after a fallback (a transient stall), its drains find the buffers already empty and its duplicate sentinel is inert at the frontend. No action is delivered twice.
+
+**Why the commit waits for the marker on the action stream.** The drain command's result and the action events travel different channels with no mutual ordering. Waiting for the command to return would not say that every action had arrived. The marker is on the action stream itself, behind every action of the step.
+
+**Why the barrier does not wait on sequence numbers.** The ids delivered to the frontend are legitimately a subset of those the input thread assigned, because the workers drop or coalesce input. For example, lone Shift, Ctrl or Alt presses are dropped, the typing in a field is one action carrying only its last id, and a scroll flushed with no arriving event (the periodic tick or a buffer drain) carries no id at all. So "wait until the highest id assigned has arrived" is unsatisfiable in normal use, and it cannot tell a filtered id from a late one. Only the backend knows when each worker has finished, which is what the drain-and-acknowledge barrier establishes. The same subset is why the barrier's report counts rescued workers (DCP-2).
 
 ## Shutdown doctrine
 

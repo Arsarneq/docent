@@ -905,15 +905,16 @@
     },
     {
       "path": "packages/desktop/src-tauri/tests/control_look_test.rs",
-      "reason": "The Windows backend's look at a control by its window handle, against real windows of the test process: a field as a control of its own, a password field, a window that holds fields, the value read from the control, and a handle of no window. The Windows capture doctrine's focus row states what a worker asks a control and when (DCP-11), and the suite orientation lists the binary.",
+      "reason": "The Windows backend's look at a control by its window handle, against real windows of the test process: a field as a control of its own, a password field, a window that holds fields, the value read from the control, and a handle of no window. The Windows capture doctrine states the element of a keystroke (DCP-16), the pipeline document states what a worker asks a control and when, and the suite orientation lists the binary.",
       "governed-by": [
         "docs/architecture/application/desktop/windows/capture-principles.md",
+        "docs/architecture/application/desktop/windows/capture-pipeline.md",
         "docs/test/desktop-rust.md"
       ]
     },
     {
       "path": "packages/desktop/src-tauri/tests/worker_pool_test.rs",
-      "reason": "The worker-pool property and truth-lock binary — sequence numbering, shortest-queue dispatch, sticky and drag-pair routing, and the dead-worker drain rescues, alongside end-to-end action truth-locks over the same pipeline. The Windows capture doctrine's ordering row names its flush-barrier tests among that row's existing guards (DCP-2) and the worker-delivery row names its respawn and shutdown drains among that row's (DCP-12), while the drag-classification row's own unit stays intended and names this binary for the right-button path's downstream half alone (DCP-10); the pipeline document owns the delivery model it locks, the retired desktop manual history names it among its replacements, and the suite orientation lists it.",
+      "reason": "The worker-pool property and truth-lock binary — sequence numbering, shortest-queue dispatch, sticky and drag-pair routing, and the dead-worker drain rescues, alongside end-to-end action truth-locks over the same pipeline. The Windows capture doctrine's ordering row names its flush-barrier tests among that row's existing guards (DCP-2) and the worker-delivery row names its respawn and shutdown drains among that row's (DCP-12), the redaction row names its cases for a keystroke that names no element (DCP-11), the description row names its preferred-languages case (DCP-15) and the keystroke-element row its cases for the element a keystroke and a value change are recorded on (DCP-16), while the drag-classification row's own unit stays intended and names this binary for the right-button path's downstream half alone (DCP-10); the pipeline document owns the delivery model it locks, the retired desktop manual history names it among its replacements, and the suite orientation lists it.",
       "governed-by": [
         "docs/architecture/application/desktop/windows/capture-principles.md",
         "docs/architecture/application/desktop/windows/capture-pipeline.md",

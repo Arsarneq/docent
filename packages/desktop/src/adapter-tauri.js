@@ -372,8 +372,9 @@ function _insertOrdered(action) {
 
 // ─── Completeness Guarantee ───────────────────────────────────────────────────
 // The frontend half of the step-commit flush barrier (docent#298; desktop
-// capture-principles DCP-2 states the guarantee and why the wait is on the
-// stream rather than on the command). What lives here: wait for the
+// capture-principles DCP-2 states the guarantee, and the capture pipeline's
+// commit flush barrier section why the wait is on the stream rather than on
+// the command). What lives here: wait for the
 // `barrier_complete` sentinel the backend emits last on the capture:action
 // stream, then strip the internal _seq fields from all pending actions.
 

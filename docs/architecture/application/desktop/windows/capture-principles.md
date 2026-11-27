@@ -21,113 +21,44 @@ numeric sequence.
 
 **DCP-1.** Capture runs on four thread roles:
 
-1. **Input Thread** — low-level hooks (WH_MOUSE_LL, WH_KEYBOARD_LL). It makes
-   no accessibility call itself. The keyboard hook asks the focused control's
-   input-method window two questions at each key press, each with a short
-   time limit (DCP-9). At left mouse-up on a non-drag click, and at
-   right/middle button-down, the mouse hook asks a pre-capture describer for
-   the clicked element and waits for the answer for at most a budget set at
-   start from the system's low-level hook timeout: the user's
-   `LowLevelHooksTimeout` setting, as read at the session's start — a
-   `REG_DWORD` capped at `HOOK_TIMEOUT_CAP_MS` (1000 ms, the most Windows
-   allows from Windows 10 version 1709), a `REG_SZ` capped at
-   `HOOK_TIMEOUT_DEFAULT_MS` — or `HOOK_TIMEOUT_DEFAULT_MS` (300 ms) where
-   the setting is absent, zero or not a number, less `HOOK_WORK_MARGIN_MS` (50 ms) for the hook's own work
-   (`src/capture/timing.rs`). The element is described while the target
-   window is still alive, before the click takes effect (locator match
-   statistics deliberately unmeasured there). Within the same budget the hook
-   waits, where the clicked application still holds a describer with an
-   earlier click's pre-capture, for that application to answer, and, where no
-   describer is free, for one to come free. When the hook made the call
-   itself, a later click waited behind the earlier call, and its hook ran
-   only if that call returned within the later click's own hook timeout;
-   otherwise Windows passed the click on unrecorded. Here it waits no longer
-   than its budget (DCP-13 states what that costs). The
-   hook dispatches every click, in order, whether or not an element came; a
-   click that got none is described by its worker (DCP-13 lists every way a
-   click gets none, and what that costs). The waits dispatch no message, so
-   no other hook call runs inside them. Windows passes input on without a
-   low-level hook that does not return within the system's hook timeout,
-   and, it is understood though not verified here, can remove the hook after
-   that, after which nothing the mouse does would be recorded. What the
-   budget buys: the hook is never held past the system's hook timeout,
-   whatever the clicked application does, so Windows does not pass the
-   clicks after a slow one on unrecorded, and probably does not remove the
-   hook. Every other accessibility query runs on the
-   workers
-2. **Pre-capture Describers** (at most `MAX_DESCRIBERS`, 5, threads alive in
-   the process at a time, those left by a stopped capture session included)
-   — the pre-capture's `ElementFromPoint` and the description built from it,
-   each describer with its own accessibility client and one click at a time.
-   One describer is asked and a second is kept ready as a spare. When the
-   describer asked is still on an earlier click, a click in another
-   application goes to the spare, the held describer is left to the
-   application holding it (its answer discarded, its thread ending when the
-   application answers, never joined) and a new spare is started; a click in
-   the application that holds a describer is not given another, since it
-   would hold that one too. So an application that does not answer costs the
-   pre-capture of its own clicks only, until held describers reach the cap.
-   A capture session that cannot start a describer (the cap reached) tries
-   again at a later click, at most once a second (`START_RETRY_INTERVAL`),
-   without waiting for it: that click's ask waits for it within the budget
-3. **Worker Pool** (3 threads) — accessibility queries, produces ActionEvents
-4. **Bridge Thread** — dispatches raw events from input thread to workers
+| Role                   | What it does                                                                                                  |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------- |
+| Input Thread           | Runs the low-level hooks (WH_MOUSE_LL, WH_KEYBOARD_LL). It makes no accessibility call itself.                |
+| Pre-capture Describers | Describe the clicked element for the mouse hook, one click at a time, each with its own accessibility client. |
+| Worker Pool            | 3 threads. They make every other accessibility query and produce ActionEvents.                                |
+| Bridge Thread          | Dispatches raw events from the input thread to the workers.                                                   |
 
-**DCP-2.** Events may arrive out-of-order from workers, and ordering is
-restored without delaying the user: the frontend delivers each event
-immediately, splicing it into the pending list by `sequence_id` (ordered
-insertion — no lag waiting on slower workers); an event that carries no id (a
-scroll flushed with no arriving event — by the worker's periodic tick or by a
-buffer drain; a scroll an arriving event flushes carries that event's id) is
-appended at its arrival point, and neither internal ever reaches a stored or
-exported recording — the sequence id is stripped before the action is stored
-or exported, and the barrier completion marker below never enters the pending
-list. Committing a step then applies a
-**flush barrier**: the backend drains every worker's completed-but-held buffers
-into the action stream, emits a completion marker (the barrier _sentinel_, as
-[the capture pipeline](capture-pipeline.md) and its tests call it) onto that
-same stream after them, and the commit collects the step only once it has
-received that marker —
-so a commit never races a still-in-flight or still-buffered action. Waiting for
-the marker on the action stream, rather than for the drain command to return,
-is what makes the guarantee hold: the command result and the action events
-travel different channels with no mutual ordering.
+At left mouse-up on a non-drag click, and at right/middle button-down, the mouse hook asks a pre-capture describer for the clicked element. The element is described while the target window is still alive, before the click takes effect. Its locator match statistics are not measured there (DCP-15).
 
-The barrier does not wait on sequence numbers. The ids delivered to the frontend
-are legitimately a **subset** of those the input thread assigned — the workers
-drop or coalesce input, for example: lone Shift, Ctrl or Alt presses are
-dropped, the typing in a field is one action carrying only its last id, and a
-scroll flushed with no arriving event (the periodic tick or a buffer drain)
-carries no id at all — so "wait until the highest id assigned has arrived" is
-both unsatisfiable in normal use and unable to tell a filtered id from a late
-one. Only the backend knows when each worker has finished, which is
-what the drain-and-acknowledge barrier establishes.
+The hook waits for the answer for at most a budget set at start from the system's low-level hook timeout, so the hook is never held past that timeout, whatever the clicked application does. The hook dispatches every click, in order, whether or not an element came. A click that got none is described by its worker (DCP-13 lists every way a click gets none, and what that costs). The hook's waits dispatch no message, so no other hook call runs inside them.
 
-The barrier is **bounded** at every tier, and an expired bound MUST be
-distinguishable from success. A worker wedged in an unresponsive accessibility
-call cannot stall the commit past a timeout, at which point that worker's
-buffered actions are drained in place (its completed actions are never lost) and
-the commit proceeds; the report counts the workers rescued this way — never a
-per-id account, which the subset above makes impossible — so a slow worker is
-surfaced, not hidden. The barrier run itself is bounded the same way: when the
-marker-ordered flush cannot report within its bound (a dead input thread, a
-stalled message pump), the backend drains every worker's held buffers directly,
-emits the completion marker after them, and the report states the barrier
-completed by **fallback drain** rather than marker-ordered — completeness is
-preserved, marker-exact ordering is the stated trade (delivered sequence ids
-still order the recovered actions where present), and the timeout is never
-shaped as a success. The frontend's wait for the marker is also bounded (5000 ms) — a
-marker lost in transit cannot hang a commit — and an expired wait is surfaced
-through the shell's logging affordance before the commit proceeds with the
-actions delivered by then. A marker that arrives before the commit starts
-waiting still satisfies the wait, and a duplicate marker for an
-already-collected barrier is inert. A barrier
-run with no active capture reports that nothing was buffered and that no
-barrier ran, and the commit collects immediately. The pipeline mechanics behind
-this clause — channels, routing, and the drain paths including the fallback,
-for example —
-are oriented in
-[the capture pipeline](capture-pipeline.md).
+An application that does not answer costs the pre-capture of its own clicks only, until held describers reach the cap on describer threads alive in the process at a time.
+
+The keyboard hook asks the focused control's input-method window two questions at each key press, each with a short time limit (DCP-9).
+
+[The capture pipeline](capture-pipeline.md#pre-capture-at-a-click) states how the budget is computed, what the hook waits for inside it, the cap on describers, and how describers are held, spared and started.
+
+**DCP-2.** Events may arrive out-of-order from workers, and ordering is restored without delaying the user. These three rules hold:
+
+- The frontend delivers each event immediately, splicing it into the pending list by `sequence_id` (ordered insertion, no lag waiting on slower workers).
+- An event that carries no id is appended at its arrival point. That is a scroll flushed with no arriving event, by the worker's periodic tick or by a buffer drain; a scroll an arriving event flushes carries that event's id.
+- Neither internal ever reaches a stored or exported recording: the sequence id is stripped before the action is stored or exported, and the barrier completion marker below never enters the pending list.
+
+Committing a step applies a **flush barrier**. The backend drains every worker's completed-but-held buffers into the action stream and emits a completion marker (the barrier _sentinel_, as [the capture pipeline](capture-pipeline.md) and its tests call it) onto that same stream after them. The commit collects the step only once it has received that marker, so a commit never races a still-in-flight or still-buffered action. The commit waits for the marker, not for the drain command to return, and the barrier does not wait on sequence numbers.
+
+The barrier is **bounded** at every tier, and an expired bound MUST be distinguishable from success. It has exactly these three bounds:
+
+| Bound that expires                                                                                    | What happens                                                                                                          | How it is told from success                                                                    |
+| ----------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| A worker does not acknowledge in time (wedged in an unresponsive accessibility call)                  | That worker's buffered actions are drained in place, so its completed actions are never lost, and the commit proceeds | The report counts the workers rescued this way, never a per-id account                         |
+| The marker-ordered flush cannot report within its bound (a dead input thread, a stalled message pump) | The backend drains every worker's held buffers directly and emits the completion marker after them                    | The report states the barrier completed by **fallback drain** rather than marker-ordered       |
+| The frontend's wait for the marker (5000 ms), so a marker lost in transit cannot hang a commit        | The commit proceeds with the actions delivered by then                                                                | The expired wait is surfaced through the shell's logging affordance before the commit proceeds |
+
+A fallback drain preserves completeness and trades marker-exact ordering: delivered sequence ids still order the recovered actions where present.
+
+A marker that arrives before the commit starts waiting still satisfies the wait, and a duplicate marker for an already-collected barrier is inert. A barrier run with no active capture reports that nothing was buffered and that no barrier ran, and the commit collects immediately.
+
+[The capture pipeline](capture-pipeline.md#the-commit-flush-barrier) states the mechanics behind this clause: why the commit waits for the marker on the action stream, why the barrier does not wait on sequence numbers and its report holds no per-id account, the channels, the routing and the drain paths.
 
 ---
 
@@ -165,23 +96,15 @@ event attributed to no window is judged by the target filter alone:
 - **Target application** — when the user selects a target application, only
   events attributed to its process are captured; with no target set, all
   applications are captured.
-- **Self-capture exclusion** — events from Docent's own process are excluded
-  by default, on three grounds: processes in Docent's own process **tree**
-  (a bounded walk up the parent chain; the bound lives in code); processes
-  recognized by executable name — the webview runtime's, or Docent's own
-  binary name — which are excluded regardless of tree membership; and
-  processes judged to have their window owned by an excluded process's
-  window (the system dialogs Docent itself opens). The verdict those grounds
-  reach is **per-process**: it is evaluated on the first event a process sends
-  through them and cached for the capture session, so every window of that
-  process shares whichever verdict came first — including the owned-window
-  ground, which is therefore decided from the first event's window alone. An
-  event the target filter has already dropped never reaches them, so it is
-  judged by no ground and caches nothing.
-  The setting is a persisted toggle, default on, applied when the app starts
-  and the moment it changes; the exclusion takes priority over the target
-  filter, so selecting Docent itself as the target still excludes it while
-  the exclusion is on.
+- **Self-capture exclusion** — events from Docent's own process are excluded by default, on three grounds:
+  - processes in Docent's own process **tree** (a bounded walk up the parent chain; the bound lives in code);
+  - processes recognized by executable name — the webview runtime's, or Docent's own binary name — which are excluded regardless of tree membership;
+  - processes judged to have their window owned by an excluded process's window (the system dialogs Docent itself opens).
+
+  The verdict those grounds reach is **per-process**: it is evaluated on the first event a process sends through them and cached for the capture session, so every window of that process shares whichever verdict came first — including the owned-window ground, which is therefore decided from the first event's window alone. An event the target filter has already dropped never reaches them, so it is judged by no ground and caches nothing.
+
+  The setting is a persisted toggle, default on, applied when the app starts and the moment it changes; the exclusion takes priority over the target filter, so selecting Docent itself as the target still excludes it while the exclusion is on.
+
 - **Resolvable window** — an event whose window is already destroyed by the
   time it is examined (its process can no longer be resolved) is skipped.
 
@@ -198,26 +121,27 @@ event source of the DCP-4 surface names the window whose process is judged:
 | Low-level keyboard hook | The foreground window, or no window for a key the system takes (below)                   |
 | WinEvent callbacks      | The window the event names                                                               |
 
-A key the system takes is one the system acts on, not the foreground window:
-the Windows key, or any key pressed while it is held; Escape with Ctrl held
-and Alt not (Ctrl+Esc opens Start); and Tab or Escape with Alt held (Alt+Tab
-and Alt+Esc switch windows). An Alt press alone is none of these. Such a key
-is attributed to no window when the self-capture exclusion (DCP-5) excludes
-the foreground window, and that window stays out of the recording; under any
-other foreground window it is attributed to the foreground window, as every
-key is. With a target set, a key attributed to no window is not the target's
-input and is dropped. With none, it is recorded with `context_id` and
-`window_rect` null and with the stand-in element of a key whose element is
-unknown (tag `Unknown`, empty selector) with no name, also where the system
-then acts on the foreground window (Win+Arrow, for example); the input thread
-reads no focused control for it (DCP-11), so no control of the excluded window
-is its element. It carries `modifiers`, `repeat` and `held_keys` as every
-`key` does (DCP-9), the Windows key held at it among its modifiers. Its press
-counts
-as low-level input for the window changes it causes (DCP-7), the switch an
-Alt+Tab makes among them (DCP-6), with the excluded foreground window as the
-input's window (DCP-8); it counts as no keyboard input, so no value change
-correlates with it.
+A key the system takes is one the system acts on, not the foreground window. It is one of these three, a closed list:
+
+- the Windows key, or any key pressed while it is held;
+- Escape with Ctrl held and Alt not (Ctrl+Esc opens Start);
+- Tab or Escape with Alt held (Alt+Tab and Alt+Esc switch windows).
+
+An Alt press alone is none of these.
+
+Such a key is attributed to no window when the self-capture exclusion (DCP-5) excludes the foreground window, and that window stays out of the recording; under any other foreground window it is attributed to the foreground window, as every key is.
+
+With a target set, a key attributed to no window is not the target's input and is dropped. With none, it is recorded as a `key` with these field values, also where the system then acts on the foreground window (Win+Arrow, for example):
+
+| Field                              | Value                                                                                           |
+| ---------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `context_id`, `window_rect`        | null                                                                                            |
+| `element`                          | The stand-in element of a key whose element is unknown (tag `Unknown`, empty selector), no name |
+| `modifiers`, `repeat`, `held_keys` | As every `key` carries them (DCP-9), the Windows key held at the press among its modifiers      |
+
+The input thread reads no focused control for such a key ([capture pipeline, stage 1](capture-pipeline.md#stages)), so no control of the excluded window is its element.
+
+The press of a key attributed to no window counts as low-level input for the window changes it causes (DCP-7), the switch an Alt+Tab makes among them (DCP-6), with the excluded foreground window as the input's window (DCP-8); it counts as no keyboard input, so no value change correlates with it.
 
 WinEvents are additionally **foreground-gated**: the Input_Thread tracks the
 foreground process — seeded from the foreground window when capture starts,
@@ -587,22 +511,11 @@ Timing constants and correlation windows live in `src/capture/timing.rs`.
 
 ## Pointer gesture classification
 
-**DCP-10.** A left press-move-release is classified at release: movement of
-more than 5 px on either axis between button-down and button-up records a
-`drag_start`/`drop` pair (both dispatched at release, the source described
-from the button-down point); movement within the threshold records a `click`.
-A middle-button press records a `click` (the format has no separate
-middle-click type); a right-button press records a `right_click`. Each of
-these actions carries `modifiers`, the modifier keys held, and `held_keys`,
-the other keys that were down (DCP-9), as they stood at the input the action
-stands for: for a left `click` and a `drop` at the release of the button, for
-a middle-button `click` and a `right_click` at the press of their button, and
-for a `drag_start` at the first pointer position past the threshold after the
-button-down, which is where the drag started (the release itself, when no
-earlier position passed it); the extension reads a `drag_start`'s at the
-browser's `dragstart`, the point at which the browser takes the gesture for a
-drag, by a threshold of its own. The extension writes a `right_click` at the
-press of the right button too.
+**DCP-10.** A left press-move-release is classified at release: movement of more than 5 px on either axis between button-down and button-up records a `drag_start`/`drop` pair (both dispatched at release, the source described from the button-down point); movement within the threshold records a `click`.
+
+A middle-button press records a `click` (the format has no separate middle-click type); a right-button press records a `right_click`.
+
+Each of these actions carries `modifiers`, the modifier keys held, and `held_keys`, the other keys that were down (DCP-9), as they stood at the input the action stands for. The [session format](../../../../technical/session-format.md#shared-both-platforms)'s rows for `click`, `right_click`, `drag_start` and `drop` hold which input that is, on both platforms. This clause adds one case: where no pointer position before the release passed the threshold, the drag started at the release itself, and the `drag_start` carries what was held then. On the extension the browser takes the gesture for a drag by a threshold of its own.
 
 A left click whose press is the second press of a double-click is marked as
 completing one. The test is the system's own: the press lands in the same
@@ -620,62 +533,94 @@ the middle button's, and the proxy reads only left clicks.
 
 ## Sensitive-value redaction
 
-**DCP-11.** The native capture layer masks password fields directly from the UIA
-`IsPassword` signal, read by the type of its answer: a `VT_BOOL` answer — the
-property's documented type — reads as itself; an empty (`VT_EMPTY`) answer or a
-failed read reads as no password; and an answer of any other type reads as a
-password, so a provider answering outside the documented type has its field
-masked rather than exposed. A keystroke that enters text into such a field is
-recorded as part of the field's masked `type`, never as a `key` (DCP-9). Other sensitive values — the classes core CP-11
-names, recognised by the shared detection from their accessibility name or
-automation id — are masked at the
-**adapter chokepoint**, which processes each action's `element` (and its
-`value`) before the action enters the pending list. A `key` action on a field
-the chokepoint finds sensitive is stored there as the field's masked `type`
-when the key enters text (DCP-9's test for a password field, on the same
-closed list of key names), and when the step is committed it joins the
-field's masked `type` it sits beside (a field with an empty selector joins
-none), so no key name carries a character typed into a sensitive field; a key
-that enters no character, and a shortcut, stays a `key`, as does a key whose
-element could not be described (the `Unknown` element with an empty selector,
-whose name is the window's title, or none for a key attributed to no
-window (DCP-14), and no field name), and a key on a control that takes no
-typed text (DCP-9's list of control types: a checkbox named "Remember
-password" is ticked by its Space, not typed into). Both the shared detection
-and the redaction shape are the cross-platform rule ([core
-CP-11](../../../../architecture/system/capture-principles.md#sensitive-values)).
-(Tokened-URL redaction is extension-only, since the desktop app has no captured
-URLs.)
+**DCP-11.** The desktop masks sensitive values as [core CP-11](../../../../architecture/system/capture-principles.md#sensitive-values) rules. That clause holds the classes, the shared detection and the redaction shape. This clause states what is this platform's own. Tokened-URL redaction is extension-only, since the desktop app has no captured URLs.
 
-Locator candidates (`locators[]`) pass the redaction chokepoint untouched by
-design ([locator-resolution §LR-24](../../../../technical/locator-resolution.md)): every desktop strategy is identity-derived — the signals of LR-10's
-desktop strategies — never the typed value, which lives in `value`/`text` and
-is masked as above. Masking a label would both destroy the locator and mask a
-non-secret; redaction stays conservative. Locator match statistics are measured
-on the worker at the moment the element is described (asynchronously, after the
-input that caused it), never inside the low-level input hook — hook-described
-click elements carry candidate values only, with the pair absent.
+The native capture layer masks password fields directly from the UIA `IsPassword` property, read by the type of its answer. The property has exactly these three readings:
 
-That describe moment is itself exported as an observed fact: every
-accessibility-described element carries `described_after_ms`, the measured gap
-between the input and the moment its description was captured — `0` for
-hook-described clicks, the real gap for worker describes (which can grow under
-queue backlog; the number says so instead of hiding it). A coordinate-mode
-element describes the container the point fell in, not a specific control: it is
-the window-level description DCP-3 states — the window or generic pane the point
-resolved to, its `name` that container's name — or, when nothing resolved, a
-description whose `name` is the text of the action's attributed window (DCP-14).
-Of the fields an accessibility-described desktop element can carry,
-the ones it never carries are exactly the locators, the provider facts
-(`position_in_set`, `size_of_set`, `level`, `framework_id`, and `language`, which it states as null) and the describe
-latency: coordinate mode records where the user acted and in which window, not
-which element the accessibility layer resolved (core CP-18).
+| The answer                                | Reads as                                                                                                 |
+| ----------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `VT_BOOL`, the property's documented type | itself                                                                                                   |
+| Empty (`VT_EMPTY`), or the read failed    | no password                                                                                              |
+| Any other type                            | a password, so a provider answering outside the documented type has its field masked rather than exposed |
 
-The language facts are read from Windows as it reports them. An element's `language` is the UIA Culture of the nearest element that reports one, asked of the element and then of each ancestor up to its top-level window inside the walk that builds the tree path, and written as the locale name Windows gives that culture. An ancestor's culture is taken only when the walk confirmed the window root, since until then nothing shows the ancestor is inside the window, and a culture that names no language of its own (the user, system and custom defaults, which stand for the machine's setting, and the invariant locale) counts as none. An element with no reported culture states `language` as null. The culture is read when the element is described, and it is the provider's answer at that moment: a provider can report an element's culture later than the rest of its description. Chromium content has been seen to describe one field three times within a tenth of a second, same path each time, with no culture the first time and `en` the next two, so within one recording the same element can state null and then its language. `preferred_languages` is the user's preferred UI languages as Windows lists them, read when the action is built, and null when Windows could not be read ([Session Format — Shown text](../../../../technical/session-format.md#shown-text)).
+The other sensitive values (the classes CP-11 names, recognized from the accessibility name or automation id) are masked at the **adapter chokepoint**, which processes each action's `element` and its `value` before the action enters the pending list.
 
-A keystroke and a value change belong to the element that had focus when they happened, and a worker describes them later, by which time focus can have moved on. The input thread therefore counts focus changes and stamps each event with the count at its dispatch, in two parts: what the person did that can move the focus (a mouse-down, a key from the closed table of keys that are not plain typing keys), counted on the hooks at the moment of the input, and the focus and foreground changes programs reported, which arrive a moment after they happen. A keystroke is recorded on the element described under its own count, however late it is processed. While that description is the worker's latest, the keystroke's window is the foreground window and the count has not moved, the worker first confirms that the focused element is that very element, and describes afresh when a program moved the focus without reporting it. When no element was described under its count, the focused element is taken only while the keystroke's window is still the foreground window and the person has not moved the focus since. Otherwise, and when the window gives no focused element, nothing the worker reads then says which element the keystroke went to: the action names no element (tag `Unknown`, empty selector, no locator candidates) instead of whatever has focus by then. The extension reads a key's element from the key's own event. The keyboard hook is handed a key without the element it went to, but the platform lets that element be read: the hook reads the window handle of the control that holds the keyboard focus at the press (`GetGUIThreadInfo`), and at that moment UI Automation can describe that control, the focused element inside it, or the window where it reports none. The element is described afterwards, by a worker, and is lost where the focus or the window has moved on by then: a fact the layer could have read at an earlier moment, so the difference is a departure (core CP-19). Such an action does not say where its key went, and the sufficiency lint fails it for carrying no locator candidates ([docent#713](https://github.com/Arsarneq/docent/issues/713)). A keystroke that names no element and enters text is also held to the password rule above, since nothing shows its field was not a password field: it is recorded as a masked `type` on no element, never as a `key` carrying its character. A value change is the `type` of the element its keystrokes were recorded on. It writes no `type` and supersedes no buffered key (DCP-9) when its window is no longer the foreground window, when the window's last keystroke named no element, or when the focused element is not the element that keystroke was recorded on; that is judged on the element itself where the worker's latest description is still that keystroke's, and on the selector otherwise. A `type` already pending is then written ahead of the buffered keys. What such a value change would have recorded beyond the keys (pasted text, a composed character) is not recorded. Three cases stay open. Where a program moves the focus by itself and reports it late or not at all, a keystroke stamped before the report reaches the input thread is recorded on the element described under the old count when it is processed after its window was left, and the first keystroke under a count is recorded on the focused element of its window as the worker finds it. And the person's input is counted before the program has acted on it, so a keystroke described in between is recorded on the element that still had focus. A key that moves the focus itself (Tab) is recorded on the element it was pressed in when that element was described under its count, and otherwise on the focused element as the worker finds it.
+No key name carries a character typed into a sensitive field. Exactly these three rules hold it:
 
-Where the focused control has a window handle of its own, the keystroke does not depend on that description at all. The input thread reads the handle of the control that holds the keyboard focus when the key is pressed (the window system's record of the foreground thread's input state, read without sending the program a message) and stamps the keystroke with it. A handle names one control for as long as the control lives. A worker looks at a control once: when nothing inside it can take the keyboard focus (an edit field), the control is the element of every keystroke stamped with its handle; a window that holds other focusable elements (a browser's page) says nothing about which of them a key went to, and its keystrokes are described as above. The typing worker also looks at the control that holds the keyboard focus when a capture starts and when a window comes to the front (each foreground change the input thread dispatches), ahead of any key, so the first keystroke typed into it, and the read of its first value (DCP-9), do not wait on its description; that keystroke looks again only at what the control is, which takes no description. The look writes nothing. It is not taken for a control of Docent's own process, nor for one whose window does not answer a message within 50 ms (its program is busy or hung): no keystroke waits on it, and the control's first keystroke looks at it itself. The worker looks again at what the control is (whether it still can hold the focus only itself, whether it is a password field: a field can become one when the person unticks a box, and a page can finish loading and focus its password field) at the first keystroke under each later count of the person's, and at the first keystroke after a program reported a focus change that named a part of the control: the input thread notes those per window (a focus change names a window as a whole by the window's own object or its client area with no child, and a part of it by anything else) and stamps each keystroke with the number of its control's latest one; the note remembers a fixed number of windows, and a window it let go answers the number of the latest change let go, so never one from before its own latest change. The look takes no description; the control is described again when what it is changed, and at a new count of the person's also when the title of its window did, since the description names the window. Any other focus change a program reports (the suggestion list of a file-name field) asks for no look, because a look waits on the program, and a keystroke that waits while the person presses Enter finds its dialog gone. Keystrokes with no such change and nothing done by the person since the control was last looked at are recorded on it however late they are processed, after its window closed as well; a keystroke whose control is gone at the second look is described as above, except a keystroke that enters no text (Enter after a file name) under the count of the person's the control was last looked at under: it stays on the control, since what the control had become cannot put a character on record. The handle can be read before the program acted on what the person did just before the key (Tab, then a character at once), so the first keystroke under a new count of the person's is taken on its handle only when the present confirms it: the person has done nothing since that can move the focus, and the handle holds the focus when the worker looks. While nothing at all was counted since a keystroke and its window is the foreground window, a handle that no longer holds the focus means a program moved it by itself. In both cases the keystroke is described as above. A value change is the `type` of such a control when the control reported it about itself and the window's last keystroke was recorded on that control; the value is read from the control, not from the focused element, and a control that is gone or gives no value leaves the keystrokes as `key` actions on it. A value change from anywhere else in the window (another control, the control's scroll bar) is passed over. The value of a control last looked at as a password control is not read. Five cases stay open here. A program that changes what a control is without the person doing anything, and reports no focus change that names a part of the control (a field turned into a password field in place), is found out only at the next count of the person's. The worker's confirmation can itself come before the program has acted on what the person did (Tab, a character, and a worker faster than the program): the keystroke, and the keystrokes after it that carry the same handle under that count, are then recorded on the control the focus was still in. A keystroke whose handle was read before the program moved the focus by itself, and which is processed before the program has done so, is recorded on the control the handle names. A first keystroke in a control no worker has looked at yet waits for that look, which takes as long as the program takes to answer; keystrokes behind it wait with it, and a first keystroke under a new count that is reached only after the person moved the focus again names no element. And the look at the focus a capture start or a window change asks for can still wait without limit where the control's window answers that message, then stalls inside the accessibility call that describes it: while it does, every keystroke and value change behind it on the typing worker waits, those typed into another window included, so their values are read late and their keys written as keys (DCP-9), and a commit whose flush barrier the waiting worker misses hands the role over (DCP-12).
+- **Password field.** A keystroke that enters text into a password field is recorded as part of the field's masked `type`, never as a `key` (DCP-9).
+- **Field the chokepoint finds sensitive.** A `key` action that enters text there (DCP-9's test for a password field, on the same closed list of key names) is stored as the field's masked `type`. When the step is committed it joins the field's masked `type` it sits beside; a field with an empty selector joins none.
+- **No element.** A keystroke that names no element (DCP-16) and enters text is recorded as a masked `type` on no element, never as a `key` carrying its character, since nothing shows its field was not a password field.
+
+The chokepoint leaves exactly these three a `key`:
+
+- a key that enters no character, and a shortcut;
+- a key whose element could not be described: the `Unknown` element with an empty selector, which has no field name and whose name is the window's title (none for a key attributed to no window, DCP-14);
+- a key on a control that takes no typed text (DCP-9's list of control types), such as the Space that ticks a checkbox whose name holds "password".
+
+Locator candidates (`locators[]`) pass the chokepoint untouched ([LR-24](../../../../technical/locator-resolution.md)). Every desktop strategy is derived from identity (the signals of LR-10's desktop strategies), never from the typed value, which lives in `value` and `text` and is masked as above. Masking a label would both destroy the locator and mask a non-secret, so redaction stays conservative.
+
+---
+
+## What an element description states
+
+**DCP-15.** An accessibility-described element states how long after the input it was described and the language its provider reports. A coordinate-mode element carries no describe latency and states its language as null. These four rules hold:
+
+- **Describe latency.** Every accessibility-described element carries `described_after_ms`, the measured gap between the input and the moment its description was captured: `0` for a click described on the hook, the real gap for a worker's describe. That gap can grow under queue backlog, and the number says so.
+- **Locator match statistics.** They are measured on the worker at the moment the element is described, never inside the low-level input hook. A click element described on the hook carries candidate values only, with the `match_count` and `match_index` pair absent.
+- **Coordinate mode.** A coordinate-mode element describes the container the point fell in, not a specific control. It is the window-level description DCP-3 states (the window or generic pane the point resolved to, its `name` that container's name) or, when nothing resolved, a description whose `name` is the text of the action's attributed window (DCP-14). Coordinate mode records where the user acted and in which window, not which element the accessibility layer resolved (core CP-18).
+- **What coordinate mode leaves out.** Of the fields an accessibility-described desktop element can carry, a coordinate-mode element never carries exactly these: the locators, the provider facts (`position_in_set`, `size_of_set`, `level`, `framework_id`, and `language`, which it states as null) and the describe latency.
+
+The language facts are read from Windows as it reports them ([Session Format: Shown text](../../../../technical/session-format.md#shown-text)). There are exactly these two, and the three rules after the table bound how a culture is read:
+
+| Fact                  | Read from                                                                                                                                                                   | Null when                                 |
+| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------- |
+| `language`            | The UIA Culture of the nearest element that reports one: the element, then each ancestor up to its top-level window. Written as the locale name Windows gives that culture. | No element on that path reports a culture |
+| `preferred_languages` | The user's preferred UI languages as Windows lists them, read when the action is built.                                                                                     | Windows could not be read                 |
+
+- An ancestor's culture is taken only when the walk that builds the tree path confirmed the window root, since until then nothing shows the ancestor is inside the window.
+- A culture that names no language of its own counts as none: the user, system and custom defaults, which stand for the machine's setting, and the invariant locale.
+- The culture is the provider's answer at the moment the element is described, and a provider can report an element's culture later than the rest of its description. So within one recording the same element can state null and then its language. Chromium content has been seen to describe one field three times within a tenth of a second, same path each time, with no culture the first time and `en` the next two.
+
+---
+
+## The element of a keystroke
+
+**DCP-16.** A keystroke and a value change belong to the element that had focus when they happened. A worker describes them later, by which time focus can have moved on. Where nothing the worker reads says which element a keystroke went to, the action names no element (tag `Unknown`, empty selector, no locator candidates) instead of whatever has focus by then.
+
+The capture pipeline holds [how the worker tells](capture-pipeline.md#the-element-of-a-keystroke): the count of focus changes each event is stamped with (the **count** below), and the window handle of the control that held the keyboard focus at the press (the **handle** below).
+
+That the element is described after the press, and not at it, is a departure (core CP-19). The extension reads a key's element from the key's own event. The keyboard hook is handed a key without the element it went to, but the platform lets that element be read at the press: the hook reads the window handle of the control that holds the keyboard focus (`GetGUIThreadInfo`), and at that moment UI Automation can describe that control, the focused element inside it, or the window where it reports none. The element is described afterwards and is lost where the focus or the window has moved on by then. Such an action does not say where its key went, and the sufficiency lint fails it for carrying no locator candidates ([docent#713](https://github.com/Arsarneq/docent/issues/713)).
+
+A value change is the `type` of the element its keystrokes were recorded on. DCP-9 holds which value is taken and what a value change with no value leaves, and those rules hold however the keystroke's element was told. This clause adds only the cases that turn on the element.
+
+For a window whose last keystroke was described by focus, a value change writes no `type` and supersedes no buffered key in exactly these three element cases:
+
+- its window is no longer the foreground window;
+- the window's last keystroke named no element;
+- the focused element is not the element that keystroke was recorded on.
+
+A `type` already pending is then written ahead of the buffered keys. What such a value change would have recorded beyond the keys (pasted text, a composed character) is not recorded.
+
+Where the window's last keystroke was settled on a control by its handle, a value change is that control's `type` when the control reported it about itself. Exactly these three element rules go with it:
+
+- A value change from anywhere else in the window (another control, the control's scroll bar) is passed over.
+- A control that is gone leaves the keystrokes as `key` actions on it, as DCP-9 holds for an element that has no value.
+- The value of a control last looked at as a password control is not read.
+
+The look at the focused control that a capture start or a window change asks for, ahead of any key, is not taken for a control of Docent's own process, nor for one whose window does not answer a message within 50 ms (its program is busy or hung). No keystroke waits on it, and the control's first keystroke looks at it itself.
+
+Exactly these eight cases stay open. In each, a keystroke can be recorded on an element other than the one it went to, or late:
+
+| When                                                                                                                                                                                | What is recorded                                                                                                                                                                                                                                                                           |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| A program moves the focus by itself and reports it late or not at all                                                                                                               | A keystroke stamped before the report reaches the input thread, and processed after its window was left, is recorded on the element described under the old count. The first keystroke under a count is recorded on the focused element of its window as the worker finds it.              |
+| The person's input is counted before the program has acted on it, and a keystroke is described in between                                                                           | The keystroke is recorded on the element that still had focus.                                                                                                                                                                                                                             |
+| A key moves the focus itself (Tab)                                                                                                                                                  | It is recorded on the element it was pressed in when that element was described under its count. Otherwise it is recorded on the focused element as the worker finds it, which can be the element the key moved the focus to.                                                              |
+| A program changes what a control is without the person doing anything, and reports no focus change that names a part of the control (a field turned into a password field in place) | The change is found out only at the next count of the person's.                                                                                                                                                                                                                            |
+| The worker's confirmation of a handle comes before the program has acted on what the person did (Tab, a character, and a worker faster than the program)                            | The keystroke, and the keystrokes after it that carry the same handle under that count, are recorded on the control the focus was still in.                                                                                                                                                |
+| A keystroke's handle was read before the program moved the focus by itself, and the keystroke is processed before the program has done so                                           | The keystroke is recorded on the control the handle names.                                                                                                                                                                                                                                 |
+| A first keystroke goes to a control no worker has looked at yet                                                                                                                     | It waits for that look, which takes as long as the program takes to answer, and keystrokes behind it wait with it. A first keystroke under a new count that is reached only after the person moved the focus again names no element.                                                       |
+| The look at the focus that a capture start or a window change asks for stalls inside the accessibility call that describes the control, though the control's window answered        | Every keystroke and value change behind it on the typing worker waits without limit, those typed into another window included. Their values are read late and their keys written as keys (DCP-9), and a commit whose flush barrier the waiting worker misses hands the role over (DCP-12). |
 
 ---
 
@@ -723,7 +668,7 @@ which stays that index across a respawn, so supersession and value
 deduplication (per element within its window) stay correct; a typing worker
 that does not answer a commit's flush barrier in time gives the role up, and
 the next keyboard or value-change event, or the next look at the focus
-(DCP-11), chooses a worker again by shortest queue among the workers that
+(DCP-16), chooses a worker again by shortest queue among the workers that
 answered, so typing after that commit does not
 wait behind a wedged accessibility call. What was dispatched to the
 unanswering worker before that stays with it: lost if it never returns (the
@@ -843,8 +788,7 @@ with a caveat):
 - A click whose element the pre-capture did not describe (DCP-1) — a left
   click (at its mouse-up), a right or middle press, or either click of a
   double-click, that got no element because:
-  - its pre-capture's answer did not come within the budget (the hook
-    timeout less `HOOK_WORK_MARGIN_MS`, DCP-1);
+  - its pre-capture's answer did not come within [the budget](capture-pipeline.md#pre-capture-at-a-click);
   - its application held a describer with an earlier click's pre-capture
     and did not answer within the budget;
   - no describer came free within the budget (each one on another click,
@@ -873,7 +817,7 @@ with a caveat):
   - a click in an application still holding a describer with an earlier
     click's pre-capture when its budget runs out (the second case), where
     the earlier call returned within the click's own hook timeout, the
-    margin's last moments past its budget. When the hook made the call
+    last moments of [the margin](capture-pipeline.md#pre-capture-at-a-click) past its budget. When the hook made the call
     itself, such a click then ran its own call and was recorded with its
     element; where the earlier call returned later, Windows passed the click
     on unrecorded. A click that finds no describer free, or no pre-capture
@@ -973,7 +917,7 @@ with a caveat):
   (core CP-18)
 - A focus or value change on an element the accessibility layer cannot
   describe — not written; the keys buffered for the value change are
-  superseded by nothing and are written as keys (DCP-11); a departure (core
+  superseded by nothing and are written as keys (DCP-16); a departure (core
   CP-18)
 - A title-bar close of a window the recording did not see open (a window open
   before the recording started — the target window itself, introduced by a
