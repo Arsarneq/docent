@@ -8027,6 +8027,17 @@ fn a_focus_whose_element_resolved_no_window_keeps_the_events_window() {
     );
 }
 
+/// A focus whose element is in the window the event named is written there,
+/// whatever that window's process reads as: the scope filters judged it with
+/// the event.
+#[test]
+fn a_focus_whose_element_is_in_the_events_own_window_is_written_there() {
+    assert_eq!(
+        focus_written_with_element_in_process(DIALOG, 0),
+        vec![(Some(DIALOG), Some(rect_of(DIALOG)))]
+    );
+}
+
 /// The scope filters judged the process the focus event came from, not the
 /// process of the window the element is in by the time it is described (the
 /// focus can move on to another application's window while the event waits,

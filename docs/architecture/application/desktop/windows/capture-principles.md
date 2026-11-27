@@ -750,9 +750,9 @@ later focus event was dispatched writes nothing and leaves the last focus as it
 was: the later event records the focus at its own place in the recording. A
 focus change the input thread sends no event for (in a process outside the
 capture's scope, outside the foreground process, uncorrelated with input, or
-redundant to a click) and a foreground change move no number, so the
-numbering never stops a focus from being written (a focus can still write
-nothing for where its element is, DCP-7). Three cases stay open. The element the earlier
+redundant to a click) and a foreground change move no number, so they never
+stop a focus from being written by its number (a focus can still write nothing
+for where its element is, DCP-7). Three cases stay open. The element the earlier
 event named is recorded by no focus, since the focus left it before any
 description could be made; the later event records where the focus went, and
 writes nothing when that is the element of the last focus written (the person
