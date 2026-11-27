@@ -34,7 +34,7 @@ The hook waits for the answer for at most a budget set at start from the system'
 
 An application that does not answer costs the pre-capture of its own clicks only, until held describers reach the cap on describer threads alive in the process at a time.
 
-The keyboard hook asks the focused control's input-method window two questions at each key press, each with a short time limit (DCP-9).
+The keyboard hook asks the focused control's input-method window two questions at each key press, each with a short time limit (DCP-19).
 
 [The capture pipeline](capture-pipeline.md#pre-capture-at-a-click) states how the budget is computed, what the hook waits for inside it, the cap on describers, and how describers are held, spared and started.
 
@@ -133,11 +133,11 @@ Such a key is attributed to no window when the self-capture exclusion (DCP-5) ex
 
 With a target set, a key attributed to no window is not the target's input and is dropped. With none, it is recorded as a `key` with these field values, also where the system then acts on the foreground window (Win+Arrow, for example):
 
-| Field                              | Value                                                                                           |
-| ---------------------------------- | ----------------------------------------------------------------------------------------------- |
-| `context_id`, `window_rect`        | null                                                                                            |
-| `element`                          | The stand-in element of a key whose element is unknown (tag `Unknown`, empty selector), no name |
-| `modifiers`, `repeat`, `held_keys` | As every `key` carries them (DCP-9), the Windows key held at the press among its modifiers      |
+| Field                              | Value                                                                                                     |
+| ---------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| `context_id`, `window_rect`        | null                                                                                                      |
+| `element`                          | The stand-in element of a key whose element is unknown (tag `Unknown`, empty selector), no name           |
+| `modifiers`, `repeat`, `held_keys` | As on every `key` (the session format's `key` row), the Windows key held at the press among its modifiers |
 
 The input thread reads no focused control for such a key ([capture pipeline, stage 1](capture-pipeline.md#stages)), so no control of the excluded window is its element.
 
@@ -271,251 +271,189 @@ release, key presses and wheel — each of which refreshes the correlation
 state; a right or middle button's release, and an extra button's press (see
 the exceptions), refresh none.
 
-**DCP-9.** **Printable key buffering:** Printable keystrokes are buffered.
-A printable keystroke is a typing key pressed with no modifier or as a
-character of its layout (Ctrl and Alt held together is AltGr; Ctrl, Alt or Meta
-held otherwise is a shortcut, written at once). The typing keys are a closed
-table of the key codes that enter a character on some layout: the space bar,
-digits, letters, the numeric keypad (digits, operators, decimal and
-separator), the punctuation keys of every layout, and a keystroke injected as
-Unicode. So a space, a keypad digit or an AltGr character typed into a text
-field is part of that field's `type` value, as on the extension, and a `key`
-(`Space`, `1`) where no value change of its own element follows it. On
-a control that takes no typed text (a closed list of control types: `Button`,
-`CheckBox`, `Hyperlink`, `MenuItem`, `RadioButton`, `SplitButton`, `TabItem`)
-a typing key is not buffered at all: it is written at once as the `key` that
-presses the control, and a value change attributed to such a control is the
-effect of pressing it (the field a button clears), no `type` and no reason
-to discard a key; the panel's sensitive-field rule (DCP-11) leaves a key on
-such a control a `key` too, whatever the control is named. Keys buffered on one element are written, as keys, when a
-typing key arrives for another element, so typing into the second supersedes
-none of them.
-If a value-change event arrives (producing a `type` action), the buffered
-keys are discarded (superseded). If no value-change arrives within 500 ms of
-the last buffered key (non-editable control like Calculator), the keys are
-emitted individually. A dead key (a key the keyboard layout of the foreground
-window says is one as pressed, with Shift or AltGr where held) is the
-exception to that wait: it enters
-nothing by itself, so it stays buffered until the next key or the end of the
-typing decides what it was; a value change that comes while it waits is the
-text of the keys before it. Where the character key after it enters text it
-is part of that text. A program can also enter the bare accent as a
-character: when the dead key is pressed again, or with a key that is no
-typing key (Enter in a text editor). The dead key is part of that text too,
-and no `key` beside it, where the value taken for the field holds the accent
-more often than the field did before the first waiting dead key (the value
-the worker read when it took that press, or else the value last taken for
-the field);
-that many of the waiting dead keys with the accent, from the first, are
-text. The accent is the character the layout names for the dead key. This is asked only of a value taken for the dead keys' own field, while
-every buffered key is a waiting dead key and what the field held before is
-known; otherwise the dead keys stay as they are, and are written as keys
-beside the text. The worker reads the field when it takes the press, which
-can be after the program applied later keys: the value read then holds
-their accents already, none is counted as gained, and the dead keys stay
-keys. A key that is no typing key pressed behind waiting dead keys in their
-field, with no other key buffered, is held with them, so that the keys are
-written in the order pressed (with another key buffered all are written at
-once, as keys): a value
-taken for the field decides what the dead keys were and the held key is
-written behind those that are keys, ahead of the `type` the value starts.
-With no such value within the 500 ms, or at the next key or any other
-action (a turn of the wheel included, whose scroll is written later), the
-dead keys and the held key are written as keys. Where the
-typing ends with a dead key still waiting, it is written as a `key`, behind
-the keys pressed before it that are still buffered. The extension decides the same question by the browser's `input` for typed
-text in the dead key's field (extension capture principles, Capture
-Surface); the desktop has no such event and counts the accent in the value. The keyboard hook asks the layout
-with the system's read that leaves the keyboard state as it is, so an accent
-pending in the application is not touched. The layout's answer depends on an
-accent already pending, so it is asked about a key pressed with Shift or
-AltGr only while none is, and its answer is kept for that key and modifier
-state: once asked, what a key is does not depend on how far the application
-has got with the keys before it. A key pressed with neither is known by the
-layout's own mark. CapsLock is no part of the question. Where the layout was
-not asked, a key pressed with Shift or AltGr is taken for an ordinary key,
-and one that is dead with them is written as a `key` after the wait. That
-holds on a Windows before version 10.0.14393, which has no such read, and
-for a key pressed while an accent is pending before the layout has been
-asked about it in the recording or since the foreground window's layout last
-changed; a departure (core CP-18). The `type` itself is held for the field and carried
-forward to each new value, and it is written when the typing in the field
-ends: a key that is no typing key is pressed, a typing key is pressed in
-another element, the pointer is pressed (a click, a right-click or a drag),
-another window comes to the front, the step is committed or the recording
-stops. A window the scope filters leave out (DCP-5; Docent's own panel is
-one) ends the typing when it comes to the front, and nothing is written for
-that window itself. So text typed last in a step is in the pending list when
-the person clicks the panel to complete the step. A pointer press on a
-left-out window that does not come to the front (an on-screen keyboard, the
-emoji panel) ends nothing: the person is still typing in the field. A focus event ends nothing: the key that moved the focus has ended
-the typing already, and a program that reports the focus again on the field
-being typed into leaves its text the one `type`. A change of the top-level window's title ends nothing either: a field is the same field whatever title its window shows (an editor that adds or drops its unsaved mark while the person types). The selector holds the title, so whether two descriptions read in one window are of the same element is told by the element's path under the window's root, the root itself left out, and by the selector only where that path is not known. A title held by an element under the root (a document's own window inside an application's frame) is part of that path and still tells two fields apart, so a change of such a title does end the typing; a departure (core CP-18). The panel joins the masked typing of a sensitive field by the same path, read from the `tree_path` locator, where a root title that itself holds the path separator leaves the fields apart. A pause between two keys ends nothing: how
-fast a person types is no part of what they typed, so text typed with pauses
-is the one `type`, as on the extension. The `type` is written with the
-sequence id of its last value change, ahead of the action that ended the
-typing; a value change that reaches the recorder only after that action starts the
-field's next `type`, behind it: a program slow to take the last key, and
-also a value change the click itself caused within a second of the last key
-(a button that clears the field, a suggestion that fills it), which the
-extension does not write, a value the page set being no entry; a departure
-from the extension (core CP-19;
-[docent#710](https://github.com/Arsarneq/docent/issues/710)). Its value is the value the element holds, an empty string for a
-field that was emptied; an element that has no value gives a value change no
-`type`, and its keys stay the record. The value is read when the typing
-worker reaches the value change, which can be after the person pressed
-further keys, so the input thread numbers the key presses it dispatches, per
-window, counting each where it is sent (a Shift, Control or Alt key changes
-no text and is not counted: it carries its window's latest number, so
-pressing one ahead of the next key makes no read late), and a value is taken only when no
-later key of its window had been dispatched by the time the read finished:
-the program had then received no later key, so the value holds nothing a
-later key did. A value read later is not taken, and neither is one whose
-window the input thread's record of the last 16 windows typed into has let
-go, since nothing then says no later key came (the window let go is the one
-whose latest key is the oldest). The `type` holds the last
-value taken, and the keys buffered since it whose value changes were read
-too late are written after it, as `key` actions, when the typing ends; a
-value taken later in the same typing supersedes them as it supersedes every
-buffered key, and the 500 ms wait does not write them, since their value
-changes came, while it writes the keys behind them that no value change
-reached. Where no value of the typing was taken, its keys alone are its
-record. A commit or a stop writes the pending `type` and then every key
-still buffered, each once. For example, the person types `a`, `a` and
-Backspace, and the value of the second `a` is read after the Backspace was
-dispatched: the file holds `type` "a", then `key` a and `key` Backspace. The
-extension writes the field's one `type` whatever its timing, so these `key`
-actions are a departure (core CP-19;
-[docent#762](https://github.com/Arsarneq/docent/issues/762) tracks its
-removal, since [docent#761](https://github.com/Arsarneq/docent/issues/761)).
-Before it the late value was taken, and the same typing was a `type` holding
-what a later key did, a value the person never had; the departure states
-that defect instead of recording it. Where in the field those `key` actions
-went is not recorded: the file holds no caret position, so it says which
-keys were pressed after the value, not the text they made; that is missing
-data (core CP-18;
-[docent#762](https://github.com/Arsarneq/docent/issues/762)).
-A platform that numbers no keys takes every value it reads. Two cases stay
-open, each missing data
-([docent#762](https://github.com/Arsarneq/docent/issues/762) tracks reading
-the value exactly as of its change, which closes both). A value taken can
-lack what the last key before its value change did, where the program raised
-that change for an earlier key (it applies keys more slowly than they are
-pressed, or the input thread received the change after the next key) and had
-not applied the last key when it answered the read; that key is then in
-neither the `type` nor a `key`, and nothing the worker holds tells such a
-value from one that holds the key. And a value change whose text no buffered
-key carries (a paste, an accepted suggestion, a composed character), read
-only after a later key was dispatched, is not taken, and its text is in no
-action; the value read then could hold what later keys did, which the person
-did not have. For example, the person pastes into the field with Ctrl+V and
-presses Enter, and the pasted value is read after Enter was dispatched: the file holds `key` `v` with Control, then `key` Enter, and no action holds the
-pasted text. A keystroke
-injected as Unicode (`VK_PACKET`, the path of IME results, remote-desktop
-stacks, software keyboards and automation) is printable input whatever it
-carries: the hook passes on its scan code, which is the injected UTF-16 code
-unit, and the worker names the key by that character (a space as `Space`,
-and a unit that is no character on its own as `Unidentified`), so the same
-text is never recorded twice. A key is named as the
-[session format](../../../../technical/session-format.md#key-names) states
-under Key names: the hook reads the keyboard layout of the foreground
-window's thread and whether Caps Lock is on, two reads that leave the
-keyboard state alone, and the worker looks the press up in the table kept
-for that layout and names the key from it. The table is never built on the
-hook, which must return at once: it is built when the first capture starts and, for
-a layout loaded later, by the worker at that layout's first key. Where the
-table answered, it also says whether the key is a dead key as pressed, Caps
-Lock counted, so a key's name and its being a dead key come from one read. For a
-punctuation key (the codes `0xBA`–`0xC2`,
-`0xDB`–`0xDF`, `0xE1`–`0xE4`, `0xE6`, whose character each layout assigns
-for itself) the hook also reads the character the key enters with no
-modifier on that layout, which tells the worker which accent a dead key
-carries, and whether the key is a dead key where the table gave no answer;
-a punctuation key is a typing key either way. Every keyboard event and every value-change
-event is processed by one worker, the typing worker, in the order the input
-thread dispatched them, so a value change is processed after the keystrokes
-that caused it and supersedes each buffered one, however busy the pool is
-(DCP-12 states the one hand-over of the role);
-every keystroke a value change does not supersede is written, so a repeated
-key is recorded once per press. Each `key` carries `repeat`: the keyboard
-hook keeps a record of which keys are down, from every key-down and key-up it
-is handed (in an excluded window and outside an active capture too) and
-seeded from the keyboard's state when the hook is installed; a key-down for a
-key already down is a press key repeat generated while the key was held, and
-is written with `repeat` true, the press itself with false. The keyboard's own
-state, read before it takes the key-down in, has to agree that the key was
-down: a key whose release the hook was never handed is a press again at its
-next key-down. An injected
-character is told apart by the code unit it carries. Two keys that share a
-virtual-key code and differ in the hook's extended mark (Enter and the numeric
-keypad's Enter, an arrow key and the keypad key that moves the same way with
-Num Lock off) are told apart by that mark, as the browser tells them apart by
-their `code`; the keyboard's state at the hook's install names a code and not
-which of such keys is down, and the first of them to send a key-down is taken
-as the one held. Each `key` carries `code`, the physical key by the name a
-browser gives a key with the hook's scan code and extended mark (the W3C UI
-Events `code` values, by the scan-code table Chromium publishes), so one
-physical key has one name on both platforms whatever the keyboard layout. A
-keystroke injected as a character carries none, and neither does a key whose
-scan code the table has no name for (zero among them, which software sending
-a key by its virtual-key code alone can give). Each `key` carries what the
-keyboard hook read of the input method at the press, before the key took
-effect: `input_method_open`, whether an input method was on for the control
-that held the keyboard focus (the foreground window where none was read),
-and `input_method_conversion_mode`, its conversion mode as Windows gave it,
-less its five highest bits, the four Windows reserves among them. The hook
-asks that control's input-method window (`ImmGetDefaultIMEWnd`) with two
-`WM_IME_CONTROL` messages (`IMC_GETOPENSTATUS`, then
-`IMC_GETCONVERSIONMODE`), which the program's own thread answers. Each ask
-waits for at most `INPUT_METHOD_READ_TIMEOUT_MS` (20 ms), or an eighth of
-the system's low-level hook timeout where that is less
-(`src/capture/timing.rs`), gives up at once on a thread Windows knows to be
-hung, and dispatches no message to the hook's own thread while it waits.
-With a hook timeout under 8 ms that limit is 0 and the hook asks nothing.
-Where the first ask gets no answer, or is refused, nothing was read and the
-second is not sent; where the first is answered and the second is not, the
-open status is written alone, a fact that was read being written (core
-CP-18). Neither field is written where the control has no input-method
-window or on a key attributed to no window (DCP-14). Windows hands a
-program a message another thread sent it ahead of the key presses waiting
-in its queue, so on a program that runs behind the typing the read can
-show the state before an earlier key took effect. They say that
-an input method was on and in which mode, not that it took the key: nothing
-the desktop can read says a composition is open
-([docent#237](https://github.com/Arsarneq/docent/issues/237)). The extension
-writes neither, the browser giving no interface that reads the input
-method's state (the extension capture document, ECP-12, names what the
-extension reads); a difference that comes from the platforms themselves
-(core CP-19). Each `key` also carries
-`held_keys`: the keys that were down at the press, other than the modifiers
-and the key itself, each a key whose own key-down is a `key` action, by the
-name that action carries, in the order they went down. The hook's record
-supplies them: it notes, for each key that is down, the key-down that was
-dispatched for recording (the press, or the first repeat dispatched when the
-press was not, in an excluded window or before the capture started), with
-the modifiers, the Caps Lock state and the layout read at that key-down, so a
-held key is named as its own `key` is, and stamps each keystroke with the keys so noted.
-The panel keeps a name only where that key-down is a `key` action of the
-step, once the step's actions are complete: a key-down that became text (part of a `type`, masked or not) names
-no held key, and a typing key that was written as a `key` (one no value change
-superseded) is named as any key is. No key is
-known to be down when a capture starts, which each step's capture does anew;
-a key held across that start is named from its next repeat. The extension
-knows a key to be down only while its release is sure to reach a document it
-runs in, where the desktop's hook is handed every release (the extension
-capture document, ECP-12, states the rule; core CP-19). A keystroke that enters text into a password
-field (DCP-11's signal) is never buffered as a key: it starts or extends that
-field's masked `type` action, so typing into a password field is recorded as
-that `type` whether or not the field reports a value change. Every keystroke
-enters text there except the keys that enter no character (Shift, Control
-and Alt, the function keys, and every key with a name of its own other than
-`Process` and `AltGraph`; a closed list) and a key with Ctrl, Alt or Meta held other than
-Ctrl and Alt together; those are `key` actions there as anywhere. Every other
-key counts as text: a character, `Space`, `Dead`, `Unidentified`,
-`Process`, the name of a key an input method took, which stands for a typing
-key, and `AltGraph`, which a layout can give a typing key's code.
-
 Timing constants and correlation windows live in `src/capture/timing.rs`.
+
+---
+
+## Typing
+
+**DCP-9.** A printable keystroke in a field (defined below) is buffered, not written at once. A value change taken for the field then turns the keys buffered on it into the field's `type`, and a key no value change supersedes is written as a `key`. So text typed into a field is one `type` that holds the field's value, as on the extension, and every keystroke a value change does not supersede is written, a repeated key once per press.
+
+A value change taken for a field supersedes each key buffered on that field before it, however busy the pool is: the value change is processed after the keystrokes that caused it ([routing and ordering](capture-pipeline.md#routing-and-ordering)). Three clauses hold where a value change supersedes none of the keys or only some: DCP-16 (the element), DCP-17 (waiting dead keys) and DCP-18 (a value read too late).
+
+**Which keys are buffered.** A printable keystroke is buffered: a typing key pressed with no modifier or as a character of its layout. Ctrl and Alt held together is AltGr. Ctrl, Alt or Meta held otherwise makes a shortcut, which is written at once. The typing keys are a closed table of the key codes that enter a character on some layout:
+
+- the space bar;
+- digits and letters;
+- the numeric keypad (digits, operators, decimal and separator);
+- the punctuation keys of every layout;
+- a keystroke injected as Unicode.
+
+So a space, a keypad digit or an AltGr character typed into a text field is part of that field's `type` value, as on the extension, and it is a `key` (`Space`, `1`) where no value change of its own element follows it.
+
+**Where a typing key is not buffered.** On two kinds of control a typing key never waits in the buffer:
+
+| The control                        | What a typing key is there                                                                                                                                    |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A control that takes no typed text | The `key` that presses the control, written at once                                                                                                           |
+| A password field (DCP-11's signal) | Where it enters text, the start or the next part of the field's masked `type`, whether or not the field reports a value change. It is never buffered as a key |
+
+The controls that take no typed text are a closed list of control types: `Button`, `CheckBox`, `Hyperlink`, `MenuItem`, `RadioButton`, `SplitButton`, `TabItem`. A value change attributed to such a control is the effect of pressing it (the field a button clears): it is no `type` and no reason to discard a key. The panel's sensitive-field rule (DCP-11) leaves a key on such a control a `key` too, whatever the control is named.
+
+In a password field every keystroke enters text except these two kinds, which are `key` actions there as anywhere:
+
+- a key that enters no character: Shift, Control and Alt, the function keys, and every key with a name of its own other than `Process` and `AltGraph`, a closed list;
+- a key with Ctrl, Alt or Meta held, other than Ctrl and Alt together.
+
+Every other key counts as text there: a character, `Space`, `Dead`, `Unidentified`, `Process` (the name of a key an input method took, which stands for a typing key) and `AltGraph` (which a layout can give a typing key's code).
+
+**What becomes of the buffered keys.** One of these four comes next, a closed list:
+
+| What comes next                                                                                 | What is written                                                                                                                                                                                                                                                                                  |
+| ----------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| A value change taken for the keys' element                                                      | The field's `type`. The buffered keys are discarded (superseded)                                                                                                                                                                                                                                 |
+| No value change within 500 ms of the last buffered key (a non-editable control like Calculator) | The keys, each as a `key`                                                                                                                                                                                                                                                                        |
+| A typing key for another element                                                                | The keys buffered on the first element, as keys. Typing into the second supersedes none of them                                                                                                                                                                                                  |
+| The typing ends (the list below)                                                                | The pending `type` where there is one, then the keys after its value (DCP-18). The keys no value change has reached go on waiting under the rows above, save where the end is a key, a commit, a stop or a respawn, which write them at once, each as a `key`. A waiting dead key follows DCP-17 |
+
+A dead key does not follow the 500 ms row (DCP-17). Which value read becomes the `type`, and what is written where a read came too late, is DCP-18.
+
+**The value.** The `type` holds the value the element holds, an empty string for a field that was emptied. An element that has no value gives a value change no `type`, and its keys stay the record.
+
+**When the `type` is written.** The `type` is held for the field and carried forward to each new value. It is written when the typing in the field ends, which is at one of these, a closed list:
+
+- a key is pressed that is no printable keystroke: a key that is no typing key, or a shortcut. A Shift, Ctrl or Alt pressed alone is not one of them: the worker drops it (DCP-13) and it ends nothing;
+- a printable keystroke is pressed in another element;
+- the pointer is pressed (a click, a right-click or a drag);
+- a `context_switch` is dispatched (DCP-7), or a window the scope filters leave out comes to the front;
+- a value change is taken for another element;
+- a value change that is no `type` arrives while keys are buffered (DCP-9, DCP-16): the pending `type` is written ahead of those keys;
+- the step is committed or the recording stops;
+- the typing worker is respawned, which drains what it held (DCP-12).
+
+A window the scope filters leave out (DCP-5; Docent's own panel is one) ends the typing when it comes to the front, and nothing is written for that window itself. So text typed last in a step is in the pending list when the person clicks the panel to complete the step.
+
+Nothing else ends the typing. Five things that might seem to:
+
+| What happens                                                                                                    | Why the typing goes on                                                                                                                                             |
+| --------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| A pointer press on a left-out window that does not come to the front (an on-screen keyboard, the emoji panel)   | The person is still typing in the field                                                                                                                            |
+| A focus event that dispatches no `context_switch`                                                               | The key that moved the focus has ended the typing already, and a program that reports the focus again on the field being typed into leaves its text the one `type` |
+| A change of the top-level window's title (an editor that adds or drops its unsaved mark while the person types) | A field is the same field whatever title its window shows                                                                                                          |
+| A pause between two keys                                                                                        | The session format's `type` row holds this for both platforms                                                                                                      |
+| A turn of the wheel that dispatches no `context_switch`                                                         | The pointer is not pressed                                                                                                                                         |
+
+A `context_switch` is dispatched ahead of the first action in a window the capture session has not introduced (DCP-7), a turn of the wheel over such a window among them. So a person who types "ab", turns the wheel over a second recorded window and types "c" in the same field leaves `type` "ab", the `context_switch`, the `scroll` and `type` "abc". The extension writes the one `type`; a departure (core CP-19; [docent#810](https://github.com/Arsarneq/docent/issues/810)). A recorded window that comes to the front with no input that correlates dispatches no `context_switch` and ends nothing.
+
+**Whether two descriptions are of one element.** The selector holds the window's title, so the selector alone cannot tell. Two descriptions read in one window are of the same element when the element's path under the window's root is the same, the root itself left out. The selector decides only where that path is not known. A title held by an element under the root (a document's own window inside an application's frame) is part of that path and still tells two fields apart, so a change of such a title does end the typing; a departure (core CP-18). The panel joins the masked typing of a sensitive field by the same path, read from the `tree_path` locator, where a root title that itself holds the path separator leaves the fields apart.
+
+**Where the `type` is written.** The `type` is written with the sequence id of its last value change, ahead of the action that ended the typing. A value change that reaches the recorder only after that action starts the field's next `type`, behind the action. Two examples:
+
+- a program is slow to take the last key;
+- the click itself caused a value change within a second of the last key (a button that clears the field, a suggestion that fills it). The extension does not write this one, a value the page set being no entry; a departure from the extension (core CP-19; [docent#710](https://github.com/Arsarneq/docent/issues/710)).
+
+---
+
+## Dead keys
+
+**DCP-17.** A dead key enters nothing by itself, so the 500 ms wait of DCP-9 does not write it. It stays buffered until the next key or the end of the typing decides what it was. A value change that comes while it waits is the text of the keys before it.
+
+A dead key is a key the keyboard layout of the foreground window says is one as pressed. Where the layout's table answered for the press, the answer is the table's, with the modifiers and the Caps Lock state of the press: the read the key's name comes from, so the name and the dead key agree. Otherwise it is the hook's own question, with Shift or AltGr where held, in which Caps Lock is no part. Asking the layout does not touch an accent pending in the application. Once the layout was asked about a key, what that key is does not depend on how far the application has got with the keys before it. The capture pipeline holds [how the layout is asked](capture-pipeline.md#whether-a-key-is-a-dead-key).
+
+**What a waiting dead key becomes.** It ends as one of two things: part of the field's text, or a `key`. It is text in exactly these two cases:
+
+- the character key after it enters text: the dead key is part of that text;
+- the program enters the bare accent as a character and the field gained it (the count below): the dead key is part of that text, with no `key` beside it.
+
+In every other case it is a `key`. Where the typing ends with the dead key still waiting, it is written behind the keys pressed before it that are still buffered.
+
+**The bare accent.** A program can enter the bare accent as a character: when the dead key is pressed again, or with a key that is no typing key (Enter in a text editor). The accent is the character the layout names for the dead key.
+
+The waiting dead keys are text where the value taken for the field holds the accent more often than the field did before the first waiting dead key:
+
+```text
+dead keys that are text = accents in the value taken − accents the field held before
+```
+
+Where that number is above zero, that many of the waiting dead keys with the accent, counted from the first, are text. What the field held before is the value the worker read when it took that press, or else the value last taken for the field.
+
+The count is made only while all three hold:
+
+- the value was taken for the dead keys' own field;
+- every buffered key is a waiting dead key;
+- what the field held before is known.
+
+Otherwise the dead keys stay as they are, and are written as keys beside the text.
+
+The worker reads the field when it takes the press, which can be after the program applied later keys. The value read then holds their accents already, so none is counted as gained and the dead keys stay keys.
+
+**A key that is no typing key, behind waiting dead keys.** Pressed in the dead keys' field with no other key buffered, such a key is held with them, so that the keys are written in the order pressed. With another key buffered, all are written at once, as keys. What comes next decides the held ones:
+
+| What comes next                                                                                                                  | What is written                                                                                                                     |
+| -------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| A value taken for the field                                                                                                      | The value decides what the dead keys were. The held key is written behind those that are keys, ahead of the `type` the value starts |
+| No such value within the 500 ms, the next key, or any other action (a turn of the wheel included, whose scroll is written later) | The dead keys and the held key, as keys                                                                                             |
+
+**The extension.** The extension decides the same question by the browser's `input` for typed text in the dead key's field (extension capture principles, Capture Surface). The desktop has no such event and counts the accent in the value.
+
+**Where the layout was not asked.** A key pressed with Shift or AltGr is then taken for an ordinary key, and one that is dead with them is written as a `key` after the wait; a departure (core CP-18). That holds in these four cases, a closed list:
+
+- on a Windows before version 10.0.14393, which has no read that leaves the keyboard state as it is;
+- for a key pressed while an accent is pending, before the layout has been asked about it in the recording or since the foreground window's layout last changed;
+- where the foreground window has no thread to read a layout from;
+- where that thread reports no layout.
+
+---
+
+## A value read after later keys
+
+**DCP-18.** The value of a `type` is read when the typing worker reaches the value change, which can be after the person pressed further keys. A value is taken only when no later key of its window had been dispatched by the time the read finished: the program had then received no later key, so the value holds nothing a later key did. A Shift, Control or Alt press is no later key: it changes no text, so pressing one ahead of the next key makes no read late. The capture pipeline holds [how the key presses are numbered](capture-pipeline.md#a-value-read-in-time) to tell.
+
+Two kinds of value are not taken:
+
+- a value read later than that;
+- a value whose window the input thread's record of the last 16 windows typed into has let go, since nothing then says no later key came.
+
+A platform that numbers no keys takes every value it reads.
+
+**What is written.**
+
+| The typing                                                        | What the file holds                                                                                              |
+| ----------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| Every value was taken                                             | The one `type`, holding the last value                                                                           |
+| Some value changes behind the last value taken were read too late | The `type` holding the last value taken, then the keys buffered since it, as `key` actions, when the typing ends |
+| No value was taken                                                | The keys alone                                                                                                   |
+
+A value taken later in the same typing supersedes those keys as it supersedes every buffered key. The 500 ms wait (DCP-9) does not write them, since their value changes came. It does write the keys behind them that no value change reached. A commit or a stop writes the pending `type` and then every key still buffered, each once.
+
+For example, the person types `a`, `a` and Backspace, and the value of the second `a` is read after the Backspace was dispatched: the file holds `type` "a", then `key` A and `key` Backspace.
+
+**The departure.** The extension writes the field's one `type` whatever its timing, so these `key` actions are a departure (core CP-19; [docent#762](https://github.com/Arsarneq/docent/issues/762) tracks its removal). A late value taken would make the same typing a `type` holding what a later key did, a value the person never had. The departure states that defect instead of recording it.
+
+**Missing data.** Where in the field those `key` actions went is not recorded. The file holds no caret position, so it says which keys were pressed after the value, not the text they made (core CP-18).
+
+**Open cases.** Exactly two cases stay open. Each is a held fact left unwritten, a departure (core CP-18, CP-19). Reading the value exactly as of its change closes both, which the same issue tracks.
+
+| The case                                                                                                                                                                        | What the file lacks                                                                                                                     |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| A value taken lacks what the last key before its value change did. The program raised that change for an earlier key and had not applied the last key when it answered the read | That key is in neither the `type` nor a `key`. Nothing the worker holds tells such a value from one that holds the key                  |
+| A value change whose text no buffered key carries (a paste, an accepted suggestion, a composed character) is read only after a later key was dispatched                         | The value is not taken, and its text is in no action. The value read then could hold what later keys did, which the person did not have |
+
+The program raises a change for an earlier key where it applies keys more slowly than they are pressed, or where the input thread received the change after the next key.
+
+For example, the person pastes into the field with Ctrl+V and presses Enter, and the pasted value is read after Enter was dispatched: the file holds `key` `v` with Control, then `key` Enter, and no action holds the pasted text.
+
+---
+
+## What a `key` action carries
+
+**DCP-19.** The [session format](../../../../technical/session-format.md#shared-both-platforms)'s `key` row is the home of what a `key` action's name, `repeat`, `code`, input-method fields and `held_keys` state, on both platforms. This clause holds only what that row does not: five rules of this platform's own. The capture pipeline holds [what the keyboard hook reads and how](capture-pipeline.md#what-the-keyboard-hook-reads-at-a-key-press).
+
+- **Injected keys and punctuation keys are typing keys (DCP-9).** A keystroke injected as Unicode (`VK_PACKET`, the path of IME results, remote-desktop stacks, software keyboards and automation) is printable input whatever it carries. Since it is named by its character and buffered as a typing key, the same text is never recorded twice. A punctuation key is a typing key whether or not a character was read for its name.
+- **A release the hook was never handed.** A key whose release the hook was never handed is a press again at its next key-down, not a repeat. The hook is handed key-downs and key-ups in an excluded window and outside an active capture too, so a key pressed there and still held counts as down for `repeat`.
+- **Two keys with one virtual-key code.** Two keys that share a virtual-key code and differ in the hook's extended mark are two keys, as the browser tells them apart by their `code`: Enter and the numeric keypad's Enter, an arrow key and the keypad key that moves the same way with Num Lock off. Where one of such a pair is down when the hook is installed, the first of them to send a key-down is taken as the one held.
+- **The order of the input-method asks.** The hook asks for the open status first and the conversion mode second, and does not send the second where the first got no answer or was refused. It asks the control that held the keyboard focus, and the foreground window where none was read. The open status written alone is a fact that was read being written (core CP-18).
+- **When the panel settles `held_keys`.** The panel settles each action's `held_keys` once the step's actions are complete.
 
 ---
 
@@ -525,7 +463,7 @@ Timing constants and correlation windows live in `src/capture/timing.rs`.
 
 A middle-button press records a `click` (the format has no separate middle-click type); a right-button press records a `right_click`.
 
-Each of these actions carries `modifiers`, the modifier keys held, and `held_keys`, the other keys that were down (DCP-9), as they stood at the input the action stands for. The [session format](../../../../technical/session-format.md#shared-both-platforms)'s rows for `click`, `right_click`, `drag_start` and `drop` hold which input that is, on both platforms. This clause adds one case: where no pointer position before the release passed the threshold, the drag started at the release itself, and the `drag_start` carries what was held then. On the extension the browser takes the gesture for a drag by a threshold of its own.
+Each of these actions carries `modifiers`, the modifier keys held, and `held_keys`, the other keys that were down, as they stood at the input the action stands for. The [session format](../../../../technical/session-format.md#shared-both-platforms)'s rows for `click`, `right_click`, `drag_start` and `drop` hold which input that is, on both platforms. This clause adds one case: where no pointer position before the release passed the threshold, the drag started at the release itself, and the `drag_start` carries what was held then. On the extension the browser takes the gesture for a drag by a threshold of its own.
 
 A left click whose press is the second press of a double-click is marked as
 completing one. The test is the system's own: the press lands in the same
@@ -601,7 +539,7 @@ The capture pipeline holds [how the worker tells](capture-pipeline.md#the-elemen
 
 That the element is described after the press, and not at it, is a departure (core CP-19). The extension reads a key's element from the key's own event. The keyboard hook is handed a key without the element it went to, but the platform lets that element be read at the press: the hook reads the window handle of the control that holds the keyboard focus (`GetGUIThreadInfo`), and at that moment UI Automation can describe that control, the focused element inside it, or the window where it reports none. The element is described afterwards and is lost where the focus or the window has moved on by then. Such an action does not say where its key went, and the sufficiency lint fails it for carrying no locator candidates ([docent#713](https://github.com/Arsarneq/docent/issues/713)).
 
-A value change is the `type` of the element its keystrokes were recorded on. DCP-9 holds which value is taken and what a value change with no value leaves, and those rules hold however the keystroke's element was told. This clause adds only the cases that turn on the element.
+A value change is the `type` of the element its keystrokes were recorded on. DCP-18 holds which value is taken and DCP-9 what a value change with no value leaves, and those rules hold however the keystroke's element was told. This clause adds only the cases that turn on the element.
 
 For a window whose last keystroke was described by focus, a value change writes no `type` and supersedes no buffered key in exactly these three element cases:
 
@@ -621,16 +559,16 @@ The look at the focused control that a capture start or a window change asks for
 
 Exactly these eight cases stay open. In each, a keystroke can be recorded on an element other than the one it went to, or late:
 
-| When                                                                                                                                                                                | What is recorded                                                                                                                                                                                                                                                                           |
-| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| A program moves the focus by itself and reports it late or not at all                                                                                                               | A keystroke stamped before the report reaches the input thread, and processed after its window was left, is recorded on the element described under the old count. The first keystroke under a count is recorded on the focused element of its window as the worker finds it.              |
-| The person's input is counted before the program has acted on it, and a keystroke is described in between                                                                           | The keystroke is recorded on the element that still had focus.                                                                                                                                                                                                                             |
-| A key moves the focus itself (Tab)                                                                                                                                                  | It is recorded on the element it was pressed in when that element was described under its count. Otherwise it is recorded on the focused element as the worker finds it, which can be the element the key moved the focus to.                                                              |
-| A program changes what a control is without the person doing anything, and reports no focus change that names a part of the control (a field turned into a password field in place) | The change is found out only at the next count of the person's.                                                                                                                                                                                                                            |
-| The worker's confirmation of a handle comes before the program has acted on what the person did (Tab, a character, and a worker faster than the program)                            | The keystroke, and the keystrokes after it that carry the same handle under that count, are recorded on the control the focus was still in.                                                                                                                                                |
-| A keystroke's handle was read before the program moved the focus by itself, and the keystroke is processed before the program has done so                                           | The keystroke is recorded on the control the handle names.                                                                                                                                                                                                                                 |
-| A first keystroke goes to a control no worker has looked at yet                                                                                                                     | It waits for that look, which takes as long as the program takes to answer, and keystrokes behind it wait with it. A first keystroke under a new count that is reached only after the person moved the focus again names no element.                                                       |
-| The look at the focus that a capture start or a window change asks for stalls inside the accessibility call that describes the control, though the control's window answered        | Every keystroke and value change behind it on the typing worker waits without limit, those typed into another window included. Their values are read late and their keys written as keys (DCP-9), and a commit whose flush barrier the waiting worker misses hands the role over (DCP-12). |
+| When                                                                                                                                                                                | What is recorded                                                                                                                                                                                                                                                                            |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A program moves the focus by itself and reports it late or not at all                                                                                                               | A keystroke stamped before the report reaches the input thread, and processed after its window was left, is recorded on the element described under the old count. The first keystroke under a count is recorded on the focused element of its window as the worker finds it.               |
+| The person's input is counted before the program has acted on it, and a keystroke is described in between                                                                           | The keystroke is recorded on the element that still had focus.                                                                                                                                                                                                                              |
+| A key moves the focus itself (Tab)                                                                                                                                                  | It is recorded on the element it was pressed in when that element was described under its count. Otherwise it is recorded on the focused element as the worker finds it, which can be the element the key moved the focus to.                                                               |
+| A program changes what a control is without the person doing anything, and reports no focus change that names a part of the control (a field turned into a password field in place) | The change is found out only at the next count of the person's.                                                                                                                                                                                                                             |
+| The worker's confirmation of a handle comes before the program has acted on what the person did (Tab, a character, and a worker faster than the program)                            | The keystroke, and the keystrokes after it that carry the same handle under that count, are recorded on the control the focus was still in.                                                                                                                                                 |
+| A keystroke's handle was read before the program moved the focus by itself, and the keystroke is processed before the program has done so                                           | The keystroke is recorded on the control the handle names.                                                                                                                                                                                                                                  |
+| A first keystroke goes to a control no worker has looked at yet                                                                                                                     | It waits for that look, which takes as long as the program takes to answer, and keystrokes behind it wait with it. A first keystroke under a new count that is reached only after the person moved the focus again names no element.                                                        |
+| The look at the focus that a capture start or a window change asks for stalls inside the accessibility call that describes the control, though the control's window answered        | Every keystroke and value change behind it on the typing worker waits without limit, those typed into another window included. Their values are read late and their keys written as keys (DCP-18), and a commit whose flush barrier the waiting worker misses hands the role over (DCP-12). |
 
 ---
 
@@ -673,7 +611,7 @@ this clause admits, all of them input that never became a buffered action:
 
 A worker panic is detected on the next dispatch, the worker is respawned in
 place at the same index, and the send is retried on the fresh worker; keyboard
-and value-change events all route to one worker, the typing worker (DCP-9),
+and value-change events all route to one worker, the typing worker,
 which stays that index across a respawn, so supersession and value
 deduplication (per element within its window) stay correct; a typing worker
 that does not answer a commit's flush barrier in time gives the role up, and
@@ -877,23 +815,8 @@ with a caveat):
   CP-18), and for such a paste one from the extension, which writes it
   (core CP-19;
   [docent#751](https://github.com/Arsarneq/docent/issues/751))
-- Keys typed into a field whose value changes a worker read after a later
-  key of the window had been dispatched, or in a window the input thread's
-  record of the last 16 windows typed into had let go (DCP-9) — written as
-  `key` actions after the field's `type`, which holds the last value read in
-  time, or alone where no value was; the extension writes the field's one
-  `type`; a departure (core CP-19;
-  [docent#762](https://github.com/Arsarneq/docent/issues/762))
-- Where in the field those `key` actions went (DCP-9) — not recorded: the
-  file holds no caret position, so it says which keys were pressed after the
-  value, not the text they made; missing data (core CP-18;
-  [docent#762](https://github.com/Arsarneq/docent/issues/762))
-- A key whose effect a value read in time lacks, where the program raised
-  that value change for an earlier key, and the text of a value change no
-  buffered key carries (a paste, an accepted suggestion, a composed
-  character) whose value was read after a later key (DCP-9) — recorded in no
-  action; held facts left unwritten, a departure (core CP-18, CP-19;
-  [docent#762](https://github.com/Arsarneq/docent/issues/762))
+- Keys typed into a field whose value was not taken — written as `key` actions, not as the field's text; a departure DCP-18 states, with where those keys went in the field, which is missing data
+- A key, or text no key carries, that a value read leaves in no action — held facts left unwritten, a departure (core CP-18, CP-19); the two open cases DCP-18 states
 - A focus on the element of the last focus written (its selector within its
   window; DCP-12) — not written; a departure (core CP-18)
 - A focus that a worker describes after the input thread dispatched a later
