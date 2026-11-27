@@ -36,7 +36,7 @@ An application that does not answer costs the pre-capture of its own clicks only
 
 The keyboard hook asks the focused control's input-method window two questions at each key press, each with a short time limit (DCP-19).
 
-[The capture pipeline](capture-pipeline.md#pre-capture-at-a-click) states how the budget is computed, what the hook waits for inside it, the cap on describers, and how describers are held, spared and started.
+[The capture pipeline](capture-pipeline.md#pre-capture-at-a-click) states how the budget is computed, what it buys, and the cap on describers.
 
 **DCP-2.** Events may arrive out-of-order from workers, and ordering is restored without delaying the user. These three rules hold:
 
@@ -44,7 +44,7 @@ The keyboard hook asks the focused control's input-method window two questions a
 - An event that carries no id is appended at its arrival point. That is a scroll flushed with no arriving event, by the worker's periodic tick or by a buffer drain; a scroll an arriving event flushes carries that event's id.
 - Neither internal ever reaches a stored or exported recording: the sequence id is stripped before the action is stored or exported, and the barrier completion marker below never enters the pending list.
 
-Committing a step applies a **flush barrier**. The backend drains every worker's completed-but-held buffers into the action stream and emits a completion marker (the barrier _sentinel_, as [the capture pipeline](capture-pipeline.md) and its tests call it) onto that same stream after them. The commit collects the step only once it has received that marker, so a commit never races a still-in-flight or still-buffered action. The commit waits for the marker, not for the drain command to return, and the barrier does not wait on sequence numbers.
+Committing a step applies a **flush barrier**. The backend drains every worker's held buffers (DCP-12) into the action stream and emits a completion marker (the barrier _sentinel_ in the code and its tests) onto that same stream after them. The commit collects the step only once it has received that marker, so a commit never races a still-in-flight or still-buffered action. The commit waits for the marker, not for the drain command to return, and the barrier does not wait on sequence numbers.
 
 The barrier is **bounded** at every tier, and an expired bound MUST be distinguishable from success. It has exactly these three bounds:
 
@@ -58,7 +58,7 @@ A fallback drain preserves completeness and trades marker-exact ordering: delive
 
 A marker that arrives before the commit starts waiting still satisfies the wait, and a duplicate marker for an already-collected barrier is inert. A barrier run with no active capture reports that nothing was buffered and that no barrier ran, and the commit collects immediately.
 
-[The capture pipeline](capture-pipeline.md#the-commit-flush-barrier) states the mechanics behind this clause: why the commit waits for the marker on the action stream, why the barrier does not wait on sequence numbers and its report holds no per-id account, the channels, the routing and the drain paths.
+[The capture pipeline](capture-pipeline.md#the-commit-flush-barrier) states why the commit waits for the marker on the action stream, and why the barrier does not wait on sequence numbers and its report holds no per-id account.
 
 ---
 
@@ -273,7 +273,7 @@ A focus on the element of the last focus written, in the window it is recorded i
 
 Where a later focus event is dispatched before the first is described, the file holds the later focus only, at its own place. A focus change the filters of DCP-5, DCP-14 and DCP-7 drop, and a foreground change, are no such later event.
 
-One worker at a time writes the focus ([Routing and ordering](capture-pipeline.md#routing-and-ordering)), and "the last focus written" is the last that worker wrote. So after the focus worker is respawned its first focus is written even on the element written last, and after the role goes to another worker a focus on the element that worker wrote when it last held the role is not written (DCP-12).
+One worker at a time writes the focus (DCP-12), and "the last focus written" is the last that worker wrote. So after the focus worker is respawned its first focus is written even on the element written last, and after the role goes to another worker a focus on the element that worker wrote when it last held the role is not written (DCP-12).
 
 Where a focus is recorded follows from the top-level window its element is in, as the description resolved it. It is one of these four:
 
@@ -581,45 +581,42 @@ Exactly these eight cases stay open. In each, a keystroke can be recorded on an 
 
 ## Worker delivery guarantees
 
-**DCP-12.** The worker pool holds the completeness story's (DCP-2) invariant
-in its strongest form: **every completed action that has reached a worker's
-held buffers survives any commit or stop** — drained into the action stream by
-whichever drain path reaches it first, never silently dropped. The drain paths
-cover every way a buffer can be left behind:
+**DCP-12.** Every completed action a worker holds survives any commit or stop: it is in the file once, whatever happens to the worker. That is the completeness invariant of DCP-2 in its strongest form. A worker holds four things, a closed list:
 
-- the worker's own flush — on stop, which runs the in-order flush barrier as
-  it stops, before the terminating teardown drain, and on a mid-capture
-  commit flush barrier (non-terminating; the worker keeps running);
-- the barrier fan-out's bounded in-place rescue of a worker that is wedged in
-  an unresponsive accessibility call or already dead;
-- the barrier's fallback drain when the marker-ordered path cannot complete
-  (DCP-2);
-- the dispatch-time respawn, which drains a dead worker's held buffers before
-  installing its replacement;
-- the teardown drains at stop, on both the joined-dead and detached-wedged
-  branches (see
-  [the pipeline's shutdown doctrine](capture-pipeline.md#shutdown-doctrine)).
+- the scroll being accumulated (core CP-16);
+- the `type` of the field being typed into (DCP-9);
+- the buffered keys (DCP-9);
+- a key held behind buffered dead keys (DCP-17).
 
-Every drain empties the shared buffers under their lock, so drains are
-idempotent — whichever runs first wins, a later drain finds nothing to
-re-emit, and no action is delivered twice. The bounded residue — the losses
-this clause admits, all of them input that never became a buffered action:
+| What happens                                                                                  | What the file holds                                             |
+| --------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| The person commits a step, or stops                                                           | Every action held at that moment, in that step, once            |
+| A worker does not answer at a commit or a stop (wedged in an unresponsive accessibility call) | The same, and the commit's report counts the worker (DCP-2)     |
+| The commit's barrier cannot complete in order (DCP-2's fallback drain)                        | The same, in the order DCP-2 states for it                      |
+| A worker dies                                                                                 | The same: what it held is written, and a replacement takes over |
 
-- an event held inside a wedged OS-level thread — a hook callback that never
-  returned never dispatched it;
-- raw events dispatched to a worker that is wedged or dies: queued events go
-  down with the dead receiver or the detached thread (a respawn retries only
-  the event whose send detected the death), and the single in-flight action a
-  wedged worker holds mid-build is lost with it;
-- the one poison event whose processing panics on a healthy worker — the
-  panic is contained and the event is dropped by design, never retried;
-- the pathological dispatch drop when every worker slot has been respawned
-  and still cannot accept the event — surfaced on stderr, never silent.
+What is lost is input that never became a held action, in exactly these four cases:
 
-Which worker an event reaches, and how the typing and focus workers are chosen, kept and given up, is the capture pipeline's to state ([Routing and ordering](capture-pipeline.md#routing-and-ordering)). After a typing worker gives its role up at a commit, two things hold for delivery:
+- an event inside a hook callback that never returned, which was never dispatched;
+- the events dispatched to a worker that then dies, or hangs and never returns, and the one action such a worker was building. Only the event whose send found the worker dead is sent again, to its replacement;
+- the one event whose processing panics on a healthy worker. It is dropped by design and never retried, and the worker lives on;
+- an event no worker can take after every worker was replaced, which is reported on stderr.
+
+Two roles are each held by one worker at a time, a closed list:
+
+- the typing worker takes every keyboard and value-change event, in the order dispatched;
+- the focus worker takes every focus event, in the order dispatched.
+
+Who holds a role, a closed list of three rules:
+
+- A dead worker's replacement takes its role. It starts with none of the state its predecessor compared with, so what a clause compares with the last thing written starts anew (the focus in DCP-21, the repeated value in DCP-13).
+- A worker gives its role up only when it does not answer a commit's flush barrier in time.
+- A role nobody holds goes, at the next event or look at the focus that needs it, to a worker that answered the most recent flush barrier (a replacement counts as one that did), or to any worker where none answered.
+
+After a typing worker gives its role up at a commit, two things hold for delivery:
 
 - typing after that commit does not wait behind a wedged accessibility call;
-- what was dispatched to that worker before stays with it. It is lost if the worker never returns (the residue above) and processed there if it does, where a keystroke whose value change was dispatched after the hand-over is written as a `key` beside the `type`.
+- what was dispatched to that worker before stays with it. It is lost if the worker never returns (the second case above) and processed there if it does, where a keystroke whose value change was dispatched after the hand-over is written as a `key` beside the `type`.
 
 ---
 
