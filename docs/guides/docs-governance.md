@@ -113,6 +113,7 @@ The detail for each:
     - A sentence two platform documents both need is stated in the cross-platform clause, and each platform clause cites that clause.
     - A paragraph, a list item or a table row holds at most 150 words. A longer one is split into paragraphs or a list. The limit is on one unit, never on how much a clause or a document says.
     - A red is fixed in the clause. No entry is added to the list of admitted cases.
+  - **Words before and after.** A pull request shows, for each document that holds clauses, the words it held at the base and the words it holds now ([`scripts/report-clause-doc-words.js`](../../scripts/report-clause-doc-words.js), in the `lint` job's log and summary). The numbers are shown and never a gate: how long a document should be depends on what it has to say. The pull request's reviewer reads the table and asks of each row that grew whether the added words state the change's rule or restate, explain or record something else. Growth the reviewer does not accept is a review finding, recorded with the review's other findings in the pull request's change record, and the row passes when no such finding is open.
   - **Lists.** A list inside a clause's scope — bulleted, numbered, a table's
     rows, or an inline series of three or more members of one set — states
     whether it is closed.
