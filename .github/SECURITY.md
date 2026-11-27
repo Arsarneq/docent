@@ -75,9 +75,14 @@ Docent has several capabilities with distinct attack surfaces:
 - The desktop application uses OS accessibility APIs and global input hooks. On future platforms (Linux — see [#84](https://github.com/Arsarneq/docent/issues/84)), this may require explicit user permission grants.
 - Vulnerabilities that allow bypassing permission checks or escalating OS-level access are in scope.
 
+### Reference sync server
+
+- The repository publishes a reference sync server under [`reference-implementations/sync-server/`](../reference-implementations/sync-server/README.md). It is an example of the sync protocol and a testing target, and no release ships it.
+- Vulnerabilities in that published code are in scope.
+
 ### Out of scope
 
-- Vulnerabilities in a user's own receiving endpoint or sync server (those are outside this project)
+- Vulnerabilities in a user's own receiving endpoint or sync server, their own deployment of the reference sync server included (those are outside this project)
 - Issues requiring physical access to the machine
 - Social engineering
 
