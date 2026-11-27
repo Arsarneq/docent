@@ -224,7 +224,8 @@ phase, for exactly these DOM events, on `document` unless the item names
   character key pressed with no shortcut modifier on a sensitive element is
   never written as a `key` and never named among the held keys, as ECP-9
   states. The key
-  is named by the browser's key value, a space as `Space`, and carries the
+  is named as the session format's
+  [Key names](../../../technical/session-format.md#key-names) states, and carries the
   browser's name for the physical key as `code`, left out where the browser
   gives none;
   each press is written with whether the browser's key repeat generated it:

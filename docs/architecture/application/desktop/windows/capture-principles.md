@@ -302,10 +302,10 @@ The controls that take no typed text are a closed list of control types: `Button
 
 In a password field every keystroke enters text except these two kinds, which are `key` actions there as anywhere:
 
-- a key that enters no character: Shift, Control and Alt, the function keys, and every key with a name of its own other than `Process` and `AltGraph`, a closed list;
+- a key that enters no character: Shift, Control and Alt, the function keys, and every key with a name of its own other than `Process`, a closed list;
 - a key with Ctrl, Alt or Meta held, other than Ctrl and Alt together.
 
-Every other key counts as text there: a character, `Space`, `Dead`, `Unidentified`, `Process` (the name of a key an input method took, which stands for a typing key) and `AltGraph` (which a layout can give a typing key's code).
+Every other key counts as text there: a character, `Space`, `Dead`, `Unidentified`, and `Process` (the name of a key an input method took, which stands for a typing key).
 
 **What becomes of the buffered keys.** One of these four comes next, a closed list:
 
@@ -426,7 +426,7 @@ A platform that numbers no keys takes every value it reads.
 
 A value taken later in the same typing supersedes those keys as it supersedes every buffered key. The 500 ms wait (DCP-9) does not write them, since their value changes came. It does write the keys behind them that no value change reached. A commit or a stop writes the pending `type` and then every key still buffered, each once.
 
-For example, the person types `a`, `a` and Backspace, and the value of the second `a` is read after the Backspace was dispatched: the file holds `type` "a", then `key` A and `key` Backspace.
+For example, the person types `a`, `a` and Backspace, and the value of the second `a` is read after the Backspace was dispatched: the file holds `type` "a", then `key` `a` and `key` Backspace.
 
 **The departure.** The extension writes the field's one `type` whatever its timing, so these `key` actions are a departure (core CP-19; [docent#762](https://github.com/Arsarneq/docent/issues/762) tracks its removal). A late value taken would make the same typing a `type` holding what a later key did, a value the person never had. The departure states that defect instead of recording it.
 
@@ -447,7 +447,7 @@ For example, the person pastes into the field with Ctrl+V and presses Enter, and
 
 ## What a `key` action carries
 
-**DCP-19.** The [session format](../../../../technical/session-format.md#shared-both-platforms)'s `key` row is the home of what a `key` action's name, `repeat`, `code`, input-method fields and `held_keys` state, on both platforms. This clause holds only what that row does not: five rules of this platform's own. The capture pipeline holds [what the keyboard hook reads and how](capture-pipeline.md#what-the-keyboard-hook-reads-at-a-key-press).
+**DCP-19.** The [session format](../../../../technical/session-format.md#shared-both-platforms)'s `key` row is the home of what a `key` action's `repeat`, `code`, input-method fields and `held_keys` state, on both platforms, and its [Key names](../../../../technical/session-format.md#key-names) section the home of how a key is named. This clause holds only what they do not: five rules of this platform's own. The capture pipeline holds [what the keyboard hook reads and how](capture-pipeline.md#what-the-keyboard-hook-reads-at-a-key-press).
 
 - **Injected keys and punctuation keys are typing keys (DCP-9).** A keystroke injected as Unicode (`VK_PACKET`, the path of IME results, remote-desktop stacks, software keyboards and automation) is printable input whatever it carries. Since it is named by its character and buffered as a typing key, the same text is never recorded twice. A punctuation key is a typing key whether or not a character was read for its name.
 - **A release the hook was never handed.** A key whose release the hook was never handed is a press again at its next key-down, not a repeat. The hook is handed key-downs and key-ups in an excluded window and outside an active capture too, so a key pressed there and still held counts as down for `repeat`.
@@ -671,6 +671,19 @@ with a caveat):
 - A lone Shift, Ctrl or Alt press — a keypress, but the worker drops it; these
   keys are recorded only within a combination (a lone Win press is recorded, as
   `Meta`)
+- A key press whose keyboard layout could not be asked is written with `key`
+  `Unidentified` where the key has no name of its own (a letter, a digit, a
+  punctuation key), where the extension writes the character; a departure
+  (core CP-19). The
+  [session format](../../../../technical/session-format.md#key-names) lists
+  the cases under Key names. The key is named from nothing else, since a
+  name taken from its key code would guess the character and its case.
+- A press of the key with virtual-key code `0xE1` (`VK_OEM_AX`) is written
+  as any typing key is: a `key` named from the keyboard layout, or part of
+  its field's `type`, and it is named among the held keys. The extension
+  writes nothing for the press where the browser names the key `AltGraph`,
+  which is what the browser's published source does on Windows; that side
+  was read from the source and not measured. A departure (core CP-19).
 - Win+D (show desktop) — a keypress, but the system intercepts it before the
   hooks
 - Win+L (lock screen) — a keypress, but the system intercepts it before the

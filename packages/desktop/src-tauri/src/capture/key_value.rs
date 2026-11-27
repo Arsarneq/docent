@@ -4,9 +4,9 @@
 //! the rule under Key names; this module is the desktop's source for it,
 //! built the way a browser builds the value on Windows.
 //!
-//! Platform-agnostic: the keyboard hook asks the layout and carries the
-//! answer ([`answer_param`]), and a worker names the key from it
-//! ([`key_value_name`]).
+//! Platform-agnostic: the keyboard hook reads which layout a press is on, a
+//! worker asks the backend what that layout gives the key
+//! ([`answer_param`]) and names the key from it ([`key_value_name`]).
 
 /// What a keyboard layout gives a key with given modifiers held.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -268,7 +268,6 @@ pub fn named_key(key_code: u32, primary_language: u16) -> Option<&'static str> {
         0xB5 => "LaunchMediaPlayer",
         0xB6 => "LaunchApplication1",
         0xB7 => "LaunchApplication2",
-        0xE1 => "AltGraph",
         0xE5 => "Process",
         0xF6 => "Attn",
         0xF7 => "CrSel",
@@ -280,8 +279,8 @@ pub fn named_key(key_code: u32, primary_language: u16) -> Option<&'static str> {
     })
 }
 
-/// The `key` value of a key with no name of its own, from what the hook read
-/// of the layout: the character, a space as `Space`, `Dead` for a dead key,
+/// The `key` value of a key with no name of its own, from what the layout
+/// gave the press: the character, a space as `Space`, `Dead` for a dead key,
 /// and `Unidentified` where the layout gave nothing or was not read.
 pub fn key_value_name(read: Option<LayoutAnswer>) -> String {
     match read {
@@ -292,10 +291,11 @@ pub fn key_value_name(read: Option<LayoutAnswer>) -> String {
     }
 }
 
-/// What the layout answered for each key and combination of modifiers, kept
-/// by the thread that asks, so each question is put to the layout once. One
-/// layout at a time: an answer for another layout clears the rest. A fixed
-/// table, so a lookup on the keyboard hook neither allocates nor locks.
+/// What a layout answered for each key and combination of modifiers, so each
+/// question is put to the layout once. One layout a table: an answer for
+/// another layout clears the rest. The backend keeps one table a layout and
+/// shares them between the workers; nothing here is used on the keyboard
+/// hook.
 pub struct LayoutAnswers {
     layout: isize,
     /// The [`answer_param`] of each key code and combination; 0 not asked.
@@ -340,15 +340,35 @@ impl LayoutAnswers {
     }
 
     /// Take `layout`'s answer for every key code and combination from `ask`,
-    /// in place of whatever the table held.
-    pub fn fill(&mut self, layout: isize, mut ask: impl FnMut(u32, Held) -> LayoutAnswer) {
-        self.layout = layout;
+    /// in place of whatever the table held, and say whether they were taken.
+    ///
+    /// `answers_cleanly` says whether the layout can be asked right now (on
+    /// Windows: no accent of a dead key is pending, which would change every
+    /// answer). It is asked before the first key code and after each, since
+    /// the fill takes long enough for the person to type meanwhile. Where it
+    /// says no, nothing more is asked and the table holds nothing.
+    pub fn fill(
+        &mut self,
+        layout: isize,
+        mut ask: impl FnMut(u32, Held) -> LayoutAnswer,
+        mut answers_cleanly: impl FnMut() -> bool,
+    ) -> bool {
+        self.forget();
+        if !answers_cleanly() {
+            return false;
+        }
         for key_code in 0..256_u32 {
             for combination in 0..16 {
                 let held = Held::from_index(combination);
                 self.answers[Self::index(key_code, held)] = answer_param(Some(ask(key_code, held)));
             }
+            if !answers_cleanly() {
+                self.forget();
+                return false;
+            }
         }
+        self.layout = layout;
+        true
     }
 
     /// Hold no layout's answers.
@@ -679,7 +699,6 @@ mod tests {
             (0xB5, "LaunchMediaPlayer"),
             (0xB6, "LaunchApplication1"),
             (0xB7, "LaunchApplication2"),
-            (0xE1, "AltGraph"),
             (0xE5, "Process"),
             (0xF6, "Attn"),
             (0xF7, "CrSel"),
@@ -805,22 +824,62 @@ mod tests {
         }
     }
 
+    /// The answers of a layout are good only while the layout can be asked
+    /// (on Windows: while no accent is pending). The check is made around
+    /// every key code's questions, so a spell in the middle of the fill is
+    /// seen, and a table it touched is not kept.
+    #[test]
+    fn a_fill_is_dropped_when_the_layout_stops_answering_cleanly_midway() {
+        for bad_check in [0_u32, 1, 130, 256] {
+            let mut answers = LayoutAnswers::new();
+            let mut asked = 0_u32;
+            let mut checked = 0_u32;
+            let filled = answers.fill(
+                7,
+                |_, _| {
+                    asked += 1;
+                    LayoutAnswer::Char('x')
+                },
+                || {
+                    checked += 1;
+                    checked - 1 != bad_check
+                },
+            );
+            assert!(!filled, "check {bad_check}");
+            assert!(!answers.is_of(7), "check {bad_check}");
+            assert_eq!(answers.get(7, 0x41, Held::default()), None);
+            // Nothing more is asked once a check failed.
+            assert_eq!(asked, bad_check * 16, "check {bad_check}");
+        }
+    }
+
     #[test]
     fn a_table_is_filled_for_one_layout_with_an_answer_for_every_key() {
         let mut answers = LayoutAnswers::new();
         assert!(!answers.is_of(7));
         assert!(!answers.is_of(0), "no layout is no layout's table");
         let mut asked = 0;
-        answers.fill(7, |key_code, held| {
-            asked += 1;
-            match (key_code, held.shift) {
-                (0x41, false) => LayoutAnswer::Char('a'),
-                (0x41, true) => LayoutAnswer::Char('A'),
-                (0xDD, _) => LayoutAnswer::Dead,
-                _ => LayoutAnswer::Nothing,
-            }
-        });
+        let mut checked = 0;
+        let filled = answers.fill(
+            7,
+            |key_code, held| {
+                asked += 1;
+                match (key_code, held.shift) {
+                    (0x41, false) => LayoutAnswer::Char('a'),
+                    (0x41, true) => LayoutAnswer::Char('A'),
+                    (0xDD, _) => LayoutAnswer::Dead,
+                    _ => LayoutAnswer::Nothing,
+                }
+            },
+            || {
+                checked += 1;
+                true
+            },
+        );
+        assert!(filled);
         assert_eq!(asked, 256 * 16);
+        // Before the first key code and after each.
+        assert_eq!(checked, 257);
         assert!(answers.is_of(7));
         assert!(!answers.is_of(8));
         let shift = Held {
@@ -840,7 +899,7 @@ mod tests {
         );
         assert_eq!(answers.get(8, 0x41, Held::default()), None);
         // Another layout takes the table over.
-        answers.fill(8, |_, _| LayoutAnswer::Char('x'));
+        assert!(answers.fill(8, |_, _| LayoutAnswer::Char('x'), || true));
         assert!(!answers.is_of(7));
         assert_eq!(
             answers.get(8, 0x41, Held::default()),

@@ -3187,17 +3187,18 @@ const VK_CAPITAL: i32 = 0x14;
 /// its own table for a layout.
 ///
 /// An answer depends on an accent already pending, so the answers are taken
-/// only while none is ([`layout_has_no_accent_pending`], checked before and
-/// after); otherwise the table is left holding nothing, to be taken at a
-/// later press.
+/// only while none is ([`layout_has_no_accent_pending`], checked before the
+/// first key code and after each, since the person can type a dead key while
+/// the answers are taken); otherwise the table is left holding nothing, to be
+/// taken at a later press.
 ///
 /// It is some thousand reads of the layout (measured at 450 ms on a test
 /// machine), so it is never called on the keyboard hook.
 unsafe fn fill_layout_answers(hkl: HKL, answers: &mut super::key_value::LayoutAnswers) -> bool {
-    if hkl.0.is_null() || !layout_has_no_accent_pending(hkl) {
+    if hkl.0.is_null() {
         return false;
     }
-    answers.fill(hkl.0 as isize, |vk, held| {
+    let ask = |vk: u32, held: super::key_value::Held| {
         let mut state = [0u8; 256];
         if held.shift {
             state[0x10] = 0x80;
@@ -3222,13 +3223,8 @@ unsafe fn fill_layout_answers(hkl: HKL, answers: &mut super::key_value::LayoutAn
             Some(hkl),
         );
         super::key_value::layout_answer(answered, entered[0])
-    });
-    if layout_has_no_accent_pending(hkl) {
-        true
-    } else {
-        answers.forget();
-        false
-    }
+    };
+    answers.fill(hkl.0 as isize, ask, || layout_has_no_accent_pending(hkl))
 }
 
 /// Whether no accent of a dead key is pending for `hkl` right now: the layout

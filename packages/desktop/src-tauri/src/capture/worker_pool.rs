@@ -1832,7 +1832,7 @@ fn modifiers_of(raw: &RawEvent) -> Modifiers {
 ///
 /// Each key is named as its own `key` action names it. The hook's record
 /// lists no modifier key, so every key here has such a name.
-fn held_at(raw: &RawEvent) -> HeldKeysAtAction {
+fn held_at<B: AccessibilityBackend>(raw: &RawEvent, backend: &B) -> HeldKeysAtAction {
     let (held_keys, held_presses) = raw
         .held
         .iter()
@@ -1841,7 +1841,15 @@ fn held_at(raw: &RawEvent) -> HeldKeysAtAction {
                 key_name_of(
                     k.key_code,
                     i64::from(k.scan_code),
-                    k.key_value,
+                    if k.key_value != 0 {
+                        k.key_value
+                    } else {
+                        backend.key_value(
+                            k.layout,
+                            k.key_code,
+                            super::key_value::Held::from_index(usize::from(k.held)),
+                        )
+                    },
                     super::key_value::primary_language(k.layout),
                 ),
                 k.press,
@@ -2046,9 +2054,7 @@ fn input_method_at(raw: &RawEvent) -> super::InputMethodAtKey {
 
 /// The key names that enter no character: Shift, Control and Alt, and every
 /// key with a name of its own ([`super::key_value::named_key`]) except
-/// `Process`, the key an input method took, which stands for a typing key,
-/// and `AltGraph`, whose code is a punctuation code a layout can give a
-/// character.
+/// `Process`, the key an input method took, which stands for a typing key.
 /// The function keys (`F1` to `F24`) join them by their form. The adapter's
 /// sensitive-field rule keeps the same list
 /// (`packages/desktop/src/adapter-tauri.js`).
@@ -3099,11 +3105,6 @@ fn process_raw_event<B: AccessibilityBackend>(
         return;
     }
 
-    // What the layout gives the event's key and the keys held at it: asked
-    // here, off the keyboard hook.
-    let with_values = with_key_values(raw, backend);
-    let raw = with_values.as_ref().unwrap_or(raw);
-
     // Resolve context_id from the root window handle.
     let context_id = if raw.window_handle != 0 {
         let root = backend.root_window_handle(raw.window_handle);
@@ -3435,7 +3436,7 @@ fn handle_click<B: AccessibilityBackend>(
             x: screen_x,
             y: screen_y,
             modifiers: modifiers_of(raw),
-            held: held_at(raw),
+            held: held_at(raw, backend),
             element: element_desc.clone(),
         }
     } else {
@@ -3443,7 +3444,7 @@ fn handle_click<B: AccessibilityBackend>(
             x: screen_x,
             y: screen_y,
             modifiers: modifiers_of(raw),
-            held: held_at(raw),
+            held: held_at(raw, backend),
             element: element_desc.clone(),
         }
     };
@@ -4102,11 +4103,10 @@ fn handle_keyboard<B: AccessibilityBackend>(
     state: &mut WorkerState,
     window_rect: Option<WindowRect>,
 ) {
-    let key = key_name(raw);
-
     // Skip the empty name: every left/right Shift, Control or Alt keydown;
     // a key pressed while they are held reads them into its own modifiers.
-    if is_modifier_only_key(&key) {
+    // The empty name is given by the key's code alone, whatever its layout.
+    if is_modifier_only_key(&key_name(raw)) {
         return;
     }
 
@@ -4115,6 +4115,9 @@ fn handle_keyboard<B: AccessibilityBackend>(
     // that excluded window's, so nothing is asked of the backend; the key is
     // no keystroke of any window, so the typing state is left as it is.
     if raw.window_handle == 0 {
+        let with_values = with_key_values(raw, backend);
+        let raw = with_values.as_ref().unwrap_or(raw);
+        let key = key_name(raw);
         let mut element = ElementDescription {
             tag: "Unknown".to_string(),
             selector: String::new(),
@@ -4137,7 +4140,7 @@ fn handle_keyboard<B: AccessibilityBackend>(
                 code: physical_key_of(raw),
                 input_method: input_method_at(raw),
                 repeat: is_repeat(raw),
-                held: held_at(raw),
+                held: held_at(raw, backend),
                 element,
             },
         };
@@ -4220,6 +4223,12 @@ fn handle_keyboard<B: AccessibilityBackend>(
     };
     // The gap to the moment this worker settled the key's element.
     stamp_described_after(&mut element, raw.timestamp);
+    // What the layout gives the key and the keys held at it: asked only now,
+    // off the keyboard hook and with the element settled. The first ask of a
+    // layout builds its table, which takes long enough for the focus to move.
+    let with_values = with_key_values(raw, backend);
+    let raw = with_values.as_ref().unwrap_or(raw);
+    let key = key_name(raw);
     let key_element = element.clone();
     if is_paste_key(raw) {
         state.pasted_into = Some(LastValue::of(context_id, &element, ""));
@@ -4298,7 +4307,7 @@ fn handle_keyboard<B: AccessibilityBackend>(
             repeat: is_repeat(raw),
             code: physical_key_of(raw),
             input_method: input_method_at(raw),
-            held: held_at(raw),
+            held: held_at(raw, backend),
             element,
         },
     };
@@ -4448,7 +4457,7 @@ fn handle_drag_start<B: AccessibilityBackend>(
         sequence_id: Some(raw.sequence_id),
         payload: ActionPayload::DragStart {
             modifiers: modifiers_of(raw),
-            held: held_at(raw),
+            held: held_at(raw, backend),
             element,
         },
     });
@@ -4485,7 +4494,7 @@ fn handle_drop<B: AccessibilityBackend>(
             x: raw.screen_x as f64,
             y: raw.screen_y as f64,
             modifiers: modifiers_of(raw),
-            held: held_at(raw),
+            held: held_at(raw, backend),
             element,
             source_element,
         },
@@ -5518,12 +5527,14 @@ mod tests {
         assert_eq!(name_with_char(0x6E, ','), ",");
         // Every typing code is named by what the layout gave the press.
         for vk in (0..=0xFF_u32).filter(|vk| is_typing_key_code(*vk)) {
-            // The AltGr key (0xE1) has a name of its own, checked below.
-            if vk != VK_PACKET && vk != 0x20 && vk != 0xE1 {
+            if vk != VK_PACKET && vk != 0x20 {
                 assert_eq!(name_with_char(vk, '§'), "§", "vk {vk:#x}");
             }
         }
-        assert_eq!(name_with(0xE1, None), "AltGraph");
+        // Code 0xE1 among them: a typing key like the other punctuation
+        // codes, with no name or rule of its own.
+        assert_eq!(name_with(0xE1, None), "Unidentified");
+        assert_eq!(name_with(0xE1, Some(LayoutAnswer::Dead)), "Dead");
     }
 
     #[test]
@@ -5683,7 +5694,11 @@ mod tests {
             held(0x15, None, 0x0412_0412, 3),
             held(0x26, None, 0, 4),
         ];
-        let at = held_at(&raw);
+        let backend = ProbeBackend {
+            block_focused: false,
+            block_window_title: false,
+        };
+        let at = held_at(&raw, &backend);
         assert_eq!(at.held_keys, vec!["A", "?", "HangulMode", "ArrowUp"]);
         assert_eq!(at.held_presses, vec![1, 2, 3, 4]);
     }
@@ -5743,7 +5758,16 @@ mod tests {
         ];
         let filled = with_key_values(&click, &backend).expect("filled");
         assert_eq!(filled.key_value, 0, "a click has no key of its own");
-        assert_eq!(held_at(&filled).held_keys, vec!["B", "c", "Unidentified"]);
+        assert_eq!(
+            held_at(&filled, &backend).held_keys,
+            vec!["B", "c", "Unidentified"]
+        );
+        // The held keys of an action are asked about where they are named,
+        // so nothing has to be filled in ahead for them.
+        assert_eq!(
+            held_at(&click, &backend).held_keys,
+            vec!["B", "c", "Unidentified"]
+        );
 
         // A value already there is kept, and an event with nothing to fill
         // in is left as it is.
@@ -5775,12 +5799,10 @@ mod tests {
                 };
                 let raw = control_key_raw_event(vk, 1);
                 // The key an input method took names no key of its own: what
-                // was pressed is a typing key, so it is masked as text. The
-                // code named `AltGraph` is a punctuation code a layout can
-                // give a character, so it is masked too.
+                // was pressed is a typing key, so it is masked as text.
                 assert_eq!(
                     enters_text_in_password_field(&raw, name),
-                    name == "Process" || name == "AltGraph",
+                    name == "Process",
                     "{name}"
                 );
             }

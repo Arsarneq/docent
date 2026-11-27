@@ -467,6 +467,9 @@ struct MockBackend {
     default_text: String,
     /// Fixed element selector returned by all element queries.
     selector: String,
+    /// The focused-element and layout questions put to the backend, in the
+    /// order they came.
+    asked: Arc<Mutex<Vec<&'static str>>>,
 }
 
 impl MockBackend {
@@ -475,6 +478,7 @@ impl MockBackend {
             focused_values: Arc::new(Mutex::new(VecDeque::new())),
             default_text: "hello".to_string(),
             selector: "Edit#input1".to_string(),
+            asked: Arc::new(Mutex::new(Vec::new())),
         }
     }
 
@@ -484,6 +488,7 @@ impl MockBackend {
             focused_values: Arc::new(Mutex::new(VecDeque::from(values))),
             default_text: "default".to_string(),
             selector: "Edit#input1".to_string(),
+            asked: Arc::new(Mutex::new(Vec::new())),
         }
     }
 }
@@ -495,8 +500,13 @@ impl AccessibilityBackend for MockBackend {
 
     /// A stand-in for the Danish layout: its key right of 0 gives `+`.
     fn key_value(&self, layout: i64, key_code: u32, _held: Held) -> u32 {
+        self.asked.lock().unwrap().push("layout");
         if layout == DANISH_TEST_LAYOUT && key_code == 0xBB {
             answer_param(Some(LayoutAnswer::Char('+')))
+        } else if layout == AX_KEY_TEST_LAYOUT && key_code == 0xE1 {
+            answer_param(Some(LayoutAnswer::Char('x')))
+        } else if layout == DANISH_TEST_LAYOUT {
+            answer_param(Some(LayoutAnswer::Nothing))
         } else {
             0
         }
@@ -518,6 +528,7 @@ impl AccessibilityBackend for MockBackend {
     }
 
     fn focused_element(&self) -> Option<ElementDescription> {
+        self.asked.lock().unwrap().push("focused element");
         let text = {
             let mut vals = self.focused_values.lock().unwrap();
             if let Some(v) = vals.pop_front() {
@@ -3462,6 +3473,8 @@ fn us_key_value(key_code: u32) -> u32 {
 
 /// The layout handle the mock backend answers for as the Danish layout.
 const DANISH_TEST_LAYOUT: i64 = 0x0406_0406;
+/// A layout the mock backend answers for with a character on code `0xE1`.
+const AX_KEY_TEST_LAYOUT: i64 = 0x0411_0411;
 
 /// `raw`, with `character` as what the layout gave the press.
 fn gives(mut raw: RawEvent, character: char) -> RawEvent {
@@ -9001,6 +9014,62 @@ fn regression_691_a_held_punctuation_key_is_named_by_its_layout_character() {
             ("drop", PLAIN, plus_held),
         ]
     );
+}
+
+/// The layout is asked what a key gives only after the key's element is
+/// settled: asking can take long at a layout's first key (its table is built
+/// then), and the element must be the one that had the focus at the press,
+/// not the one that has it after that wait.
+#[test]
+fn a_keys_element_is_settled_before_the_layout_is_asked_for_its_name() {
+    let backend = MockBackend::new();
+    let asked = Arc::clone(&backend.asked);
+    let harness = WorkerTestHarness::new(backend);
+    let mut plus = layout_key(1, now_ms(), 0xBB);
+    plus.key_value = 0;
+    plus.keyboard_layout = DANISH_TEST_LAYOUT;
+    harness.send_event(plus);
+    thread::sleep(Duration::from_millis(900));
+    let events = harness.shutdown();
+    let keys: Vec<String> = events
+        .iter()
+        .map(|e| serde_json::to_value(e).unwrap())
+        .filter(|v| v["type"] == "key")
+        .map(|v| v["key"].as_str().unwrap().to_string())
+        .collect();
+    assert_eq!(keys, vec!["+"]);
+    let asked = asked.lock().unwrap();
+    let first = |what: &str| asked.iter().position(|a| *a == what);
+    assert!(
+        first("focused element") < first("layout"),
+        "asked in this order: {asked:?}"
+    );
+    assert!(first("focused element").is_some());
+}
+
+/// Code 0xE1 is a typing key like the other punctuation codes: named by
+/// what its layout gives it, with no rule of its own, so its input always
+/// has a record.
+#[test]
+fn code_0xe1_is_named_from_its_layout_like_any_typing_key() {
+    let keys_written = |layout: i64| {
+        let harness = WorkerTestHarness::new(MockBackend::new());
+        let mut key = layout_key(1, now_ms(), 0xE1);
+        key.key_value = 0;
+        key.keyboard_layout = layout;
+        harness.send_event(key);
+        thread::sleep(Duration::from_millis(900));
+        harness
+            .shutdown()
+            .iter()
+            .map(|e| serde_json::to_value(e).unwrap())
+            .filter(|v| v["type"] == "key")
+            .map(|v| v["key"].as_str().unwrap().to_string())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(keys_written(DANISH_TEST_LAYOUT), vec!["Unidentified"]);
+    assert_eq!(keys_written(0), vec!["Unidentified"]);
+    assert_eq!(keys_written(AX_KEY_TEST_LAYOUT), vec!["x"]);
 }
 
 /// An action with no key down states so: `held_keys` is written, empty, and
