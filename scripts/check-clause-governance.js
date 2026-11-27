@@ -244,6 +244,10 @@ export const ALLOWLIST = new Map([
     'DSH-1\tdocs/test/integration/desktop.md',
     'the integration suite’s document is cited as the home of the mock serviced-command leg; the command-surface check the same row names verifies the contract, and an edit to the suite’s document takes its own disposition line, not the shell doc’s',
   ],
+  [
+    'DCP-16\tdocs/architecture/application/desktop/windows/capture-pipeline.md',
+    'the pipeline document is cited as the home of the procedure the clause links (how a worker tells the element of a keystroke); the worker-pool and control-look cases the same row names verify it, and an edit to the pipeline document takes its own disposition line, not the principles doc’s',
+  ],
   // Class 3 — format-authority echo surfaces. Each echoes the session-format
   // ordering clause and is held by the schema-echo check; what stays open is
   // only the governance edge, for the reason each entry states.
