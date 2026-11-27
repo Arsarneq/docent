@@ -869,9 +869,10 @@
     },
     {
       "path": "packages/desktop/src-tauri/tests/capture_lifecycle_test.rs",
-      "reason": "The capture-layer lifecycle contract binary — idempotent start, no-op stop, the active-state transitions, bounded restart, and the commit flush barrier's sentinel on the action stream — driven entirely through the seam's trait obligations. The capture-seam document states those obligations, the pipeline document owns the barrier and the shutdown doctrine it asserts, and the suite orientation lists it.",
+      "reason": "The capture-layer lifecycle contract binary — idempotent start, no-op stop, the active-state transitions, bounded restart, and the commit flush barrier's sentinel on the action stream — driven entirely through the seam's trait obligations. The capture-seam document states those obligations, the Windows capture principles own the barrier and the stop drains it asserts (DCP-2, DCP-12), and the suite orientation lists it.",
       "governed-by": [
         "docs/architecture/application/desktop/capture-seam.md",
+        "docs/architecture/application/desktop/windows/capture-principles.md",
         "docs/architecture/application/desktop/windows/capture-pipeline.md",
         "docs/test/desktop-rust.md"
       ]
@@ -914,7 +915,7 @@
     },
     {
       "path": "packages/desktop/src-tauri/tests/worker_pool_test.rs",
-      "reason": "The worker-pool property and truth-lock binary — sequence numbering, shortest-queue dispatch, sticky and drag-pair routing, and the dead-worker drain rescues, alongside end-to-end action truth-locks over the same pipeline. The Windows capture doctrine's ordering row names its flush-barrier tests among that row's existing guards (DCP-2) and the worker-delivery row names its respawn and shutdown drains among that row's (DCP-12), the redaction row names its cases for a keystroke that names no element (DCP-11), the description row names its preferred-languages case (DCP-15) and the keystroke-element row its cases for the element a keystroke and a value change are recorded on (DCP-16), while the drag-classification row's own unit stays intended and names this binary for the right-button path's downstream half alone (DCP-10); the pipeline document owns the delivery model it locks, the retired desktop manual history names it among its replacements, and the suite orientation lists it.",
+      "reason": "The worker-pool property and truth-lock binary — sequence numbering, shortest-queue dispatch, sticky and drag-pair routing, and the dead-worker drain rescues, alongside end-to-end action truth-locks over the same pipeline. The Windows capture doctrine's ordering row names its flush-barrier tests among that row's existing guards (DCP-2) and the worker-delivery row names its respawn and shutdown drains among that row's (DCP-12), the redaction row names its cases for a keystroke that names no element (DCP-11), the description row names its preferred-languages case (DCP-15) and the keystroke-element row its cases for the element a keystroke and a value change are recorded on (DCP-16), while the drag-classification row's own unit stays intended and names this binary for the right-button path's downstream half alone (DCP-10); the pipeline document orients on the stages it drives, the retired desktop manual history names it among its replacements, and the suite orientation lists it.",
       "governed-by": [
         "docs/architecture/application/desktop/windows/capture-principles.md",
         "docs/architecture/application/desktop/windows/capture-pipeline.md",
@@ -1181,7 +1182,7 @@
     },
     {
       "path": "packages/desktop/tests/unit/reorder-buffer.test.js",
-      "reason": "The ordered-insertion suite over the desktop adapter: out-of-order events placed by sequence id, immediate delivery with no buffering, completeness, and the internal id stripped before store or export. The Windows capture doctrine states that ordering rule and its row names this suite (DCP-2); the pipeline document owns the delivery model it sits at the end of; and the unit-suite orientation lists it.",
+      "reason": "The ordered-insertion suite over the desktop adapter: out-of-order events placed by sequence id, immediate delivery with no buffering, completeness, and the internal id stripped before store or export. The Windows capture doctrine states that ordering rule and its row names this suite (DCP-2); the pipeline document orients on the stages it sits at the end of; and the unit-suite orientation lists it.",
       "governed-by": [
         "docs/architecture/application/desktop/windows/capture-principles.md",
         "docs/architecture/application/desktop/windows/capture-pipeline.md",

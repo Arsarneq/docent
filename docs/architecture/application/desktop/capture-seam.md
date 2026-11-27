@@ -40,7 +40,7 @@ backend implements observation, not delivery:
 
 - **The data contract.** `ActionEvent`/`ActionPayload` mirror the desktop schema family. A backend emits only schema-defined action types, and the internal-only fields (the sequence id, the barrier sentinel) never reach a stored or exported recording.
 - **The capture doctrine.** The [core capture principles](../../system/capture-principles.md) govern every platform. Each OS surface adds its own capture-principles document beside [`windows/`](windows/capture-principles.md), stating its capture surface, proxies, correlation rules, and delivery guarantees (below). The [docs map](../../../README.md#reserved-areas) reserves `architecture/application/desktop/linux/` for the next OS surface's document.
-- **The delivery guarantees.** Ordered delivery, the commit flush barrier, and the no-drop shutdown are part of what "capture" means here. A backend that bypasses the shared pool must still provide them ([capture pipeline](windows/capture-pipeline.md)).
+- **The delivery guarantees.** Ordered delivery, the commit flush barrier, and the no-drop shutdown are part of what "capture" means here. A backend that bypasses the shared pool must still provide them ([Windows capture principles](windows/capture-principles.md), DCP-2 and DCP-12).
 
 ## The stub backend — compile-only posture
 
