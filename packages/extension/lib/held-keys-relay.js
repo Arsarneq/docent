@@ -8,7 +8,7 @@
  * the focus; the service worker keeps this relay and adds to an action the
  * keys held in the tab's other frames.
  *
- * The rule, which extension capture-principles ECP-12 states in full: a key
+ * The rule, which extension capture-principles ECP-18 states in full: a key
  * is named only while its release is sure to be reported. A key stays with
  * the frame that reported it until that frame's window loses the focus; a
  * pointer press in another frame of the tab that takes the focus takes the

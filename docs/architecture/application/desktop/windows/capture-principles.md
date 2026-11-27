@@ -394,7 +394,7 @@ The worker reads the field when it takes the press, which can be after the progr
 | A value taken for the field                                                                                                      | The value decides what the dead keys were. The held key is written behind those that are keys, ahead of the `type` the value starts |
 | No such value within the 500 ms, the next key, or any other action (a turn of the wheel included, whose scroll is written later) | The dead keys and the held key, as keys                                                                                             |
 
-**The extension.** The extension decides the same question by the browser's `input` for typed text in the dead key's field (extension capture principles, Capture Surface). The desktop has no such event and counts the accent in the value.
+**The extension.** The extension decides the same question by the browser's `input` for typed text in the dead key's field (extension capture principles, ECP-14). The desktop has no such event and counts the accent in the value.
 
 **Where the layout was not asked.** A key pressed with Shift or AltGr is then taken for an ordinary key, and one that is dead with them is written as a `key` after the wait; a departure (core CP-18). That holds in these four cases, a closed list:
 
