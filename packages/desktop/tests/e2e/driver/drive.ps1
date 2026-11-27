@@ -431,7 +431,14 @@ function Move-Pointer($e) {
 }
 
 # Anything that throws (Windows refusing SendInput, say) stops the run as 4.
-trap { Write-Log "error: $($_.Exception.Message)"; Write-Host "input-driver: $($_.Exception.Message)"; Stop-Run 4 }
+# Its own writes may fail too (a log that cannot be written is one way in), and
+# an error inside a trap is not caught by it, so they never stand between the
+# error and the clean-up.
+trap {
+  try { Write-Log "error: $($_.Exception.Message)" } catch { }
+  try { Write-Host "input-driver: $($_.Exception.Message)" } catch { }
+  Stop-Run 4
+}
 
 # Plan first: a refused steps file sends nothing.
 $json = & node (Join-Path $here 'plan.mjs') $Steps

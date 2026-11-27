@@ -489,3 +489,12 @@ test('chars is refused while a key it may press itself is held', () => {
     ['vk', 'unicode', 'vk', 'char'],
   );
 });
+
+test('two keys that share a virtual key are still two keys', () => {
+  assert.throws(
+    () => plan([W, { down: 'enter', scan: true }, { up: 'numpad_enter', scan: true }]),
+    /step 2: numpad_enter is not down/,
+  );
+  const ev = plan([W, { down: 'numpad_enter', scan: true }, { key: 'enter', scan: true }]);
+  assert.equal(ev.filter((e) => e.type === 'vk').length, 4);
+});

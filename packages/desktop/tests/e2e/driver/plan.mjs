@@ -87,6 +87,10 @@ const EXTENDED = new Set([
   'numlock',
 ]);
 for (let i = 1; i <= 12; i++) VK[`f${i}`] = 0x6f + i;
+// Two names are the same key when they give the same virtual key and the
+// same extended mark: ctrl and control are one key, enter and numpad_enter
+// two.
+const sameKey = (a, b) => VK[a] === VK[b] && EXTENDED.has(a) === EXTENDED.has(b);
 for (let c = 0x41; c <= 0x5a; c++) VK[String.fromCharCode(c + 32)] = c;
 for (let d = 0; d <= 9; d++) {
   VK[String(d)] = 0x30 + d;
@@ -237,7 +241,7 @@ export function plan(steps) {
       const p = String(step[down ? 'down' : 'up']).toLowerCase();
       if (p.includes('+')) throw new Error(`${at}: ${down ? 'down' : 'up'} takes one key`);
       if (!(p in VK)) throw new Error(`${at}: unknown key '${p}'`);
-      const i = held.findIndex((h) => VK[h.key] === VK[p]);
+      const i = held.findIndex((h) => sameKey(h.key, p));
       if (down && i >= 0) throw new Error(`${at}: ${p} is already down`);
       if (!down && i < 0) throw new Error(`${at}: ${p} is not down`);
       if (!down && held[i].scan !== scan)
@@ -254,7 +258,7 @@ export function plan(steps) {
       const parts = String(step.key).toLowerCase().split('+');
       const keys = parts.map((p) => {
         if (!(p in VK)) throw new Error(`${at}: unknown key '${p}'`);
-        if (held.some((h) => VK[h.key] === VK[p])) throw new Error(`${at}: ${p} is held down`);
+        if (held.some((h) => sameKey(h.key, p))) throw new Error(`${at}: ${p} is held down`);
         return p;
       });
       const repeat = step.repeat ?? 1;
