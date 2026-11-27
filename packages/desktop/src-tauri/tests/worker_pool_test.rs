@@ -148,6 +148,7 @@ proptest! {
                         Ok(WorkerMessage::EndTyping)
                         | Ok(WorkerMessage::MenuCommand)
                     | Ok(WorkerMessage::WriteHeldKey)
+                            | Ok(WorkerMessage::UnrecordedKey { .. })
                             | Ok(WorkerMessage::LookAtFocus) => {}
                         Ok(WorkerMessage::Shutdown) => break,
                         Err(_) => break,
@@ -249,6 +250,7 @@ proptest! {
                         Ok(WorkerMessage::EndTyping)
                         | Ok(WorkerMessage::MenuCommand)
                     | Ok(WorkerMessage::WriteHeldKey)
+                            | Ok(WorkerMessage::UnrecordedKey { .. })
                             | Ok(WorkerMessage::LookAtFocus) => {}
                         Ok(WorkerMessage::Shutdown) => break,
                         Err(_) => break,
@@ -337,6 +339,7 @@ proptest! {
                         Ok(WorkerMessage::EndTyping)
                         | Ok(WorkerMessage::MenuCommand)
                     | Ok(WorkerMessage::WriteHeldKey)
+                            | Ok(WorkerMessage::UnrecordedKey { .. })
                             | Ok(WorkerMessage::LookAtFocus) => {}
                         Ok(WorkerMessage::Shutdown) => break,
                         Err(_) => break,
@@ -1020,6 +1023,7 @@ fn worker_panic_respawns_and_redistributes() {
                         Ok(WorkerMessage::EndTyping)
                         | Ok(WorkerMessage::MenuCommand)
                         | Ok(WorkerMessage::WriteHeldKey)
+                        | Ok(WorkerMessage::UnrecordedKey { .. })
                         | Ok(WorkerMessage::LookAtFocus) => {}
                         Ok(WorkerMessage::Shutdown) => break,
                         Err(_) => break,
@@ -1097,6 +1101,7 @@ fn repeatedly_failing_workers_get_respawned_and_shutdown_completes() {
                     Ok(WorkerMessage::EndTyping)
                     | Ok(WorkerMessage::MenuCommand)
                     | Ok(WorkerMessage::WriteHeldKey)
+                    | Ok(WorkerMessage::UnrecordedKey { .. })
                     | Ok(WorkerMessage::LookAtFocus) => {}
                     Ok(WorkerMessage::Shutdown) => {}
                     Err(_) => {}
@@ -3619,6 +3624,7 @@ proptest! {
                         Ok(WorkerMessage::EndTyping)
                         | Ok(WorkerMessage::MenuCommand)
                     | Ok(WorkerMessage::WriteHeldKey)
+                            | Ok(WorkerMessage::UnrecordedKey { .. })
                             | Ok(WorkerMessage::LookAtFocus) => {}
                         Ok(WorkerMessage::Shutdown) => break,
                         Err(_) => break,
@@ -4519,6 +4525,9 @@ fn messages_sent_for(events: Vec<RawEvent>) -> Vec<Vec<&'static str>> {
                     Ok(WorkerMessage::MenuCommand) => sent.lock().unwrap().push("menu command"),
                     Ok(WorkerMessage::WriteHeldKey) => sent.lock().unwrap().push("write held key"),
                     Ok(WorkerMessage::LookAtFocus) => sent.lock().unwrap().push("look at focus"),
+                    Ok(WorkerMessage::UnrecordedKey { .. }) => {
+                        sent.lock().unwrap().push("unrecorded key")
+                    }
                     Ok(WorkerMessage::Flush(_)) => {}
                     Ok(WorkerMessage::Shutdown) | Err(_) => break,
                 }
@@ -5918,7 +5927,7 @@ fn regression_751_a_value_change_reported_twice_after_a_paste_is_one_type() {
 fn dead_key(seq: u64) -> RawEvent {
     let mut key = layout_key(seq, now_ms(), 0xDD);
     key.callback_params = [0x0D, 0, 0, 0x8000_0000 | i64::from(u32::from('\u{b4}'))];
-    key.key_value = answer_param(Some(LayoutAnswer::Dead));
+    key.key_value = answer_param(Some(LayoutAnswer::Dead('\u{b4}')));
     in_dialog(key)
 }
 
@@ -7225,6 +7234,7 @@ fn a_click_completing_a_double_click_routes_to_the_previous_clicks_worker() {
                     | Ok(WorkerMessage::EndTyping)
                     | Ok(WorkerMessage::MenuCommand)
                     | Ok(WorkerMessage::WriteHeldKey)
+                    | Ok(WorkerMessage::UnrecordedKey { .. })
                     | Ok(WorkerMessage::LookAtFocus) => {}
                     Ok(WorkerMessage::Shutdown) | Err(_) => break,
                 }

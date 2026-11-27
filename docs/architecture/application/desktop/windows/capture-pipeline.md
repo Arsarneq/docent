@@ -178,6 +178,18 @@ So the two asks take at most a quarter of the system's low-level hook timeout, a
 
 Windows hands a program a message another thread sent it ahead of the key presses waiting in its queue. That is why the read can show the state before an earlier key took effect.
 
+### The key behind a dead key
+
+The [session format](../../../../technical/session-format.md#key-names) states what the key pressed behind a dead key is named. The typing worker names it, since it gets every key-down in the order pressed:
+
+- It keeps the accent that waits, one a keyboard layout, as Windows does whichever window the keys go to.
+- Each key-down is taken in by what the layout's table gives the key with the modifiers as held: a dead key leaves its accent waiting, a key that gives something takes the accent, a key that gives nothing leaves it.
+- A key-down in a window that is not recorded counts like any other. The keyboard hook sends the worker its layout, key code and modifiers, the worker takes it into what waits, and nothing is written, logged or kept of it.
+- What an accent and a character make together is the layout's own list. The registry names the layout's file (`HKLM\SYSTEM\CurrentControlSet\Control\Keyboard Layouts`, by the layout handle's device half or its `Layout Id`), and the desktop reads that file from the system folder as bytes. The file is never loaded or run. A name that is no plain file name is not followed, at most 8 MiB are read, and every place the file names is checked against its bytes. The list is read at the first key behind a dead key on the layout, by the worker, and kept for eight layouts.
+- Only a file in the 64-bit x64 form is read, with its tables found the one way the layout files of Windows state them. Any other file gives no list: the key is named by its own character, and the log says why once for the layout.
+
+The keys held at a pointer action are named by another worker. It reads what each held key's own key-down was named from a record the workers share, and waits for at most 5 s where the typing worker has not got to that key-down yet (DCP-13).
+
 ### Whether a key is a dead key
 
 DCP-17 holds which answer decides whether a key is a dead key: the layout's table, or the hook's own question. The table is the one the key's name comes from ([above](#what-the-keyboard-hook-reads-at-a-key-press)). For its own question the keyboard hook asks the keyboard layout of the foreground window whether the key, as pressed, is a dead key. It asks with the system's read that leaves the keyboard state as it is.

@@ -400,7 +400,7 @@ UI Events `key` values. `held_keys` names a key the same way.
 | A space                                                | `Space`, so that a lone space is not lost         |
 | A key with a name of its own                           | The W3C name: `Enter`, `ArrowLeft`, `F5`          |
 | A dead key                                             | `Dead`                                            |
-| The key pressed after a dead key                       | That key's own character: `e`, not `é`            |
+| The key pressed behind a dead key                      | The one character the two make: `é`, not `e`      |
 | A key the rows above give no name                      | `Unidentified`                                    |
 
 A key that gives no character with the modifiers held (Ctrl with A) is named
@@ -413,6 +413,19 @@ by trying, in order:
 
 The first that gives one character or a dead key names the key. A key that
 gives two or more characters at once is tried the same way.
+
+A dead key's accent waits for the next key that gives something on the
+layout, and that key takes it:
+
+| The key behind the dead key                                  | `key`                                     | The accent |
+| ------------------------------------------------------------ | ----------------------------------------- | ---------- |
+| Gives a character the accent makes one character with        | That character: `é`, `Á`, `´` for a space | Used       |
+| Gives a character the accent makes nothing with              | Its own: `q`, `1`                         | Used       |
+| Another dead key                                             | `Dead`, or what the two accents make      | Used       |
+| Gives a control character: Enter, Escape, Ctrl with a letter | Its own: `Enter`, `Escape`, `a`           | Used       |
+| Gives nothing: an arrow key, a function key, Shift           | Its own                                   | Waits on   |
+
+A key held down is named in `held_keys` as its own `key` was.
 
 The numeric keypad has no rule of its own. The system sends a keypad key as
 a character key or as a navigation key, by Num Lock and Shift, and the key
@@ -444,6 +457,14 @@ The desktop names a key from what Windows gives it:
 - A keystroke injected as Unicode (`VK_PACKET`) is the character it carried,
   a space as `Space`, or `Unidentified` for a code unit that is no character
   on its own (half of a surrogate pair, or a control character).
+- The key behind a dead key is named from the keys in the order pressed.
+  The desktop follows which accent waits on each keyboard layout, and reads
+  what an accent and a character make together from the layout's own list.
+  Nothing is read from the program typed into, and no time is counted. The
+  desktop capture pipeline holds
+  [where the list comes from](../architecture/application/desktop/windows/capture-pipeline.md#the-key-behind-a-dead-key),
+  and the desktop capture document lists where the name differs from the
+  extension's (DCP-13).
 
 ### Extension only
 

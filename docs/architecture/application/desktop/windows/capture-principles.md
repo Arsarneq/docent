@@ -678,6 +678,31 @@ with a caveat):
   [session format](../../../../technical/session-format.md#key-names) lists
   the cases under Key names. The key is named from nothing else, since a
   name taken from its key code would guess the character and its case.
+- The key pressed behind a dead key is named by what Windows' own
+  translation of the keys makes of the two
+  ([session format](../../../../technical/session-format.md#key-names), Key
+  names), where the extension writes what the browser entered. The two differ
+  in these cases; each is a departure (core CP-19):
+  - a program that does not use Windows' translation (it enters the two
+    apart, or composes by a rule of its own): the `key` states a character
+    the program did not enter;
+  - an accent that was waiting when the recording started: the key behind it
+    is named by its own character;
+  - a layout whose list could not be read (a layout file built for another
+    processor, as on Windows on ARM, or in another form than the one read):
+    the key is named by its own character, and the log says so once for the
+    layout;
+  - a key that went down while its layout could not be asked (the bullet
+    above): whether an accent waits is then not known, and the next key an
+    accent would rename is `Unidentified`;
+  - a key named among the `held_keys` of a pointer action before the worker
+    that names keys got to its key-down: the action waits for that name for
+    at most 5 s, and names the key `Unidentified` where none came.
+
+  A keystroke injected as Unicode (`VK_PACKET`) is taken to leave a waiting
+  accent as it is; that was read from how Windows hands such a character on
+  and not measured.
+
 - A press of the key with virtual-key code `0xE1` (`VK_OEM_AX`) is written
   as any typing key is: a `key` named from the keyboard layout, or part of
   its field's `type`, and it is named among the held keys. The extension

@@ -46,25 +46,27 @@ use super::win32_bindings::{
     CUIAutomation, CallNextHookEx, CloseHandle, CoCreateInstance, CoInitializeEx, CoUninitialize,
     DispatchMessageW, EnumWindows, GetAncestor, GetAsyncKeyState, GetClassNameW,
     GetCurrentThreadId, GetDoubleClickTime, GetForegroundWindow, GetGUIThreadInfo, GetKeyState,
-    GetKeyboardLayout, GetKeyboardLayoutList, GetMessageW, GetParent, GetSystemMetrics,
-    GetUserPreferredUILanguages, GetWindow, GetWindowLongW, GetWindowTextW,
+    GetKeyboardLayout, GetKeyboardLayoutList, GetMessageW, GetParent, GetSystemDirectoryW,
+    GetSystemMetrics, GetUserPreferredUILanguages, GetWindow, GetWindowLongW, GetWindowTextW,
     GetWindowThreadProcessId, IUIAutomation, IUIAutomationCondition, IUIAutomationElement,
     IUIAutomationSelectionPattern, ImmGetDefaultIMEWnd, InternalGetWindowText, IsWindow,
     IsWindowVisible, LCIDToLocaleName, MapVirtualKeyExW, PeekMessageW, PostThreadMessageW,
-    RegGetValueW, SendMessageTimeoutW, SetProcessDpiAwarenessContext, SetWinEventHook,
-    SetWindowsHookExW, TranslateMessage, TreeScope_Descendants, TreeScope_Subtree, UnhookWinEvent,
-    UnhookWindowsHookEx, WindowFromPoint, CHILDID_SELF, CLSCTX_ALL, COINIT_APARTMENTTHREADED,
-    COINIT_MULTITHREADED, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, EVENT_OBJECT_CREATE,
-    EVENT_OBJECT_DESTROY, EVENT_OBJECT_FOCUS, EVENT_OBJECT_SELECTION, EVENT_OBJECT_VALUECHANGE,
-    EVENT_SYSTEM_FOREGROUND, GA_ROOT, GA_ROOTOWNER, GUITHREADINFO, GWL_STYLE, GW_OWNER, HANDLE,
-    HHOOK, HKEY_CURRENT_USER, HKL, HWINEVENTHOOK, HWND, INVALID_HANDLE_VALUE, KBDLLHOOKSTRUCT,
-    LCID, LLKHF_EXTENDED, LOCALE_ALLOW_NEUTRAL_NAMES, LOCALE_NAME_MAX_LENGTH, LPARAM, LRESULT,
-    MAPVK_VK_TO_CHAR, MSG, MSLLHOOKSTRUCT, MUI_LANGUAGE_NAME, OBJID_WINDOW, PM_NOREMOVE, POINT,
-    PROPERTYID, RRF_RT_REG_DWORD, RRF_RT_REG_SZ, SMTO_ABORTIFHUNG, SMTO_BLOCK, SM_CXDOUBLECLK,
-    SM_CYDOUBLECLK, UIA_HWND, VK_CONTROL, VK_LWIN, VK_MENU, VK_RWIN, VK_SHIFT, VT_EMPTY,
-    WH_KEYBOARD_LL, WH_MOUSE_LL, WINEVENT_OUTOFCONTEXT, WM_APP, WM_IME_CONTROL, WM_KEYDOWN,
-    WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MOUSEHWHEEL, WM_MOUSEMOVE, WM_MOUSEWHEEL,
-    WM_NULL, WM_QUIT, WM_RBUTTONDOWN, WM_SYSKEYDOWN, WM_USER, WPARAM, WS_CHILD,
+    RegCloseKey, RegEnumKeyExW, RegGetValueW, RegOpenKeyExW, SendMessageTimeoutW,
+    SetProcessDpiAwarenessContext, SetWinEventHook, SetWindowsHookExW, TranslateMessage,
+    TreeScope_Descendants, TreeScope_Subtree, UnhookWinEvent, UnhookWindowsHookEx, WindowFromPoint,
+    ACCESS_MASK, CHILDID_SELF, CLSCTX_ALL, COINIT_APARTMENTTHREADED, COINIT_MULTITHREADED,
+    DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, EVENT_OBJECT_CREATE, EVENT_OBJECT_DESTROY,
+    EVENT_OBJECT_FOCUS, EVENT_OBJECT_SELECTION, EVENT_OBJECT_VALUECHANGE, EVENT_SYSTEM_FOREGROUND,
+    GA_ROOT, GA_ROOTOWNER, GUITHREADINFO, GWL_STYLE, GW_OWNER, HANDLE, HHOOK, HKEY,
+    HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, HKL, HWINEVENTHOOK, HWND, INVALID_HANDLE_VALUE,
+    KBDLLHOOKSTRUCT, KEY_READ, LCID, LLKHF_EXTENDED, LOCALE_ALLOW_NEUTRAL_NAMES,
+    LOCALE_NAME_MAX_LENGTH, LPARAM, LRESULT, MAPVK_VK_TO_CHAR, MSG, MSLLHOOKSTRUCT,
+    MUI_LANGUAGE_NAME, OBJID_WINDOW, PM_NOREMOVE, POINT, PROPERTYID, RRF_RT_REG_DWORD,
+    RRF_RT_REG_SZ, SMTO_ABORTIFHUNG, SMTO_BLOCK, SM_CXDOUBLECLK, SM_CYDOUBLECLK, UIA_HWND,
+    VK_CONTROL, VK_LWIN, VK_MENU, VK_RWIN, VK_SHIFT, VT_EMPTY, WH_KEYBOARD_LL, WH_MOUSE_LL,
+    WINEVENT_OUTOFCONTEXT, WM_APP, WM_IME_CONTROL, WM_KEYDOWN, WM_LBUTTONDOWN, WM_LBUTTONUP,
+    WM_MBUTTONDOWN, WM_MOUSEHWHEEL, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_NULL, WM_QUIT, WM_RBUTTONDOWN,
+    WM_SYSKEYDOWN, WM_USER, WPARAM, WS_CHILD,
 };
 use super::win32_bindings::{RtlGetVersion, ToUnicodeEx, OSVERSIONINFOW};
 use windows_core::{Error, Interface, BOOL, BSTR, PWSTR};
@@ -116,6 +118,15 @@ enum BridgeMessage {
     /// A window the recording keeps nothing of came to the front, away from
     /// the field typed into (docent#768). FIFO-ordered behind the keys already sent.
     TypingEnded,
+    /// A key went down in a window the recording keeps nothing of
+    /// ([`super::worker_pool::WorkerMessage::UnrecordedKey`]): the layout it
+    /// went down on, its code, and the modifiers and Caps Lock state of the
+    /// press. FIFO-ordered among the keys sent.
+    UnrecordedKey {
+        layout: i64,
+        key_code: u32,
+        held: u8,
+    },
 }
 
 /// A pending commit-barrier request handed from the command thread to the
@@ -951,6 +962,11 @@ impl CaptureLayer for WindowsCapture {
                         let _ = done.send(wedged);
                     }
                     BridgeMessage::TypingEnded => pool.end_typing(),
+                    BridgeMessage::UnrecordedKey {
+                        layout,
+                        key_code,
+                        held,
+                    } => pool.unrecorded_key(layout, key_code, held),
                 }
             }
             // Channel closed (input thread dropped raw_tx) — return pool for shutdown.
@@ -1521,6 +1537,27 @@ fn input_dropped_window_event(event: u32) {
     INPUT_RAW_SENDER.with(|s| {
         if let Some(sender) = s.borrow().as_ref() {
             let _ = sender.send(BridgeMessage::TypingEnded);
+        }
+    });
+}
+
+/// Tell the pool of a key that went down in a window the recording keeps
+/// nothing of ([`BridgeMessage::UnrecordedKey`]). The key can be a dead key,
+/// or take a waiting accent away, like any other, and Windows keeps one
+/// waiting accent a layout whichever window the keys go to: the typing worker
+/// takes the key into the accents that wait, so the next key recorded is
+/// named right. Nothing is written or logged for the key, and the worker
+/// keeps nothing of it but what waits afterwards.
+///
+/// Called on the keyboard hook: one send, like a key's own.
+fn input_send_unrecorded_key(layout: i64, key_code: u32, held: super::key_value::Held) {
+    INPUT_RAW_SENDER.with(|s| {
+        if let Some(sender) = s.borrow().as_ref() {
+            let _ = sender.send(BridgeMessage::UnrecordedKey {
+                layout,
+                key_code,
+                held: held.index() as u8,
+            });
         }
     });
 }
@@ -2862,6 +2899,21 @@ unsafe extern "system" fn input_keyboard_ll_proc(
                     held: Vec::new(),
                     window_title: None,
                 });
+            } else {
+                // A key the recording keeps nothing of: it still goes into
+                // the accents that wait.
+                let (keyboard_layout, caps_lock) = foreground_layout_and_caps_lock(thread_id);
+                let (ctrl, shift, alt, _meta) = modifiers;
+                input_send_unrecorded_key(
+                    keyboard_layout,
+                    kb_struct.vkCode,
+                    super::key_value::Held {
+                        shift,
+                        ctrl,
+                        alt,
+                        caps_lock,
+                    },
+                );
             }
             // After the key's own dispatch, so the key keeps the epoch it was
             // pressed under. Outside the exclusion gate: a focus-moving key
@@ -3129,6 +3181,216 @@ fn layout_key_value(layout: i64, vk: u32, held: super::key_value::Held) -> u32 {
         tables.push(table);
     }
     look_up(&tables).unwrap_or(0)
+}
+
+/// The lists of the keyboard layouts asked so far: what each accent of a
+/// layout makes with each character ([`super::layout_file::Compositions`]),
+/// or none for a layout whose list could not be read. Shared by the workers;
+/// as many are kept as tables.
+type LayoutList = Option<Arc<super::layout_file::Compositions>>;
+static LAYOUT_LISTS: Mutex<Vec<(isize, LayoutList)>> = Mutex::new(Vec::new());
+
+/// What layout `layout` (a layout handle, as a keystroke carries it) lists
+/// for `accent` and `base` together: the name of a key pressed behind a dead
+/// key ([`super::waiting_accents`]). The list is read from the layout's file
+/// the first time the layout is asked about ([`read_layout_list`]).
+///
+/// `None` where the layout lists nothing for the two, and for a layout whose
+/// list could not be read: the key is then named by its own character, and
+/// the log says once for the layout why.
+///
+/// Called by a worker, never on the keyboard hook.
+fn layout_composed(layout: i64, accent: char, base: char) -> Option<super::layout_file::Composed> {
+    if layout == 0 {
+        return None;
+    }
+    let id = layout as isize;
+    let lists = || LAYOUT_LISTS.lock().unwrap_or_else(|e| e.into_inner());
+    let kept = |lists: &[(isize, LayoutList)]| {
+        lists
+            .iter()
+            .find(|(of, _)| *of == id)
+            .map(|(_, list)| list.clone())
+    };
+    let known = kept(&lists());
+    let list = match known {
+        Some(list) => list,
+        None => {
+            // Read with the lock let go: registry reads and a file read.
+            let read = match read_layout_list(layout) {
+                Ok(list) => Some(Arc::new(list)),
+                Err(why) => {
+                    eprintln!(
+                        "[WindowsCapture] The dead-key list of keyboard layout {:08X} was not \
+                         read ({why}): a key pressed behind a dead key is named by its own \
+                         character on this layout.",
+                        layout as u32
+                    );
+                    None
+                }
+            };
+            let mut lists = lists();
+            match kept(&lists) {
+                Some(list) => list,
+                None => {
+                    if lists.len() >= LAYOUT_TABLES_KEPT {
+                        lists.remove(0);
+                    }
+                    lists.push((id, read.clone()));
+                    read
+                }
+            }
+        }
+    };
+    list?.of(accent, base)
+}
+
+/// The registry key that lists the keyboard layouts, one key a layout.
+const KEYBOARD_LAYOUTS_KEY: &str = "SYSTEM\\CurrentControlSet\\Control\\Keyboard Layouts";
+/// The most layout keys looked through for a `Layout Id`.
+const MOST_LAYOUT_KEYS: u32 = 4096;
+/// The most bytes read of a layout file. The files shipped with Windows are
+/// some thousands of bytes.
+const MOST_LAYOUT_FILE_BYTES: u64 = 8 * 1024 * 1024;
+
+/// A string value of a key under `HKEY_LOCAL_MACHINE`; `None` where there is
+/// none, it is no string, or it is longer than 259 units.
+fn machine_registry_string(key: &str, value: &str) -> Option<String> {
+    let wide = |text: &str| text.encode_utf16().chain(Some(0)).collect::<Vec<u16>>();
+    let (key, value) = (wide(key), wide(value));
+    let mut text = [0u16; 260];
+    let mut size = std::mem::size_of_val(&text) as u32;
+    // SAFETY: two NUL-terminated strings that live across the call, and a
+    // buffer of the size stated.
+    let status = unsafe {
+        RegGetValueW(
+            HKEY_LOCAL_MACHINE,
+            windows_core::PCWSTR(key.as_ptr()),
+            windows_core::PCWSTR(value.as_ptr()),
+            RRF_RT_REG_SZ as u32,
+            None,
+            Some(text.as_mut_ptr().cast()),
+            Some(&mut size),
+        )
+    };
+    if status.0 != 0 {
+        return None;
+    }
+    let len = text.iter().position(|&c| c == 0).unwrap_or(text.len());
+    String::from_utf16(&text[..len]).ok()
+}
+
+/// The name of the layout key whose `Layout Id` value is `id`.
+fn layout_key_with_id(id: u16) -> Option<String> {
+    let layouts: Vec<u16> = KEYBOARD_LAYOUTS_KEY.encode_utf16().chain(Some(0)).collect();
+    let mut key = HKEY::default();
+    // SAFETY: a NUL-terminated string that lives across the call, and a
+    // handle of this frame to open into.
+    let opened = unsafe {
+        RegOpenKeyExW(
+            HKEY_LOCAL_MACHINE,
+            windows_core::PCWSTR(layouts.as_ptr()),
+            None,
+            ACCESS_MASK(KEY_READ as u32),
+            &mut key,
+        )
+    };
+    if opened.0 != 0 {
+        return None;
+    }
+    /// The status that ends the list of a key's subkeys.
+    const NO_MORE_ITEMS: i32 = 259;
+    let mut found = None;
+    for index in 0..MOST_LAYOUT_KEYS {
+        let mut name = [0u16; 64];
+        let mut len = name.len() as u32;
+        // SAFETY: a buffer of the length stated, and the key opened above.
+        let status = unsafe {
+            RegEnumKeyExW(
+                key,
+                index,
+                Some(PWSTR(name.as_mut_ptr())),
+                &mut len,
+                None,
+                None,
+                None,
+                None,
+            )
+        };
+        if status.0 == NO_MORE_ITEMS {
+            break;
+        }
+        // A key that could not be named (a name longer than a layout key's)
+        // is none of the ones looked for.
+        if status.0 != 0 {
+            continue;
+        }
+        let Some(name) = name
+            .get(..len as usize)
+            .and_then(|units| String::from_utf16(units).ok())
+        else {
+            continue;
+        };
+        let stated =
+            machine_registry_string(&format!("{KEYBOARD_LAYOUTS_KEY}\\{name}"), "Layout Id");
+        if stated.as_deref().and_then(super::layout_file::layout_id_of) == Some(id) {
+            found = Some(name);
+            break;
+        }
+    }
+    // SAFETY: the key opened above, closed once.
+    unsafe {
+        let _ = RegCloseKey(key);
+    }
+    found
+}
+
+/// The system folder, where the keyboard layout files are.
+fn system_directory() -> Option<std::path::PathBuf> {
+    use std::os::windows::ffi::OsStringExt;
+    let mut path = [0u16; 260];
+    // SAFETY: a buffer of the length stated.
+    let len = unsafe { GetSystemDirectoryW(Some(PWSTR(path.as_mut_ptr())), path.len() as u32) };
+    let units = path.get(..len as usize).filter(|units| !units.is_empty())?;
+    Some(std::ffi::OsString::from_wide(units).into())
+}
+
+/// Read the list of what each accent makes with each character from the
+/// file of layout `layout`: the registry names the file for the layout
+/// ([`super::layout_file::layout_key_of`]), and it is read from the system
+/// folder as bytes ([`super::layout_file::compositions_in`]). The file is
+/// never loaded or run, a name that is no plain file name is not followed
+/// ([`super::layout_file::is_layout_file_name`]), and no more than
+/// [`MOST_LAYOUT_FILE_BYTES`] are read. The error says why no list was read.
+fn read_layout_list(layout: i64) -> Result<super::layout_file::Compositions, String> {
+    use super::layout_file::{compositions_in, is_layout_file_name, layout_key_of, LayoutKey};
+    use std::io::Read;
+    let key = match layout_key_of(layout).ok_or("no layout")? {
+        LayoutKey::Named(name) => name,
+        LayoutKey::WithLayoutId(id) => {
+            layout_key_with_id(id).ok_or("the registry has no layout with its layout id")?
+        }
+    };
+    let file = machine_registry_string(&format!("{KEYBOARD_LAYOUTS_KEY}\\{key}"), "Layout File")
+        .ok_or("the registry names no file for it")?;
+    if !is_layout_file_name(&file) {
+        return Err("the file the registry names is no plain file name".to_string());
+    }
+    let path = system_directory()
+        .ok_or("the system folder is not known")?
+        .join(file);
+    let mut bytes = Vec::new();
+    std::fs::File::open(path)
+        .and_then(|opened| {
+            opened
+                .take(MOST_LAYOUT_FILE_BYTES + 1)
+                .read_to_end(&mut bytes)
+        })
+        .map_err(|e| format!("its file could not be read: {}", e.kind()))?;
+    if bytes.len() as u64 > MOST_LAYOUT_FILE_BYTES {
+        return Err("its file is too long".to_string());
+    }
+    compositions_in(&bytes).map_err(|e| format!("its file: {e}"))
 }
 
 /// Take the answers of every keyboard layout loaded now, once for the
@@ -4450,6 +4712,15 @@ impl AccessibilityBackend for WindowsAccessibilityBackend {
         layout_key_value(layout, key_code, held)
     }
 
+    fn composed(
+        &self,
+        layout: i64,
+        accent: char,
+        base: char,
+    ) -> Option<super::layout_file::Composed> {
+        layout_composed(layout, accent, base)
+    }
+
     fn process_id_of(&self, window_handle: i64) -> u32 {
         let mut process_id = 0u32;
         unsafe {
@@ -4841,6 +5112,261 @@ mod tests {
         assert_eq!(key(0x45, ALT_GR), "e");
     }
 
+    // -- the key behind a dead key (docent#717) --------------------------------
+
+    /// Every keyboard layout file of this Windows gives its list: the form
+    /// the files are read in ([`crate::capture::layout_file`]) is the form
+    /// they are built in. A file for another processor is none of them.
+    #[test]
+    fn regression_717_every_keyboard_layout_file_of_this_windows_gives_its_list() {
+        use crate::capture::layout_file::{
+            compositions_in, descriptor_bytes, Composed, LayoutFileError,
+        };
+        let folder = super::system_directory().expect("the system folder");
+        let mut read = 0;
+        let mut with_dead_keys = 0;
+        let mut not_read = Vec::new();
+        for entry in std::fs::read_dir(&folder).expect("the system folder is listed") {
+            let path = entry.expect("an entry").path();
+            let name = path
+                .file_name()
+                .map(|name| name.to_string_lossy().to_ascii_lowercase())
+                .unwrap_or_default();
+            if !name.starts_with("kbd") || !name.ends_with(".dll") {
+                continue;
+            }
+            let bytes = std::fs::read(&path).expect("a layout file is read");
+            match compositions_in(&bytes) {
+                Ok(list) => {
+                    read += 1;
+                    if !list.is_empty() {
+                        with_dead_keys += 1;
+                    }
+                    if name == "kbdda.dll" {
+                        assert_eq!(list.of('\u{b4}', 'e'), Some(Composed::Char('é')));
+                        assert_eq!(list.of('\u{b4}', ' '), Some(Composed::Char('\u{b4}')));
+                        assert_eq!(list.of('\u{a8}', 'u'), Some(Composed::Char('ü')));
+                        assert_eq!(list.of('\u{b4}', 'q'), None);
+                    }
+                }
+                // A file that is no layout's (a helper library named alike).
+                Err(LayoutFileError::NoDescriptor | LayoutFileError::NotAnImage) => {}
+                Err(why) => not_read.push(format!(
+                    "{name}: {why} {:02X?}",
+                    descriptor_bytes(&bytes).unwrap_or_default()
+                )),
+            }
+        }
+        assert!(not_read.is_empty(), "layout files not read: {not_read:#?}");
+        assert!(read >= 100, "{read} layout files were read");
+        assert!(with_dead_keys >= 20, "{with_dead_keys} have dead keys");
+    }
+
+    /// A layout's list is found from its handle: by the handle's own number
+    /// (Danish), and by its layout id (United States-International).
+    #[test]
+    #[serial_test::serial(danish_layout)]
+    fn regression_717_a_layouts_list_is_read_from_its_handle() {
+        use crate::capture::layout_file::Composed;
+        let danish = LoadedLayout::load("00000406", 0x0406);
+        let layout = danish.hkl.0 as isize as i64;
+        assert_eq!(
+            super::layout_composed(layout, '\u{b4}', 'e'),
+            Some(Composed::Char('é'))
+        );
+        assert_eq!(
+            super::layout_composed(layout, '`', 'A'),
+            Some(Composed::Char('À'))
+        );
+        assert_eq!(super::layout_composed(layout, '\u{b4}', 'q'), None);
+        assert_eq!(super::layout_composed(0, '\u{b4}', 'e'), None);
+        let international = LoadedLayout::load("00020409", 0x0409);
+        let layout = international.hkl.0 as isize as i64;
+        assert_eq!(
+            super::layout_composed(layout, '\'', 'e'),
+            Some(Composed::Char('é'))
+        );
+        // The plain United States layout has no dead key.
+        let us = LoadedLayout::load("00000409", 0x0409);
+        assert!(super::read_layout_list(us.hkl.0 as isize as i64)
+            .expect("read")
+            .is_empty());
+    }
+
+    /// The rule for the key behind a dead key, held against Windows' own
+    /// translation of the keys, the one a program gets its characters from:
+    /// on each layout, behind each of its accents, every key code with every
+    /// combination of Shift, Ctrl, Alt and Caps Lock. The key is renamed
+    /// exactly where Windows enters one character that is not the key's own,
+    /// to that character, and the accent that waits afterwards is the one
+    /// the rule says.
+    ///
+    /// The keys are translated with the read that takes them into the
+    /// layout's keyboard state, as a program's own translation does; each
+    /// round ends on a space, which takes any accent away.
+    #[test]
+    #[serial_test::serial(danish_layout)]
+    fn regression_717_the_key_behind_a_dead_key_is_named_as_windows_enters_it() {
+        use crate::capture::key_value::as_held_of;
+        use crate::capture::key_value::pressed_param;
+        use crate::capture::layout_file::Composed;
+        use crate::capture::waiting_accents::{Named, WaitingAccents};
+        if !super::layout_read_leaves_key_state() {
+            return; // a Windows before 10.0.14393: the layout is not asked
+        }
+        let mut wrong = Vec::new();
+        let mut rounds = 0_u32;
+        for (id, language) in [
+            ("00000406", 0x0406),
+            ("00020409", 0x0409),
+            ("00000407", 0x0407),
+            ("0000040C", 0x040C),
+            ("0000040A", 0x040A),
+            ("00000405", 0x0405),
+        ] {
+            let loaded = LoadedLayout::load(id, language);
+            let layout = loaded.hkl.0 as isize as i64;
+            let answers = loaded.answers();
+            let list = super::read_layout_list(layout).expect("the layout's list");
+            let as_held = |vk: u32, held: Held| {
+                as_held_of(pressed_param(held, |with| {
+                    answers.get(loaded.hkl.0 as isize, vk, with)
+                }))
+            };
+            // Windows' own translation of a key-down, taken into the
+            // layout's keyboard state.
+            let press = |vk: u32, held: Held| -> (i32, [u16; 8]) {
+                let mut state = [0u8; 256];
+                if held.shift {
+                    state[0x10] = 0x80;
+                }
+                if held.ctrl {
+                    state[0x11] = 0x80;
+                }
+                if held.alt {
+                    state[0x12] = 0x80;
+                }
+                if held.caps_lock {
+                    state[0x14] = 0x01;
+                }
+                let mut entered = [0u16; 8];
+                // SAFETY: a keyboard-state read; the accent it can leave
+                // pending is taken out by the space that ends each round.
+                let answered = unsafe {
+                    super::ToUnicodeEx(
+                        vk,
+                        0,
+                        state.as_ptr(),
+                        windows_core::PWSTR(entered.as_mut_ptr()),
+                        8,
+                        0,
+                        Some(loaded.hkl),
+                    )
+                };
+                (answered, entered)
+            };
+            // One dead key for each accent of the layout.
+            let mut dead_keys: Vec<(u32, Held, char)> = Vec::new();
+            for vk in 0..256_u32 {
+                for combination in 0..16 {
+                    let held = Held::from_index(combination);
+                    if let Some(LayoutAnswer::Dead(accent)) = as_held(vk, held) {
+                        if !dead_keys.iter().any(|(_, _, known)| *known == accent) {
+                            dead_keys.push((vk, held, accent));
+                        }
+                    }
+                }
+            }
+            if id == "00000406" {
+                assert_eq!(
+                    dead_keys.len(),
+                    5,
+                    "the Danish layout's accents: {dead_keys:?}"
+                );
+            }
+            for &(dead_vk, dead_held, accent) in &dead_keys {
+                for vk in 0..256_u32 {
+                    for combination in 0..16 {
+                        let held = Held::from_index(combination);
+                        rounds += 1;
+                        // What Windows does.
+                        let dead = press(dead_vk, dead_held);
+                        let (answered, entered) = press(vk, held);
+                        let space = press(0x20, PLAIN);
+                        // What the rule says.
+                        let mut accents = WaitingAccents::new();
+                        let of = |a: char, b: char| list.of(a, b);
+                        accents.press(layout, as_held(dead_vk, dead_held), of);
+                        let key = as_held(vk, held);
+                        let named = accents.press(layout, key, of);
+                        let waits = accents.waiting_on(layout);
+
+                        // The key is renamed where Windows enters one
+                        // character, no control character, that is not the
+                        // key's own.
+                        let own = match key {
+                            Some(LayoutAnswer::Char(own)) => Some(own),
+                            _ => None,
+                        };
+                        let entered_one = (answered == 1)
+                            .then(|| char::from_u32(u32::from(entered[0])))
+                            .flatten()
+                            .filter(|c| !c.is_control());
+                        let renamed_by_windows = entered_one.filter(|c| Some(*c) != own);
+                        let renamed_by_rule = match named {
+                            Named::Composed(made) => Some(made).filter(|c| Some(*c) != own),
+                            Named::AsPressed => None,
+                            Named::NotKnown => Some('\u{fffd}'),
+                        };
+                        // What waits afterwards, read from what the space
+                        // entered: the space alone with no accent, what the
+                        // accent makes with a space, or the accent and the
+                        // space one after the other.
+                        let space_expected = match waits {
+                            None => Some((1, [0x20, 0])),
+                            Some(waiting) => match list.of(waiting, ' ') {
+                                Some(Composed::Char(made)) => Some((1, [made as u16, 0])),
+                                None => Some((2, [waiting as u16, 0x20])),
+                                Some(Composed::Dead(_)) => None,
+                            },
+                        };
+                        let space_seen = (
+                            space.0,
+                            [space.1[0], if space.0 > 1 { space.1[1] } else { 0 }],
+                        );
+                        let agree = dead.0 == -1
+                            && renamed_by_windows == renamed_by_rule
+                            && space_expected.is_none_or(|expected| expected == space_seen);
+                        if !agree && wrong.len() < 60 {
+                            wrong.push(format!(
+                                "{id} accent {accent:?} key {vk:#04X} held {combination:#06b} \
+                                 ({key:?}): dead key answered {}, Windows entered {answered} \
+                                 {:04X?}, rule {named:?} with {waits:?} waiting, the space \
+                                 entered {} {:04X?}",
+                                dead.0,
+                                &entered[..answered.clamp(0, 8) as usize],
+                                space.0,
+                                &space.1[..space.0.clamp(0, 8) as usize],
+                            ));
+                        }
+                    }
+                }
+            }
+            // No accent is left pending on the layout.
+            // SAFETY: a read of a loaded layout's tables.
+            assert!(unsafe { super::layout_has_no_accent_pending(loaded.hkl) });
+        }
+        assert!(
+            wrong.is_empty(),
+            "the rule and Windows differ in {} of {rounds} rounds (the first shown): {wrong:#?}",
+            wrong.len()
+        );
+        assert!(
+            rounds >= 5 * 4096,
+            "{rounds} rounds were held against Windows"
+        );
+    }
+
     /// A worker's question goes through the tables kept for the process:
     /// the layout is asked once, and its answers serve every later key.
     #[test]
@@ -4859,10 +5385,10 @@ mod tests {
         // The acute key: dead alone, a character with AltGr, and with Ctrl
         // named `Dead` by its plain state while the press makes no dead key.
         let acute = danish.vk_at(0x0D);
-        assert_eq!(ask(acute, PLAIN), Some(LayoutAnswer::Dead));
+        assert_eq!(ask(acute, PLAIN), Some(LayoutAnswer::Dead('\u{b4}')));
         assert_eq!(dead_as_held_of(read(acute, PLAIN)), Some(true));
         assert_eq!(dead_as_held_of(read(acute, ALT_GR)), Some(false));
-        assert_eq!(ask(acute, CTRL), Some(LayoutAnswer::Dead));
+        assert_eq!(ask(acute, CTRL), Some(LayoutAnswer::Dead('\u{b4}')));
         assert_eq!(dead_as_held_of(read(acute, CTRL)), Some(false));
         let kept = || {
             super::LAYOUT_TABLES

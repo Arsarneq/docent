@@ -20,6 +20,7 @@ use super::held_keys::KEY_EXTENDED_PARAM;
 use super::language::preferred_languages;
 use super::physical_key::physical_key_code;
 use super::scroll::{RawScrollEvent, ScrollAccumulator};
+use super::waiting_accents::{NamedPresses, WaitingAccents};
 use super::{
     ActionEvent, ActionPayload, CaptureError, CaptureMode, ElementDescription, HeldKeysAtAction,
     Modifiers, WindowRect,
@@ -315,6 +316,17 @@ pub enum WorkerMessage {
     /// description (docent#761). Sent to the typing worker only; it writes
     /// nothing.
     LookAtFocus,
+    /// A key went down that is no part of the recording (its window is not
+    /// recorded). Nothing is written for it; it is taken into the accents
+    /// that wait ([`super::waiting_accents`]), since it can be a dead key or
+    /// take an accent away like any other: the layout it went down on, its
+    /// code, and the modifiers and the Caps Lock state of the press
+    /// ([`super::key_value::Held::index`]). Sent to the typing worker only.
+    UnrecordedKey {
+        layout: i64,
+        key_code: u32,
+        held: u8,
+    },
     /// Poison pill — drain remaining events then exit.
     Shutdown,
 }
@@ -454,6 +466,10 @@ pub struct PendingBuffers {
     /// written after it, as keys, unless a value read in time supersedes
     /// them.
     pub keys_after_type: usize,
+    /// The pool's record of what each key-down was named
+    /// ([`NamedPresses`]), one for all its workers: handed to a worker with
+    /// its buffers. No buffer of its own.
+    pub named_presses: Arc<NamedPresses>,
 }
 
 impl PendingBuffers {
@@ -754,6 +770,9 @@ pub struct WorkerPool {
     /// (see [`PendingDirectory`]). Updated in-place on every respawn.
     pending_directory: PendingDirectory,
     sequence_counter: Arc<AtomicU64>,
+    /// What each key-down was named, shared by the workers
+    /// ([`PendingBuffers::named_presses`]).
+    named_presses: Arc<NamedPresses>,
     /// The typing worker: the one worker every keyboard and value-change event
     /// reaches, so its queue processes a value change after the keystrokes
     /// that caused it and the typing state it judges them with (buffered keys,
@@ -816,11 +835,15 @@ impl WorkerPool {
             + 'static,
     {
         let mut workers = Vec::with_capacity(count);
+        let named_presses = Arc::new(NamedPresses::new());
 
         for index in 0..count {
             let (tx, rx) = mpsc::channel();
             let queue_len = Arc::new(AtomicU64::new(0));
-            let pending: SharedPendingBuffers = Arc::new(Mutex::new(PendingBuffers::new()));
+            let pending: SharedPendingBuffers = Arc::new(Mutex::new(PendingBuffers {
+                named_presses: Arc::clone(&named_presses),
+                ..PendingBuffers::new()
+            }));
             let handle = spawn_worker(
                 index,
                 rx,
@@ -844,6 +867,7 @@ impl WorkerPool {
             workers,
             pending_directory,
             sequence_counter: Arc::new(AtomicU64::new(0)),
+            named_presses,
             typing_worker: AtomicUsize::new(NO_TYPING_WORKER),
             missed_last_barrier: AtomicU64::new(0),
             focus_worker: AtomicUsize::new(NO_FOCUS_WORKER),
@@ -944,6 +968,21 @@ impl WorkerPool {
     /// (docent#768).
     pub fn end_typing(&mut self) {
         self.tell_typing_worker(WorkerMessage::EndTyping);
+    }
+
+    /// A key went down that is no part of the recording
+    /// ([`WorkerMessage::UnrecordedKey`]). It goes to the typing worker, one
+    /// chosen now where none holds the role, so it is taken in the order
+    /// pressed among the keys recorded.
+    pub fn unrecorded_key(&mut self, layout: i64, key_code: u32, held: u8) {
+        let index = self.typing_worker_index();
+        if let Some(worker) = self.workers.get(index) {
+            let _ = worker.sender.send(WorkerMessage::UnrecordedKey {
+                layout,
+                key_code,
+                held,
+            });
+        }
     }
 
     /// Send the typing worker a message that is no event: that the typing in
@@ -1126,7 +1165,10 @@ impl WorkerPool {
         // Create fresh channel and queue counter.
         let (tx, rx) = mpsc::channel();
         let queue_len = Arc::new(AtomicU64::new(0));
-        let pending: SharedPendingBuffers = Arc::new(Mutex::new(PendingBuffers::new()));
+        let pending: SharedPendingBuffers = Arc::new(Mutex::new(PendingBuffers {
+            named_presses: Arc::clone(&self.named_presses),
+            ..PendingBuffers::new()
+        }));
         let thread = (self.spawn_worker)(
             index,
             rx,
@@ -1548,6 +1590,21 @@ pub trait AccessibilityBackend: Send + 'static {
         0
     }
 
+    /// What keyboard layout `layout` lists for `accent` and `base` together:
+    /// the one character a program enters for a key that gives `base`,
+    /// pressed behind a dead key with that accent, or an accent that waits in
+    /// its turn. `None` where the layout lists nothing for the two, and where
+    /// its list cannot be read (a platform with none, or a layout file that
+    /// is not in the form read).
+    fn composed(
+        &self,
+        _layout: i64,
+        _accent: char,
+        _base: char,
+    ) -> Option<super::layout_file::Composed> {
+        None
+    }
+
     /// Read a file dialog path from the given window: the dialog itself or
     /// any window inside it (a click names the control under the pointer).
     /// Returns `(dialog_type, file_path)`, `file_path` being the directory the
@@ -1830,26 +1887,33 @@ fn modifiers_of(raw: &RawEvent) -> Modifiers {
 
 /// The keys that were down at a raw event, as its action states them.
 ///
-/// Each key is named as its own `key` action names it. The hook's record
-/// lists no modifier key, so every key here has such a name.
-fn held_at<B: AccessibilityBackend>(raw: &RawEvent, backend: &B) -> HeldKeysAtAction {
+/// Each key is named as its own `key` action names it: by what the layout
+/// gave it as it was pressed, and where it was pressed behind an accent that
+/// waited, by what that key-down was named ([`held_key_value`]). The hook's
+/// record lists no modifier key, so every key here has such a name.
+fn held_at<B: AccessibilityBackend>(
+    raw: &RawEvent,
+    backend: &B,
+    presses: &NamedPresses,
+) -> HeldKeysAtAction {
     let (held_keys, held_presses) = raw
         .held
         .iter()
         .map(|k| {
+            let as_pressed = if k.key_value != 0 {
+                k.key_value
+            } else {
+                backend.key_value(
+                    k.layout,
+                    k.key_code,
+                    super::key_value::Held::from_index(usize::from(k.held)),
+                )
+            };
             (
                 key_name_of(
                     k.key_code,
                     i64::from(k.scan_code),
-                    if k.key_value != 0 {
-                        k.key_value
-                    } else {
-                        backend.key_value(
-                            k.layout,
-                            k.key_code,
-                            super::key_value::Held::from_index(usize::from(k.held)),
-                        )
-                    },
+                    held_key_value(k, as_pressed, presses),
                     super::key_value::primary_language(k.layout),
                 ),
                 k.press,
@@ -1860,6 +1924,129 @@ fn held_at<B: AccessibilityBackend>(raw: &RawEvent, backend: &B) -> HeldKeysAtAc
         held_keys,
         held_presses,
     }
+}
+
+/// How long a worker waits for the typing worker to name the key-down a held
+/// key is down by, before it names the key `Unidentified`.
+const HELD_NAME_WAIT: Duration = if cfg!(test) {
+    Duration::from_millis(60)
+} else {
+    Duration::from_secs(5)
+};
+
+/// The value a held key is named by: `as_pressed`, what the layout gave it
+/// as it was pressed, or what its own key-down was named where that is
+/// another ([`NamedPresses`]). Only a key that gives a character or is a dead
+/// key is ever named otherwise, so no other key is asked about.
+///
+/// The typing worker names the keys in the order pressed; another worker can
+/// get to an action before the typing worker got to the held key's key-down.
+/// It then waits for that name, for at most [`HELD_NAME_WAIT`], and names the
+/// key `Unidentified` where none came: no name is guessed.
+fn held_key_value(
+    key: &super::held_keys::HeldPress,
+    as_pressed: u32,
+    presses: &NamedPresses,
+) -> u32 {
+    use super::key_value::{as_held_of, with_value, LayoutAnswer};
+    use super::waiting_accents::PressName;
+    let renamable = key.press != 0
+        && key.key_code != VK_PACKET
+        && matches!(
+            as_held_of(as_pressed),
+            Some(LayoutAnswer::Char(_) | LayoutAnswer::Dead(_))
+        );
+    if !renamable {
+        return as_pressed;
+    }
+    match presses.of(key.press, HELD_NAME_WAIT) {
+        PressName::AsPressed => as_pressed,
+        PressName::Renamed(value) => value,
+        PressName::NotKnown => with_value(as_pressed, LayoutAnswer::Nothing),
+    }
+}
+
+/// A key-down named: `raw` with what the layout gives its key and the keys
+/// held at it filled in ([`with_key_values`]), and with its key named by what
+/// it makes with an accent that waited ([`name_behind_waiting_accent`]).
+/// `None` where `raw` stands as it is.
+fn key_as_named<B: AccessibilityBackend>(
+    raw: &RawEvent,
+    backend: &B,
+    state: &mut WorkerState,
+) -> Option<RawEvent> {
+    let filled = with_key_values(raw, backend);
+    let named = name_behind_waiting_accent(
+        filled.as_ref().unwrap_or(raw),
+        backend,
+        &mut state.accents,
+        &state.named_presses,
+    );
+    named.or(filled)
+}
+
+/// Take the key-down `raw` (its key's value filled in) into the accents that
+/// wait, note what it was named for the workers that state held keys, and
+/// give `raw` with its key renamed where an accent that waited renames it:
+/// by the one character the two make, or as not known (`Unidentified`) where
+/// it is not known whether an accent waited ([`super::waiting_accents`]).
+///
+/// Called for every key-down the typing worker gets, in the order pressed,
+/// whether or not an action is written for it. An injected character
+/// (`VK_PACKET`) is left out: it reaches the program as the character it
+/// carries, past the layout.
+fn name_behind_waiting_accent<B: AccessibilityBackend>(
+    raw: &RawEvent,
+    backend: &B,
+    accents: &mut WaitingAccents,
+    presses: &NamedPresses,
+) -> Option<RawEvent> {
+    use super::key_value::{as_held_of, with_value, LayoutAnswer};
+    use super::waiting_accents::Named;
+    if raw.key_code == VK_PACKET || is_shift_ctrl_or_alt(raw.key_code) {
+        presses.note(raw.sequence_id, None);
+        return None;
+    }
+    let layout = raw.keyboard_layout;
+    let named = accents.press(layout, as_held_of(raw.key_value), |accent, base| {
+        backend.composed(layout, accent, base)
+    });
+    let value = match named {
+        Named::AsPressed => None,
+        Named::Composed(made) => Some(with_value(raw.key_value, LayoutAnswer::Char(made))),
+        Named::NotKnown => Some(with_value(raw.key_value, LayoutAnswer::Nothing)),
+    };
+    presses.note(raw.sequence_id, value);
+    value.map(|value| RawEvent {
+        key_value: value,
+        ..raw.clone()
+    })
+}
+
+/// Whether a virtual-key code is a Shift, Control or Alt key's, generic or
+/// left or right: a key that gives nothing on any layout.
+const fn is_shift_ctrl_or_alt(key_code: u32) -> bool {
+    matches!(key_code, 0x10..=0x12 | 0xA0..=0xA5)
+}
+
+/// Take a key-down that is no part of the recording into the accents that
+/// wait ([`WorkerMessage::UnrecordedKey`]). Nothing is written or kept of
+/// it but what waits afterwards.
+fn note_unrecorded_key<B: AccessibilityBackend>(
+    layout: i64,
+    key_code: u32,
+    held: u8,
+    backend: &B,
+    accents: &mut WaitingAccents,
+) {
+    use super::key_value::{as_held_of, Held};
+    if key_code == VK_PACKET || is_shift_ctrl_or_alt(key_code) {
+        return;
+    }
+    let value = backend.key_value(layout, key_code, Held::from_index(usize::from(held)));
+    let _ = accents.press(layout, as_held_of(value), |accent, base| {
+        backend.composed(layout, accent, base)
+    });
 }
 
 /// Whether a key name is the empty name [`key_name`] gives the
@@ -2209,7 +2396,7 @@ pub fn worker_loop<B: AccessibilityBackend>(
         return;
     }
 
-    let mut state = WorkerState::new();
+    let mut state = WorkerState::new(Arc::clone(&lock_buffers(&pending).named_presses));
 
     loop {
         match receiver.recv_timeout(RECV_TIMEOUT) {
@@ -2264,6 +2451,16 @@ pub fn worker_loop<B: AccessibilityBackend>(
                 // In-memory buffer mutation only — no backend calls inside.
                 lock_buffers(&pending).write_key_behind_dead_keys(&action_sender);
             }
+            Ok(WorkerMessage::UnrecordedKey {
+                layout,
+                key_code,
+                held,
+            }) => {
+                // One read of the layout's table; the buffers are not touched.
+                let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    note_unrecorded_key(layout, key_code, held, &backend, &mut state.accents);
+                }));
+            }
             Ok(WorkerMessage::LookAtFocus) => {
                 // Backend calls only; the buffers are not touched.
                 let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -2304,6 +2501,22 @@ pub fn worker_loop<B: AccessibilityBackend>(
                         }
                         // No key follows a stop: nothing to look at.
                         WorkerMessage::LookAtFocus => {}
+                        // A key recorded can still follow in the queue.
+                        WorkerMessage::UnrecordedKey {
+                            layout,
+                            key_code,
+                            held,
+                        } => {
+                            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                                note_unrecorded_key(
+                                    layout,
+                                    key_code,
+                                    held,
+                                    &backend,
+                                    &mut state.accents,
+                                );
+                            }));
+                        }
                         WorkerMessage::Flush(ack) => {
                             lock_buffers(&pending).drain_into(&action_sender);
                             let _ = ack.send(worker_index);
@@ -2394,11 +2607,18 @@ struct WorkerState {
     /// What is known of the controls keys were pressed in, by window handle
     /// (see [`KnownControl`]).
     controls: HashMap<i64, KnownControl>,
+    /// The accents that wait, from the keys this worker took in the order
+    /// pressed. Kept by the typing worker; no other worker gets a key.
+    accents: WaitingAccents,
+    /// What each key-down was named, shared by the pool's workers.
+    named_presses: Arc<NamedPresses>,
 }
 
 impl WorkerState {
-    fn new() -> Self {
+    fn new(named_presses: Arc<NamedPresses>) -> Self {
         Self {
+            accents: WaitingAccents::new(),
+            named_presses,
             last_focus: None,
             last_value: None,
             pasted_into: None,
@@ -3102,6 +3322,11 @@ fn process_raw_event<B: AccessibilityBackend>(
     // PID exclusion check — discard events from the excluded process.
     let excl = excluded_pid.load(Ordering::SeqCst);
     if excl != 0 && raw.process_id == excl {
+        // A key discarded here went down all the same: it is taken into the
+        // accents that wait, and nothing is written for it.
+        if matches!(raw.event_type, RawEventType::Keyboard) {
+            let _ = key_as_named(raw, backend, state);
+        }
         return;
     }
 
@@ -3149,6 +3374,7 @@ fn process_raw_event<B: AccessibilityBackend>(
                 false,
                 window_rect.clone(),
                 &mut state.file_pick,
+                &state.named_presses,
             );
         }
         RawEventType::RightClick => {
@@ -3160,6 +3386,7 @@ fn process_raw_event<B: AccessibilityBackend>(
                 true,
                 window_rect.clone(),
                 &mut state.file_pick,
+                &state.named_presses,
             );
         }
         RawEventType::Focus => {
@@ -3283,6 +3510,7 @@ fn process_raw_event<B: AccessibilityBackend>(
                 context_id,
                 &mut state.last_drag_element,
                 window_rect.clone(),
+                &state.named_presses,
             );
         }
         RawEventType::Drop { source_coords: _ } => {
@@ -3293,6 +3521,7 @@ fn process_raw_event<B: AccessibilityBackend>(
                 context_id,
                 &mut state.last_drag_element,
                 window_rect.clone(),
+                &state.named_presses,
             );
         }
         RawEventType::MouseDown | RawEventType::MouseUp => {
@@ -3378,6 +3607,7 @@ fn handle_click<B: AccessibilityBackend>(
     is_right_click: bool,
     window_rect: Option<WindowRect>,
     file_pick: &mut Option<FilePick>,
+    presses: &NamedPresses,
 ) {
     // The pick belongs to the click just before this one (the pool routes a
     // double-click's second click to the first click's worker).
@@ -3436,7 +3666,7 @@ fn handle_click<B: AccessibilityBackend>(
             x: screen_x,
             y: screen_y,
             modifiers: modifiers_of(raw),
-            held: held_at(raw, backend),
+            held: held_at(raw, backend, presses),
             element: element_desc.clone(),
         }
     } else {
@@ -3444,7 +3674,7 @@ fn handle_click<B: AccessibilityBackend>(
             x: screen_x,
             y: screen_y,
             modifiers: modifiers_of(raw),
-            held: held_at(raw, backend),
+            held: held_at(raw, backend, presses),
             element: element_desc.clone(),
         }
     };
@@ -4107,6 +4337,8 @@ fn handle_keyboard<B: AccessibilityBackend>(
     // a key pressed while they are held reads them into its own modifiers.
     // The empty name is given by the key's code alone, whatever its layout.
     if is_modifier_only_key(&key_name(raw)) {
+        // It gives nothing on any layout, and leaves an accent waiting.
+        state.named_presses.note(raw.sequence_id, None);
         return;
     }
 
@@ -4115,8 +4347,8 @@ fn handle_keyboard<B: AccessibilityBackend>(
     // that excluded window's, so nothing is asked of the backend; the key is
     // no keystroke of any window, so the typing state is left as it is.
     if raw.window_handle == 0 {
-        let with_values = with_key_values(raw, backend);
-        let raw = with_values.as_ref().unwrap_or(raw);
+        let named = key_as_named(raw, backend, state);
+        let raw = named.as_ref().unwrap_or(raw);
         let key = key_name(raw);
         let mut element = ElementDescription {
             tag: "Unknown".to_string(),
@@ -4140,7 +4372,7 @@ fn handle_keyboard<B: AccessibilityBackend>(
                 code: physical_key_of(raw),
                 input_method: input_method_at(raw),
                 repeat: is_repeat(raw),
-                held: held_at(raw, backend),
+                held: held_at(raw, backend, &state.named_presses),
                 element,
             },
         };
@@ -4226,8 +4458,9 @@ fn handle_keyboard<B: AccessibilityBackend>(
     // What the layout gives the key and the keys held at it: asked only now,
     // off the keyboard hook and with the element settled. The first ask of a
     // layout builds its table, which takes long enough for the focus to move.
-    let with_values = with_key_values(raw, backend);
-    let raw = with_values.as_ref().unwrap_or(raw);
+    // The key is named with an accent that waited taken in.
+    let named = key_as_named(raw, backend, state);
+    let raw = named.as_ref().unwrap_or(raw);
     let key = key_name(raw);
     let key_element = element.clone();
     if is_paste_key(raw) {
@@ -4307,7 +4540,7 @@ fn handle_keyboard<B: AccessibilityBackend>(
             repeat: is_repeat(raw),
             code: physical_key_of(raw),
             input_method: input_method_at(raw),
-            held: held_at(raw, backend),
+            held: held_at(raw, backend, &state.named_presses),
             element,
         },
     };
@@ -4436,6 +4669,7 @@ fn handle_drag_start<B: AccessibilityBackend>(
     context_id: Option<i64>,
     last_drag_element: &mut Option<ElementDescription>,
     window_rect: Option<WindowRect>,
+    presses: &NamedPresses,
 ) {
     let mut element = backend
         .element_at_point(raw.screen_x, raw.screen_y)
@@ -4457,7 +4691,7 @@ fn handle_drag_start<B: AccessibilityBackend>(
         sequence_id: Some(raw.sequence_id),
         payload: ActionPayload::DragStart {
             modifiers: modifiers_of(raw),
-            held: held_at(raw, backend),
+            held: held_at(raw, backend, presses),
             element,
         },
     });
@@ -4470,6 +4704,7 @@ fn handle_drop<B: AccessibilityBackend>(
     context_id: Option<i64>,
     last_drag_element: &mut Option<ElementDescription>,
     window_rect: Option<WindowRect>,
+    presses: &NamedPresses,
 ) {
     let mut element = backend
         .element_at_point(raw.screen_x, raw.screen_y)
@@ -4494,7 +4729,7 @@ fn handle_drop<B: AccessibilityBackend>(
             x: raw.screen_x as f64,
             y: raw.screen_y as f64,
             modifiers: modifiers_of(raw),
-            held: held_at(raw, backend),
+            held: held_at(raw, backend, presses),
             element,
             source_element,
         },
@@ -4948,6 +5183,7 @@ mod tests {
                     Ok(WorkerMessage::EndTyping)
                     | Ok(WorkerMessage::MenuCommand)
                     | Ok(WorkerMessage::WriteHeldKey)
+                    | Ok(WorkerMessage::UnrecordedKey { .. })
                     | Ok(WorkerMessage::LookAtFocus) => {}
                     Ok(WorkerMessage::Shutdown) | Err(_) => break,
                 }
@@ -5123,9 +5359,15 @@ mod tests {
     }
 
     /// The layout the probe backend answers for: a letter key gives its
-    /// letter, in upper case with Shift or Caps Lock but not both; every
-    /// other key gives nothing.
+    /// letter, in upper case with Shift or Caps Lock but not both; the space
+    /// bar a space; Enter a control character; [`PROBE_DEAD_KEY`] is a dead
+    /// key, the acute accent and with Shift the grave; every other key gives
+    /// nothing. With Ctrl or Alt held a letter and the dead key give nothing.
+    /// The acute accent makes `é` with `e`, `Á` with `A` and itself with a
+    /// space; the grave accent makes `è` with `e`.
     const PROBE_LAYOUT: i64 = 0x0409_0409;
+    const PROBE_DEAD_KEY: u32 = 0xDD;
+    const ACUTE: char = '\u{b4}';
 
     impl AccessibilityBackend for ProbeBackend {
         fn key_value(
@@ -5146,10 +5388,34 @@ mod tests {
                     0x41..=0x5A => {
                         LayoutAnswer::Char(char::from(key_code as u8).to_ascii_lowercase())
                     }
+                    PROBE_DEAD_KEY if with.ctrl || with.alt => LayoutAnswer::Nothing,
+                    PROBE_DEAD_KEY if with.shift => LayoutAnswer::Dead('`'),
+                    PROBE_DEAD_KEY => LayoutAnswer::Dead(ACUTE),
+                    0x20 => LayoutAnswer::Char(' '),
+                    0x0D => LayoutAnswer::Other,
                     _ => LayoutAnswer::Nothing,
                 })
             };
             crate::capture::key_value::pressed_param(held, answers)
+        }
+
+        fn composed(
+            &self,
+            layout: i64,
+            accent: char,
+            base: char,
+        ) -> Option<crate::capture::layout_file::Composed> {
+            use crate::capture::layout_file::Composed;
+            if layout != PROBE_LAYOUT {
+                return None;
+            }
+            match (accent, base) {
+                (ACUTE, 'e') => Some(Composed::Char('é')),
+                (ACUTE, 'A') => Some(Composed::Char('Á')),
+                (ACUTE, ' ') => Some(Composed::Char(ACUTE)),
+                ('`', 'e') => Some(Composed::Char('è')),
+                _ => None,
+            }
         }
 
         fn init(&mut self) -> Result<(), CaptureError> {
@@ -5589,7 +5855,7 @@ mod tests {
         // Code 0xE1 among them: a typing key like the other punctuation
         // codes, with no name or rule of its own.
         assert_eq!(name_with(0xE1, None), "Unidentified");
-        assert_eq!(name_with(0xE1, Some(LayoutAnswer::Dead)), "Dead");
+        assert_eq!(name_with(0xE1, Some(LayoutAnswer::Dead('\u{b4}'))), "Dead");
     }
 
     #[test]
@@ -5634,7 +5900,7 @@ mod tests {
     #[test]
     fn a_dead_key_is_known_by_the_layouts_answer_for_the_press_as_held() {
         use crate::capture::key_value::{pressed_param, Held};
-        let dead_as_held = pressed_param(Held::default(), |_| Some(LayoutAnswer::Dead));
+        let dead_as_held = pressed_param(Held::default(), |_| Some(LayoutAnswer::Dead('\u{b4}')));
         let char_as_held = pressed_param(Held::default(), |_| Some(LayoutAnswer::Char('^')));
         // The hook's reads say no dead key (no flag on the layout character).
         let mut raw = control_key_raw_event(0xDD, 1);
@@ -5668,8 +5934,8 @@ mod tests {
 
     #[test]
     fn a_dead_key_is_named_dead() {
-        assert_eq!(name_with(0xDB, Some(LayoutAnswer::Dead)), "Dead");
-        assert_eq!(name_with(0xBA, Some(LayoutAnswer::Dead)), "Dead");
+        assert_eq!(name_with(0xDB, Some(LayoutAnswer::Dead('\u{b4}'))), "Dead");
+        assert_eq!(name_with(0xBA, Some(LayoutAnswer::Dead('\u{b4}'))), "Dead");
     }
 
     #[test]
@@ -5753,7 +6019,10 @@ mod tests {
             block_focused: false,
             block_window_title: false,
         };
-        let at = held_at(&raw, &backend);
+        // Every held key's own key-down was named as pressed.
+        let presses = NamedPresses::new();
+        presses.note(4, None);
+        let at = held_at(&raw, &backend, &presses);
         assert_eq!(at.held_keys, vec!["A", "?", "HangulMode", "ArrowUp"]);
         assert_eq!(at.held_presses, vec![1, 2, 3, 4]);
     }
@@ -5811,16 +6080,18 @@ mod tests {
             held(0x43, Held::default(), PROBE_LAYOUT),
             held(0x44, Held::default(), 0),
         ];
+        let presses = NamedPresses::new();
+        presses.note(1, None);
         let filled = with_key_values(&click, &backend).expect("filled");
         assert_eq!(filled.key_value, 0, "a click has no key of its own");
         assert_eq!(
-            held_at(&filled, &backend).held_keys,
+            held_at(&filled, &backend, &presses).held_keys,
             vec!["B", "c", "Unidentified"]
         );
         // The held keys of an action are asked about where they are named,
         // so nothing has to be filled in ahead for them.
         assert_eq!(
-            held_at(&click, &backend).held_keys,
+            held_at(&click, &backend, &presses).held_keys,
             vec!["B", "c", "Unidentified"]
         );
 
@@ -5831,6 +6102,244 @@ mod tests {
         let mut scroll = control_key_raw_event(0, 5);
         scroll.event_type = RawEventType::Scroll;
         assert!(with_key_values(&scroll, &backend).is_none());
+    }
+
+    // -- the key behind a dead key (docent#717) --------------------------------
+
+    fn probe() -> ProbeBackend {
+        ProbeBackend {
+            block_focused: false,
+            block_window_title: false,
+        }
+    }
+
+    /// A key-down of `vk` on the probe layout, with or without Shift.
+    fn probe_key(vk: u32, shift: bool, sequence_id: u64) -> RawEvent {
+        let mut raw = control_key_raw_event(vk, sequence_id);
+        raw.keyboard_layout = PROBE_LAYOUT;
+        raw.modifiers = (false, shift, false, false);
+        raw
+    }
+
+    /// The name a worker with `state` gives the key-down `raw`.
+    fn named_in(state: &mut WorkerState, raw: &RawEvent) -> String {
+        let named = key_as_named(raw, &probe(), state);
+        key_name(named.as_ref().unwrap_or(raw))
+    }
+
+    /// The names of `keys` (a key code, and whether Shift is held), pressed
+    /// in turn on the probe layout.
+    fn names_in_turn(keys: &[(u32, bool)]) -> Vec<String> {
+        let mut state = WorkerState::new(Arc::new(NamedPresses::new()));
+        keys.iter()
+            .enumerate()
+            .map(|(at, &(vk, shift))| named_in(&mut state, &probe_key(vk, shift, at as u64 + 1)))
+            .collect()
+    }
+
+    const DEAD: (u32, bool) = (PROBE_DEAD_KEY, false);
+    const E: (u32, bool) = (0x45, false);
+
+    // Regression: #717 — a browser names the key pressed behind a dead key by
+    // the character the two make (measured in Chrome on a Danish layout); the
+    // desktop named it by the key's own character.
+    // https://github.com/Arsarneq/docent/issues/717
+    #[test]
+    fn regression_717_the_key_behind_a_dead_key_is_named_by_what_the_two_make() {
+        assert_eq!(names_in_turn(&[DEAD, E]), ["Dead", "é"]);
+        assert_eq!(names_in_turn(&[DEAD, (0x41, true)]), ["Dead", "Á"]);
+        assert_eq!(names_in_turn(&[DEAD, (0x20, false)]), ["Dead", "\u{b4}"]);
+        assert_eq!(names_in_turn(&[(PROBE_DEAD_KEY, true), E]), ["Dead", "è"]);
+        // The accent is used once.
+        assert_eq!(names_in_turn(&[DEAD, E, E]), ["Dead", "é", "e"]);
+    }
+
+    #[test]
+    fn regression_717_a_key_the_accent_makes_nothing_with_keeps_its_name() {
+        assert_eq!(names_in_turn(&[DEAD, (0x51, false)]), ["Dead", "q"]);
+        // It took the accent away.
+        assert_eq!(names_in_turn(&[DEAD, (0x51, false), E]), ["Dead", "q", "e"]);
+        // A second dead key.
+        assert_eq!(names_in_turn(&[DEAD, DEAD, E]), ["Dead", "Dead", "e"]);
+        // Ctrl with a letter is named by the letter, as with no accent.
+        let mut state = WorkerState::new(Arc::new(NamedPresses::new()));
+        assert_eq!(
+            named_in(&mut state, &probe_key(PROBE_DEAD_KEY, false, 1)),
+            "Dead"
+        );
+        let mut ctrl_a = probe_key(0x41, false, 2);
+        ctrl_a.modifiers = (true, false, false, false);
+        assert_eq!(named_in(&mut state, &ctrl_a), "a");
+    }
+
+    #[test]
+    fn regression_717_a_key_that_gives_nothing_leaves_the_accent_for_the_next() {
+        // An arrow key between the dead key and the letter.
+        assert_eq!(
+            names_in_turn(&[DEAD, (0x25, false), E]),
+            ["Dead", "ArrowLeft", "é"]
+        );
+        // Enter gives a control character: it takes the accent away.
+        assert_eq!(
+            names_in_turn(&[DEAD, (0x0D, false), E]),
+            ["Dead", "Enter", "e"]
+        );
+    }
+
+    #[test]
+    fn regression_717_a_shift_key_and_an_injected_character_leave_the_accent_waiting() {
+        let mut state = WorkerState::new(Arc::new(NamedPresses::new()));
+        assert_eq!(
+            named_in(&mut state, &probe_key(PROBE_DEAD_KEY, false, 1)),
+            "Dead"
+        );
+        // An injected character reaches the program past the layout.
+        let mut packet = probe_key(VK_PACKET, false, 2);
+        packet.callback_params[0] = i64::from(u32::from('x'));
+        assert_eq!(named_in(&mut state, &packet), "x");
+        assert_eq!(named_in(&mut state, &probe_key(0x10, false, 3)), "Shift");
+        assert_eq!(named_in(&mut state, &probe_key(0x45, false, 4)), "é");
+    }
+
+    #[test]
+    fn regression_717_a_key_outside_the_recording_is_taken_into_the_accents_that_wait() {
+        let backend = probe();
+        // A dead key pressed in a window that is not recorded: the key behind
+        // it, in a recorded window, is the composed one.
+        let mut state = WorkerState::new(Arc::new(NamedPresses::new()));
+        note_unrecorded_key(
+            PROBE_LAYOUT,
+            PROBE_DEAD_KEY,
+            0,
+            &backend,
+            &mut state.accents,
+        );
+        assert_eq!(named_in(&mut state, &probe_key(0x45, false, 1)), "é");
+        // A letter pressed there takes a recorded dead key's accent away.
+        let mut state = WorkerState::new(Arc::new(NamedPresses::new()));
+        assert_eq!(
+            named_in(&mut state, &probe_key(PROBE_DEAD_KEY, false, 1)),
+            "Dead"
+        );
+        note_unrecorded_key(PROBE_LAYOUT, 0x51, 0, &backend, &mut state.accents);
+        assert_eq!(named_in(&mut state, &probe_key(0x45, false, 2)), "e");
+        // With Shift held there, the dead key is the grave accent.
+        let shift = crate::capture::key_value::Held {
+            shift: true,
+            ..Default::default()
+        };
+        let mut state = WorkerState::new(Arc::new(NamedPresses::new()));
+        note_unrecorded_key(
+            PROBE_LAYOUT,
+            PROBE_DEAD_KEY,
+            shift.index() as u8,
+            &backend,
+            &mut state.accents,
+        );
+        assert_eq!(named_in(&mut state, &probe_key(0x45, false, 1)), "è");
+        // A Shift key and an injected character there change nothing.
+        let mut state = WorkerState::new(Arc::new(NamedPresses::new()));
+        assert_eq!(
+            named_in(&mut state, &probe_key(PROBE_DEAD_KEY, false, 1)),
+            "Dead"
+        );
+        note_unrecorded_key(PROBE_LAYOUT, 0xA0, 0, &backend, &mut state.accents);
+        note_unrecorded_key(PROBE_LAYOUT, VK_PACKET, 0, &backend, &mut state.accents);
+        assert_eq!(named_in(&mut state, &probe_key(0x45, false, 2)), "é");
+    }
+
+    #[test]
+    fn regression_717_a_key_is_not_named_where_it_is_not_known_whether_an_accent_waits() {
+        // A key on a layout that cannot be asked: it may have been a dead
+        // key. The next key an accent would rename has no name; the one
+        // behind it has.
+        let mut state = WorkerState::new(Arc::new(NamedPresses::new()));
+        let mut unread = probe_key(0xBA, false, 1);
+        unread.keyboard_layout = 0;
+        assert_eq!(named_in(&mut state, &unread), "Unidentified");
+        assert_eq!(
+            named_in(&mut state, &probe_key(0x45, false, 2)),
+            "Unidentified"
+        );
+        assert_eq!(named_in(&mut state, &probe_key(0x45, false, 3)), "e");
+        // A key with a name of its own keeps it.
+        let mut state = WorkerState::new(Arc::new(NamedPresses::new()));
+        assert_eq!(named_in(&mut state, &unread), "Unidentified");
+        assert_eq!(
+            named_in(&mut state, &probe_key(0x25, false, 2)),
+            "ArrowLeft"
+        );
+    }
+
+    #[test]
+    fn regression_717_a_held_key_is_named_as_its_own_key_down_was() {
+        use crate::capture::held_keys::HeldPress;
+        let presses = Arc::new(NamedPresses::new());
+        let mut state = WorkerState::new(Arc::clone(&presses));
+        assert_eq!(
+            named_in(&mut state, &probe_key(PROBE_DEAD_KEY, false, 1)),
+            "Dead"
+        );
+        assert_eq!(named_in(&mut state, &probe_key(0x45, false, 2)), "é");
+        assert_eq!(named_in(&mut state, &probe_key(0x45, false, 3)), "e");
+        let held = |key_code: u32, press: u64| HeldPress {
+            key_code,
+            scan_code: 0,
+            press,
+            key_value: 0,
+            layout: PROBE_LAYOUT,
+            held: 0,
+        };
+        // A click on another worker, with the keys of the three key-downs
+        // held: each is named as its `key` action was.
+        let mut click = control_key_raw_event(0, 4);
+        click.event_type = RawEventType::Click;
+        click.held = vec![held(PROBE_DEAD_KEY, 1), held(0x45, 2), held(0x45, 3)];
+        assert_eq!(
+            held_at(&click, &probe(), &presses).held_keys,
+            vec!["Dead", "é", "e"]
+        );
+        // A key-down the typing worker has not got to is waited for, and
+        // named `Unidentified` where its name does not come; a key with a
+        // name of its own is not waited for.
+        click.held = vec![held(0x45, 9), held(0x26, 10)];
+        let asked = Instant::now();
+        assert_eq!(
+            held_at(&click, &probe(), &presses).held_keys,
+            vec!["Unidentified", "ArrowUp"]
+        );
+        assert!(asked.elapsed() >= HELD_NAME_WAIT);
+        assert!(
+            asked.elapsed() < HELD_NAME_WAIT * 4,
+            "one wait, for one key"
+        );
+        // Its name comes while the click's worker waits.
+        let naming = {
+            let presses = Arc::clone(&presses);
+            thread::spawn(move || {
+                thread::sleep(HELD_NAME_WAIT / 4);
+                presses.note(9, None);
+            })
+        };
+        click.held = vec![held(0x45, 9)];
+        assert_eq!(held_at(&click, &probe(), &presses).held_keys, vec!["e"]);
+        naming.join().unwrap();
+    }
+
+    /// Through the pool: the keys of a field that reports no value change are
+    /// written as keys, the one behind the dead key by what the two make; a
+    /// key outside the recording is taken in the order pressed.
+    #[test]
+    fn regression_717_the_pool_names_the_key_behind_a_dead_key() {
+        let (mut pool, rx) = pool_with_probe_backend(false, false);
+        pool.dispatch(probe_key(PROBE_DEAD_KEY, false, 1));
+        pool.dispatch(probe_key(0x45, false, 2));
+        pool.unrecorded_key(PROBE_LAYOUT, PROBE_DEAD_KEY, 0);
+        pool.dispatch(probe_key(0x45, false, 3));
+        pool.dispatch(probe_key(0x45, false, 4));
+        thread::sleep(Duration::from_millis(100));
+        pool.shutdown_with_timeout(Duration::from_secs(5));
+        assert_eq!(key_names(&drain_events(&rx)), vec!["Dead", "é", "é", "e"]);
     }
 
     #[test]
