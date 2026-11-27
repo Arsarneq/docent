@@ -12,11 +12,14 @@ pub mod coordinate;
 pub mod element_mapping;
 pub mod held_keys;
 pub mod hook_diagnostics;
+pub mod key_value;
 pub mod language;
+pub mod layout_file;
 pub mod physical_key;
 pub mod pre_capture;
 pub mod scroll;
 pub mod timing;
+pub mod waiting_accents;
 pub mod worker_pool;
 
 #[cfg(target_os = "windows")]

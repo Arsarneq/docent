@@ -271,7 +271,7 @@
         },
         "key": {
           "type": "string",
-          "description": "Key name. Control keys use standard names (Enter, Escape, Tab, ArrowUp, etc.). Printable characters use their character value (A, 1, Space, etc.); the session-format document states each platform's source for the name."
+          "description": "What the press means on the active keyboard layout, named by the W3C UI Events `key` values (a, A, ?, Enter, ArrowUp), a space written as Space. The session-format document states the whole rule under Key names."
         },
         "modifiers": {
           "$ref": "#/$defs/modifiers"

@@ -380,10 +380,6 @@ machine, including live-capture behaviour at the boundary.
 
 **ECP-12.** This platform's exceptions within the surface (core [CP-15](../../../architecture/system/capture-principles.md#capture-surface)):
 
-- A key press is named by the browser's key value, which follows the layout
-  and the shift state, where the desktop names it from the virtual-key code:
-  a departure (core CP-19;
-  [docent#717](https://github.com/Arsarneq/docent/issues/717))
 - A `key` states nothing of the input method: the browser gives a page and
   an extension no interface that reads whether one is on or its mode, where
   the desktop writes `input_method_open` and `input_method_conversion_mode` on

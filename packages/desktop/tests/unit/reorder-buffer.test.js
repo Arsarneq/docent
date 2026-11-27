@@ -285,10 +285,12 @@ describe('_insertOrdered redacts sensitive field values', () => {
   it('regression_noissue_text_keys_on_a_sensitive_field_are_one_masked_type', () => {
     // Keys typed into a card-number field that reports no value change were
     // stored as `key` actions; they are the field's one masked `type`.
-    ['4', '1', '1', 'Space', 'Numpad5', 'Add', 'Unidentified', 'VK_0x6C', 'VK_0xE2'].forEach(
-      (key, i) => insertOrdered(keyOn(cardField(), key, i + 1)),
+    // A character in either case, a space, a dead key, a key with no name
+    // and the key an input method took.
+    ['4', '1', 'a', 'A', 'Space', '+', '?', 'Dead', 'Unidentified', 'Process'].forEach((key, i) =>
+      insertOrdered(keyOn(cardField(), key, i + 1)),
     );
-    insertOrdered(keyOn(cardField(), '2', 10, { ctrl: true, alt: true })); // AltGr
+    insertOrdered(keyOn(cardField(), '€', 11, { ctrl: true, alt: true })); // AltGr
 
     assert.deepEqual(shape(), [`type ${SENSITIVE_MASK}`]);
     const actions = adapter.getPendingActions();
@@ -523,12 +525,26 @@ describe('_insertOrdered redacts sensitive field values', () => {
   it('keeps control keys and shortcuts on a sensitive field as keys', () => {
     insertOrdered(keyOn(cardField(), 'Enter', 1));
     insertOrdered(keyOn(cardField(), 'Backspace', 2));
-    insertOrdered(keyOn(cardField(), 'V', 3, { ctrl: true }));
-    insertOrdered(keyOn(cardField(), 'F', 4, { alt: true }));
-    insertOrdered(keyOn(cardField(), 'D', 5, { meta: true }));
+    insertOrdered(keyOn(cardField(), 'v', 3, { ctrl: true }));
+    insertOrdered(keyOn(cardField(), 'f', 4, { alt: true }));
+    insertOrdered(keyOn(cardField(), 'd', 5, { meta: true }));
     insertOrdered(keyOn(cardField(), 'F5', 6));
+    // A key with a name of its own enters no character.
+    insertOrdered(keyOn(cardField(), 'ContextMenu', 7));
+    insertOrdered(keyOn(cardField(), 'AudioVolumeUp', 8));
+    insertOrdered(keyOn(cardField(), 'Clear', 9));
 
-    assert.deepEqual(shape(), ['key Enter', 'key Backspace', 'key V', 'key F', 'key D', 'key F5']);
+    assert.deepEqual(shape(), [
+      'key Enter',
+      'key Backspace',
+      'key v',
+      'key f',
+      'key d',
+      'key F5',
+      'key ContextMenu',
+      'key AudioVolumeUp',
+      'key Clear',
+    ]);
   });
 
   it('keeps a second typing run when the click between the runs arrives late', () => {

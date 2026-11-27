@@ -223,6 +223,11 @@ pub unsafe fn GetGUIThreadInfo(idthread: u32, pgui: *mut GUITHREADINFO) -> windo
     unsafe { GetGUIThreadInfo(idthread, pgui as _) }
 }
 #[inline]
+pub unsafe fn GetKeyState(nvirtkey: i32) -> i16 {
+    windows_core::link!("user32.dll" "system" fn GetKeyState(nvirtkey : i32) -> i16);
+    unsafe { GetKeyState(nvirtkey) }
+}
+#[inline]
 pub unsafe fn GetKeyboardLayout(idthread: u32) -> HKL {
     windows_core::link!("user32.dll" "system" fn GetKeyboardLayout(idthread : u32) -> HKL);
     unsafe { GetKeyboardLayout(idthread) }
@@ -283,6 +288,11 @@ pub unsafe fn GetParent(hwnd: HWND) -> HWND {
 pub unsafe fn GetSaveFileNameW(param0: *mut OPENFILENAMEW) -> windows_core::BOOL {
     windows_core::link!("comdlg32.dll" "system" fn GetSaveFileNameW(param0 : *mut OPENFILENAMEW) -> windows_core::BOOL);
     unsafe { GetSaveFileNameW(param0 as _) }
+}
+#[inline]
+pub unsafe fn GetSystemDirectoryW(lpbuffer: Option<windows_core::PWSTR>, usize: u32) -> u32 {
+    windows_core::link!("kernel32.dll" "system" fn GetSystemDirectoryW(lpbuffer : windows_core::PWSTR, usize : u32) -> u32);
+    unsafe { GetSystemDirectoryW(lpbuffer.unwrap_or(core::mem::zeroed()) as _, usize) }
 }
 #[inline]
 pub unsafe fn GetSystemMetrics(nindex: i32) -> i32 {
@@ -464,6 +474,36 @@ pub unsafe fn Process32Next(hsnapshot: HANDLE, lppe: *mut PROCESSENTRY32) -> win
     unsafe { Process32Next(hsnapshot, lppe as _) }
 }
 #[inline]
+pub unsafe fn RegCloseKey(hkey: HKEY) -> LSTATUS {
+    windows_core::link!("advapi32.dll" "system" fn RegCloseKey(hkey : HKEY) -> LSTATUS);
+    unsafe { RegCloseKey(hkey) }
+}
+#[inline]
+pub unsafe fn RegEnumKeyExW(
+    hkey: HKEY,
+    dwindex: u32,
+    lpname: Option<windows_core::PWSTR>,
+    lpcchname: *mut u32,
+    lpreserved: Option<*const u32>,
+    lpclass: Option<windows_core::PWSTR>,
+    lpcchclass: Option<*mut u32>,
+    lpftlastwritetime: Option<*mut FILETIME>,
+) -> LSTATUS {
+    windows_core::link!("advapi32.dll" "system" fn RegEnumKeyExW(hkey : HKEY, dwindex : u32, lpname : windows_core::PWSTR, lpcchname : *mut u32, lpreserved : *const u32, lpclass : windows_core::PWSTR, lpcchclass : *mut u32, lpftlastwritetime : *mut FILETIME) -> LSTATUS);
+    unsafe {
+        RegEnumKeyExW(
+            hkey,
+            dwindex,
+            lpname.unwrap_or(core::mem::zeroed()) as _,
+            lpcchname as _,
+            lpreserved.unwrap_or(core::mem::zeroed()) as _,
+            lpclass.unwrap_or(core::mem::zeroed()) as _,
+            lpcchclass.unwrap_or(core::mem::zeroed()) as _,
+            lpftlastwritetime.unwrap_or(core::mem::zeroed()) as _,
+        )
+    }
+}
+#[inline]
 pub unsafe fn RegGetValueW<P1, P2>(
     hkey: HKEY,
     lpsubkey: P1,
@@ -487,6 +527,28 @@ where
             pdwtype.unwrap_or(core::mem::zeroed()) as _,
             pvdata.unwrap_or(core::mem::zeroed()) as _,
             pcbdata.unwrap_or(core::mem::zeroed()) as _,
+        )
+    }
+}
+#[inline]
+pub unsafe fn RegOpenKeyExW<P1>(
+    hkey: HKEY,
+    lpsubkey: P1,
+    uloptions: Option<u32>,
+    samdesired: REGSAM,
+    phkresult: *mut HKEY,
+) -> LSTATUS
+where
+    P1: windows_core::Param<windows_core::PCWSTR>,
+{
+    windows_core::link!("advapi32.dll" "system" fn RegOpenKeyExW(hkey : HKEY, lpsubkey : windows_core::PCWSTR, uloptions : u32, samdesired : REGSAM, phkresult : *mut HKEY) -> LSTATUS);
+    unsafe {
+        RegOpenKeyExW(
+            hkey,
+            lpsubkey.param().abi(),
+            uloptions.unwrap_or(core::mem::zeroed()) as _,
+            samdesired,
+            phkresult as _,
         )
     }
 }
@@ -687,6 +749,9 @@ pub unsafe fn WindowFromPoint(point: POINT) -> HWND {
 }
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub struct ACCESS_MASK(pub u32);
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub struct ATOM(pub u16);
 pub const CHILDID_SELF: i32 = 0;
 pub const CLSCTX_ALL: i32 = 23;
@@ -829,6 +894,7 @@ pub struct HINSTANCE(pub *mut core::ffi::c_void);
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub struct HKEY(pub *mut core::ffi::c_void);
 pub const HKEY_CURRENT_USER: HKEY = HKEY(-2147483647 as _);
+pub const HKEY_LOCAL_MACHINE: HKEY = HKEY(-2147483646 as _);
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub struct HKL(pub *mut core::ffi::c_void);
@@ -4501,6 +4567,7 @@ pub struct KBDLLHOOKSTRUCT {
     pub time: u32,
     pub dwExtraInfo: usize,
 }
+pub const KEY_READ: i32 = 131097;
 pub const KLF_NOTELLSHELL: i32 = 128;
 pub const LBS_NOTIFY: i32 = 1;
 #[repr(transparent)]
@@ -4682,6 +4749,7 @@ pub struct RECT {
     pub right: i32,
     pub bottom: i32,
 }
+pub type REGSAM = ACCESS_MASK;
 pub const RRF_RT_REG_DWORD: i32 = 16;
 pub const RRF_RT_REG_SZ: i32 = 2;
 #[repr(C)]

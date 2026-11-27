@@ -307,7 +307,7 @@ A value change taken for a field supersedes each key buffered on that field befo
 - the punctuation keys of every layout;
 - a keystroke injected as Unicode.
 
-So a space, a keypad digit or an AltGr character typed into a text field is part of that field's `type` value, as on the extension, and it is a `key` (`Space`, `Numpad1`) where no value change of its own element follows it.
+So a space, a keypad digit or an AltGr character typed into a text field is part of that field's `type` value, as on the extension, and it is a `key` (`Space`, `1`) where no value change of its own element follows it.
 
 **Where a typing key is not buffered.** On two kinds of control a typing key never waits in the buffer:
 
@@ -320,10 +320,10 @@ The controls that take no typed text are a closed list of control types: `Button
 
 In a password field every keystroke enters text except these two kinds, which are `key` actions there as anywhere:
 
-- a key that enters no character: the editing, navigation, lock, system, modifier and function keys, a closed list;
+- a key that enters no character: Shift, Control and Alt, the function keys, and every key with a name of its own other than `Process`, a closed list;
 - a key with Ctrl, Alt or Meta held, other than Ctrl and Alt together.
 
-A key the name table does not know counts as text there.
+Every other key counts as text there: a character, `Space`, `Dead`, `Unidentified`, and `Process` (the name of a key an input method took, which stands for a typing key).
 
 **What becomes of the buffered keys.** One of these four comes next, a closed list:
 
@@ -376,7 +376,7 @@ Where the switch DCP-20 dispatches goes to an inactive window, a turn of the whe
 
 **DCP-17.** A dead key enters nothing by itself, so the 500 ms wait of DCP-9 does not write it. It stays buffered until the next key or the end of the typing decides what it was. A value change that comes while it waits is the text of the keys before it.
 
-A dead key is a key the keyboard layout of the foreground window says is one as pressed, with Shift or AltGr where held. CapsLock is no part of the question. Asking the layout does not touch an accent pending in the application. Once the layout was asked about a key, what that key is does not depend on how far the application has got with the keys before it. The capture pipeline holds [how the layout is asked](capture-pipeline.md#whether-a-key-is-a-dead-key).
+A dead key is a key the keyboard layout of the foreground window says is one as pressed. Where the layout's table answered for the press, the answer is the table's, with the modifiers and the Caps Lock state of the press: the read the key's name comes from, so the name and the dead key agree. Otherwise it is the hook's own question, with Shift or AltGr where held, in which Caps Lock is no part. Asking the layout does not touch an accent pending in the application. Once the layout was asked about a key, what that key is does not depend on how far the application has got with the keys before it. The capture pipeline holds [how the layout is asked](capture-pipeline.md#whether-a-key-is-a-dead-key).
 
 **What a waiting dead key becomes.** It ends as one of two things: part of the field's text, or a `key`. It is text in exactly these two cases:
 
@@ -444,7 +444,7 @@ A platform that numbers no keys takes every value it reads.
 
 A value taken later in the same typing supersedes those keys as it supersedes every buffered key. The 500 ms wait (DCP-9) does not write them, since their value changes came. It does write the keys behind them that no value change reached. A commit or a stop writes the pending `type` and then every key still buffered, each once.
 
-For example, the person types `a`, `a` and Backspace, and the value of the second `a` is read after the Backspace was dispatched: the file holds `type` "a", then `key` A and `key` Backspace.
+For example, the person types `a`, `a` and Backspace, and the value of the second `a` is read after the Backspace was dispatched: the file holds `type` "a", then `key` `a` and `key` Backspace.
 
 **The departure.** The extension writes the field's one `type` whatever its timing, so these `key` actions are a departure (core CP-19; [docent#762](https://github.com/Arsarneq/docent/issues/762) tracks its removal). A late value taken would make the same typing a `type` holding what a later key did, a value the person never had. The departure states that defect instead of recording it.
 
@@ -459,13 +459,13 @@ For example, the person types `a`, `a` and Backspace, and the value of the secon
 
 The program raises a change for an earlier key where it applies keys more slowly than they are pressed, or where the input thread received the change after the next key.
 
-For example, the person pastes into the field with Ctrl+V and presses Enter, and the pasted value is read after Enter was dispatched: the file holds `key` V with Control, then `key` Enter, and no action holds the pasted text.
+For example, the person pastes into the field with Ctrl+V and presses Enter, and the pasted value is read after Enter was dispatched: the file holds `key` `v` with Control, then `key` Enter, and no action holds the pasted text.
 
 ---
 
 ## What a `key` action carries
 
-**DCP-19.** The [session format](../../../../technical/session-format.md#shared-both-platforms)'s `key` row is the home of what a `key` action's name, `repeat`, `code`, input-method fields and `held_keys` state, on both platforms. This clause holds only what that row does not: five rules of this platform's own. The capture pipeline holds [what the keyboard hook reads and how](capture-pipeline.md#what-the-keyboard-hook-reads-at-a-key-press).
+**DCP-19.** The [session format](../../../../technical/session-format.md#shared-both-platforms)'s `key` row is the home of what a `key` action's `repeat`, `code`, input-method fields and `held_keys` state, on both platforms, and its [Key names](../../../../technical/session-format.md#key-names) section the home of how a key is named. This clause holds only what they do not: five rules of this platform's own. The capture pipeline holds [what the keyboard hook reads and how](capture-pipeline.md#what-the-keyboard-hook-reads-at-a-key-press).
 
 - **Injected keys and punctuation keys are typing keys (DCP-9).** A keystroke injected as Unicode (`VK_PACKET`, the path of IME results, remote-desktop stacks, software keyboards and automation) is printable input whatever it carries. Since it is named by its character and buffered as a typing key, the same text is never recorded twice. A punctuation key is a typing key whether or not a character was read for its name.
 - **A release the hook was never handed.** A key whose release the hook was never handed is a press again at its next key-down, not a repeat. The hook is handed key-downs and key-ups in an excluded window and outside an active capture too, so a key pressed there and still held counts as down for `repeat`.
@@ -641,6 +641,59 @@ Which worker an event reaches, and how the typing and focus workers are chosen, 
 - A lone Shift, Ctrl or Alt press — a keypress, but the worker drops it; these
   keys are recorded only within a combination (a lone Win press is recorded, as
   `Meta`)
+- A key press whose keyboard layout could not be asked is written with `key`
+  `Unidentified` where the key has no name of its own (a letter, a digit, a
+  punctuation key), where the extension writes the character; a departure
+  (core CP-19; [docent#829](https://github.com/Arsarneq/docent/issues/829)). The
+  [session format](../../../../technical/session-format.md#key-names) lists
+  the cases under Key names. The key is named from nothing else, since a
+  name taken from its key code would guess the character and its case.
+- The key pressed behind a dead key is named by what Windows' own
+  translation of the keys makes of the two
+  ([session format](../../../../technical/session-format.md#key-names), Key
+  names), where the extension writes what the browser entered. The two differ
+  in these cases; each is a departure (core CP-19; [docent#829](https://github.com/Arsarneq/docent/issues/829)):
+  - a program that does not use Windows' translation (it enters the two
+    apart, or composes by a rule of its own): the `key` states a character
+    the program did not enter;
+  - where the desktop does not know which accent waits, the next key an
+    accent would rename is `Unidentified`. That is so:
+    - on a layout an accent waited on when the recording started;
+    - after a key that went down while its layout could not be asked (the
+      bullet above);
+    - after a key-down the typing worker lost (its processing failed), and
+      for a worker that takes the typing over from one that stopped
+      answering or ended;
+    - after a key the system can act on itself, pressed behind an accent
+      (a key with the Windows key held, Ctrl with Escape, Alt with Tab or
+      Escape): the system takes it or hands it to the program, the desktop
+      cannot tell which, and that key is `Unidentified` too where the accent
+      would rename it;
+  - a layout whose list could not be read (a layout file built for another
+    processor, as on Windows on ARM, or in another form than the one read):
+    the key behind a dead key is `Unidentified`, so is the next key an
+    accent would rename, and the log says so once for the layout;
+  - a key named among the `held_keys` of a pointer action before its own
+    key-down was named: the action waits for the names of its held keys for
+    at most 5 s in all, and names a key `Unidentified` where none came.
+
+  Windows' own translation of the keys, asked on six layouts (Danish,
+  German, French, Spanish, Czech and United States-International), showed
+  that Ctrl with a letter key leaves the accent waiting; the rule takes that
+  for every layout. Two things were read from how Windows behaves and not
+  measured against a browser: a keystroke injected as Unicode (`VK_PACKET`)
+  leaves a waiting accent as it is (the layout's translation does when asked
+  about that key code; what a program's message loop does with the
+  character was not measured), and a key whose character makes another
+  accent with the waiting one keeps its own name.
+
+- A press of the key with virtual-key code `0xE1` (`VK_OEM_AX`) is written
+  as any typing key is: a `key` named from the keyboard layout, or part of
+  its field's `type`, and it is named among the held keys. The extension
+  writes nothing for the press where the browser names the key `AltGraph`,
+  which is what the browser's published source does on Windows; that side
+  was read from the source and not measured. A departure (core CP-19;
+  [docent#829](https://github.com/Arsarneq/docent/issues/829)).
 - Win+D (show desktop) — a keypress, but the system intercepts it before the
   hooks
 - Win+L (lock screen) — a keypress, but the system intercepts it before the

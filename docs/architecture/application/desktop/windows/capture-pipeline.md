@@ -150,16 +150,20 @@ DCP-9, DCP-17, DCP-18 and DCP-19 hold what typing is recorded as. This section h
 **The keys that are down.** The keyboard hook keeps a record of which keys are down. It builds the record from every key-down and key-up it is handed, and seeds it from the keyboard's state when the hook is installed. The record serves two stamps:
 
 - **The repeat mark.** Each key-down is stamped with whether its key was already down, the mark a `key` action's `repeat` is written from. The keyboard's own state, read before it takes the key-down in, has to agree that the key was down. An injected character is told apart by the code unit it carries. The keyboard's state at the hook's install names a virtual-key code, and not which of two keys that share the code is down (DCP-19 holds what follows from that).
-- **The held keys.** For each key that is down, the record notes the key-down that was dispatched for recording, with the layout character that key-down carried. That key-down is the press, or the first repeat dispatched when the press was not (in an excluded window, or before the capture started). Each keystroke, click, right-click and drop is stamped at dispatch with the keys so noted. A drag start is stamped with those the mouse hook read when the pointer first passed the drag threshold. An action's `held_keys` is written from these stamps.
+- **The held keys.** For each key that is down, the record notes the key-down that was dispatched for recording, with the modifiers, the Caps Lock state and the layout read at that key-down, so a held key is named as its own `key` is. That key-down is the press, or the first repeat dispatched when the press was not (in an excluded window, or before the capture started). Each keystroke, click, right-click and drop is stamped at dispatch with the keys so noted. A drag start is stamped with those the mouse hook read when the pointer first passed the drag threshold. An action's `held_keys` is written from these stamps.
 
 The mouse hook reads the modifier keys for the pointer actions as the keyboard hook does for a key.
 
-**The key's name and physical key.** The scan code and extended mark the hook is handed travel with the key-down, and a `key` action's `code` is named from them, by the scan-code table Chromium publishes. Two kinds of key carry a character for their name:
+**The key's name and physical key.** The scan code and extended mark the hook is handed travel with the key-down, and a `key` action's `code` is named from them, by the scan-code table Chromium publishes.
+
+At each key-down the hook also reads the keyboard layout of the foreground window's thread and whether Caps Lock is on, two reads that leave the keyboard state alone, and does no more for the key's name. The worker that processes the key-down looks the press up in the table kept for that layout, and a `key` action's `key` is named from what it finds (the session format's [Key names](../../../../technical/session-format.md#key-names) holds the lookup). The table holds what the layout gives each key with each combination of Shift, Ctrl, Alt and Caps Lock. The layout is asked with the system's read that leaves the keyboard state as it is. It is never built on the hook, which must return at once: building one takes some thousand reads of the layout. It is built on a thread of its own when the first capture starts, for the layouts loaded then, and by the worker at the first key of a layout loaded later. In both cases it is kept only if no accent was pending before the first key code was asked about and after each one, since the person can type a dead key meanwhile; otherwise it is built again at a later key. The worker asks only after it has settled the element of the key or of the pointer action whose held keys it names, so the wait at a layout's first key does not change which element the action is written on.
+
+Two kinds of key carry a character of their own:
 
 - For a keystroke injected as Unicode (`VK_PACKET`), the hook passes on its scan code, which is the injected UTF-16 code unit, which is what the worker has to name the key from.
-- For a punctuation key, the hook reads the character the key enters with no modifier on the keyboard layout of the foreground window's thread. The read leaves the keyboard state alone.
+- For a punctuation key, the hook reads the character the key enters with no modifier on the keyboard layout of the foreground window's thread: the accent a dead key carries. The read leaves the keyboard state alone.
 
-The session format's `key` row holds the names and what each field states; DCP-19 holds this platform's own rules beside it.
+The session format's [Key names](../../../../technical/session-format.md#key-names) holds the names and its `key` row what each field states; DCP-19 holds this platform's own rules beside it.
 
 **The input method.** At each key-down the hook reads whether the focused control's input method is on, and its conversion mode. It asks that control's input-method window (`ImmGetDefaultIMEWnd`) with two `WM_IME_CONTROL` messages (`IMC_GETOPENSTATUS`, then `IMC_GETCONVERSIONMODE`), which the program's own thread answers. The session format's `key` row holds what is written from each outcome, and DCP-19 the order of the asks. The time limit of each ask, in whole milliseconds (`src/capture/timing.rs`):
 
@@ -174,9 +178,22 @@ So the two asks take at most a quarter of the system's low-level hook timeout, a
 
 Windows hands a program a message another thread sent it ahead of the key presses waiting in its queue. That is why the read can show the state before an earlier key took effect.
 
+### The key behind a dead key
+
+The [session format](../../../../technical/session-format.md#key-names) states what the key pressed behind a dead key is named. The typing worker names it, since the key-downs go to it in the order pressed:
+
+- It keeps the accent that waits, one a keyboard layout, as Windows does whichever window the keys go to.
+- Each key-down is taken in by what the layout's table gives the key with the modifiers as held, and what it does to the accent is the session format's table.
+- Where the worker cannot know which accent waits, it says so and guesses none: the next key an accent would rename is `Unidentified` (DCP-13 lists the cases). When the keyboard hook is set, the input thread asks each loaded layout whether an accent waits on it, with the read that leaves the keyboard state alone, and tells the worker ahead of every key. A worker that takes the typing over from another, and the replacement of one that ended, is told that it did not get the keys before it. A key-down whose processing failed leaves every layout not known.
+- A key-down in a window that is not recorded counts like any other. The keyboard hook sends the worker its layout, key code and modifiers, the worker takes it into what waits, and nothing is written, logged or kept of it.
+- What an accent and a character make together is the layout's own list. The registry names the layout's file (`HKLM\SYSTEM\CurrentControlSet\Control\Keyboard Layouts`, by the layout handle's device half or its `Layout Id`), and the desktop reads that file from the system folder as bytes. The file is never loaded or run. A name that is no plain file name is not followed, at most 8 MiB are read, and every place the file names is checked against its bytes. The list is read at the first key behind a dead key on the layout, by the worker, and kept for eight layouts.
+- Only a file in the 64-bit x64 form is read, with its tables found the one way the layout files of Windows state them. Any other file gives no list: the key behind a dead key is `Unidentified` (DCP-13), and the log says why once for the layout.
+
+The keys held at a pointer action are named by another worker. It reads what each held key's own key-down was named from a record the workers share. The pool notes there each key-down it sends to be named, so a key-down sent and not named yet has no name, whatever was named after it. The action waits for the names of its held keys for at most 5 s in all (DCP-13).
+
 ### Whether a key is a dead key
 
-The keyboard hook asks the keyboard layout of the foreground window whether the key, as pressed, is a dead key (DCP-17). It asks with the system's read that leaves the keyboard state as it is.
+DCP-17 holds which answer decides whether a key is a dead key: the layout's table, or the hook's own question. The table is the one the key's name comes from ([above](#what-the-keyboard-hook-reads-at-a-key-press)). For its own question the keyboard hook asks the keyboard layout of the foreground window whether the key, as pressed, is a dead key. It asks with the system's read that leaves the keyboard state as it is.
 
 | The key is pressed           | How it is known                                                                                                                                                           |
 | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
