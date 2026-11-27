@@ -317,20 +317,20 @@ handle as its context, which no switch introduced. And the switch before an
 action in an inactive window records that window's context, not an activation
 the person made.
 
-A focus is recorded on the element focused when a worker describes it, and in
-the context of the top-level window that element is in, as its description
-resolved it, with that window's rectangle — not the window the focus event
-named, which differs when the focus moved on before the worker described it (a
-dialog that closed as the focus went back to its owner, for example) and no
-later focus event was dispatched before the description (a focus described
-after one writes nothing, DCP-12); where the description resolved no window, the
-event's window gives the context.
+A focus is recorded on the element focused when a worker describes it, which
+need not be the element the focus event named: the focus can move on before
+the worker describes it (a dialog that closed as the focus went back to its
+owner, for example) with no later focus event dispatched before the
+description (a focus described after one writes nothing, DCP-12). Where it is
+recorded follows from the top-level window that element is in, as its
+description resolved it:
 
-A focus whose element is in another window
-than the one the event named, as its description resolved it, and that window
-belongs to another process than the event's, or to a process that can no
-longer be read, writes nothing: the
-scope filters (DCP-5) judged the event's process, not that one.
+| The element's top-level window                                        | The focus is written                                             |
+| --------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| None resolved                                                         | In the context and rectangle of the window the event named       |
+| The window the event named                                            | In that window's context, with its rectangle                     |
+| Another window of the event's process                                 | In that window's context, with its rectangle                     |
+| Another window of another process, or of a process that can't be read | Not at all: the scope filters (DCP-5) judged the event's process |
 
 The Input_Thread introduces the event's window, not the element's (above), so a
 focus recorded in a window the session introduced no other way has no
