@@ -120,14 +120,11 @@ impl OnLayout {
         self.had_their_key.push(thread);
     }
 
-    /// The accent begun in another thread than `thread`, or that may wait
-    /// there, is no longer known to wait: a key that gives something went
-    /// elsewhere. Windows' own accent may wait on for any thread, so none
-    /// is known in any.
-    fn key_went_elsewhere(&mut self, thread: u32) {
-        if matches!(self.begun, Some((begun_in, _)) if begun_in != thread) {
-            self.not_known();
-        }
+    /// Whether an accent was begun, or may wait, in another thread than
+    /// `thread`: a key that gives something there may leave Windows' own
+    /// accent waiting on for any thread.
+    fn begun_elsewhere(&self, thread: u32) -> bool {
+        matches!(self.begun, Some((begun_in, _)) if begun_in != thread)
     }
 
     /// What waits for a key in `thread`.
@@ -226,6 +223,9 @@ impl WaitingAccents {
         if is_dead || (matches!(before, Waiting::Accent(_)) && after != before) {
             on.may_wait_in(thread);
         }
+        if is_dead && thread == 0 {
+            self.forget();
+        }
         match named {
             Named::AsPressed => Named::AsPressed,
             Named::Composed(_) | Named::NotKnown => Named::NotKnown,
@@ -250,11 +250,13 @@ impl WaitingAccents {
             // The key may have been a dead key, or have taken an accent
             // away: what waits is no longer known, in its thread on its
             // layout or, with no layout read, anywhere.
-            if layout == 0 {
+            if layout == 0 || thread == 0 {
                 self.forget();
             } else {
                 self.key_went_to(thread);
-                self.on(layout).not_known();
+                let on = self.on(layout);
+                on.not_known();
+                on.may_wait_in(thread);
             }
             return Named::AsPressed;
         };
@@ -266,12 +268,11 @@ impl WaitingAccents {
         let on = self.on(layout);
         let before = on.before(thread);
         let (named, after) = step(before, gives, composed);
-        on.take(
-            thread,
-            before,
-            after,
-            matches!(gives, LayoutAnswer::Dead(_)),
-        );
+        let is_dead = matches!(gives, LayoutAnswer::Dead(_));
+        on.take(thread, before, after, is_dead);
+        if is_dead && thread == 0 {
+            self.forget();
+        }
         named
     }
 
@@ -286,11 +287,17 @@ impl WaitingAccents {
             .and_then(|(_, accent)| accent)
     }
 
-    /// A key that may give something went to `thread`: an accent begun in
-    /// another thread is no longer known to wait, on whichever layout.
+    /// A key that may give something went to `thread`: where an accent was
+    /// begun in another thread, or may wait there, on whichever layout, none
+    /// is known in any thread on any layout. Whether Windows keeps the
+    /// accents of two layouts apart across programs is not measured.
     fn key_went_to(&mut self, thread: u32) {
-        for (_, on) in &mut self.layouts {
-            on.key_went_elsewhere(thread);
+        if self
+            .layouts
+            .iter()
+            .any(|(_, on)| on.begun_elsewhere(thread))
+        {
+            self.forget();
         }
     }
 
@@ -971,6 +978,84 @@ mod tests {
                 (NOTEPAD, character('x')),
             ]),
             [AsPressed, NotKnown, NotKnown]
+        );
+    }
+
+    /// An accent that may wait behind a key on one layout is not known to
+    /// stay off a thread on another layout: the next key in another thread
+    /// is not known, whichever layout it is pressed on.
+    #[test]
+    fn a_dead_key_on_another_layout_leaves_the_next_key_elsewhere_not_known() {
+        const OTHER_LAYOUT: i64 = 0x0409_0409;
+        let mut waiting = known();
+        assert_eq!(
+            waiting.press(OTHER_LAYOUT, CALCULATOR, dead(ACUTE), list),
+            AsPressed
+        );
+        assert_eq!(
+            waiting.press(DANISH, NOTEPAD, character('e'), list),
+            NotKnown
+        );
+        // So behind a dead key the system may take, a key whose layout
+        // could not be asked, and a dead key with no thread read.
+        let mut waiting = known();
+        assert_eq!(
+            waiting.press_the_system_may_take(OTHER_LAYOUT, CALCULATOR, dead(ACUTE), list),
+            AsPressed
+        );
+        assert_eq!(
+            waiting.press(DANISH, NOTEPAD, character('e'), list),
+            NotKnown
+        );
+        let mut waiting = known();
+        assert_eq!(
+            waiting.press(OTHER_LAYOUT, CALCULATOR, None, list),
+            AsPressed
+        );
+        assert_eq!(
+            waiting.press(DANISH, NOTEPAD, character('e'), list),
+            NotKnown
+        );
+        let mut waiting = known();
+        assert_eq!(waiting.press(OTHER_LAYOUT, 0, dead(ACUTE), list), AsPressed);
+        assert_eq!(
+            waiting.press(DANISH, NOTEPAD, character('e'), list),
+            NotKnown
+        );
+        let mut waiting = known();
+        assert_eq!(
+            waiting.press_the_system_may_take(OTHER_LAYOUT, 0, dead(ACUTE), list),
+            AsPressed
+        );
+        assert_eq!(
+            waiting.press(DANISH, NOTEPAD, character('e'), list),
+            NotKnown
+        );
+        let mut waiting = known();
+        assert_eq!(waiting.press(OTHER_LAYOUT, 0, None, list), AsPressed);
+        assert_eq!(
+            waiting.press(DANISH, NOTEPAD, character('e'), list),
+            NotKnown
+        );
+    }
+
+    /// The key behind such a key pressed in its own thread leaves the
+    /// threads on other layouts as they were.
+    #[test]
+    fn a_dead_key_and_its_key_on_another_layout_leave_the_others_known() {
+        const OTHER_LAYOUT: i64 = 0x0409_0409;
+        let mut waiting = known();
+        assert_eq!(
+            waiting.press(OTHER_LAYOUT, CALCULATOR, None, list),
+            AsPressed
+        );
+        assert_eq!(
+            waiting.press(OTHER_LAYOUT, CALCULATOR, character('q'), list),
+            AsPressed
+        );
+        assert_eq!(
+            waiting.press(DANISH, NOTEPAD, character('e'), list),
+            AsPressed
         );
     }
 
