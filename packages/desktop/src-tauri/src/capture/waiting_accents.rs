@@ -248,15 +248,13 @@ impl WaitingAccents {
     ) -> Named {
         let Some(gives) = as_held else {
             // The key may have been a dead key, or have taken an accent
-            // away: what waits is no longer known, in its thread on its
-            // layout or, with no layout read, anywhere.
+            // away: what waits is no longer known in its thread or, with
+            // no layout or no thread read, anywhere.
             if layout == 0 || thread == 0 {
                 self.forget();
             } else {
                 self.key_went_to(thread);
-                let on = self.on(layout);
-                on.not_known();
-                on.may_wait_in(thread);
+                self.on(layout).may_wait_in(thread);
             }
             return Named::AsPressed;
         };
@@ -1055,6 +1053,27 @@ mod tests {
         );
         assert_eq!(
             waiting.press(DANISH, NOTEPAD, character('e'), list),
+            AsPressed
+        );
+    }
+
+    /// A key whose layout could not be asked may have been a dead key, and
+    /// no more: the key behind it in its own thread leaves the other
+    /// threads on its layout as they were.
+    #[test]
+    fn a_key_whose_layout_could_not_be_asked_and_its_key_leave_the_others_known() {
+        let mut waiting = known();
+        assert_eq!(waiting.press(DANISH, CALCULATOR, None, list), AsPressed);
+        assert_eq!(
+            waiting.press(DANISH, CALCULATOR, character('e'), list),
+            NotKnown
+        );
+        assert_eq!(
+            waiting.press(DANISH, NOTEPAD, character('e'), list),
+            AsPressed
+        );
+        assert_eq!(
+            waiting.press(DANISH, CALCULATOR, character('e'), list),
             AsPressed
         );
     }

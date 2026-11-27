@@ -656,7 +656,8 @@ After a typing worker gives its role up at a commit, two things hold for deliver
       with Alt is touched like the key alone, since Windows lets an accent
       take it;
     - after a key that went down while its layout could not be asked (the
-      bullet above);
+      bullet above): in its own thread, and in each thread where the next
+      key goes to another thread, as behind a dead key;
     - after a key-down the typing worker lost (its processing failed), and
       for a worker that takes the typing over from one that stopped
       answering or ended;
