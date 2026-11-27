@@ -337,11 +337,10 @@ pub enum WorkerMessage {
         key_code: u32,
         held: u8,
     },
-    /// The worker did not get every key-down in the order pressed, or an
-    /// accent waited when the recording started: which accent waits is not
-    /// known, on `layout` or, with none named, on any
-    /// ([`super::waiting_accents`]). Sent to the typing worker only.
-    AccentsNotKnown { layout: Option<i64> },
+    /// The worker did not get every key-down in the order pressed: which
+    /// accent waits is not known ([`super::waiting_accents`]). Sent to the
+    /// typing worker only.
+    AccentsNotKnown,
     /// Poison pill — drain remaining events then exit.
     Shutdown,
 }
@@ -986,25 +985,11 @@ impl WorkerPool {
         // which accent waits is not known to it.
         if self.typing_worker_chosen_before {
             if let Some(worker) = self.workers.get(idx) {
-                let _ = worker
-                    .sender
-                    .send(WorkerMessage::AccentsNotKnown { layout: None });
+                let _ = worker.sender.send(WorkerMessage::AccentsNotKnown);
             }
         }
         self.typing_worker_chosen_before = true;
         idx
-    }
-
-    /// An accent waited on `layout` when the recording started: the typing
-    /// worker, one chosen now where none holds the role, is told that what
-    /// waits there is not known ([`WorkerMessage::AccentsNotKnown`]).
-    pub fn accent_not_known_on(&mut self, layout: i64) {
-        let index = self.typing_worker_index();
-        if let Some(worker) = self.workers.get(index) {
-            let _ = worker.sender.send(WorkerMessage::AccentsNotKnown {
-                layout: Some(layout),
-            });
-        }
     }
 
     /// The typing in a field has ended with no event to dispatch: a window
@@ -1257,7 +1242,7 @@ impl WorkerPool {
         if self.typing_worker.load(Ordering::SeqCst) == index {
             let _ = self.workers[index]
                 .sender
-                .send(WorkerMessage::AccentsNotKnown { layout: None });
+                .send(WorkerMessage::AccentsNotKnown);
         }
 
         // The typing and focus workers keep their index: the replacement is
@@ -1666,7 +1651,7 @@ pub trait AccessibilityBackend: Send + 'static {
     fn composed(
         &self,
         _layout: i64,
-        _accent: char,
+        _accent: super::layout_file::Accent,
         _base: char,
     ) -> Result<Option<super::layout_file::Composed>, super::waiting_accents::NoList> {
         Err(super::waiting_accents::NoList)
@@ -2576,10 +2561,7 @@ pub fn worker_loop<B: AccessibilityBackend>(
                     state.accents.forget();
                 }
             }
-            Ok(WorkerMessage::AccentsNotKnown { layout }) => match layout {
-                Some(layout) => state.accents.forget_on(layout),
-                None => state.accents.forget(),
-            },
+            Ok(WorkerMessage::AccentsNotKnown) => state.accents.forget(),
             Ok(WorkerMessage::LookAtFocus) => {
                 // Backend calls only; the buffers are not touched.
                 let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -2614,10 +2596,7 @@ pub fn worker_loop<B: AccessibilityBackend>(
                                 state.accents.forget();
                             }
                         }
-                        WorkerMessage::AccentsNotKnown { layout } => match layout {
-                            Some(layout) => state.accents.forget_on(layout),
-                            None => state.accents.forget(),
-                        },
+                        WorkerMessage::AccentsNotKnown => state.accents.forget(),
                         WorkerMessage::EndTyping => {
                             lock_buffers(&pending)
                                 .end_typing(current_timestamp_ms(), &action_sender);
@@ -5456,9 +5435,7 @@ mod tests {
                     Ok(WorkerMessage::EndTyping)
                     | Ok(WorkerMessage::MenuCommand)
                     | Ok(WorkerMessage::WriteHeldKey)
-                    | Ok(
-                        WorkerMessage::UnrecordedKey { .. } | WorkerMessage::AccentsNotKnown { .. },
-                    )
+                    | Ok(WorkerMessage::UnrecordedKey { .. } | WorkerMessage::AccentsNotKnown)
                     | Ok(WorkerMessage::LookAtFocus) => {}
                     Ok(WorkerMessage::Shutdown) | Err(_) => break,
                 }
@@ -5551,7 +5528,7 @@ mod tests {
                             let _ = ack.send(idx);
                         }
                     }
-                    Ok(WorkerMessage::AccentsNotKnown { .. }) => {
+                    Ok(WorkerMessage::AccentsNotKnown) => {
                         seen.lock().unwrap().push((idx, spawn, ACCENTS_NOT_KNOWN));
                     }
                     Ok(WorkerMessage::EndTyping)
@@ -5634,19 +5611,6 @@ mod tests {
             key_names(&drain_events(&rx)),
             vec!["Dead", "Unidentified", "e"]
         );
-    }
-
-    /// An accent that waited when the recording started is told to the
-    /// typing worker, for its layout.
-    #[test]
-    fn regression_717_an_accent_that_waited_at_the_start_makes_the_next_key_not_known() {
-        let (mut pool, rx) = pool_with_probe_backend(false, false);
-        pool.accent_not_known_on(PROBE_LAYOUT);
-        pool.dispatch(probe_key(0x45, false, 1));
-        pool.dispatch(probe_key(0x45, false, 2));
-        thread::sleep(Duration::from_millis(100));
-        pool.shutdown_with_timeout(Duration::from_secs(5));
-        assert_eq!(key_names(&drain_events(&rx)), vec!["Unidentified", "e"]);
     }
 
     /// The pool says which key-downs it sent to be named: one that its
@@ -5990,23 +5954,23 @@ mod tests {
         fn composed(
             &self,
             layout: i64,
-            accent: char,
+            accent: crate::capture::layout_file::Accent,
             base: char,
         ) -> Result<
             Option<crate::capture::layout_file::Composed>,
             crate::capture::waiting_accents::NoList,
         > {
-            use crate::capture::layout_file::Composed;
+            use crate::capture::layout_file::Compositions;
             if layout != PROBE_LAYOUT {
                 return Err(crate::capture::waiting_accents::NoList);
             }
-            Ok(match (accent, base) {
-                (ACUTE, 'e') => Some(Composed::Char('é')),
-                (ACUTE, 'A') => Some(Composed::Char('Á')),
-                (ACUTE, ' ') => Some(Composed::Char(ACUTE)),
-                ('`', 'e') => Some(Composed::Char('è')),
-                _ => None,
-            })
+            Ok(Compositions::of_entries(&[
+                (ACUTE, 'e', 'é', false),
+                (ACUTE, 'A', 'Á', false),
+                (ACUTE, ' ', ACUTE, false),
+                ('`', 'e', 'è', false),
+            ])
+            .asked(accent, base))
         }
 
         fn init(&mut self) -> Result<(), CaptureError> {
@@ -6721,10 +6685,56 @@ mod tests {
         key_name(named.as_ref().unwrap_or(raw))
     }
 
+    /// A worker's state once the probe thread had a key that gives something
+    /// (a `q`, which no accent of the probe layout makes anything with): no
+    /// accent waits in it. A recording starts with no thread known
+    /// ([`regression_836_at_the_start_no_thread_is_known`]).
+    fn settled(presses: Arc<NamedPresses>) -> WorkerState {
+        let mut state = WorkerState::new(presses);
+        assert_eq!(named_in(&mut state, &probe_key(0x51, false, 0)), "q");
+        state
+    }
+
+    /// At the start of a recording a program can hold an accent from before
+    /// it: the first key an accent of the layout would rename is not known,
+    /// the key behind a dead key pressed first is not known, and a key no
+    /// accent would rename keeps its name.
+    #[test]
+    fn regression_836_at_the_start_no_thread_is_known() {
+        let start = || WorkerState::new(Arc::new(NamedPresses::new()));
+        let mut state = start();
+        assert_eq!(
+            named_in(&mut state, &probe_key(0x45, false, 1)),
+            "Unidentified"
+        );
+        assert_eq!(named_in(&mut state, &probe_key(0x45, false, 2)), "e");
+        let mut state = start();
+        assert_eq!(
+            named_in(&mut state, &probe_key(PROBE_DEAD_KEY, false, 1)),
+            "Dead"
+        );
+        assert_eq!(
+            named_in(&mut state, &probe_key(0x45, false, 2)),
+            "Unidentified"
+        );
+        let mut state = start();
+        assert_eq!(named_in(&mut state, &probe_key(0x51, false, 1)), "q");
+        assert_eq!(named_in(&mut state, &probe_key(0x45, false, 2)), "e");
+        // Each thread by itself.
+        let mut elsewhere = probe_key(0x45, false, 3);
+        elsewhere.keyboard_thread = PROBE_THREAD + 1;
+        assert_eq!(named_in(&mut state, &elsewhere), "Unidentified");
+        // Ctrl and a letter is named whatever waits.
+        let mut state = start();
+        let mut ctrl_e = probe_key(0x45, false, 1);
+        ctrl_e.modifiers = (true, false, false, false);
+        assert_eq!(named_in(&mut state, &ctrl_e), "e");
+    }
+
     /// The names of `keys` (a key code, and whether Shift is held), pressed
     /// in turn on the probe layout.
     fn names_in_turn(keys: &[(u32, bool)]) -> Vec<String> {
-        let mut state = WorkerState::new(Arc::new(NamedPresses::new()));
+        let mut state = settled(Arc::new(NamedPresses::new()));
         keys.iter()
             .enumerate()
             .map(|(at, &(vk, shift))| named_in(&mut state, &probe_key(vk, shift, at as u64 + 1)))
@@ -6756,7 +6766,7 @@ mod tests {
         // A second dead key.
         assert_eq!(names_in_turn(&[DEAD, DEAD, E]), ["Dead", "Dead", "e"]);
         // Ctrl with a letter is named by the letter, as with no accent.
-        let mut state = WorkerState::new(Arc::new(NamedPresses::new()));
+        let mut state = settled(Arc::new(NamedPresses::new()));
         assert_eq!(
             named_in(&mut state, &probe_key(PROBE_DEAD_KEY, false, 1)),
             "Dead"
@@ -6782,7 +6792,7 @@ mod tests {
 
     #[test]
     fn regression_717_a_shift_key_and_an_injected_character_leave_the_accent_waiting() {
-        let mut state = WorkerState::new(Arc::new(NamedPresses::new()));
+        let mut state = settled(Arc::new(NamedPresses::new()));
         assert_eq!(
             named_in(&mut state, &probe_key(PROBE_DEAD_KEY, false, 1)),
             "Dead"
@@ -6805,7 +6815,7 @@ mod tests {
             raw.modifiers = (false, false, false, true);
             raw
         };
-        let mut state = WorkerState::new(Arc::new(NamedPresses::new()));
+        let mut state = settled(Arc::new(NamedPresses::new()));
         assert_eq!(named_in(&mut state, &win(0x45, 1)), "e");
         assert_eq!(named_in(&mut state, &probe_key(0x45, false, 2)), "e");
         assert_eq!(
@@ -6820,7 +6830,7 @@ mod tests {
         assert_eq!(named_in(&mut state, &probe_key(0x45, false, 6)), "e");
         // The same for a key outside the recording.
         let backend = probe();
-        let mut state = WorkerState::new(Arc::new(NamedPresses::new()));
+        let mut state = settled(Arc::new(NamedPresses::new()));
         note_unrecorded_key(
             PROBE_LAYOUT,
             PROBE_THREAD,
@@ -6851,7 +6861,7 @@ mod tests {
         let backend = probe();
         let other_thread = PROBE_THREAD + 1;
         // The dead key outside the recording, in another thread.
-        let mut state = WorkerState::new(Arc::new(NamedPresses::new()));
+        let mut state = settled(Arc::new(NamedPresses::new()));
         note_unrecorded_key(
             PROBE_LAYOUT,
             other_thread,
@@ -6865,7 +6875,7 @@ mod tests {
             "Unidentified"
         );
         // The dead key recorded, the key behind it in another window.
-        let mut state = WorkerState::new(Arc::new(NamedPresses::new()));
+        let mut state = settled(Arc::new(NamedPresses::new()));
         assert_eq!(
             named_in(&mut state, &probe_key(PROBE_DEAD_KEY, false, 1)),
             "Dead"
@@ -6885,7 +6895,7 @@ mod tests {
     /// attributed to, and whether or not that window still exists.
     #[test]
     fn regression_836_the_thread_of_a_key_is_the_one_read_at_its_key_down() {
-        let mut state = WorkerState::new(Arc::new(NamedPresses::new()));
+        let mut state = settled(Arc::new(NamedPresses::new()));
         assert_eq!(
             named_in(&mut state, &probe_key(PROBE_DEAD_KEY, false, 1)),
             "Dead"
@@ -6895,7 +6905,7 @@ mod tests {
         dialog.window_handle += 1;
         assert_eq!(named_in(&mut state, &dialog), "é");
         // The same window handle with another thread read.
-        let mut state = WorkerState::new(Arc::new(NamedPresses::new()));
+        let mut state = settled(Arc::new(NamedPresses::new()));
         assert_eq!(
             named_in(&mut state, &probe_key(PROBE_DEAD_KEY, false, 1)),
             "Dead"
@@ -6910,7 +6920,7 @@ mod tests {
         let backend = probe();
         // A dead key pressed in a window that is not recorded: the key behind
         // it, in a recorded window, is the composed one.
-        let mut state = WorkerState::new(Arc::new(NamedPresses::new()));
+        let mut state = settled(Arc::new(NamedPresses::new()));
         note_unrecorded_key(
             PROBE_LAYOUT,
             PROBE_THREAD,
@@ -6921,7 +6931,7 @@ mod tests {
         );
         assert_eq!(named_in(&mut state, &probe_key(0x45, false, 1)), "é");
         // A letter pressed there takes a recorded dead key's accent away.
-        let mut state = WorkerState::new(Arc::new(NamedPresses::new()));
+        let mut state = settled(Arc::new(NamedPresses::new()));
         assert_eq!(
             named_in(&mut state, &probe_key(PROBE_DEAD_KEY, false, 1)),
             "Dead"
@@ -6940,7 +6950,7 @@ mod tests {
             shift: true,
             ..Default::default()
         };
-        let mut state = WorkerState::new(Arc::new(NamedPresses::new()));
+        let mut state = settled(Arc::new(NamedPresses::new()));
         note_unrecorded_key(
             PROBE_LAYOUT,
             PROBE_THREAD,
@@ -6951,7 +6961,7 @@ mod tests {
         );
         assert_eq!(named_in(&mut state, &probe_key(0x45, false, 1)), "è");
         // A Shift key and an injected character there change nothing.
-        let mut state = WorkerState::new(Arc::new(NamedPresses::new()));
+        let mut state = settled(Arc::new(NamedPresses::new()));
         assert_eq!(
             named_in(&mut state, &probe_key(PROBE_DEAD_KEY, false, 1)),
             "Dead"
@@ -6980,7 +6990,7 @@ mod tests {
         // A key on a layout that cannot be asked: it may have been a dead
         // key. The next key an accent would rename has no name; the one
         // behind it has.
-        let mut state = WorkerState::new(Arc::new(NamedPresses::new()));
+        let mut state = settled(Arc::new(NamedPresses::new()));
         let mut unread = probe_key(0xBA, false, 1);
         unread.keyboard_layout = 0;
         assert_eq!(named_in(&mut state, &unread), "Unidentified");
@@ -6990,7 +7000,7 @@ mod tests {
         );
         assert_eq!(named_in(&mut state, &probe_key(0x45, false, 3)), "e");
         // A key with a name of its own keeps it.
-        let mut state = WorkerState::new(Arc::new(NamedPresses::new()));
+        let mut state = settled(Arc::new(NamedPresses::new()));
         assert_eq!(named_in(&mut state, &unread), "Unidentified");
         assert_eq!(
             named_in(&mut state, &probe_key(0x25, false, 2)),
@@ -7002,7 +7012,7 @@ mod tests {
     fn regression_717_a_held_key_is_named_as_its_own_key_down_was() {
         use crate::capture::held_keys::HeldPress;
         let presses = Arc::new(NamedPresses::new());
-        let mut state = WorkerState::new(Arc::clone(&presses));
+        let mut state = settled(Arc::clone(&presses));
         assert_eq!(
             named_in(&mut state, &probe_key(PROBE_DEAD_KEY, false, 1)),
             "Dead"
@@ -7080,14 +7090,19 @@ mod tests {
     #[test]
     fn regression_717_the_pool_names_the_key_behind_a_dead_key() {
         let (mut pool, rx) = pool_with_probe_backend(false, false);
-        pool.dispatch(probe_key(PROBE_DEAD_KEY, false, 1));
-        pool.dispatch(probe_key(0x45, false, 2));
-        pool.unrecorded_key(PROBE_LAYOUT, PROBE_THREAD, PROBE_DEAD_KEY, 0);
+        // The first key of the thread: from it on no accent waits there.
+        pool.dispatch(probe_key(0x51, false, 1));
+        pool.dispatch(probe_key(PROBE_DEAD_KEY, false, 2));
         pool.dispatch(probe_key(0x45, false, 3));
+        pool.unrecorded_key(PROBE_LAYOUT, PROBE_THREAD, PROBE_DEAD_KEY, 0);
         pool.dispatch(probe_key(0x45, false, 4));
+        pool.dispatch(probe_key(0x45, false, 5));
         thread::sleep(Duration::from_millis(100));
         pool.shutdown_with_timeout(Duration::from_secs(5));
-        assert_eq!(key_names(&drain_events(&rx)), vec!["Dead", "é", "é", "e"]);
+        assert_eq!(
+            key_names(&drain_events(&rx)),
+            vec!["q", "Dead", "é", "é", "e"]
+        );
     }
 
     #[test]
