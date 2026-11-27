@@ -8101,6 +8101,11 @@ struct FocusWindowBackend {
     /// process's window, say).
     window_process_later: Option<u32>,
     window_process_reads: AtomicU64,
+    /// What `window`'s title reads as after its first read, which reads
+    /// empty, where given (a window of another process that took the
+    /// closed window's handle, say).
+    window_title_later: Option<String>,
+    window_title_reads: AtomicU64,
 }
 
 /// The process every test focus event comes from (`make_raw_event`).
@@ -8133,8 +8138,16 @@ impl AccessibilityBackend for FocusWindowBackend {
     fn focused_element_in_window(&self) -> Option<(ElementDescription, i64)> {
         Some((self.focused_element()?, self.window))
     }
-    fn window_title(&self, _window_handle: i64) -> String {
-        String::new()
+    fn window_title(&self, window_handle: i64) -> String {
+        let reads = if window_handle == self.window {
+            self.window_title_reads.fetch_add(1, Ordering::SeqCst)
+        } else {
+            0
+        };
+        match &self.window_title_later {
+            Some(later) if window_handle == self.window && reads > 0 => later.clone(),
+            _ => String::new(),
+        }
     }
     fn process_name(&self, _window_handle: i64) -> String {
         "test.exe".to_string()
@@ -8193,6 +8206,8 @@ fn focus_written_with_element_in_process(
         selector: Arc::new(Mutex::new("Notepad > Document:Text editor".to_string())),
         window_process_later: None,
         window_process_reads: AtomicU64::new(0),
+        window_title_later: None,
+        window_title_reads: AtomicU64::new(0),
     });
     let mut focus = make_raw_event(RawEventType::Focus, DIALOG);
     focus.sequence_id = 1;
@@ -8286,6 +8301,8 @@ fn written_for_focus_into_notepad(
         selector: Arc::new(Mutex::new("Notepad > Document:Text editor".to_string())),
         window_process_later: notepad_process_later,
         window_process_reads: AtomicU64::new(0),
+        window_title_later: None,
+        window_title_reads: AtomicU64::new(0),
     });
     let mut focus = make_raw_event(RawEventType::Focus, DIALOG);
     focus.sequence_id = 5;
@@ -8337,6 +8354,8 @@ fn a_second_focus_in_a_window_a_focus_introduced_takes_no_second_switch() {
         selector: selector.clone(),
         window_process_later: None,
         window_process_reads: AtomicU64::new(0),
+        window_title_later: None,
+        window_title_reads: AtomicU64::new(0),
     });
     for (sequence_id, element) in [
         (5, "Notepad > Document:Text editor"),
@@ -8446,6 +8465,37 @@ fn a_focus_whose_window_changes_process_before_its_switch_is_written_writes_noth
         written_for_focus_into_notepad(None, EVENT_PROCESS, Some(OTHER_PROCESS)),
         vec![]
     );
+}
+
+/// The switch ahead of a focus takes the title read before the window's
+/// process is read again: where that title was empty, the switch has none,
+/// and the window is not read again after the check (by then the handle may
+/// name another process's window, whose title no filter judged).
+#[test]
+fn the_switch_ahead_of_a_focus_takes_no_title_read_after_its_process_check() {
+    let harness = WorkerTestHarness::new(FocusWindowBackend {
+        window: NOTEPAD,
+        window_process: EVENT_PROCESS,
+        window_introduced_at: None,
+        selector: Arc::new(Mutex::new("Notepad > Document:Text editor".to_string())),
+        window_process_later: None,
+        window_process_reads: AtomicU64::new(0),
+        window_title_later: Some("Another program's window".to_string()),
+        window_title_reads: AtomicU64::new(0),
+    });
+    let mut focus = make_raw_event(RawEventType::Focus, DIALOG);
+    focus.sequence_id = 5;
+    harness.send_event(focus);
+    thread::sleep(Duration::from_millis(100));
+    let titles: Vec<Option<String>> = harness
+        .shutdown()
+        .into_iter()
+        .filter_map(|e| match e.payload {
+            ActionPayload::ContextSwitch { title, .. } => Some(title),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(titles, vec![None]);
 }
 
 /// A focus in another window of its process that an event before it

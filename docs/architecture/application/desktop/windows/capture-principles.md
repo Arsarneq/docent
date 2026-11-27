@@ -261,9 +261,11 @@ The Input_Thread introduces the event's window, not the element's (above). It
 also keeps the number of the event that introduced each context. Where no event
 dispatched before the focus introduced the element's window, the worker writes
 a `context_switch` into that window ahead of the focus, at the focus's place in
-the recording. That switch takes the window's process and title as read when
-the focus is described, and nothing is written where the window no longer
-belongs to the event's process by then.
+the recording. That switch is named by the event's process, the one the scope
+filters judged, and titled by the window's title as read when the focus is
+described, read once, so a window with no title gives a switch with none.
+Nothing is written where the window no longer belongs to the event's process
+after its title is read.
 
 The Input_Thread does not learn of that switch, and the focus worker keeps the
 windows it wrote one for only in its own state, which a respawned or newly

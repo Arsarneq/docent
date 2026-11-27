@@ -3572,11 +3572,12 @@ fn handle_focus<B: AccessibilityBackend>(
     // element's (DCP-7). Where no event before this one introduced the
     // element's window, the focus is the first action in its context, and a
     // `context_switch` into it is written first, at the focus's own place in
-    // the recording (docent#817), named and titled as the window reads now.
-    // The window's process is read again after its title: a window that
-    // changed process since the check above (it closed, and its handle went
-    // to another process's window) is one no filter judged, and nothing is
-    // written.
+    // the recording (docent#817). It is named by the event's process, the
+    // one the scope filters judged, and titled as the window reads now. The
+    // window's process is read again after its title, and nothing about the
+    // window is read after that: a window that changed process since the
+    // check above (it closed, and its handle went to another process's
+    // window) is one no filter judged, and nothing is written.
     let switch = if elsewhere
         && !introduced_by_focus.contains(&element_window)
         && !backend.context_introduced_before(element_window, raw.sequence_id)
@@ -3585,24 +3586,20 @@ fn handle_focus<B: AccessibilityBackend>(
         if backend.process_id_of(element_window) != raw.process_id {
             return;
         }
-        Some(RawEvent {
-            event_type: RawEventType::Foreground,
-            window_handle: element_window,
-            window_title: Some(title),
-            callback_params: [0; 4],
-            pre_captured_element: None,
-            held: Vec::new(),
-            ..raw.clone()
-        })
+        let source = backend
+            .process_name_of(raw.process_id)
+            .unwrap_or_else(|| format!("pid:{}", raw.process_id));
+        Some((source, title))
     } else {
         None
     };
     *last_focus = Some(key);
-    if let Some(switch) = switch {
+    if let Some((source, title)) = switch {
         introduced_by_focus.insert(element_window);
-        handle_foreground(
-            &switch,
-            backend,
+        send_context_switch(
+            raw,
+            source,
+            title,
             action_sender,
             context_id,
             window_rect.clone(),
@@ -4443,6 +4440,19 @@ fn handle_foreground<B: AccessibilityBackend>(
             by_window => by_window,
         });
 
+    send_context_switch(raw, source, title, action_sender, context_id, window_rect);
+}
+
+/// Send the `context_switch` for `raw`, named `source` and titled `title`
+/// (none where empty).
+fn send_context_switch(
+    raw: &RawEvent,
+    source: String,
+    title: String,
+    action_sender: &mpsc::Sender<ActionEvent>,
+    context_id: Option<i64>,
+    window_rect: Option<WindowRect>,
+) {
     let _ = action_sender.send(ActionEvent {
         timestamp: raw.timestamp,
         context_id,
