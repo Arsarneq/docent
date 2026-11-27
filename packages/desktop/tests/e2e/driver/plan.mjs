@@ -8,6 +8,10 @@
 //
 // CLI: node plan.mjs <steps.json>  -> prints the event list as JSON.
 
+// chars presses and lets go of these itself for each character, which would
+// let go of one the steps hold down: Shift, Ctrl (either), Alt, AltGr.
+const CHAR_MODIFIERS = [0x10, 0x11, 0x12, 0xa5, 0xa3];
+
 const VK = {
   ctrl: 0x11,
   control: 0x11,
@@ -233,7 +237,7 @@ export function plan(steps) {
       const p = String(step[down ? 'down' : 'up']).toLowerCase();
       if (p.includes('+')) throw new Error(`${at}: ${down ? 'down' : 'up'} takes one key`);
       if (!(p in VK)) throw new Error(`${at}: unknown key '${p}'`);
-      const i = held.findIndex((h) => h.key === p);
+      const i = held.findIndex((h) => VK[h.key] === VK[p]);
       if (down && i >= 0) throw new Error(`${at}: ${p} is already down`);
       if (!down && i < 0) throw new Error(`${at}: ${p} is not down`);
       if (!down && held[i].scan !== scan)
@@ -250,7 +254,7 @@ export function plan(steps) {
       const parts = String(step.key).toLowerCase().split('+');
       const keys = parts.map((p) => {
         if (!(p in VK)) throw new Error(`${at}: unknown key '${p}'`);
-        if (held.some((h) => h.key === p)) throw new Error(`${at}: ${p} is held down`);
+        if (held.some((h) => VK[h.key] === VK[p])) throw new Error(`${at}: ${p} is held down`);
         return p;
       });
       const repeat = step.repeat ?? 1;
@@ -267,6 +271,11 @@ export function plan(steps) {
       const kind = 'chars' in step ? 'char' : 'unicode';
       const s = String(step.chars ?? step.text);
       if (!s) throw new Error(`${at}: empty text`);
+      const mod = kind === 'char' && held.find((h) => CHAR_MODIFIERS.includes(VK[h.key]));
+      if (mod)
+        throw new Error(
+          `${at}: chars presses Shift, Ctrl, Alt and AltGr itself, so it cannot run while ${mod.key} is held`,
+        );
       needGuard();
       for (const ch of s)
         events.push(scan ? { type: kind, char: ch, scan: true } : { type: kind, char: ch });

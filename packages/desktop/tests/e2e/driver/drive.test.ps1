@@ -249,21 +249,25 @@ try {
   Say (Test-FoundBy "id '15' control Edit") 'the edit box was found, by Win32 where UI Automation has no providers' ''
 } finally { Stop-Process -Id $np.Id -Force -ErrorAction SilentlyContinue }
 
-# Case 11: a run that stops early leaves no key down and Caps Lock as it
+# Case 11: every way a run ends leaves no key down and Caps Lock as the run
 # found it. The first run turns Caps Lock on and types a, the second holds
 # Shift and types d, and both then stop on a guard for a window that is not
-# there; the third types bc. A Caps Lock left on or a Shift left down would
-# make the third run's letters capitals.
+# there (exit 3); the third turns Caps Lock on, types f and stops on a
+# character no layout has a key for (exit 4); the fourth turns Caps Lock on,
+# types g and runs through (exit 0); the fifth types bc. A Caps Lock left on
+# or a Shift left down would make a later run's letters the wrong case.
 $out = Join-Path $work 'case11.txt'
 $p = Start-Target $out
 $gone = @{ window = @{ process = 'no-such-process.exe' } }
 $rc1 = Invoke-Drive @($guard, @{ key = 'capslock' }, @{ chars = 'a' }, $gone, @{ chars = 'x' })
 $rc2 = Invoke-Drive @($guard, @{ down = 'shift' }, @{ chars = 'd' }, $gone, @{ chars = 'x' })
-$rc3 = Invoke-Drive @($guard, @{ chars = 'bc' }, $close)
+$rc3 = Invoke-Drive @($guard, @{ key = 'capslock' }, @{ chars = 'f' }, @{ chars = [string][char]0x3042 }, @{ chars = 'x' })
+$rc4 = Invoke-Drive @($guard, @{ key = 'capslock' }, @{ chars = 'g' })
+$rc5 = Invoke-Drive @($guard, @{ chars = 'bc' }, $close)
 $p.WaitForExit(10000) | Out-Null
 $got = if (Test-Path $out) { [IO.File]::ReadAllText($out) } else { '<no output>' }
-Say (($rc1 -eq 3) -and ($rc2 -eq 3) -and ($rc3 -eq 0)) 'two runs stop early, the third runs through' "(rc=$rc1,$rc2,$rc3)"
-Say ($got -ceq 'ADbc') 'Caps Lock and a held Shift were put back when the runs stopped' "(got '$got', wanted 'ADbc')"
+Say (($rc1 -eq 3) -and ($rc2 -eq 3) -and ($rc3 -eq 4) -and ($rc4 -eq 0) -and ($rc5 -eq 0)) 'runs end with exit 3, 3, 4, 0 and 0' "(rc=$rc1,$rc2,$rc3,$rc4,$rc5)"
+Say ($got -ceq 'ADFGbc') 'Caps Lock and a held Shift were put back however each run ended' "(got '$got', wanted 'ADFGbc')"
 
 # Case 3: the planner's refusal stops the run with exit 2 and no input, and
 # the refusal is the missing guard, not a malformed steps file.

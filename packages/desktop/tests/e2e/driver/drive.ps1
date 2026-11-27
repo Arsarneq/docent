@@ -33,22 +33,7 @@ function Write-Log($line) {
 $script:held = [System.Collections.ArrayList]::new()
 $script:toggled = @{}
 function Stop-Run([int]$code) {
-  for ($i = $script:held.Count - 1; $i -ge 0; $i--) {
-    $k = $script:held[$i]
-    try {
-      if ($k.scan) { [DriverInput]::VkScan($k.vk, $true, $k.ext) } else { [DriverInput]::Vk($k.vk, $true) }
-      Write-Log "release vk 0x$($k.vk.ToString('x')) on the way out"
-    } catch { Write-Log "release vk 0x$($k.vk.ToString('x')) failed: $($_.Exception.Message)" }
-  }
-  $script:held.Clear()
-  foreach ($vk in @($script:toggled.Keys)) {
-    if ($script:toggled[$vk] % 2 -eq 0) { continue }
-    try {
-      [DriverInput]::Vk([uint16]$vk, $false); [DriverInput]::Vk([uint16]$vk, $true)
-      Write-Log "toggle 0x$($vk.ToString('x')) pressed once more, back to where the run found it"
-    } catch { Write-Log "toggle 0x$($vk.ToString('x')) not put back: $($_.Exception.Message)" }
-  }
-  $script:toggled = @{}
+  # Red check only: no clean-up, to show case 11 catches its absence.
   exit $code
 }
 

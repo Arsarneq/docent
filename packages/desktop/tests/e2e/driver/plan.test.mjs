@@ -450,3 +450,42 @@ test('a down or up that does not fit what is held is refused', () => {
     /step 2: shift went down with scan, so it goes up with scan/,
   );
 });
+
+test('a held key is the same key under any of its names', () => {
+  assert.throws(
+    () => plan([W, { down: 'ctrl' }, { key: 'control+a' }]),
+    /step 2: control is held down/,
+  );
+  assert.throws(
+    () => plan([W, { down: 'ctrl' }, { down: 'control' }]),
+    /step 2: control is already down/,
+  );
+  assert.throws(() => plan([W, { down: 'win' }, { key: 'lwin' }]), /step 2: lwin is held down/);
+  const ev = plan([W, { down: 'esc' }, { up: 'escape' }]);
+  assert.deepEqual(
+    ev.filter((e) => e.type === 'vk'),
+    [
+      { type: 'vk', vk: '0x1b', up: false },
+      { type: 'vk', vk: '0x1b', up: true },
+    ],
+  );
+});
+
+test('chars is refused while a key it may press itself is held', () => {
+  for (const k of ['shift', 'ctrl', 'alt', 'altgr'])
+    assert.throws(
+      () => plan([W, { down: k }, { chars: 'a' }]),
+      new RegExp(
+        `step 2: chars presses Shift, Ctrl, Alt and AltGr itself, so it cannot run while ${k} is held`,
+      ),
+    );
+  assert.throws(
+    () => plan([W, { down: 'rctrl', scan: true }, { chars: 'a', scan: true }]),
+    /step 2: chars presses Shift, Ctrl, Alt and AltGr itself, so it cannot run while rctrl is held/,
+  );
+  const ev = plan([W, { down: 'shift' }, { text: 'a' }, { up: 'shift' }, { chars: 'b' }]);
+  assert.deepEqual(
+    ev.filter((e) => e.type !== 'assert').map((e) => e.type),
+    ['vk', 'unicode', 'vk', 'char'],
+  );
+});
