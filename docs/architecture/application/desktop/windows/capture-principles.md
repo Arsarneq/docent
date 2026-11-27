@@ -420,8 +420,9 @@ text is never recorded twice. A key is named as the
 [session format](../../../../technical/session-format.md#key-names) states
 under Key names: the hook reads the keyboard layout of the foreground
 window's thread and whether Caps Lock is on, two reads that leave the
-keyboard state alone, and the worker names the key from the table built for
-that layout. For a punctuation key (the codes `0xBA`–`0xC2`,
+keyboard state alone, looks the press up in the table it built for that
+layout, and the worker names the key from what the hook found. For a
+punctuation key (the codes `0xBA`–`0xC2`,
 `0xDB`–`0xDF`, `0xE1`–`0xE4`, `0xE6`, whose character each layout assigns
 for itself) the hook also reads the character the key enters with no
 modifier on that layout, which tells the worker whether the key is a dead
