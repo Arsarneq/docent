@@ -8584,6 +8584,95 @@ fn a_focus_whose_window_changes_process_as_its_title_is_read_writes_nothing() {
     );
 }
 
+/// A focus as the session's first event takes a switch into its window: it
+/// is no session's first context.
+#[test]
+fn a_focus_is_no_session_s_first_context() {
+    let mut contexts = ContextIntroductions::default();
+    let focus = event_in(RawEventType::Focus, DIALOG, 0, NO_MODIFIERS);
+    assert!(contexts.switch_before(&focus, DIALOG, DIALOG));
+    // The dialog is introduced from then on.
+    assert!(!contexts.switch_before(&key_in(DIALOG, 0x41), DIALOG, DIALOG));
+    // A key first in a session still opens its first context.
+    let mut contexts = ContextIntroductions::default();
+    assert!(!contexts.switch_before(&key_in(NOTEPAD, 0x41), NOTEPAD, NOTEPAD));
+}
+
+/// A capture session whose first event is a focus that names the dialog,
+/// recorded in Notepad, the window its element is in (docent#709): a
+/// focus is no session's first context, so the dialog, in front, takes a
+/// switch ahead of it, and a wheel over the dialog after it, while Notepad is
+/// in front, finds the dialog introduced (core CP-17, session-format SF-10,
+/// docent#822).
+#[test]
+fn regression_822_the_window_a_first_focus_names_is_introduced_by_a_switch() {
+    let mut contexts = ContextIntroductions::default();
+    let record = ContextsIntroducedAt::new();
+    let mut dispatched: Vec<RawEvent> = Vec::new();
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u64;
+    let mut wheel = make_raw_event(RawEventType::Scroll, DIALOG);
+    // Stamped past the debounce, so the worker writes the scroll as it takes
+    // the event, in the event's context.
+    wheel.timestamp = now - 1000;
+    wheel.scroll_delta = 300.0;
+    for (event, foreground) in [
+        (make_raw_event(RawEventType::Focus, DIALOG), DIALOG),
+        (wheel, NOTEPAD),
+    ] {
+        let root = event.window_handle;
+        dispatch_introducing(
+            &mut contexts,
+            &record,
+            event,
+            root,
+            foreground,
+            |action| {
+                event_in(
+                    RawEventType::Foreground,
+                    action.window_handle,
+                    0,
+                    NO_MODIFIERS,
+                )
+            },
+            |mut event| {
+                event.sequence_id = dispatched.len() as u64 + 1;
+                dispatched.push(event);
+                dispatched.len() as u64
+            },
+        );
+    }
+    let harness = WorkerTestHarness::new(FocusWindowBackend {
+        window_introduced_at: None,
+        ..focus_backend(NOTEPAD, EVENT_PROCESS)
+    });
+    for event in dispatched {
+        harness.send_event(event);
+    }
+    thread::sleep(Duration::from_millis(100));
+    let written: Vec<(&str, Option<i64>)> = harness
+        .shutdown()
+        .into_iter()
+        .filter_map(|e| match e.payload {
+            ActionPayload::Focus { .. } => Some(("focus", e.context_id)),
+            ActionPayload::ContextSwitch { .. } => Some(("context_switch", e.context_id)),
+            ActionPayload::Scroll { .. } => Some(("scroll", e.context_id)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        written,
+        vec![
+            ("context_switch", Some(DIALOG)),
+            ("context_switch", Some(NOTEPAD)),
+            ("focus", Some(NOTEPAD)),
+            ("scroll", Some(DIALOG)),
+        ]
+    );
+}
+
 /// A focus in another window of its process that an event before it
 /// introduced takes no switch.
 #[test]

@@ -216,7 +216,9 @@ CP-17 the first action taken in such a window establishes its context. The
 Input_Thread keeps, per capture session, the top-level windows whose context it
 introduced: each window it dispatched a `context_switch` or a `context_open`
 for and, when the session's first dispatched action precedes every such
-switch and open, that action's window (the session's first context). An event
+switch and open and is no focus, that action's window (the session's first
+context). A focus is not, as the worker records it in the window its element
+is in (below), which need not be the window the event named. An event
 to be dispatched in a top-level window outside that set has a
 `context_switch` into that window dispatched before it, with the event's
 timestamp, and the window joins the set. A close introduces nothing, and a

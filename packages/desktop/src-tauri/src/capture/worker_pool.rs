@@ -2702,7 +2702,8 @@ impl ContextIntroductions {
     /// - A lone Shift, Ctrl or Alt press, which the worker drops (DCP-13),
     ///   and an event with no window, count for nothing.
     /// - Any other event is an action. One before any switch or open is in
-    ///   the session's first context, which needs no introduction; one in a
+    ///   the session's first context, which needs no introduction, save a
+    ///   focus, which the worker can record in another window; one in a
     ///   window not introduced yet takes the switch, and the window is
     ///   introduced from then on.
     ///
@@ -2745,6 +2746,10 @@ impl ContextIntroductions {
             }
             RawEventType::WindowDestroy | RawEventType::MouseDown | RawEventType::MouseUp => false,
             RawEventType::Keyboard if is_modifier_only_key(&key_name(event)) => false,
+            // A focus is no session's first context: the worker records it in
+            // the window its element is in, which need not be this one
+            // (DCP-7), so this window takes a switch before it (docent#822).
+            RawEventType::Focus => self.introduced.insert(root),
             _ => {
                 let first = self.introduced.is_empty();
                 self.introduced.insert(root) && !first
