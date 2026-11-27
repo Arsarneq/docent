@@ -11,6 +11,7 @@ pub mod action_mapping;
 pub mod coordinate;
 pub mod element_mapping;
 pub mod held_keys;
+pub mod key_value;
 pub mod hook_diagnostics;
 pub mod language;
 pub mod physical_key;
