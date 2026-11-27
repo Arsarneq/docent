@@ -651,7 +651,13 @@ mod user_actions {
         capture.start(tx).expect("Failed to start capture");
         thread::sleep(Duration::from_millis(200));
 
-        let (hwnd, cx, cy) = unsafe { create_target_window() };
+        // A window that pumps its messages: the worker describes the element
+        // under the point at the drag start, and a window that never answers
+        // WM_GETOBJECT holds that worker past stop()'s wait, which then loses
+        // both the drag start and the drop (docent#795).
+        let window = ResponsiveWindow::new("Drag Test");
+        // ResponsiveWindow's own rectangle: 600 x 400 at (200, 200).
+        let (cx, cy) = (200 + 600 / 2, 200 + 400 / 2);
         thread::sleep(Duration::from_millis(200));
 
         let mut enigo = Enigo::new(&Settings::default()).unwrap();
@@ -666,9 +672,7 @@ mod user_actions {
             .unwrap();
         thread::sleep(Duration::from_millis(500));
 
-        unsafe {
-            let _ = DestroyWindow(hwnd);
-        }
+        drop(window);
         capture.stop().unwrap();
         let events: Vec<_> = rx.try_iter().collect();
 
