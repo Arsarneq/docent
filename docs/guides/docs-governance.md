@@ -160,3 +160,13 @@ A sentence that carries three or more parallel facts is a table or a list
 waiting to be written. Clause text keeps its identifier and its RFC 2119
 wording whatever form surrounds it, and a table or list inside a clause's scope
 still states whether it is closed (Minting clauses, above).
+
+Shorter is better, as long as the reader still gets what they need and gets it without effort. Before a passage is done, cut:
+
+- what another home already states: link the home;
+- what the reader does not need in order to act on the passage;
+- words that carry nothing.
+
+This list is open. A cut that takes away something the reader needs is a meaning change, not a cut. A form from the table above often says the same in fewer words than prose does.
+
+The pull request's reviewer names each touched passage that fails this, with its line, as a review finding recorded in the pull request's change record, and the rule passes when no such finding is open. For a document that holds clauses, Words before and after (above) shows the count.
