@@ -722,13 +722,13 @@ with a caveat):
     key-down was named: the action waits for the names of its held keys for
     at most 5 s in all, and names a key `Unidentified` where none came.
 
-  Three things were read from how Windows behaves and not measured against
-  a browser: a keystroke injected as Unicode (`VK_PACKET`) leaves a waiting
-  accent as it is; a key whose character makes another accent with the
-  waiting one keeps its own name; and Ctrl with a letter key leaves the
-  accent waiting on every layout, which Windows' own translation showed on
-  the six layouts the tests ask (Danish, German, French, Spanish, Czech and
-  United States-International).
+  Windows' own translation of the keys, asked on six layouts (Danish,
+  German, French, Spanish, Czech and United States-International), showed
+  two things the rule takes for every layout: Ctrl with a letter key leaves
+  the accent waiting, and so does a keystroke injected as Unicode
+  (`VK_PACKET`). One thing was read from how Windows behaves and not
+  measured against a browser: a key whose character makes another accent
+  with the waiting one keeps its own name.
 
 - A press of the key with virtual-key code `0xE1` (`VK_OEM_AX`) is written
   as any typing key is: a `key` named from the keyboard layout, or part of

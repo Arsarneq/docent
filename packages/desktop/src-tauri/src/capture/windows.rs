@@ -5362,7 +5362,7 @@ mod tests {
             };
             // Windows' own translation of a key-down, taken into the
             // layout's keyboard state.
-            let press = |vk: u32, held: Held| -> (i32, [u16; 8]) {
+            let translate = |vk: u32, scan_code: u32, held: Held| -> (i32, [u16; 8]) {
                 let mut state = [0u8; 256];
                 if held.shift {
                     state[0x10] = 0x80;
@@ -5382,7 +5382,7 @@ mod tests {
                 let answered = unsafe {
                     super::ToUnicodeEx(
                         vk,
-                        0,
+                        scan_code,
                         state.as_ptr(),
                         windows_core::PWSTR(entered.as_mut_ptr()),
                         8,
@@ -5392,6 +5392,7 @@ mod tests {
                 };
                 (answered, entered)
             };
+            let press = |vk: u32, held: Held| translate(vk, 0, held);
             // One dead key for each accent of the layout.
             let mut dead_keys: Vec<(u32, Held, char)> = Vec::new();
             for vk in 0..256_u32 {
@@ -5412,7 +5413,39 @@ mod tests {
                 );
             }
             for &(dead_vk, dead_held, accent) in &dead_keys {
+                // A keystroke injected as Unicode is the character it
+                // carries, and leaves the accent waiting: the E pressed
+                // behind it meets the accent as it would have alone.
+                let alone = (press(dead_vk, dead_held), press(0x45, PLAIN));
+                let _ = press(0x20, PLAIN);
+                let dead = press(dead_vk, dead_held);
+                let injected = translate(
+                    crate::capture::worker_pool::VK_PACKET,
+                    u32::from(b'x'),
+                    PLAIN,
+                );
+                let behind = press(0x45, PLAIN);
+                let _ = press(0x20, PLAIN);
+                if (injected.0, injected.1[0]) != (1, u16::from(b'x')) || (dead, behind) != alone {
+                    differing += 1;
+                    wrong.push(format!(
+                        "{id} accent {accent:?}: an injected x entered {} {:04X?}, and the E \
+                         behind it {} {:04X?} where the E alone behind the accent entered {} \
+                         {:04X?}",
+                        injected.0,
+                        &injected.1[..injected.0.clamp(0, 8) as usize],
+                        behind.0,
+                        &behind.1[..behind.0.clamp(0, 8) as usize],
+                        alone.1 .0,
+                        &alone.1 .1[..alone.1 .0.clamp(0, 8) as usize],
+                    ));
+                }
                 for vk in 0..256_u32 {
+                    // An injected character is no key of the layout: the
+                    // worker leaves it out of the accents that wait (above).
+                    if vk == crate::capture::worker_pool::VK_PACKET {
+                        continue;
+                    }
                     for combination in 0..16 {
                         let held = Held::from_index(combination);
                         rounds += 1;
