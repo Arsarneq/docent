@@ -113,9 +113,14 @@ export async function launchApp() {
  * Brings a process's window to the foreground (helpers/front.ps1). With
  * `dialog`, the process's open dialog window, waited for until it opens. A
  * window already in front is left alone; otherwise the unlock key press it
- * sends (front.ps1) is input, so call it before a recording starts.
+ * sends (front.ps1) is input, so call it before a recording starts. With
+ * `noInput` it sends nothing and waits for the window to come to the front by
+ * itself, which is safe while a recording runs.
  */
-export function bringToFront(processName, { dialog = false, timeoutMs = 15_000 } = {}) {
+export function bringToFront(
+  processName,
+  { dialog = false, noInput = false, timeoutMs = 15_000 } = {},
+) {
   const args = [
     ...POWERSHELL,
     join(here, 'front.ps1'),
@@ -125,6 +130,7 @@ export function bringToFront(processName, { dialog = false, timeoutMs = 15_000 }
     String(timeoutMs),
   ];
   if (dialog) args.push('-Class', '#32770');
+  if (noInput) args.push('-NoInput');
   const r = spawnSync('powershell', args, { encoding: 'utf8' });
   if (r.status !== 0)
     throw new Error(`front.ps1 ${processName}: rc ${r.status}: ${r.stdout}${r.stderr}`);
@@ -172,6 +178,41 @@ export async function readWhenWritten(path, timeoutMs = 15_000) {
     await new Promise((r) => setTimeout(r, 200));
   }
   throw new Error(`${path} was not written within ${timeoutMs} ms`);
+}
+
+/**
+ * Waits until a file holds a whole JSON document and returns it parsed. The
+ * app writes an export in one plain write, so an early read can see part of
+ * it: a read that does not parse is retried until the deadline.
+ */
+export async function readJsonWhenWritten(path, timeoutMs = 15_000) {
+  const deadline = Date.now() + timeoutMs;
+  let last;
+  while (Date.now() < deadline) {
+    if (existsSync(path)) {
+      try {
+        return JSON.parse(readFileSync(path, 'utf8'));
+      } catch (e) {
+        last = e;
+      }
+    }
+    await new Promise((r) => setTimeout(r, 200));
+  }
+  throw new Error(
+    `${path} held no whole JSON document within ${timeoutMs} ms: ${last ?? 'not written'}`,
+  );
+}
+
+/**
+ * Exports the open project through the panel's Export button and the app's
+ * own save dialog, and returns the written document. The dialog is the app's
+ * window, which the app does not record.
+ */
+export async function exportProject(app, file) {
+  await app.panel.click('#btn-export-project');
+  bringToFront(APP_PROCESS, { dialog: true });
+  typeKeys([{ window: { process: `${APP_PROCESS}.exe` } }, { chars: file }, { key: 'enter' }]);
+  return readJsonWhenWritten(file);
 }
 
 const reported = new WeakSet();
