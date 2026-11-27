@@ -2433,6 +2433,29 @@ fn regression_801_context_switch_into_a_closed_window_states_the_title_read_at_t
     );
 }
 
+/// The title read with the event is written even where the window's title
+/// has changed by the time the switch is described (docent#801).
+#[test]
+fn a_context_switch_states_the_title_read_at_the_event_over_the_window_s_later_title() {
+    let harness = WorkerTestHarness::new(MockBackend::new());
+    let mut raw = make_raw_event(RawEventType::Foreground, 200);
+    raw.sequence_id = 1;
+    raw.window_title = Some("*Untitled - Notepad".to_string());
+    harness.send_event(raw);
+
+    thread::sleep(Duration::from_millis(200));
+    let events = harness.shutdown();
+
+    let titles: Vec<Option<&str>> = events
+        .iter()
+        .filter_map(|e| match &e.payload {
+            ActionPayload::ContextSwitch { title, .. } => Some(title.as_deref()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(titles, vec![Some("*Untitled - Notepad")]);
+}
+
 /// A process the backend cannot name by its id leaves the switch named by
 /// its window, as before.
 #[test]

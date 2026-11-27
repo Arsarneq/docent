@@ -4450,6 +4450,40 @@ mod tests {
         );
     }
 
+    /// The Input_Thread reads a window's title with a foreground event, the
+    /// title a switch written after its window closed keeps (docent#801): a
+    /// titled window gives its title, and a window that is gone gives none.
+    #[test]
+    fn a_window_s_title_is_read_with_its_foreground_event_and_none_once_it_is_gone() {
+        use crate::capture::win32_bindings::{CreateWindowExW, DestroyWindow};
+        let hwnd = unsafe {
+            CreateWindowExW(
+                0,
+                windows_core::w!("STATIC"),
+                windows_core::w!("Docent title read"),
+                0,
+                0,
+                0,
+                100,
+                100,
+                None,
+                None,
+                None,
+                Some(std::ptr::null()),
+            )
+        };
+        assert!(!hwnd.0.is_null(), "failed to create a window");
+        assert_eq!(
+            super::input_window_title(hwnd),
+            Some("Docent title read".to_string())
+        );
+        assert!(
+            unsafe { DestroyWindow(hwnd) }.as_bool(),
+            "failed to destroy the window"
+        );
+        assert_eq!(super::input_window_title(hwnd), None);
+    }
+
     // -- a punctuation key's layout character (docent#691) --------------------
 
     /// A keyboard layout loaded for a test, by its layout id, and unloaded
