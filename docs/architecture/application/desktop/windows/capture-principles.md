@@ -724,11 +724,13 @@ with a caveat):
 
   Windows' own translation of the keys, asked on six layouts (Danish,
   German, French, Spanish, Czech and United States-International), showed
-  two things the rule takes for every layout: Ctrl with a letter key leaves
-  the accent waiting, and so does a keystroke injected as Unicode
-  (`VK_PACKET`). One thing was read from how Windows behaves and not
-  measured against a browser: a key whose character makes another accent
-  with the waiting one keeps its own name.
+  that Ctrl with a letter key leaves the accent waiting; the rule takes that
+  for every layout. Two things were read from how Windows behaves and not
+  measured against a browser: a keystroke injected as Unicode (`VK_PACKET`)
+  leaves a waiting accent as it is (the layout's translation does when asked
+  about that key code; what a program's message loop does with the
+  character was not measured), and a key whose character makes another
+  accent with the waiting one keeps its own name.
 
 - A press of the key with virtual-key code `0xE1` (`VK_OEM_AX`) is written
   as any typing key is: a `key` named from the keyboard layout, or part of

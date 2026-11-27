@@ -1,6 +1,6 @@
 /**
  * The desktop suite's fixture: the built app, its panel as a Playwright page,
- * and real keyboard input for other windows.
+ * and real keyboard and mouse input for other windows.
  *
  * The app is the release build (`cargo build --release --features
  * tauri/custom-protocol`, the frontend from `scripts/build-desktop-dist.js`),
@@ -138,11 +138,12 @@ export function bringToFront(
 }
 
 /**
- * Sends real keyboard input with the driver (driver/drive.ps1, steps as its
- * README describes). Throws with the driver's log when it stops early.
+ * Sends real keyboard and mouse input with the driver (driver/drive.ps1,
+ * steps as its README describes). Throws with the driver's log when it stops
+ * early.
  */
-export function typeKeys(steps, { gapMs = 30 } = {}) {
-  const dir = mkdtempSync(join(tmpdir(), 'docent-keys-'));
+export function sendInput(steps, { gapMs = 30 } = {}) {
+  const dir = mkdtempSync(join(tmpdir(), 'docent-input-'));
   const stepsFile = join(dir, 'steps.json');
   const log = join(dir, 'drive.log');
   writeFileSync(stepsFile, JSON.stringify(steps));
@@ -211,7 +212,7 @@ export async function readJsonWhenWritten(path, timeoutMs = 15_000) {
 export async function exportProject(app, file) {
   await app.panel.click('#btn-export-project');
   bringToFront(APP_PROCESS, { dialog: true });
-  typeKeys([{ window: { process: `${APP_PROCESS}.exe` } }, { chars: file }, { key: 'enter' }]);
+  sendInput([{ window: { process: `${APP_PROCESS}.exe` } }, { chars: file }, { key: 'enter' }]);
   return readJsonWhenWritten(file);
 }
 
