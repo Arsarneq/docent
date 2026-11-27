@@ -79,7 +79,7 @@ Docent has several capabilities with distinct attack surfaces:
 
 - The [reference implementations](../reference-implementations/README.md) in this repository are the sync server, the control client and the MCP server.
 - A vulnerability that reproduces in a reference implementation's code as it stands on `main`, run as its README documents, is in scope, even when you found it on a deployment of your own. Test only against a deployment you run. Examples for the sync server: a request served without the configured token, a project id that escapes the storage directory, or one project's data returned for another. Please name the commit you tested.
-- A behavior a reference implementation's README documents is not a flaw in itself: the sync server running open when no token is configured, and its `/__debug/` endpoints.
+- A behavior a reference implementation's README states as intended is not a flaw in itself: the sync server running open when no token is configured, and its `/__debug/` endpoints. A README line saying that a requirement of the specification is not verified on a platform names a gap, not intended behavior: a failure to meet that requirement is a flaw.
 
 ### Out of scope
 
