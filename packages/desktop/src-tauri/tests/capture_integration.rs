@@ -69,10 +69,18 @@ struct ResponsiveWindow {
     /// Owning thread id — target of the `WM_QUIT` that stops the pump.
     thread_id: u32,
     handle: Option<std::thread::JoinHandle<()>>,
+    /// The window's screen rectangle as created: left, top, width, height.
+    rect: (i32, i32, i32, i32),
 }
 
 impl ResponsiveWindow {
+    /// A 600 x 400 window at (200, 200).
     fn new(title: &str) -> Self {
+        Self::at(title, (200, 200, 600, 400))
+    }
+
+    /// A window at `rect`: left, top, width, height.
+    fn at(title: &str, rect: (i32, i32, i32, i32)) -> Self {
         use docent_desktop_lib::capture::win32_bindings::GetCurrentThreadId;
         use docent_desktop_lib::capture::win32_bindings::{
             CreateWindowExW, DestroyWindow, DispatchMessageW, GetMessageW, SetForegroundWindow,
@@ -92,10 +100,10 @@ impl ResponsiveWindow {
                     windows_core::w!("STATIC"),
                     windows_core::PCWSTR(title_wide.as_ptr()),
                     (WS_OVERLAPPEDWINDOW | WS_VISIBLE) as u32 | SS_NOTIFY_STYLE,
-                    200,
-                    200,
-                    600,
-                    400,
+                    rect.0,
+                    rect.1,
+                    rect.2,
+                    rect.3,
                     None,
                     None,
                     None,
@@ -134,7 +142,14 @@ impl ResponsiveWindow {
         Self {
             thread_id,
             handle: Some(handle),
+            rect,
         }
+    }
+
+    /// The screen point at the middle of the window.
+    fn center(&self) -> (i32, i32) {
+        let (x, y, width, height) = self.rect;
+        (x + width / 2, y + height / 2)
     }
 }
 
@@ -419,45 +434,6 @@ fn expect_hwnd(hwnd: HWND, msg: &str) -> HWND {
 
 mod user_actions {
     use super::*;
-    use docent_desktop_lib::capture::win32_bindings::HWND;
-    use docent_desktop_lib::capture::win32_bindings::RECT;
-    use docent_desktop_lib::capture::win32_bindings::{
-        CreateWindowExW, DestroyWindow, GetWindowRect, SetForegroundWindow, WS_OVERLAPPEDWINDOW,
-        WS_VISIBLE,
-    };
-    use std::ptr;
-    use windows_core::w;
-
-    /// Create a test window and return its handle + center coordinates.
-    unsafe fn create_target_window() -> (HWND, i32, i32) {
-        let hwnd = crate::expect_hwnd(
-            CreateWindowExW(
-                docent_desktop_lib::capture::win32_bindings::WS_EX_TOPMOST as u32,
-                w!("STATIC"),
-                w!("Docent Test Target"),
-                (WS_OVERLAPPEDWINDOW | WS_VISIBLE) as u32 | SS_NOTIFY_STYLE,
-                200,
-                200,
-                600,
-                400,
-                None,
-                None,
-                None,
-                Some(ptr::null()),
-            ),
-            "Failed to create target window",
-        );
-
-        let _ = SetForegroundWindow(hwnd);
-        thread::sleep(Duration::from_millis(100));
-
-        let mut rect = RECT::default();
-        GetWindowRect(hwnd, &mut rect).unwrap();
-        let cx = (rect.left + rect.right) / 2;
-        let cy = (rect.top + rect.bottom) / 2;
-
-        (hwnd, cx, cy)
-    }
 
     #[test]
     #[serial]
@@ -468,7 +444,8 @@ mod user_actions {
         capture.start(tx).expect("Failed to start capture");
         thread::sleep(Duration::from_millis(200));
 
-        let (hwnd, cx, cy) = unsafe { create_target_window() };
+        let window = ResponsiveWindow::new("Click Test");
+        let (cx, cy) = window.center();
         thread::sleep(Duration::from_millis(200));
 
         let mut enigo = Enigo::new(&Settings::default()).unwrap();
@@ -477,9 +454,7 @@ mod user_actions {
         enigo.button(enigo::Button::Left, Direction::Click).unwrap();
         thread::sleep(Duration::from_millis(500));
 
-        unsafe {
-            let _ = DestroyWindow(hwnd);
-        }
+        drop(window);
         capture.stop().unwrap();
         let events: Vec<_> = rx.try_iter().collect();
 
@@ -499,7 +474,8 @@ mod user_actions {
         capture.start(tx).expect("Failed to start capture");
         thread::sleep(Duration::from_millis(200));
 
-        let (hwnd, cx, cy) = unsafe { create_target_window() };
+        let window = ResponsiveWindow::new("Right Click Test");
+        let (cx, cy) = window.center();
         thread::sleep(Duration::from_millis(200));
 
         let mut enigo = Enigo::new(&Settings::default()).unwrap();
@@ -510,9 +486,7 @@ mod user_actions {
             .unwrap();
         thread::sleep(Duration::from_millis(500));
 
-        unsafe {
-            let _ = DestroyWindow(hwnd);
-        }
+        drop(window);
         capture.stop().unwrap();
         let events: Vec<_> = rx.try_iter().collect();
 
@@ -557,7 +531,8 @@ mod user_actions {
         capture.start(tx).expect("Failed to start capture");
         thread::sleep(Duration::from_millis(200));
 
-        let (hwnd, cx, cy) = unsafe { create_target_window() };
+        let window = ResponsiveWindow::new("Scroll Test");
+        let (cx, cy) = window.center();
         thread::sleep(Duration::from_millis(200));
 
         let mut enigo = Enigo::new(&Settings::default()).unwrap();
@@ -566,9 +541,7 @@ mod user_actions {
         enigo.scroll(5, enigo::Axis::Vertical).unwrap();
         thread::sleep(Duration::from_millis(500));
 
-        unsafe {
-            let _ = DestroyWindow(hwnd);
-        }
+        drop(window);
         capture.stop().unwrap();
         let events: Vec<_> = rx.try_iter().collect();
 
@@ -588,16 +561,14 @@ mod user_actions {
         capture.start(tx).expect("Failed to start capture");
         thread::sleep(Duration::from_millis(200));
 
-        let (hwnd, _, _) = unsafe { create_target_window() };
+        let window = ResponsiveWindow::new("Typing Test");
         thread::sleep(Duration::from_millis(200));
 
         let mut enigo = Enigo::new(&Settings::default()).unwrap();
         enigo.text("hello").unwrap();
         thread::sleep(Duration::from_millis(600));
 
-        unsafe {
-            let _ = DestroyWindow(hwnd);
-        }
+        drop(window);
         capture.stop().unwrap();
         let events: Vec<_> = rx.try_iter().collect();
 
@@ -618,7 +589,8 @@ mod user_actions {
         capture.start(tx).expect("Failed to start capture");
         thread::sleep(Duration::from_millis(200));
 
-        let (hwnd, cx, cy) = unsafe { create_target_window() };
+        let window = ResponsiveWindow::new("Double Click Test");
+        let (cx, cy) = window.center();
         thread::sleep(Duration::from_millis(200));
 
         let mut enigo = Enigo::new(&Settings::default()).unwrap();
@@ -629,9 +601,7 @@ mod user_actions {
         enigo.button(enigo::Button::Left, Direction::Click).unwrap();
         thread::sleep(Duration::from_millis(500));
 
-        unsafe {
-            let _ = DestroyWindow(hwnd);
-        }
+        drop(window);
         capture.stop().unwrap();
         let events: Vec<_> = rx.try_iter().collect();
 
@@ -651,7 +621,12 @@ mod user_actions {
         capture.start(tx).expect("Failed to start capture");
         thread::sleep(Duration::from_millis(200));
 
-        let (hwnd, cx, cy) = unsafe { create_target_window() };
+        // A window that pumps its messages: the worker describes the element
+        // under the point at the drag start, and a window that never answers
+        // WM_GETOBJECT holds that worker past stop()'s wait, which then loses
+        // both the drag start and the drop (docent#795).
+        let window = ResponsiveWindow::new("Drag Test");
+        let (cx, cy) = window.center();
         thread::sleep(Duration::from_millis(200));
 
         let mut enigo = Enigo::new(&Settings::default()).unwrap();
@@ -666,9 +641,7 @@ mod user_actions {
             .unwrap();
         thread::sleep(Duration::from_millis(500));
 
-        unsafe {
-            let _ = DestroyWindow(hwnd);
-        }
+        drop(window);
         capture.stop().unwrap();
         let events: Vec<_> = rx.try_iter().collect();
 
@@ -1159,46 +1132,6 @@ mod side_effects_additional {
 
 mod user_actions_advanced {
     use super::*;
-    use docent_desktop_lib::capture::win32_bindings::HWND;
-    use docent_desktop_lib::capture::win32_bindings::RECT;
-    use docent_desktop_lib::capture::win32_bindings::{
-        CreateWindowExW, DestroyWindow, GetWindowRect, SetForegroundWindow, WS_OVERLAPPEDWINDOW,
-        WS_VISIBLE,
-    };
-    use std::ptr;
-    use windows_core::w;
-
-    unsafe fn create_target_window(title: &str, x: i32, y: i32) -> (HWND, i32, i32) {
-        let title_wide: Vec<u16> = title.encode_utf16().chain(std::iter::once(0)).collect();
-        let hwnd = crate::expect_hwnd(
-            CreateWindowExW(
-                docent_desktop_lib::capture::win32_bindings::WS_EX_TOPMOST as u32,
-                w!("STATIC"),
-                windows_core::PCWSTR(title_wide.as_ptr()),
-                (WS_OVERLAPPEDWINDOW | WS_VISIBLE) as u32 | SS_NOTIFY_STYLE,
-                x,
-                y,
-                400,
-                300,
-                None,
-                None,
-                None,
-                Some(ptr::null()),
-            ),
-            "Failed to create target window",
-        );
-
-        let _ = SetForegroundWindow(hwnd);
-        thread::sleep(Duration::from_millis(100));
-
-        let mut rect = RECT::default();
-        GetWindowRect(hwnd, &mut rect).unwrap();
-        let cx = (rect.left + rect.right) / 2;
-        let cy = (rect.top + rect.bottom) / 2;
-
-        (hwnd, cx, cy)
-    }
-
     #[test]
     #[serial]
     fn user_click_switches_window_produces_context_switch() {
@@ -1210,9 +1143,11 @@ mod user_actions_advanced {
         thread::sleep(Duration::from_millis(200));
 
         // Create two windows in non-overlapping screen regions.
-        let (hwnd1, cx1, cy1) = unsafe { create_target_window("Window A", 100, 100) };
+        let window_a = ResponsiveWindow::at("Window A", (100, 100, 400, 300));
+        let (cx1, cy1) = window_a.center();
         thread::sleep(Duration::from_millis(200));
-        let (hwnd2, cx2, cy2) = unsafe { create_target_window("Window B", 600, 100) };
+        let window_b = ResponsiveWindow::at("Window B", (600, 100, 400, 300));
+        let (cx2, cy2) = window_b.center();
         thread::sleep(Duration::from_millis(200));
 
         let mut enigo = Enigo::new(&Settings::default()).unwrap();
@@ -1236,10 +1171,8 @@ mod user_actions_advanced {
         enigo.button(enigo::Button::Left, Direction::Click).unwrap();
         thread::sleep(Duration::from_millis(500));
 
-        unsafe {
-            let _ = DestroyWindow(hwnd1);
-            let _ = DestroyWindow(hwnd2);
-        }
+        drop(window_a);
+        drop(window_b);
         capture.stop().unwrap();
         let events: Vec<_> = rx.try_iter().collect();
 
