@@ -39,6 +39,17 @@ impl Held {
             | (self.caps_lock as usize) << 3
     }
 
+    /// The combination at place `index` among the sixteen
+    /// ([`index`](Self::index)).
+    pub const fn from_index(index: usize) -> Self {
+        Self {
+            shift: index & 1 != 0,
+            ctrl: index & 2 != 0,
+            alt: index & 4 != 0,
+            caps_lock: index & 8 != 0,
+        }
+    }
+
     /// The Shift and Caps Lock state of the press, with no other modifier.
     const fn shift_and_caps_lock(self) -> Self {
         Self {
@@ -284,6 +295,29 @@ impl LayoutAnswers {
         }
         self.answers[Self::index(key_code, held)] = answer_param(Some(answer));
     }
+
+    /// Whether the table holds `layout`'s answers.
+    pub const fn is_of(&self, layout: isize) -> bool {
+        layout != 0 && layout == self.layout
+    }
+
+    /// Take `layout`'s answer for every key code and combination from `ask`,
+    /// in place of whatever the table held.
+    pub fn fill(&mut self, layout: isize, mut ask: impl FnMut(u32, Held) -> LayoutAnswer) {
+        self.layout = layout;
+        for key_code in 0..256_u32 {
+            for combination in 0..16 {
+                let held = Held::from_index(combination);
+                self.answers[Self::index(key_code, held)] = answer_param(Some(ask(key_code, held)));
+            }
+        }
+    }
+
+    /// Hold no layout's answers.
+    pub fn forget(&mut self) {
+        self.layout = 0;
+        self.answers = [0; 256 * 16];
+    }
 }
 
 impl Default for LayoutAnswers {
@@ -302,7 +336,10 @@ mod tests {
         alt: false,
         caps_lock: false,
     };
-    const SHIFT: Held = Held { shift: true, ..NONE };
+    const SHIFT: Held = Held {
+        shift: true,
+        ..NONE
+    };
     const CTRL: Held = Held { ctrl: true, ..NONE };
     const ALT_GR: Held = Held {
         ctrl: true,
@@ -623,8 +660,9 @@ mod tests {
         // an injected character, codes with no meaning, and Shift, Control
         // and Alt.
         for code in [
-            0x10, 0x11, 0x12, 0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5, 0x20, 0x30, 0x39, 0x41, 0x5A, 0x60, 0x69, 0x6A, 0x6B, 0x6C, 0x6D, 0x6E, 0x6F, 0xBA,
-            0xC2, 0xDB, 0xDF, 0xE2, 0xE7, 0x07, 0xFF,
+            0x10, 0x11, 0x12, 0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5, 0x20, 0x30, 0x39, 0x41, 0x5A,
+            0x60, 0x69, 0x6A, 0x6B, 0x6C, 0x6D, 0x6E, 0x6F, 0xBA, 0xC2, 0xDB, 0xDF, 0xE2, 0xE7,
+            0x07, 0xFF,
         ] {
             assert_eq!(named_key(code, 0x06), None, "code {code:#04X}");
         }
@@ -683,5 +721,58 @@ mod tests {
         assert_eq!(kept.get(2, 0x41, NONE), Some(LayoutAnswer::Char('q')));
         assert_eq!(kept.get(1, 0x41, NONE), None, "the first is cleared");
         assert_eq!(kept.get(2, 0x41, SHIFT), None);
+    }
+
+    #[test]
+    fn a_combination_is_read_back_from_its_place() {
+        for index in 0..16 {
+            assert_eq!(Held::from_index(index).index(), index);
+        }
+    }
+
+    #[test]
+    fn a_table_is_filled_for_one_layout_with_an_answer_for_every_key() {
+        let mut answers = LayoutAnswers::new();
+        assert!(!answers.is_of(7));
+        assert!(!answers.is_of(0), "no layout is no layout's table");
+        let mut asked = 0;
+        answers.fill(7, |key_code, held| {
+            asked += 1;
+            match (key_code, held.shift) {
+                (0x41, false) => LayoutAnswer::Char('a'),
+                (0x41, true) => LayoutAnswer::Char('A'),
+                (0xDD, _) => LayoutAnswer::Dead,
+                _ => LayoutAnswer::Nothing,
+            }
+        });
+        assert_eq!(asked, 256 * 16);
+        assert!(answers.is_of(7));
+        assert!(!answers.is_of(8));
+        let shift = Held {
+            shift: true,
+            ..Held::default()
+        };
+        assert_eq!(
+            answers.get(7, 0x41, Held::default()),
+            Some(LayoutAnswer::Char('a'))
+        );
+        assert_eq!(answers.get(7, 0x41, shift), Some(LayoutAnswer::Char('A')));
+        assert_eq!(answers.get(7, 0xDD, shift), Some(LayoutAnswer::Dead));
+        // A key the layout gives nothing was asked too.
+        assert_eq!(
+            answers.get(7, 0x42, Held::default()),
+            Some(LayoutAnswer::Nothing)
+        );
+        assert_eq!(answers.get(8, 0x41, Held::default()), None);
+        // Another layout takes the table over.
+        answers.fill(8, |_, _| LayoutAnswer::Char('x'));
+        assert!(!answers.is_of(7));
+        assert_eq!(
+            answers.get(8, 0x41, Held::default()),
+            Some(LayoutAnswer::Char('x'))
+        );
+        answers.forget();
+        assert!(!answers.is_of(8));
+        assert_eq!(answers.get(8, 0x41, Held::default()), None);
     }
 }

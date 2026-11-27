@@ -124,8 +124,9 @@ pub struct RawEvent {
     /// none was read, see `settle_key_on_its_control`); `part_focus` the
     /// number of the latest focus change that named a part of that control
     /// (see [`PartFocusNote`]); and `layout_char`, in the low 32 bits, what the
-    /// keyboard layout gives a punctuation key (see [`punctuation_key_name`]; 0
-    /// for every other key), with the repeat mark in the bit above it
+    /// keyboard layout gives a punctuation key with no modifier, the dead-key
+    /// flag in bit 31 (read by [`is_dead_key`]; 0 for every other key), with
+    /// the repeat mark in the bit above it
     /// ([`super::held_keys::KEY_REPEAT_PARAM`]): set on a key-down for a key
     /// that was already down (a press key repeat generated while the key was
     /// held), clear on the press itself (see [`super::held_keys::HeldKeys`]),
@@ -137,6 +138,17 @@ pub struct RawEvent {
     /// [`CLICK_IS_MIDDLE_BUTTON`] a middle-button press (read by the click
     /// arm). On other platforms: unused or platform-defined.
     pub callback_params: [i64; 4],
+    /// What the keyboard layout gives the key of a keystroke as pressed, with
+    /// the modifiers and the Caps Lock state of the press, as the keyboard
+    /// hook read it ([`super::key_value::answer_param`]); `0` where the layout
+    /// was not read, and for every event that is no keystroke. A `key`
+    /// action's `key` is named from it ([`key_name`]).
+    pub key_value: u32,
+    /// The keyboard layout of the thread the keystroke went to, as the
+    /// platform hands it (on Windows the layout handle), read by the keyboard
+    /// hook at the press; `0` where none was read, and for every event that
+    /// is no keystroke.
+    pub keyboard_layout: i64,
     /// Pre-captured element description, from the click pre-capture the
     /// mouse hook waited on (DCP-1). For a click, right-click or middle
     /// press, the hook asks a pre-capture describer for the element at the
@@ -1683,55 +1695,6 @@ fn lock_buffers(pending: &SharedPendingBuffers) -> std::sync::MutexGuard<'_, Pen
 // Key name mapping (platform-agnostic)
 // ---------------------------------------------------------------------------
 
-/// Map a virtual key code to a human-readable key name.
-///
-/// Returns an empty string for the left/right Shift, Control and Alt codes
-/// (`0xA0`–`0xA5`), signalling the caller to skip the event; the generic
-/// Shift, Control and Alt codes (`0x10`–`0x12`) map to their names, and both
-/// Win keys (`0x5B`, `0x5C`) to `Meta`.
-fn vk_to_key_name(vk: u32) -> String {
-    match vk {
-        0x08 => "Backspace".to_string(),
-        0x09 => "Tab".to_string(),
-        0x0D => "Enter".to_string(),
-        0x10 => "Shift".to_string(),
-        0x11 => "Control".to_string(),
-        0x12 => "Alt".to_string(),
-        0x13 => "Pause".to_string(),
-        0x14 => "CapsLock".to_string(),
-        0x1B => "Escape".to_string(),
-        0x20 => "Space".to_string(),
-        0x21 => "PageUp".to_string(),
-        0x22 => "PageDown".to_string(),
-        0x23 => "End".to_string(),
-        0x24 => "Home".to_string(),
-        0x25 => "ArrowLeft".to_string(),
-        0x26 => "ArrowUp".to_string(),
-        0x27 => "ArrowRight".to_string(),
-        0x28 => "ArrowDown".to_string(),
-        0x2C => "PrintScreen".to_string(),
-        0x2D => "Insert".to_string(),
-        0x2E => "Delete".to_string(),
-        0x30..=0x39 => char::from(vk as u8).to_string(),
-        0x41..=0x5A => char::from(vk as u8).to_string(),
-        0x5B | 0x5C => "Meta".to_string(),
-        0x60..=0x69 => format!("Numpad{}", vk - 0x60),
-        0x6A => "Multiply".to_string(),
-        0x6B => "Add".to_string(),
-        0x6D => "Subtract".to_string(),
-        0x6E => "Decimal".to_string(),
-        0x6F => "Divide".to_string(),
-        0x70..=0x87 => format!("F{}", vk - 0x6F),
-        0x90 => "NumLock".to_string(),
-        0x91 => "ScrollLock".to_string(),
-        // Left/right modifier VK codes → empty string (skip).
-        0xA0 | 0xA1 => String::new(), // VK_LSHIFT, VK_RSHIFT
-        0xA2 | 0xA3 => String::new(), // VK_LCONTROL, VK_RCONTROL
-        0xA4 | 0xA5 => String::new(), // VK_LMENU (LAlt), VK_RMENU (RAlt)
-        _ => format!("VK_{vk:#04X}"),
-    }
-}
-
 /// `VK_PACKET`: the virtual-key code a keystroke injected as Unicode
 /// (`SendInput` with `KEYEVENTF_UNICODE` — IME results, remote-desktop stacks,
 /// software keyboards, automation) reaches the low-level hook with. Its scan
@@ -1743,35 +1706,55 @@ pub(crate) const VK_PACKET: u32 = 0xE7;
 /// value for that case, so the desktop names it the way the extension would.
 const UNIDENTIFIED_KEY: &str = "Unidentified";
 
-/// Name a keyboard event's key. A `VK_PACKET` keystroke is named by the
-/// character its code unit carries — a space by `Space`, the name a layout
-/// space key gets — and a unit that is no character on its own (a surrogate
-/// half of a character outside the Basic Multilingual Plane, or a control
-/// character) is `Unidentified`. A punctuation key is named by its layout's
-/// character ([`punctuation_key_name`]). Every other code goes through
-/// [`vk_to_key_name`].
+/// Name a keyboard event's key, by the W3C UI Events `key` values (the
+/// session-format document states the rule under Key names):
+///
+/// - a `VK_PACKET` keystroke by the character its code unit carries, and
+///   `Unidentified` for a unit that is no character on its own (a surrogate
+///   half of a character outside the Basic Multilingual Plane, or a control
+///   character);
+/// - Shift, Control and Alt by their generic codes, and the empty name for
+///   their left and right codes, which a caller skips;
+/// - the space bar `Space`;
+/// - a key with a name of its own by that name
+///   ([`super::key_value::named_key`]), the mode keys by the language of the
+///   layout read at the press;
+/// - every other key by what the layout gave the press
+///   ([`RawEvent::key_value`]): the character, a space as `Space`, `Dead` for
+///   a dead key, and `Unidentified` where the layout gave nothing or was not
+///   read. No name is guessed from the key's code.
 fn key_name(raw: &RawEvent) -> String {
     key_name_of(
         raw.key_code,
         raw.callback_params[0],
-        super::held_keys::layout_char_of(raw.callback_params[3]),
+        raw.key_value,
+        super::key_value::primary_language(raw.keyboard_layout),
     )
 }
 
-/// [`key_name`] for a key by its code, its scan code and the layout character
-/// the keyboard hook read for it (`callback_params[0]` and `[3]`).
-fn key_name_of(key_code: u32, scan_code: i64, layout_char: u32) -> String {
-    if is_punctuation_key(key_code) {
-        return punctuation_key_name(key_code, i64::from(layout_char));
-    }
-    if key_code != VK_PACKET {
-        return vk_to_key_name(key_code);
-    }
-    let unit = (scan_code & 0xFFFF) as u32;
-    match char::from_u32(unit) {
-        Some(' ') => vk_to_key_name(0x20),
-        Some(c) if !c.is_control() => c.to_string(),
-        _ => UNIDENTIFIED_KEY.to_string(),
+/// The `key` value of the space bar, and of any key that gives a space.
+const SPACE_KEY: &str = "Space";
+
+/// [`key_name`] for a key by its code, its scan code (`callback_params[0]`),
+/// what the layout gave the press and the layout's primary language.
+fn key_name_of(key_code: u32, scan_code: i64, key_value: u32, language: u16) -> String {
+    use super::key_value::{answer_of, key_value_name, named_key};
+    match key_code {
+        VK_PACKET => match char::from_u32((scan_code & 0xFFFF) as u32) {
+            Some(' ') => SPACE_KEY.to_string(),
+            Some(c) if !c.is_control() => c.to_string(),
+            _ => UNIDENTIFIED_KEY.to_string(),
+        },
+        0x10 => "Shift".to_string(),
+        0x11 => "Control".to_string(),
+        0x12 => "Alt".to_string(),
+        // VK_LSHIFT, VK_RSHIFT, VK_LCONTROL, VK_RCONTROL, VK_LMENU, VK_RMENU.
+        0xA0..=0xA5 => String::new(),
+        0x20 => SPACE_KEY.to_string(),
+        _ => match named_key(key_code, language) {
+            Some(name) => name.to_string(),
+            None => key_value_name(answer_of(key_value)),
+        },
     }
 }
 
@@ -1781,35 +1764,6 @@ fn key_name_of(key_code: u32, scan_code: i64, layout_char: u32) -> String {
 /// allocation, no lock.
 pub(crate) const fn is_punctuation_key(vk: u32) -> bool {
     matches!(vk, 0xBA..=0xC2 | 0xDB..=0xDF | 0xE1..=0xE4 | 0xE6)
-}
-
-/// The markers the keyboard layout tables write in place of a character:
-/// `WCH_NONE` `0xF000`, `WCH_DEAD` `0xF001` and `WCH_LGTR` `0xF002`, the
-/// documented ones. A value among them names no character a key enters; any
-/// other private-use value is a character the layout gives the key.
-const LAYOUT_TABLE_MARKERS: std::ops::RangeInclusive<char> = '\u{F000}'..='\u{F002}';
-
-/// Name a punctuation key by `layout_char`, the value the keyboard hook read
-/// for it from the keyboard layout of the foreground window's thread: the
-/// character the key enters with no modifier in the low 16 bits, and the
-/// dead-key flag in bit 31, which the name leaves out (a dead key is named by
-/// the accent it carries). A letter is named in its upper case, as the letter
-/// keys are, where that is one character; a space is `Space`; a value that is
-/// no character (0 where the layout gives the key none or no layout was read,
-/// a control character, a surrogate half, or one of the layout tables' own
-/// markers `0xF000`-`0xF002`) leaves the key to its code's name, `VK_0x..`.
-pub(crate) fn punctuation_key_name(vk: u32, layout_char: i64) -> String {
-    match char::from_u32((layout_char & 0xFFFF) as u32) {
-        Some(' ') => vk_to_key_name(0x20),
-        Some(c) if !c.is_control() && !LAYOUT_TABLE_MARKERS.contains(&c) => {
-            let mut upper = c.to_uppercase();
-            match (upper.next(), upper.next()) {
-                (Some(u), None) => u.to_string(),
-                _ => c.to_string(),
-            }
-        }
-        _ => vk_to_key_name(vk),
-    }
 }
 
 /// The modifier keys held at a raw event, as its action states them.
@@ -1832,7 +1786,7 @@ fn held_at(raw: &RawEvent) -> HeldKeysAtAction {
         .iter()
         .map(|k| {
             (
-                key_name_of(k.key_code, i64::from(k.scan_code), k.layout_char),
+                key_name_of(k.key_code, i64::from(k.scan_code), k.key_value, k.language),
                 k.press,
             )
         })
@@ -1843,7 +1797,7 @@ fn held_at(raw: &RawEvent) -> HeldKeysAtAction {
     }
 }
 
-/// Whether a key name is the empty name `vk_to_key_name` returns for the
+/// Whether a key name is the empty name [`key_name`] gives the
 /// left/right Shift, Control and Alt codes: `true` means skip the event.
 /// Printable characters are handled separately via the pending_keys buffer.
 fn is_modifier_only_key(key: &str) -> bool {
@@ -1922,15 +1876,8 @@ fn is_paste_key(raw: &RawEvent) -> bool {
 pub const fn is_typing_key_code(key_code: u32) -> bool {
     matches!(
         key_code,
-        0x20 | 0x30..=0x39
-            | 0x41..=0x5A
-            | 0x60..=0x6F
-            | 0xBA..=0xC2
-            | 0xDB..=0xDF
-            | 0xE1..=0xE4
-            | 0xE6
-            | VK_PACKET
-    )
+        0x20 | 0x30..=0x39 | 0x41..=0x5A | 0x60..=0x6F | VK_PACKET
+    ) || is_punctuation_key(key_code)
 }
 
 /// The control types that take no typed text: a key pressed on one presses,
@@ -2030,9 +1977,11 @@ fn input_method_at(raw: &RawEvent) -> super::InputMethodAtKey {
     super::held_keys::input_method_of(raw.callback_params[0]).into()
 }
 
-/// The key names that enter no character: editing, navigation, lock, system
-/// and modifier keys. The function keys (`F1` to `F24`) join them by their
-/// form. The adapter's sensitive-field rule keeps the same list
+/// The key names that enter no character: Shift, Control and Alt, and every
+/// key with a name of its own ([`super::key_value::named_key`]) except
+/// `Process`, the key an input method took, which stands for a typing key.
+/// The function keys (`F1` to `F24`) join them by their form. The adapter's
+/// sensitive-field rule keeps the same list
 /// (`packages/desktop/src/adapter-tauri.js`).
 const NON_TEXT_KEY_NAMES: &[&str] = &[
     "Backspace",
@@ -2058,6 +2007,54 @@ const NON_TEXT_KEY_NAMES: &[&str] = &[
     "Meta",
     "NumLock",
     "ScrollLock",
+    "Cancel",
+    "Clear",
+    "JunjaMode",
+    "FinalMode",
+    "Convert",
+    "NonConvert",
+    "Accept",
+    "ModeChange",
+    "Select",
+    "Print",
+    "Execute",
+    "Help",
+    "ContextMenu",
+    "Standby",
+    "BrowserBack",
+    "BrowserForward",
+    "BrowserRefresh",
+    "BrowserStop",
+    "BrowserSearch",
+    "BrowserFavorites",
+    "BrowserHome",
+    "AudioVolumeMute",
+    "AudioVolumeDown",
+    "AudioVolumeUp",
+    "MediaTrackNext",
+    "MediaTrackPrevious",
+    "MediaStop",
+    "MediaPlayPause",
+    "LaunchMail",
+    "LaunchMediaPlayer",
+    "LaunchApplication1",
+    "LaunchApplication2",
+    "Attn",
+    "CrSel",
+    "ExSel",
+    "EraseEof",
+    "Play",
+    "ZoomToggle",
+    "HangulMode",
+    "HanjaMode",
+    "KanaMode",
+    "KanjiMode",
+    "Alphanumeric",
+    "Katakana",
+    "Hiragana",
+    "Hankaku",
+    "Zenkaku",
+    "Romaji",
 ];
 
 /// Whether a key name is a function key's: `F` and a number.
@@ -2069,8 +2066,8 @@ fn is_function_key_name(key: &str) -> bool {
 /// Whether a keystroke into a password field enters text there, and so
 /// belongs to the field's masked type: every key except the ones known to
 /// enter no character and the shortcuts. The test is closed on the keys that
-/// stay keys, so a key the name table does not know (a layout's extra key, a
-/// keypad separator) counts as text and is masked. Ctrl and Alt held together
+/// stay keys, so every other name (a character, `Dead`, `Unidentified`,
+/// `Process`) counts as text and is masked. Ctrl and Alt held together
 /// is AltGr, which enters a character; Ctrl, Alt or Meta held otherwise is a
 /// shortcut.
 fn enters_text_in_password_field(raw: &RawEvent, key: &str) -> bool {
@@ -4830,6 +4827,8 @@ mod tests {
             modifiers: (false, false, false, false),
             scroll_delta: 0.0,
             callback_params: [0; 4],
+            key_value: 0,
+            keyboard_layout: 0,
             pre_captured_element: None,
             focus_epoch: 0,
             held: Vec::new(),
@@ -5073,7 +5072,8 @@ mod tests {
 
     /// A printable-key RawEvent ('a') for the responsive/unresponsive tests.
     fn printable_key_raw_event() -> RawEvent {
-        control_key_raw_event(0x41, 1) // 'A'
+        // The A key, which the layout gave `a`.
+        layout_key_raw_event(0x41, Some(LayoutAnswer::Char('a')), 1)
     }
 
     /// A keyboard RawEvent for a given virtual-key code and sequence id.
@@ -5090,6 +5090,8 @@ mod tests {
             modifiers: (false, false, false, false),
             scroll_delta: 0.0,
             callback_params: [0; 4],
+            key_value: 0,
+            keyboard_layout: 0,
             pre_captured_element: None,
             focus_epoch: 0,
             held: Vec::new(),
@@ -5111,6 +5113,8 @@ mod tests {
             modifiers: (false, false, false, false),
             scroll_delta: 0.0,
             callback_params: [0; 4],
+            key_value: 0,
+            keyboard_layout: 0,
             pre_captured_element: None,
             focus_epoch: 0,
             held: Vec::new(),
@@ -5175,7 +5179,7 @@ mod tests {
         win.callback_params[0] = 0x5B;
         record.stamp(&mut win);
         pool.dispatch(win);
-        let mut e = no_window(control_key_raw_event(0x45, 3));
+        let mut e = no_window(layout_key_raw_event(0x45, Some(LayoutAnswer::Char('e')), 3));
         e.modifiers = (false, false, false, true);
         e.callback_params[0] = 0x12;
         let mut e_repeat = e.clone();
@@ -5208,8 +5212,8 @@ mod tests {
             stated,
             vec![
                 ("Meta".to_string(), false, false, space_held.clone()),
-                ("E".to_string(), true, false, space_held.clone()),
-                ("E".to_string(), true, true, space_held),
+                ("e".to_string(), true, false, space_held.clone()),
+                ("e".to_string(), true, true, space_held),
             ]
         );
     }
@@ -5227,7 +5231,7 @@ mod tests {
 
         assert_eq!(
             key_names(&drain_events(&rx)),
-            vec!["A"],
+            vec!["a"],
             "a responsive app's keypress must be captured"
         );
     }
@@ -5346,11 +5350,13 @@ mod tests {
         assert!(pool.workers.iter().all(|w| w.thread.is_none()));
     }
 
-    /// A keydown of punctuation key `vk` whose layout character, as the
-    /// keyboard hook reads it, is `layout_char` (`callback_params[3]`).
-    fn punctuation_key_raw_event(vk: u32, layout_char: u32, sequence_id: u64) -> RawEvent {
+    use crate::capture::key_value::{answer_param, LayoutAnswer};
+
+    /// A keydown of key `vk` for which the keyboard hook read `answer` from
+    /// the keyboard layout (`RawEvent::key_value`).
+    fn layout_key_raw_event(vk: u32, answer: Option<LayoutAnswer>, sequence_id: u64) -> RawEvent {
         let mut raw = control_key_raw_event(vk, sequence_id);
-        raw.callback_params[3] = i64::from(layout_char);
+        raw.key_value = answer_param(answer);
         raw
     }
 
@@ -5362,7 +5368,7 @@ mod tests {
         // The Calculator case: `+` pressed with no modifier into a control that
         // reports no value change, so the buffered key is written as a key.
         let (mut pool, rx) = pool_with_probe_backend(false, false);
-        pool.dispatch(punctuation_key_raw_event(0xBB, u32::from('+'), 1));
+        pool.dispatch(layout_key_raw_event(0xBB, Some(LayoutAnswer::Char('+')), 1));
         thread::sleep(Duration::from_millis(100));
         pool.shutdown_with_timeout(Duration::from_secs(5));
 
@@ -5373,93 +5379,175 @@ mod tests {
         );
     }
 
-    /// A key name, as the worker names the keydown of `vk` whose
-    /// `callback_params[3]` is `layout_char`.
-    fn name_with_layout_char(vk: u32, layout_char: i64) -> String {
-        let mut raw = control_key_raw_event(vk, 1);
-        raw.callback_params[3] = layout_char;
-        key_name(&raw)
+    /// A key name, as the worker names the keydown of `vk` for which the hook
+    /// read `answer` from the layout.
+    fn name_with(vk: u32, answer: Option<LayoutAnswer>) -> String {
+        key_name(&layout_key_raw_event(vk, answer, 1))
     }
 
+    fn name_with_char(vk: u32, character: char) -> String {
+        name_with(vk, Some(LayoutAnswer::Char(character)))
+    }
+
+    // Regression: #717 — the desktop named a key by its code (`A` for the A
+    // key whatever was held, `1` for Shift and 1, `Numpad1`, `Add`), where the
+    // extension names what the press means on the layout.
+    // https://github.com/Arsarneq/docent/issues/717
     #[test]
-    fn a_punctuation_key_is_named_by_the_character_its_layout_gives_it() {
-        // Danish: `+` on VK_OEM_PLUS, `<` on VK_OEM_102, `'` on VK_OEM_2.
-        assert_eq!(name_with_layout_char(0xBB, '+' as i64), "+");
-        assert_eq!(name_with_layout_char(0xE2, '<' as i64), "<");
-        assert_eq!(name_with_layout_char(0xBF, '\'' as i64), "'");
-        // US: the same codes give the US characters.
-        assert_eq!(name_with_layout_char(0xBB, '=' as i64), "=");
-        assert_eq!(name_with_layout_char(0xE2, '\\' as i64), "\\");
-        // Every OEM code reads its layout character.
-        for vk in [0xBA, 0xC0, 0xC1, 0xC2, 0xDB, 0xDF, 0xE1, 0xE3, 0xE4, 0xE6] {
-            assert_eq!(name_with_layout_char(vk, '§' as i64), "§", "vk {vk:#x}");
+    fn regression_717_a_character_key_is_named_by_the_character_the_press_gives() {
+        // A letter in the case the press gives it.
+        assert_eq!(name_with_char(0x41, 'a'), "a");
+        assert_eq!(name_with_char(0x41, 'A'), "A");
+        // Danish: Shift and 1, Shift and the key right of 0, AltGr and E.
+        assert_eq!(name_with_char(0x31, '!'), "!");
+        assert_eq!(name_with_char(0xBB, '?'), "?");
+        assert_eq!(name_with_char(0x45, '€'), "€");
+        // A letter on a punctuation code keeps its case too.
+        assert_eq!(name_with_char(0xC0, 'æ'), "æ");
+        assert_eq!(name_with_char(0xC0, 'Æ'), "Æ");
+        assert_eq!(name_with_char(0xDB, 'ß'), "ß");
+        // The numeric keypad with Num Lock on gives its characters.
+        assert_eq!(name_with_char(0x61, '1'), "1");
+        assert_eq!(name_with_char(0x6B, '+'), "+");
+        assert_eq!(name_with_char(0x6E, ','), ",");
+        // Every typing code is named by what the layout gave the press.
+        for vk in (0..=0xFF_u32).filter(|vk| is_typing_key_code(*vk)) {
+            if vk != VK_PACKET && vk != 0x20 {
+                assert_eq!(name_with_char(vk, '§'), "§", "vk {vk:#x}");
+            }
         }
     }
 
     #[test]
-    fn a_punctuation_key_that_enters_a_letter_is_named_in_upper_case() {
-        // Danish Æ, Ø and Å sit on OEM codes; letters are named upper case.
-        assert_eq!(name_with_layout_char(0xC0, 'æ' as i64), "Æ");
-        assert_eq!(name_with_layout_char(0xDE, 'ø' as i64), "Ø");
-        assert_eq!(name_with_layout_char(0xDD, 'Å' as i64), "Å");
-        // A letter whose upper case is more than one character keeps its own.
-        assert_eq!(name_with_layout_char(0xDB, 'ß' as i64), "ß");
+    fn a_space_is_named_space() {
+        assert_eq!(name_with_char(0x20, ' '), "Space");
+        // The space bar is the space bar where no layout was read.
+        assert_eq!(name_with(0x20, None), "Space");
+        // And a key the layout gives a space.
+        assert_eq!(name_with_char(0xBB, ' '), "Space");
     }
 
     #[test]
-    fn a_dead_punctuation_key_is_named_by_its_accent() {
-        // Bit 31 flags a dead key; the low word is the accent it carries.
-        assert_eq!(name_with_layout_char(0xDB, 0x8000_00B4), "´");
-        assert_eq!(name_with_layout_char(0xBA, 0x8000_00A8), "¨");
+    fn a_dead_key_is_named_dead() {
+        assert_eq!(name_with(0xDB, Some(LayoutAnswer::Dead)), "Dead");
+        assert_eq!(name_with(0xBA, Some(LayoutAnswer::Dead)), "Dead");
     }
 
     #[test]
-    fn a_punctuation_key_with_no_layout_character_is_named_by_its_code() {
-        // No character read (the layout gives the key none, or nothing read).
-        assert_eq!(name_with_layout_char(0xBB, 0), "VK_0xBB");
-        assert_eq!(name_with_layout_char(0xE2, 0), "VK_0xE2");
-        // A control character or a surrogate half is no character either.
-        assert_eq!(name_with_layout_char(0xBB, 0x1B), "VK_0xBB");
-        assert_eq!(name_with_layout_char(0xBB, 0xD800), "VK_0xBB");
-        // Nor is a layout table's own marker (WCH_NONE, WCH_DEAD, WCH_LGTR).
-        for marker in [0xF000, 0xF001, 0xF002] {
-            assert_eq!(
-                name_with_layout_char(0xBB, marker),
-                "VK_0xBB",
-                "{marker:#x}"
-            );
+    fn a_key_the_layout_gives_nothing_is_unidentified() {
+        assert_eq!(name_with(0xBB, Some(LayoutAnswer::Nothing)), "Unidentified");
+        // Nor is a key named where the layout was not read: no name is
+        // guessed from the key's code.
+        assert_eq!(name_with(0xBB, None), "Unidentified");
+        assert_eq!(name_with(0x41, None), "Unidentified");
+        assert_eq!(name_with(0x61, None), "Unidentified");
+        // A code with no name and no character.
+        assert_eq!(name_with(0x07, None), "Unidentified");
+    }
+
+    #[test]
+    fn a_key_with_a_name_of_its_own_keeps_it_whatever_the_layout_answers() {
+        assert_eq!(name_with_char(0x0D, '+'), "Enter");
+        assert_eq!(name_with(0x0D, None), "Enter");
+        assert_eq!(name_with(0x23, None), "End");
+        assert_eq!(name_with(0x74, None), "F5");
+        assert_eq!(name_with(0x5B, None), "Meta");
+        assert_eq!(name_with(0x5D, None), "ContextMenu");
+        assert_eq!(name_with(0xAF, None), "AudioVolumeUp");
+        // The numeric keypad with Num Lock off sends the navigation keys'
+        // codes, and the 5 key sends Clear.
+        assert_eq!(name_with(0x0C, None), "Clear");
+        // Shift, Control and Alt by their generic codes; the left and right
+        // codes are skipped (the empty name).
+        assert_eq!(name_with(0x10, None), "Shift");
+        assert_eq!(name_with(0x11, None), "Control");
+        assert_eq!(name_with(0x12, None), "Alt");
+        for vk in 0xA0..=0xA5 {
+            assert!(is_modifier_only_key(&name_with(vk, None)), "vk {vk:#x}");
         }
-        // Any other private-use value is a character the layout gives the key.
-        assert_eq!(name_with_layout_char(0xBB, 0xF003), "\u{F003}");
-        assert_eq!(name_with_layout_char(0xBB, 0xF0FF), "\u{F0FF}");
-        assert_eq!(name_with_layout_char(0xBB, 0xF100), "\u{F100}");
-        // A space is named as the space bar is.
-        assert_eq!(name_with_layout_char(0xBB, ' ' as i64), "Space");
     }
 
     #[test]
-    fn only_punctuation_keys_read_the_layout_character() {
-        // A letter, a digit, a keypad key and a control key keep their names.
-        assert_eq!(name_with_layout_char(0x41, 'q' as i64), "A");
-        assert_eq!(name_with_layout_char(0x31, '&' as i64), "1");
-        assert_eq!(name_with_layout_char(0x6B, '+' as i64), "Add");
-        assert_eq!(name_with_layout_char(0x0D, '+' as i64), "Enter");
-        // VK_PACKET is named by its scan code's character.
-        let mut raw = control_key_raw_event(VK_PACKET, 1);
-        raw.callback_params = [i64::from(u32::from('é')), 0, 0, '+' as i64];
+    fn a_mode_key_is_named_by_the_language_of_the_layout_read_at_the_press() {
+        let on = |layout: i64| {
+            let mut raw = layout_key_raw_event(0x15, None, 1);
+            raw.keyboard_layout = layout;
+            key_name(&raw)
+        };
+        assert_eq!(on(0x0412_0412), "HangulMode");
+        assert_eq!(on(0x0411_0411), "KanaMode");
+        assert_eq!(on(0x0406_0406), "Unidentified");
+        assert_eq!(on(0), "Unidentified");
+    }
+
+    #[test]
+    fn an_injected_character_is_named_by_the_character_it_carries() {
+        let mut raw = layout_key_raw_event(VK_PACKET, Some(LayoutAnswer::Char('+')), 1);
+        raw.callback_params[0] = i64::from(u32::from('é'));
         assert_eq!(key_name(&raw), "é");
+        raw.callback_params[0] = i64::from(u32::from(' '));
+        assert_eq!(key_name(&raw), "Space");
+        raw.callback_params[0] = 0xD800;
+        assert_eq!(key_name(&raw), "Unidentified");
     }
 
     #[test]
-    fn a_punctuation_key_is_printable_input_with_or_without_a_layout_character() {
-        let mut raw = control_key_raw_event(0xE2, 1);
-        raw.callback_params[3] = '<' as i64;
+    fn a_held_key_is_named_by_what_the_layout_gave_it_at_its_key_down() {
+        use crate::capture::held_keys::HeldPress;
+        let mut raw = control_key_raw_event(0x0D, 9);
+        let held =
+            |key_code: u32, answer: Option<LayoutAnswer>, language: u16, press: u64| HeldPress {
+                key_code,
+                scan_code: 0,
+                press,
+                key_value: answer_param(answer),
+                language,
+            };
+        raw.held = vec![
+            held(0x41, Some(LayoutAnswer::Char('A')), 0x06, 1),
+            held(0xBB, Some(LayoutAnswer::Char('?')), 0x06, 2),
+            held(0x15, None, 0x12, 3),
+            held(0x26, None, 0, 4),
+        ];
+        let at = held_at(&raw);
+        assert_eq!(at.held_keys, vec!["A", "?", "HangulMode", "ArrowUp"]);
+        assert_eq!(at.held_presses, vec![1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn a_punctuation_key_is_printable_input_whatever_the_layout_answered() {
+        let mut raw = layout_key_raw_event(0xE2, Some(LayoutAnswer::Char('<')), 1);
         assert!(is_printable_key(&raw));
-        // Without one it is named by its code and is still a typing key: the
+        // Without an answer it has no name and is still a typing key: the
         // typing table decides by the key's code (is_typing_key_code).
-        raw.callback_params[3] = 0;
-        assert_eq!(key_name(&raw), "VK_0xE2");
+        raw.key_value = 0;
+        assert_eq!(key_name(&raw), "Unidentified");
         assert!(is_printable_key(&raw));
+    }
+
+    #[test]
+    fn every_key_with_a_name_of_its_own_stays_a_key_in_a_password_field() {
+        use crate::capture::key_value::named_key;
+        for language in [0_u16, 0x11, 0x12] {
+            for vk in 0..=0xFF_u32 {
+                let Some(name) = named_key(vk, language) else {
+                    continue;
+                };
+                let raw = control_key_raw_event(vk, 1);
+                // The key an input method took names no key of its own: what
+                // was pressed is a typing key, so it is masked as text.
+                assert_eq!(
+                    enters_text_in_password_field(&raw, name),
+                    name == "Process",
+                    "{name}"
+                );
+            }
+        }
+        // A character, a dead key and a key with no name are text there.
+        let raw = control_key_raw_event(0x41, 1);
+        for name in ["a", "A", "?", "Space", "Dead", "Unidentified"] {
+            assert!(enters_text_in_password_field(&raw, name), "{name}");
+        }
     }
 
     // -- keys numbered per window (docent#761) -------------------------------

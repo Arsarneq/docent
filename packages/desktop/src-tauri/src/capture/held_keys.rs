@@ -55,7 +55,8 @@ pub const KEY_REPEAT_PARAM: i64 = 1 << 32;
 /// `RawEvent::callback_params[3]`, below the repeat mark
 /// ([`KEY_REPEAT_PARAM`]), without the dead-key read
 /// ([`dead_as_pressed_of`]) that sits in bits the layout's value leaves clear.
-/// What the value means is `worker_pool::punctuation_key_name`'s to state.
+/// The character a punctuation key enters with no modifier, in the low 16
+/// bits, and the dead-key flag in bit 31; 0 where none was read.
 pub const fn layout_char_of(param: i64) -> u32 {
     (param & !(KEY_DEAD_READ_PARAM | KEY_DEAD_AS_PRESSED_PARAM | KEY_DEAD_ACCENT_MASK)) as u32
 }
@@ -297,10 +298,13 @@ pub struct HeldPress {
     pub scan_code: u32,
     /// The sequence id of the dispatched key-down.
     pub press: u64,
-    /// The layout character that key-down carried ([`layout_char_of`]), so
-    /// the key is named as its own `key` action names it; 0 for a key that
-    /// carried none.
-    pub layout_char: u32,
+    /// What the keyboard layout gave the key at that key-down
+    /// (`RawEvent::key_value`), so the key is named as its own `key` action
+    /// names it; 0 for a key that carried none.
+    pub key_value: u32,
+    /// The primary language of the keyboard layout read at that key-down
+    /// ([`super::key_value::primary_language`]); 0 where none was read.
+    pub language: u16,
 }
 
 /// The keys that are down.
@@ -320,8 +324,10 @@ pub struct HeldKeys {
     dispatched: [u64; KEYS],
     /// The same for each injected character of `packets`.
     packet_dispatched: [u64; PACKET_SLOTS],
-    /// Per key code, the layout character its dispatched key-down carried.
-    layout_chars: [u32; KEYS],
+    /// Per key code, what the layout gave the key at its dispatched key-down.
+    key_values: [u32; KEYS],
+    /// Per key code, the primary language of the layout read at that key-down.
+    languages: [u16; KEYS],
 }
 
 /// The modifier keys: an action states them as its modifiers, never among
@@ -351,7 +357,8 @@ impl HeldKeys {
             packets: [None; PACKET_SLOTS],
             dispatched: [0; KEYS],
             packet_dispatched: [0; PACKET_SLOTS],
-            layout_chars: [0; KEYS],
+            key_values: [0; KEYS],
+            languages: [0; KEYS],
         }
     }
 
@@ -461,20 +468,23 @@ impl HeldKeys {
     /// event `sequence_id`. Kept for a key that has none yet: the press itself,
     /// or the first repeat dispatched when the press was not.
     pub fn note_dispatched(&mut self, key: u32, scan_code: u32, sequence_id: u64) {
-        self.note_dispatched_with(key, scan_code, sequence_id, 0);
+        self.note_dispatched_with(key, scan_code, sequence_id, 0, 0);
     }
 
-    /// [`note_dispatched`](Self::note_dispatched), keeping the layout
-    /// character the key-down carried beside it.
+    /// [`note_dispatched`](Self::note_dispatched), keeping what the layout
+    /// gave the key at the key-down, and the layout's primary language,
+    /// beside it.
     fn note_dispatched_with(
         &mut self,
         key: u32,
         scan_code: u32,
         sequence_id: u64,
-        layout_char: u32,
+        key_value: u32,
+        language: u16,
     ) {
         if tracked(key) && self.is_set(key) && self.dispatched[key as usize] == 0 {
-            self.layout_chars[key as usize] = layout_char;
+            self.key_values[key as usize] = key_value;
+            self.languages[key as usize] = language;
         }
         let noted = if key == VK_PACKET {
             self.packets
@@ -503,7 +513,8 @@ impl HeldKeys {
                 key_code: key & 0xFF,
                 scan_code: 0,
                 press: self.dispatched[key as usize],
-                layout_char: self.layout_chars[key as usize],
+                key_value: self.key_values[key as usize],
+                language: self.languages[key as usize],
             });
         let packets =
             self.packets
@@ -515,7 +526,8 @@ impl HeldKeys {
                         key_code: VK_PACKET,
                         scan_code,
                         press,
-                        layout_char: 0,
+                        key_value: 0,
+                        language: 0,
                     })
                 });
         // No allocation while no dispatched key is down.
@@ -528,7 +540,7 @@ impl HeldKeys {
     /// with the keys that are down ([`dispatched_down`](Self::dispatched_down)).
     ///
     /// A keystroke is stamped without its own key and is then noted as that
-    /// key's dispatched key-down, with the layout character it carries. A click, a right-click and a drop are
+    /// key's dispatched key-down, with what the layout gave the key. A click, a right-click and a drop are
     /// stamped with every key. A drag start is left as it is: it is dispatched
     /// at the release, and whoever builds it states the keys that were down
     /// where the drag started ([`DragStartKeys`]). No other event states held
@@ -548,7 +560,8 @@ impl HeldKeys {
                     own.0,
                     own.1,
                     event.sequence_id,
-                    layout_char_of(event.callback_params[3]),
+                    event.key_value,
+                    super::key_value::primary_language(event.keyboard_layout),
                 );
             }
             RawEventType::Click | RawEventType::RightClick | RawEventType::Drop { .. } => {
@@ -1043,6 +1056,8 @@ mod tests {
             modifiers: (false, false, false, false),
             scroll_delta: 0.0,
             callback_params: [i64::from(scan_code), 0, 0, 0],
+            key_value: 0,
+            keyboard_layout: 0,
             pre_captured_element: None,
             focus_epoch: 0,
             held: Vec::new(),
@@ -1106,7 +1121,8 @@ mod tests {
             key_code: ENTER,
             scan_code: 0,
             press: 9,
-            layout_char: 0,
+            key_value: 0,
+            language: 0,
         }];
         assert_eq!(stamped(&mut held, drag), vec![(ENTER, 9)]);
         for event_type in [
@@ -1195,7 +1211,8 @@ mod tests {
             key_code: SPACE,
             scan_code: 0,
             press,
-            layout_char: 0,
+            key_value: 0,
+            language: 0,
         };
         ((false, shift, false, false), vec![key])
     }

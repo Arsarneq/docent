@@ -14,6 +14,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc;
 use std::sync::Arc;
 
+use docent_desktop_lib::capture::key_value::{answer_param, LayoutAnswer};
 use docent_desktop_lib::capture::worker_pool::{RawEvent, RawEventType, WorkerMessage, WorkerPool};
 use docent_desktop_lib::capture::ActionEvent;
 use proptest::prelude::*;
@@ -36,6 +37,8 @@ fn make_raw_event(event_type: RawEventType, window_handle: i64) -> RawEvent {
         modifiers: (false, false, false, false),
         scroll_delta: 0.0,
         callback_params: [0; 4],
+        key_value: 0,
+        keyboard_layout: 0,
         pre_captured_element: None,
         focus_epoch: 0,
         held: Vec::new(),
@@ -356,6 +359,8 @@ proptest! {
             modifiers: (false, false, false, false),
             scroll_delta: 0.0,
             callback_params: [0; 4],
+            key_value: 0,
+            keyboard_layout: 0,
             pre_captured_element: None,
             focus_epoch: 0,
             held: Vec::new(),
@@ -376,6 +381,8 @@ proptest! {
             modifiers: (false, false, false, false),
             scroll_delta: 0.0,
             callback_params: [0; 4],
+            key_value: 0,
+            keyboard_layout: 0,
             pre_captured_element: None,
             focus_epoch: 0,
             held: Vec::new(),
@@ -684,6 +691,8 @@ proptest! {
             modifiers: (false, false, false, false),
             scroll_delta: 0.0,
             callback_params: [0; 4],
+            key_value: 0,
+            keyboard_layout: 0,
             pre_captured_element: None,
             focus_epoch: 0,
             held: Vec::new(),
@@ -761,6 +770,8 @@ proptest! {
                 modifiers: (false, false, false, false),
                 scroll_delta: 0.0,
                 callback_params: [0; 4],
+            key_value: 0,
+            keyboard_layout: 0,
             pre_captured_element: None,
             focus_epoch: 0,
             held: Vec::new(),
@@ -845,6 +856,8 @@ proptest! {
                 modifiers: (false, false, false, false),
                 scroll_delta: 0.0,
                 callback_params: [0; 4],
+            key_value: 0,
+            keyboard_layout: 0,
             pre_captured_element: None,
             focus_epoch: 0,
             held: Vec::new(),
@@ -870,6 +883,8 @@ proptest! {
             modifiers: (false, false, false, false),
             scroll_delta: 0.0,
             callback_params: [0; 4],
+            key_value: 0,
+            keyboard_layout: 0,
             pre_captured_element: None,
             focus_epoch: 0,
             held: Vec::new(),
@@ -1145,6 +1160,8 @@ fn worker_shutdown_flushes_pending_type_event() {
             modifiers: (false, false, false, false),
             scroll_delta: 0.0,
             callback_params: [0; 4],
+            key_value: 0,
+            keyboard_layout: 0,
             pre_captured_element: None,
             focus_epoch: 0,
             held: Vec::new(),
@@ -1205,6 +1222,8 @@ fn regression_298_flush_drains_pending_and_worker_continues() {
             modifiers: (false, false, false, false),
             scroll_delta: 0.0,
             callback_params: [0; 4],
+            key_value: 0,
+            keyboard_layout: 0,
             pre_captured_element: None,
             focus_epoch: 0,
             held: Vec::new(),
@@ -1248,6 +1267,8 @@ fn regression_298_flush_drains_pending_and_worker_continues() {
         modifiers: (false, false, false, false),
         scroll_delta: 0.0,
         callback_params: [0; 4],
+        key_value: 0,
+        keyboard_layout: 0,
         pre_captured_element: None,
         focus_epoch: 0,
         held: Vec::new(),
@@ -1299,6 +1320,8 @@ fn regression_298_flush_all_drains_workers_and_emits_sentinel_last() {
             modifiers: (false, false, false, false),
             scroll_delta: 0.0,
             callback_params: [0; 4],
+            key_value: 0,
+            keyboard_layout: 0,
             pre_captured_element: None,
             focus_epoch: 0,
             held: Vec::new(),
@@ -1441,6 +1464,8 @@ fn poison_event_does_not_kill_worker() {
         modifiers: (false, false, false, false),
         scroll_delta: 0.0,
         callback_params: [0; 4],
+        key_value: 0,
+        keyboard_layout: 0,
         pre_captured_element: None,
         focus_epoch: 0,
         held: Vec::new(),
@@ -1460,6 +1485,8 @@ fn poison_event_does_not_kill_worker() {
         modifiers: (false, false, false, false),
         scroll_delta: 0.0,
         callback_params: [0; 4],
+        key_value: 0,
+        keyboard_layout: 0,
         pre_captured_element: None,
         focus_epoch: 0,
         held: Vec::new(),
@@ -1479,6 +1506,8 @@ fn poison_event_does_not_kill_worker() {
         modifiers: (false, false, false, false),
         scroll_delta: 0.0,
         callback_params: [0; 4],
+        key_value: 0,
+        keyboard_layout: 0,
         pre_captured_element: None,
         focus_epoch: 0,
         held: Vec::new(),
@@ -1600,6 +1629,8 @@ fn locators_and_provider_facts_pass_through_the_pipeline_verbatim() {
         modifiers: (false, false, false, false),
         scroll_delta: 0.0,
         callback_params: [0; 4],
+        key_value: 0,
+        keyboard_layout: 0,
         pre_captured_element: None,
         focus_epoch: 0,
         held: Vec::new(),
@@ -1649,6 +1680,8 @@ fn pre_captured_click_exports_zero_describe_latency() {
         modifiers: (false, false, false, false),
         scroll_delta: 0.0,
         callback_params: [0; 4],
+        key_value: 0,
+        keyboard_layout: 0,
         pre_captured_element: Some(locator_rich_element()),
         focus_epoch: 0,
         held: Vec::new(),
@@ -1691,6 +1724,8 @@ fn an_action_carries_the_platforms_preferred_languages() {
         modifiers: (false, false, false, false),
         scroll_delta: 0.0,
         callback_params: [0; 4],
+        key_value: 0,
+        keyboard_layout: 0,
         pre_captured_element: Some(locator_rich_element()),
         focus_epoch: 0,
         held: Vec::new(),
@@ -1777,6 +1812,8 @@ fn coordinate_downgrade_strips_locators_facts_and_latency() {
         modifiers: (false, false, false, false),
         scroll_delta: 0.0,
         callback_params: [0; 4],
+        key_value: 0,
+        keyboard_layout: 0,
         pre_captured_element: None,
         focus_epoch: 0,
         held: Vec::new(),
@@ -1826,6 +1863,8 @@ fn context_open_carries_process_source_and_no_fabricated_opener() {
         modifiers: (false, false, false, false),
         scroll_delta: 0.0,
         callback_params: [0; 4],
+        key_value: 0,
+        keyboard_layout: 0,
         pre_captured_element: None,
         focus_epoch: 0,
         held: Vec::new(),
@@ -1926,6 +1965,8 @@ fn coordinate_fallback_emits_screen_space_verbatim_for_non_origin_window() {
         modifiers: (false, false, false, false),
         scroll_delta: 0.0,
         callback_params: [0; 4],
+        key_value: 0,
+        keyboard_layout: 0,
         pre_captured_element: None,
         focus_epoch: 0,
         held: Vec::new(),
@@ -2001,6 +2042,8 @@ fn scroll_accumulator_flushes_on_timeout() {
             modifiers: (false, false, false, false),
             scroll_delta: 100.0, // Each scroll event has delta 100 (total 500 > 200 threshold)
             callback_params: [0, 0, 0, 0], // vertical scroll
+            key_value: 0,
+            keyboard_layout: 0,
             pre_captured_element: None,
             focus_epoch: 0,
             held: Vec::new(),
@@ -2054,6 +2097,8 @@ fn scroll_accumulator_flushes_on_shutdown() {
             modifiers: (false, false, false, false),
             scroll_delta: 150.0,           // total 450 > 200 threshold
             callback_params: [0, 0, 0, 0], // vertical scroll
+            key_value: 0,
+            keyboard_layout: 0,
             pre_captured_element: None,
             focus_epoch: 0,
             held: Vec::new(),
@@ -2101,6 +2146,8 @@ fn focus_deduplication_suppresses_consecutive_same_element() {
             modifiers: (false, false, false, false),
             scroll_delta: 0.0,
             callback_params: [0; 4],
+            key_value: 0,
+            keyboard_layout: 0,
             pre_captured_element: None,
             focus_epoch: 0,
             held: Vec::new(),
@@ -2154,6 +2201,8 @@ fn value_change_deduplication_same_value() {
             modifiers: (false, false, false, false),
             scroll_delta: 0.0,
             callback_params: [0; 4],
+            key_value: 0,
+            keyboard_layout: 0,
             pre_captured_element: None,
             focus_epoch: 0,
             held: Vec::new(),
@@ -2198,6 +2247,8 @@ fn keyboard_event_produces_key_action() {
         modifiers: (false, false, false, false),
         scroll_delta: 0.0,
         callback_params: [0; 4],
+        key_value: 0,
+        keyboard_layout: 0,
         pre_captured_element: None,
         focus_epoch: 0,
         held: Vec::new(),
@@ -2241,6 +2292,8 @@ fn modifier_only_key_is_skipped() {
         modifiers: (false, true, false, false),
         scroll_delta: 0.0,
         callback_params: [0; 4],
+        key_value: 0,
+        keyboard_layout: 0,
         pre_captured_element: None,
         focus_epoch: 0,
         held: Vec::new(),
@@ -2283,6 +2336,8 @@ fn foreground_event_produces_context_switch() {
         modifiers: (false, false, false, false),
         scroll_delta: 0.0,
         callback_params: [0; 4],
+        key_value: 0,
+        keyboard_layout: 0,
         pre_captured_element: None,
         focus_epoch: 0,
         held: Vec::new(),
@@ -2497,6 +2552,8 @@ fn right_click_event_produces_right_click_action() {
         modifiers: (false, false, false, false),
         scroll_delta: 0.0,
         callback_params: [0; 4],
+        key_value: 0,
+        keyboard_layout: 0,
         pre_captured_element: None,
         focus_epoch: 0,
         held: Vec::new(),
@@ -2552,6 +2609,8 @@ fn excluded_pid_events_are_discarded() {
             modifiers: (false, false, false, false),
             scroll_delta: 0.0,
             callback_params: [0; 4],
+            key_value: 0,
+            keyboard_layout: 0,
             pre_captured_element: None,
             focus_epoch: 0,
             held: Vec::new(),
@@ -2574,6 +2633,8 @@ fn excluded_pid_events_are_discarded() {
             modifiers: (false, false, false, false),
             scroll_delta: 0.0,
             callback_params: [0; 4],
+            key_value: 0,
+            keyboard_layout: 0,
             pre_captured_element: None,
             focus_epoch: 0,
             held: Vec::new(),
@@ -2628,6 +2689,8 @@ fn selection_event_produces_select_action() {
         modifiers: (false, false, false, false),
         scroll_delta: 0.0,
         callback_params: [0, 0, 0, 0],
+        key_value: 0,
+        keyboard_layout: 0,
         pre_captured_element: None,
         focus_epoch: 0,
         held: Vec::new(),
@@ -2675,6 +2738,8 @@ fn modifier_only_keys_produce_no_events() {
             modifiers: (false, false, false, false),
             scroll_delta: 0.0,
             callback_params: [0, 0, 0, 0],
+            key_value: 0,
+            keyboard_layout: 0,
             pre_captured_element: None,
             focus_epoch: 0,
             held: Vec::new(),
@@ -2716,6 +2781,8 @@ fn win_l_key_combo_is_captured_if_received() {
         modifiers: (false, false, false, true), // meta = true
         scroll_delta: 0.0,
         callback_params: [0, 0, 0, 0],
+        key_value: 0,
+        keyboard_layout: 0,
         pre_captured_element: None,
         focus_epoch: 0,
         held: Vec::new(),
@@ -2775,6 +2842,8 @@ fn packet_key(seq: u64, timestamp: u64, unit: u16) -> RawEvent {
         modifiers: (false, false, false, false),
         scroll_delta: 0.0,
         callback_params: [i64::from(unit), 0, 0, 0],
+        key_value: 0,
+        keyboard_layout: 0,
         pre_captured_element: None,
         focus_epoch: 0,
         held: Vec::new(),
@@ -3299,7 +3368,7 @@ fn regression_237_a_key_whose_input_method_was_not_read_leaves_the_fields_out() 
 #[test]
 fn regression_237_the_input_method_read_leaves_the_key_name_and_the_repeat_mark() {
     let harness = WorkerTestHarness::new(MockBackend::new());
-    let mut plus = layout_key(1, now_ms(), 0xBB);
+    let mut plus = gives(layout_key(1, now_ms(), 0xBB), '+');
     plus.modifiers = (true, false, false, false);
     plus.callback_params[3] = i64::from(u32::from('+')) | KEY_REPEAT_PARAM;
     plus.callback_params[0] |= input_method_param(Some(InputMethodState {
@@ -3328,12 +3397,40 @@ fn regression_237_the_input_method_read_leaves_the_key_name_and_the_repeat_mark(
     );
 }
 
-/// A keydown of a layout key (`key_code` is its virtual-key code).
+/// What the keyboard hook reads from a US layout for a key pressed with no
+/// modifier (`RawEvent::key_value`), for the letters, the digits, the space
+/// bar and the numeric keypad; nothing read for every other code, which a
+/// test states for itself ([`gives`]).
+fn us_key_value(key_code: u32) -> u32 {
+    let character = match key_code {
+        0x20 => ' ',
+        0x30..=0x39 => char::from(key_code as u8),
+        0x41..=0x5A => char::from(key_code as u8).to_ascii_lowercase(),
+        0x60..=0x69 => char::from(b'0' + (key_code - 0x60) as u8),
+        0x6A => '*',
+        0x6B => '+',
+        0x6D => '-',
+        0x6E => '.',
+        0x6F => '/',
+        _ => return 0,
+    };
+    answer_param(Some(LayoutAnswer::Char(character)))
+}
+
+/// `raw`, with `character` as what the layout gave the press.
+fn gives(mut raw: RawEvent, character: char) -> RawEvent {
+    raw.key_value = answer_param(Some(LayoutAnswer::Char(character)));
+    raw
+}
+
+/// A keydown of a layout key (`key_code` is its virtual-key code), named as
+/// a US layout names it with no modifier ([`us_key_value`]).
 fn layout_key(seq: u64, timestamp: u64, key_code: u32) -> RawEvent {
     let mut raw = make_raw_event(RawEventType::Keyboard, 1234);
     raw.sequence_id = seq;
     raw.timestamp = timestamp;
     raw.key_code = key_code;
+    raw.key_value = us_key_value(key_code);
     raw
 }
 
@@ -3583,7 +3680,7 @@ fn regression_noissue_every_text_entering_key_in_a_password_field_joins_the_mask
     thread::sleep(Duration::from_millis(900));
     let events = harness.shutdown();
 
-    assert_eq!(key_names_of(&events), vec!["V"], "got {events:?}");
+    assert_eq!(key_names_of(&events), vec!["v"], "got {events:?}");
     assert_eq!(type_values_of(&events), vec!["••••••••"], "got {events:?}");
 }
 
@@ -3648,10 +3745,9 @@ fn burst_through_busy_pool(text: &str, value_changes: usize) -> Vec<ActionEvent>
     action_rx.try_iter().collect()
 }
 
-fn upper_letters(text: &str) -> Vec<String> {
-    text.chars()
-        .map(|c| c.to_ascii_uppercase().to_string())
-        .collect()
+/// The `key` of each letter of `text` typed with no modifier.
+fn letter_keys(text: &str) -> Vec<String> {
+    text.chars().map(|c| c.to_string()).collect()
 }
 
 fn focus_event(seq: u64, timestamp: u64, window_handle: i64) -> RawEvent {
@@ -4091,7 +4187,7 @@ fn repeated_keystrokes_with_no_value_change_are_each_recorded_in_order() {
         let events = burst_through_busy_pool(text, 0);
         assert_eq!(
             key_names_of(&events),
-            upper_letters(text),
+            letter_keys(text),
             "every press of {text:?} is its own key, in typing order"
         );
         assert_eq!(type_values_of(&events), Vec::<String>::new());
@@ -4183,7 +4279,7 @@ fn a_value_change_on_an_element_with_no_value_keeps_the_keys() {
         Vec::<String>::new(),
         "got {events:?}"
     );
-    assert_eq!(key_names_of(&events), vec!["A"], "got {events:?}");
+    assert_eq!(key_names_of(&events), vec!["a"], "got {events:?}");
 }
 
 /// The events that end the typing in a field, each with the name it is
@@ -5468,7 +5564,7 @@ fn regression_736_a_value_typed_undone_and_typed_again_is_recorded() {
         typed_actions_of(&events),
         vec![
             "type h on Window:*doc - Editor > Edit:Text",
-            "key Z on Window:*doc - Editor > Edit:Text",
+            "key z on Window:*doc - Editor > Edit:Text",
             "type h on Window:doc - Editor > Edit:Text"
         ],
         "got {events:?}"
@@ -5510,7 +5606,7 @@ fn regression_736_the_same_text_typed_over_itself_is_recorded() {
         typed_actions_of(&events),
         vec![
             "type h on Dialog > Edit:File name",
-            "key A on Dialog > Edit:File name",
+            "key a on Dialog > Edit:File name",
             "type h on Dialog > Edit:File name"
         ],
         "got {events:?}"
@@ -5707,6 +5803,7 @@ fn regression_751_a_value_change_reported_twice_after_a_paste_is_one_type() {
 fn dead_key(seq: u64) -> RawEvent {
     let mut key = layout_key(seq, now_ms(), 0xDD);
     key.callback_params = [0x0D, 0, 0, 0x8000_0000 | i64::from(u32::from('\u{b4}'))];
+    key.key_value = answer_param(Some(LayoutAnswer::Dead));
     in_dialog(key)
 }
 
@@ -5755,7 +5852,7 @@ fn regression_744_a_dead_key_is_a_key_when_no_character_follows() {
 
     assert_eq!(
         key_names_of(&events),
-        vec!["\u{b4}", "Backspace"],
+        vec!["Dead", "Backspace"],
         "got {events:?}"
     );
 }
@@ -5843,7 +5940,7 @@ fn regression_744_a_dead_key_waiting_is_written_when_the_typing_ends() {
     let written = harness.drain_actions();
     let _ = harness.shutdown();
 
-    assert_eq!(key_names_of(&written), vec!["\u{b4}"], "got {written:?}");
+    assert_eq!(key_names_of(&written), vec!["Dead"], "got {written:?}");
 }
 
 /// Text is typed, then a dead key: the field's `type` is still held when the
@@ -5890,7 +5987,7 @@ fn regression_744_a_dead_key_behind_typed_text_is_written_behind_the_type() {
             .collect();
         assert_eq!(
             written,
-            vec!["type c", "key \u{b4}"],
+            vec!["type c", "key Dead"],
             "{ender}: got {events:?}"
         );
     }
@@ -5910,11 +6007,7 @@ fn regression_744_a_dead_key_and_its_character_are_keys_where_no_text_was_taken(
     let written = harness.drain_actions();
     let _ = harness.shutdown();
 
-    assert_eq!(
-        key_names_of(&written),
-        vec!["\u{b4}", "E"],
-        "got {written:?}"
-    );
+    assert_eq!(key_names_of(&written), vec!["Dead", "e"], "got {written:?}");
 }
 
 /// Paste "h" into the dialog's field with the paste key, so the field's last
@@ -6606,6 +6699,8 @@ fn left_click(
             0,
             0,
         ],
+        key_value: 0,
+        keyboard_layout: 0,
         pre_captured_element: Some(element),
         focus_epoch: 0,
         held: Vec::new(),
@@ -8271,7 +8366,7 @@ fn regression_696_a_space_typed_into_an_edit_field_stays_in_the_one_type() {
 #[test]
 fn regression_696_a_space_with_no_value_change_is_the_key_space() {
     let events = burst_through_busy_pool("a b", 0);
-    assert_eq!(key_names_of(&events), vec!["A", "Space", "B"]);
+    assert_eq!(key_names_of(&events), vec!["a", "Space", "b"]);
     assert_eq!(type_values_of(&events), Vec::<String>::new());
 }
 
@@ -8347,7 +8442,7 @@ fn regression_696_altgr_and_unnamed_layout_keys_stay_in_the_one_type() {
 fn regression_696_altgr_and_unnamed_layout_keys_with_no_value_change_are_keys() {
     let keys = [(0x41, PLAIN), (0x32, ALT_GR), (0xE2, PLAIN)];
     let events = layout_burst(&keys, "", 0);
-    assert_eq!(key_names_of(&events), vec!["A", "2", "VK_0xE2"]);
+    assert_eq!(key_names_of(&events), vec!["a", "2", "Unidentified"]);
 }
 
 /// A shortcut is no typing: Ctrl+S right behind typed keys is written at
@@ -8356,7 +8451,7 @@ fn regression_696_altgr_and_unnamed_layout_keys_with_no_value_change_are_keys() 
 fn a_shortcut_behind_typed_keys_is_a_key_in_its_place() {
     let ctrl = (true, false, false, false);
     let events = layout_burst(&[(0x41, PLAIN), (0x53, ctrl), (0x42, PLAIN)], "", 0);
-    assert_eq!(key_names_of(&events), vec!["A", "S", "B"]);
+    assert_eq!(key_names_of(&events), vec!["a", "s", "b"]);
 }
 
 /// Regression: a numeric-keypad key typed into an edit field was written as a
@@ -8375,10 +8470,7 @@ fn regression_696_keypad_keys_typed_into_an_edit_field_stay_in_the_one_type() {
 #[test]
 fn regression_696_keypad_keys_with_no_value_change_are_keys_in_order() {
     let events = keypad_burst("", 0);
-    assert_eq!(
-        key_names_of(&events),
-        vec!["Numpad1", "Numpad2", "Decimal", "Numpad5"]
-    );
+    assert_eq!(key_names_of(&events), vec!["1", "2", ".", "5"]);
 }
 
 fn key_repeats_of(events: &[ActionEvent]) -> Vec<(String, bool)> {
@@ -8418,8 +8510,8 @@ fn regression_696_a_held_key_writes_every_press_and_marks_the_repeats() {
             ("Enter".to_string(), false),
             ("Enter".to_string(), true),
             ("Enter".to_string(), true),
-            ("A".to_string(), false),
-            ("A".to_string(), true),
+            ("a".to_string(), false),
+            ("a".to_string(), true),
         ]
     );
 }
@@ -8579,7 +8671,7 @@ fn a_typing_key_on_a_button_is_written_without_waiting() {
     assert_eq!(
         typed_actions_of(&early),
         vec![
-            "key Numpad7 on Dialog > Button:Seven",
+            "key 7 on Dialog > Button:Seven",
             "key Space on Dialog > Button:Seven"
         ],
         "got {early:?}"
@@ -8638,7 +8730,7 @@ fn regression_696_keys_buffered_on_one_element_survive_typing_into_another() {
     assert_eq!(
         typed_actions_of(&events),
         vec![
-            "key X on Dialog > Pane:Board",
+            "key x on Dialog > Pane:Board",
             "type a on Dialog > Edit:Name"
         ],
         "got {events:?}"
@@ -8662,7 +8754,8 @@ fn held_presses(keys: &[(u32, u32, u64)]) -> Vec<HeldPress> {
             key_code,
             scan_code,
             press,
-            layout_char: 0,
+            key_value: 0,
+            language: 0,
         })
         .collect()
 }
@@ -8780,10 +8873,10 @@ fn regression_691_a_repeated_punctuation_key_is_named_by_its_layout_and_marked_r
     let harness = WorkerTestHarness::new(MockBackend::new());
     let t = now_ms();
     // Danish layout: VK_OEM_PLUS (0xBB) enters '+'.
-    let mut press = layout_key(1, t, 0xBB);
+    let mut press = gives(layout_key(1, t, 0xBB), '+');
     press.callback_params[3] = '+' as i64;
     harness.send_event(press);
-    let mut repeat = layout_key(2, t, 0xBB);
+    let mut repeat = gives(layout_key(2, t, 0xBB), '+');
     repeat.callback_params[3] = '+' as i64 | KEY_REPEAT_PARAM;
     harness.send_event(repeat);
     thread::sleep(Duration::from_millis(900));
@@ -8809,6 +8902,7 @@ fn regression_691_a_held_punctuation_key_is_named_by_its_layout_character() {
     assert!(!record.on_hook_message(0x0100, 0xBB, 0x0C, not_down));
     let mut plus = layout_key(1, t, 0xBB);
     plus.callback_params = [0x0C, 0, 0, '+' as i64];
+    plus.key_value = answer_param(Some(LayoutAnswer::Char('+')));
     record.stamp(&mut plus);
     harness.send_event(plus);
     // Tab pressed while it is held.
@@ -9358,7 +9452,7 @@ fn open_case_762_a_pasted_value_read_late_is_recorded_nowhere() {
     thread::sleep(Duration::from_millis(300));
     assert_eq!(
         typed_actions_of(&harness.shutdown()),
-        on_field(&["key V", "key Enter"]),
+        on_field(&["key v", "key Enter"]),
         "the open case: the pasted text is recorded nowhere"
     );
 }
@@ -9395,7 +9489,7 @@ fn a_key_ahead_of_a_waiting_dead_key_is_written_once_when_its_value_comes_after_
     thread::sleep(Duration::from_millis(900));
     assert_eq!(
         types_and_keys(&harness.shutdown()),
-        vec!["key \u{b4}", "type x"]
+        vec!["key Dead", "type x"]
     );
 }
 
@@ -9417,7 +9511,7 @@ fn a_value_change_of_an_earlier_key_leaves_a_waiting_dead_key_to_be_written() {
     harness.event_tx.send(WorkerMessage::EndTyping).unwrap();
     assert_eq!(
         types_and_keys(&harness.shutdown()),
-        vec!["type c", "key \u{b4}"]
+        vec!["type c", "key Dead"]
     );
 }
 
@@ -9441,7 +9535,7 @@ fn a_value_reported_again_behind_a_waiting_dead_key_leaves_it_to_be_written() {
     harness.event_tx.send(WorkerMessage::EndTyping).unwrap();
     assert_eq!(
         types_and_keys(&harness.shutdown()),
-        vec!["type c", "key \u{b4}"]
+        vec!["type c", "key Dead"]
     );
 }
 
@@ -9457,6 +9551,11 @@ fn key_as_pressed(seq: u64, modifiers: (bool, bool, bool, bool), accent: Option<
     use docent_desktop_lib::capture::held_keys::{dead_as_pressed_param, AsPressed};
     let mut key = dead_key(seq);
     key.modifiers = modifiers;
+    // The Danish acute key: a dead key with no modifier and with Shift, and
+    // `|` with AltGr.
+    if accent.is_none() {
+        key.key_value = answer_param(Some(LayoutAnswer::Char('|')));
+    }
     key.callback_params[3] |= dead_as_pressed_param(Some(match accent {
         Some(accent) => AsPressed::DeadKey {
             accent: accent as u16,
@@ -9535,7 +9634,7 @@ fn a_dead_key_pressed_a_third_time_waits_behind_the_text_of_the_first_two() {
     harness.event_tx.send(WorkerMessage::EndTyping).unwrap();
     assert_eq!(
         types_and_keys(&harness.shutdown()),
-        vec!["type \u{b4}\u{b4}", "key \u{b4}"]
+        vec!["type \u{b4}\u{b4}", "key Dead"]
     );
 }
 
@@ -9555,7 +9654,7 @@ fn a_dead_key_and_a_key_that_enters_nothing_are_keys_in_the_order_pressed() {
     }
     assert_eq!(
         types_and_keys(&written),
-        vec!["key \u{b4}", "key Tab"],
+        vec!["key Dead", "key Tab"],
         "written at the wait, before the recording stops"
     );
     assert!(types_and_keys(&harness.shutdown()).is_empty());
@@ -9579,7 +9678,7 @@ fn a_dead_key_and_the_key_behind_it_are_written_ahead_of_a_click() {
             _ => None,
         })
         .collect();
-    assert_eq!(order, vec!["key \u{b4}", "key Tab", "click"]);
+    assert_eq!(order, vec!["key Dead", "key Tab", "click"]);
 }
 
 /// The typing worker, told to write the key it holds behind a dead key (a
@@ -9601,10 +9700,7 @@ fn the_key_held_behind_a_dead_key_is_written_when_the_worker_is_told() {
     while let Ok(event) = harness.action_rx.try_recv() {
         written.push(event);
     }
-    assert_eq!(
-        types_and_keys(&written),
-        vec!["key \u{b4}", "key ArrowLeft"]
-    );
+    assert_eq!(types_and_keys(&written), vec!["key Dead", "key ArrowLeft"]);
     assert!(types_and_keys(&harness.shutdown()).is_empty());
 }
 
@@ -9627,7 +9723,7 @@ fn a_dead_key_whose_accent_the_program_does_not_enter_is_a_key() {
     thread::sleep(Duration::from_millis(900));
     assert_eq!(
         types_and_keys(&harness.shutdown()),
-        vec!["type c", "key \u{b4}", "key Tab", "type c\t"]
+        vec!["type c", "key Dead", "key Tab", "type c\t"]
     );
 }
 
@@ -9638,7 +9734,7 @@ fn a_dead_key_whose_accent_the_program_does_not_enter_is_a_key() {
 fn a_dead_key_is_text_only_where_the_field_gained_its_accent() {
     for (after, expected) in [
         ("\u{b4}\u{b4}\t", vec!["key Tab", "type \u{b4}\u{b4}\t"]),
-        ("\u{b4}\t", vec!["key \u{b4}", "key Tab", "type \u{b4}\t"]),
+        ("\u{b4}\t", vec!["key Dead", "key Tab", "type \u{b4}\t"]),
     ] {
         let (backend, scene, _) = MovingFocusBackend::new(file_name_field("\u{b4}"));
         field_holds(&scene, "\u{b4}");
@@ -9732,7 +9828,7 @@ fn regression_769_a_key_not_dead_as_pressed_is_an_ordinary_key() {
     harness.send_event(dead_key_as_pressed(1, (true, false, true, false), false));
     thread::sleep(Duration::from_millis(900));
     let written_at_the_wait = types_and_keys(&harness.shutdown());
-    assert_eq!(written_at_the_wait, vec!["key \u{b4}"]);
+    assert_eq!(written_at_the_wait, vec!["key |"]);
 }
 
 #[test]
@@ -9750,7 +9846,7 @@ fn a_key_that_took_no_text_is_written_ahead_of_the_dead_key_behind_it_when_the_t
     thread::sleep(Duration::from_millis(30));
     assert_eq!(
         types_and_keys(&harness.drain_actions()),
-        vec!["key X", "key \u{b4}"]
+        vec!["key x", "key Dead"]
     );
     harness.shutdown();
 }
@@ -9782,6 +9878,6 @@ fn a_value_reported_again_while_only_a_dead_key_waits_is_no_second_type() {
     harness.event_tx.send(WorkerMessage::EndTyping).unwrap();
     assert_eq!(
         types_and_keys(&harness.shutdown()),
-        vec!["type c", "key \u{b4}"]
+        vec!["type c", "key Dead"]
     );
 }
