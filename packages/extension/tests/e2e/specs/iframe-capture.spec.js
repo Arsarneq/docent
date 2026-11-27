@@ -42,6 +42,14 @@ function startServer() {
   return new Promise((resolve) => {
     server = http.createServer((req, res) => {
       const url = new URL(req.url, 'http://placeholder');
+      // A resource that keeps its page loading: the recorder is injected at the end of the load.
+      if (url.pathname === '/slow-image') {
+        setTimeout(() => {
+          res.writeHead(200, { 'Content-Type': 'image/gif' });
+          res.end();
+        }, 2500);
+        return;
+      }
       const html = routes.get(url.pathname) ?? '<!DOCTYPE html><html><body></body></html>';
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
       res.end(html);
@@ -166,6 +174,219 @@ test.describe('Cross-origin iframe capture (#93)', () => {
     expect(frameClick, 'a child-frame click with a frame_src').toBeTruthy();
     expect(frameClick.frame_src).toContain('/child');
     expect(frameClick.frame_src).toContain('localhost'); // origin B
+  });
+
+  // Regression: #779 — a key held in one document of a tab was not named in
+  // `held_keys` of an action in another document of the same tab. Here the
+  // two documents are of different sites, so each has its own process.
+  // https://github.com/Arsarneq/docent/issues/779
+  test('regression_779_a_key_held_across_a_cross_origin_frame_is_named_both_ways', async ({
+    context,
+    serviceWorker,
+  }) => {
+    routes.set(
+      '/child',
+      `<!DOCTYPE html><html><body><button id="inner" style="padding:1rem">Inner</button></body></html>`,
+    );
+    routes.set(
+      '/parent',
+      `<!DOCTYPE html><html><body>
+        <button id="outer">Outer</button>
+        <iframe id="x" src="${ORIGIN_B()}/child" width="400" height="120"></iframe>
+      </body></html>`,
+    );
+
+    await startRecording(serviceWorker);
+    const page = context.pages()[0] || (await context.newPage());
+    await page.goto(`${ORIGIN_A()}/parent`);
+    await waitForTopFrameReady(serviceWorker, page);
+    await page.waitForTimeout(300); // let the SW inject into the child frame too
+    const inner = page.frameLocator('#x').locator('#inner');
+
+    // Held outside, clicked inside, released inside.
+    await page.locator('#outer').focus();
+    await page.keyboard.down('Escape');
+    await inner.click();
+    await page.keyboard.up('Escape');
+    await inner.click();
+    // Held inside, clicked outside, released outside.
+    await page.keyboard.down('F2');
+    await page.locator('#outer').click();
+    await page.keyboard.up('F2');
+    await page.locator('#outer').click();
+    await settle(serviceWorker, page);
+
+    const actions = await getPendingActions(serviceWorker);
+    expect(
+      actions
+        .filter((a) => a.type === 'click' || a.type === 'key')
+        .map((a) => [a.type, a.key ?? null, a.held_keys, a.element.selector]),
+    ).toEqual([
+      ['key', 'Escape', [], '#outer'],
+      ['click', null, ['Escape'], '#inner'],
+      ['click', null, [], '#inner'],
+      ['key', 'F2', [], '#inner'],
+      ['click', null, ['F2'], '#outer'],
+      ['click', null, [], '#outer'],
+    ]);
+  });
+
+  test('regression_779_a_key_whose_release_a_busy_frame_reports_late_is_not_held', async ({
+    context,
+    serviceWorker,
+  }) => {
+    // The key is released in the parent, whose page is busy at that release,
+    // and the other site's frame is clicked meanwhile: the click's report
+    // reaches the worker ahead of the release's.
+    routes.set(
+      '/child',
+      `<!DOCTYPE html><html><body><button id="inner" style="padding:1rem">Inner</button></body></html>`,
+    );
+    routes.set(
+      '/parent',
+      `<!DOCTYPE html><html><body>
+        <button id="outer">Outer</button>
+        <iframe id="x" src="${ORIGIN_B()}/child" width="400" height="120"></iframe>
+        <script>
+          const busy = (ms) => { const end = performance.now() + ms; while (performance.now() < end); };
+          window.addEventListener('keyup', () => busy(300), true);
+        </script>
+      </body></html>`,
+    );
+
+    await startRecording(serviceWorker);
+    const page = context.pages()[0] || (await context.newPage());
+    await page.goto(`${ORIGIN_A()}/parent`);
+    await waitForTopFrameReady(serviceWorker, page);
+    await page.waitForTimeout(300);
+    const inner = page.frameLocator('#x').locator('#inner');
+    await inner.waitFor();
+    const box = await inner.boundingBox();
+
+    await page.locator('#outer').focus();
+    await page.keyboard.down('Escape');
+    await page.waitForTimeout(100);
+    const released = page.keyboard.up('Escape');
+    await page.waitForTimeout(50);
+    // A raw click: one through the locator would wait for the busy parent.
+    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+    await released;
+    await settle(serviceWorker, page);
+
+    const actions = await getPendingActions(serviceWorker);
+    expect(
+      actions
+        .filter((a) => a.type === 'click' || a.type === 'key')
+        .map((a) => [a.type, a.held_keys, a.element.selector]),
+    ).toEqual([
+      ['key', [], '#outer'],
+      ['click', [], '#inner'],
+    ]);
+  });
+
+  test('regression_779_a_key_whose_press_a_busy_frame_reports_late_is_not_held', async ({
+    context,
+    serviceWorker,
+  }) => {
+    // The key goes down in the parent while its page is busy, the other
+    // site's frame is clicked, and the key is released there. The parent
+    // handles the old keydown afterwards and reports the key as held.
+    routes.set(
+      '/child',
+      `<!DOCTYPE html><html><body><button id="inner" style="padding:1rem">Inner</button></body></html>`,
+    );
+    routes.set(
+      '/parent',
+      `<!DOCTYPE html><html><body>
+        <button id="outer">Outer</button>
+        <iframe id="x" src="${ORIGIN_B()}/child" width="400" height="120"></iframe>
+        <script>
+          window.busy = (ms) => { const end = performance.now() + ms; while (performance.now() < end); };
+          window.addEventListener('keydown', () => busy(400), false);
+        </script>
+      </body></html>`,
+    );
+
+    await startRecording(serviceWorker);
+    const page = context.pages()[0] || (await context.newPage());
+    await page.goto(`${ORIGIN_A()}/parent`);
+    await waitForTopFrameReady(serviceWorker, page);
+    await page.waitForTimeout(300);
+    const inner = page.frameLocator('#x').locator('#inner');
+    await inner.waitFor();
+    const box = await inner.boundingBox();
+
+    await page.locator('#outer').focus();
+    const start = Date.now();
+    await page.evaluate(() => setTimeout(() => window.busy(800), 30));
+    await page.waitForTimeout(80);
+    const down = page.keyboard.down('Escape');
+    await page.waitForTimeout(40);
+    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+    const up = page.keyboard.up('Escape');
+    // Once the parent has handled the keydown, and while its listener still runs.
+    await page.waitForTimeout(Math.max(0, 920 - (Date.now() - start)));
+    const f2 = page.keyboard.press('F2');
+    await Promise.all([down, up, f2]);
+    await page.waitForTimeout(1200);
+    await settle(serviceWorker, page);
+
+    const actions = await getPendingActions(serviceWorker);
+    const f2Key = actions.find((a) => a.type === 'key' && a.key === 'F2');
+    expect([f2Key.element.selector, f2Key.held_keys]).toEqual(['#inner', []]);
+  });
+
+  test('regression_779_a_key_the_page_before_reported_while_it_was_left_is_not_held', async ({
+    context,
+    serviceWorker,
+  }) => {
+    // The key's press sends the page to the next one, and the page being left
+    // writes the key and reports it held once the navigation is under way.
+    // The key is released in the next page before its recorder runs.
+    routes.set(
+      '/leaving',
+      `<!DOCTYPE html><html><body><input id="q">
+        <script>
+          document.getElementById('q').addEventListener('keydown', (e) => {
+            e.preventDefault();
+            location.href = '/next';
+          });
+        </script>
+      </body></html>`,
+    );
+    routes.set(
+      '/next',
+      `<!DOCTYPE html><html><body><p>Next</p>
+        <iframe id="x" srcdoc="<button id='inner'>Inner</button>"></iframe>
+        <img src="/slow-image">
+      </body></html>`,
+    );
+
+    await startRecording(serviceWorker);
+    const page = context.pages()[0] || (await context.newPage());
+    await page.goto(`${ORIGIN_A()}/leaving`);
+    await waitForTopFrameReady(serviceWorker, page);
+    await page.waitForTimeout(300);
+    await page.locator('#q').focus();
+    const committed = page.waitForURL('**/next', { waitUntil: 'commit' });
+    await page.keyboard.down('g');
+    await committed;
+    await page.waitForTimeout(100);
+    await page.keyboard.up('g');
+    await page.waitForLoadState('load');
+    await waitForTopFrameReady(serviceWorker, page);
+    await page.waitForTimeout(500);
+    await page.frameLocator('#x').locator('#inner').click();
+    await settle(serviceWorker, page);
+
+    const actions = await getPendingActions(serviceWorker);
+    const seen = actions
+      .filter((a) => a.type === 'click' || a.type === 'key')
+      .map((a) => [a.type, a.key ?? null, a.held_keys, a.element.selector]);
+    expect(seen).toEqual([
+      ['key', 'g', [], '#q'],
+      ['click', null, [], '#inner'],
+    ]);
   });
 
   test('parent-page capture keeps working alongside a cross-origin iframe', async ({
