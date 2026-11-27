@@ -180,7 +180,7 @@ function Test-Guard($e, $w) {
 function Resolve-Target($e) {
   $t = $e.target
   if ($null -ne $t.x) { return @([int]$t.x, [int]$t.y) }
-  Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
+  Initialize-Uia
   $AE = [System.Windows.Automation.AutomationElement]
   $what = if ($t.id) { "id '$($t.id)'" } else { "name '$($t.name)'" }
   if ($t.control) { $what += " control $($t.control)" }
@@ -229,6 +229,20 @@ function Assert-Under($e, $x, $y) {
     exit 3
   }
   return $w
+}
+
+# .NET's UI Automation client reads classic Win32 controls (an edit box, a
+# menu) only through its client-side providers; without them such a control
+# is a bare Pane with no name, and a menu's items are not there at all. The
+# providers are registered once, before the first search.
+function Initialize-Uia {
+  if ($script:uiaReady) { return }
+  Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes, UIAutomationClientsideProviders
+  try {
+    [System.Windows.Automation.ClientSettings]::RegisterClientSideProviderAssembly([UIAutomationClientsideProviders.UIAutomationClientSideProviders].Assembly.GetName())
+    Write-Log 'uia client-side providers registered'
+  } catch { Write-Log "uia client-side providers: $($_.Exception.Message)" }
+  $script:uiaReady = $true
 }
 
 # For a target that was not found: which top-level windows the guard took,
