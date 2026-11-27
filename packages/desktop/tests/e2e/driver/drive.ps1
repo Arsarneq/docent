@@ -239,9 +239,10 @@ function Initialize-Uia {
   if ($script:uiaReady) { return }
   Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes, UIAutomationClientsideProviders
   try {
-    [System.Windows.Automation.ClientSettings]::RegisterClientSideProviderAssembly([UIAutomationClientsideProviders.UIAutomationClientSideProviders].Assembly.GetName())
-    Write-Log 'uia client-side providers registered'
-  } catch { Write-Log "uia client-side providers: $($_.Exception.Message)" }
+    $table = [UIAutomationClientsideProviders.UIAutomationClientSideProviders]::ClientSideProviderDescriptionTable
+    [System.Windows.Automation.ClientSettings]::RegisterClientSideProviders($table)
+    Write-Log "uia client-side providers registered: $($table.Count)"
+  } catch { Write-Log "uia client-side providers: $($_.Exception.ToString())" }
   $script:uiaReady = $true
 }
 
