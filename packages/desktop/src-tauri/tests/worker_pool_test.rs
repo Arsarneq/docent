@@ -39,6 +39,7 @@ fn make_raw_event(event_type: RawEventType, window_handle: i64) -> RawEvent {
         pre_captured_element: None,
         focus_epoch: 0,
         held: Vec::new(),
+        window_title: None,
     }
 }
 
@@ -358,6 +359,7 @@ proptest! {
             pre_captured_element: None,
             focus_epoch: 0,
             held: Vec::new(),
+            window_title: None,
         };
 
         let drop_event = RawEvent {
@@ -377,6 +379,7 @@ proptest! {
             pre_captured_element: None,
             focus_epoch: 0,
             held: Vec::new(),
+            window_title: None,
         };
 
         pool.dispatch(drag_start);
@@ -684,6 +687,7 @@ proptest! {
             pre_captured_element: None,
             focus_epoch: 0,
             held: Vec::new(),
+            window_title: None,
         };
 
         let harness = WorkerTestHarness::new(MockBackend::new());
@@ -760,6 +764,7 @@ proptest! {
             pre_captured_element: None,
             focus_epoch: 0,
             held: Vec::new(),
+                window_title: None,
             };
             harness.send_event(raw);
         }
@@ -843,6 +848,7 @@ proptest! {
             pre_captured_element: None,
             focus_epoch: 0,
             held: Vec::new(),
+                window_title: None,
             };
             harness.send_event(raw);
         }
@@ -867,6 +873,7 @@ proptest! {
             pre_captured_element: None,
             focus_epoch: 0,
             held: Vec::new(),
+            window_title: None,
         };
         harness.send_event(context_event);
 
@@ -1141,6 +1148,7 @@ fn worker_shutdown_flushes_pending_type_event() {
             pre_captured_element: None,
             focus_epoch: 0,
             held: Vec::new(),
+            window_title: None,
         };
         harness.send_event(raw);
     }
@@ -1200,6 +1208,7 @@ fn regression_298_flush_drains_pending_and_worker_continues() {
             pre_captured_element: None,
             focus_epoch: 0,
             held: Vec::new(),
+            window_title: None,
         });
     }
     thread::sleep(Duration::from_millis(50)); // processed, the type held
@@ -1242,6 +1251,7 @@ fn regression_298_flush_drains_pending_and_worker_continues() {
         pre_captured_element: None,
         focus_epoch: 0,
         held: Vec::new(),
+        window_title: None,
     });
     let after_click = harness.drain_actions();
     assert!(
@@ -1292,6 +1302,7 @@ fn regression_298_flush_all_drains_workers_and_emits_sentinel_last() {
             pre_captured_element: None,
             focus_epoch: 0,
             held: Vec::new(),
+            window_title: None,
         });
     }
     thread::sleep(Duration::from_millis(80)); // processed, the type held
@@ -1433,6 +1444,7 @@ fn poison_event_does_not_kill_worker() {
         pre_captured_element: None,
         focus_epoch: 0,
         held: Vec::new(),
+        window_title: None,
     });
 
     // Send the poison event (will panic inside element_at_point).
@@ -1451,6 +1463,7 @@ fn poison_event_does_not_kill_worker() {
         pre_captured_element: None,
         focus_epoch: 0,
         held: Vec::new(),
+        window_title: None,
     });
 
     // Send another normal click event after the poison.
@@ -1469,6 +1482,7 @@ fn poison_event_does_not_kill_worker() {
         pre_captured_element: None,
         focus_epoch: 0,
         held: Vec::new(),
+        window_title: None,
     });
 
     // Give the worker time to process all three events.
@@ -1589,6 +1603,7 @@ fn locators_and_provider_facts_pass_through_the_pipeline_verbatim() {
         pre_captured_element: None,
         focus_epoch: 0,
         held: Vec::new(),
+        window_title: None,
     });
 
     thread::sleep(Duration::from_millis(100));
@@ -1637,6 +1652,7 @@ fn pre_captured_click_exports_zero_describe_latency() {
         pre_captured_element: Some(locator_rich_element()),
         focus_epoch: 0,
         held: Vec::new(),
+        window_title: None,
     });
 
     thread::sleep(Duration::from_millis(100));
@@ -1678,6 +1694,7 @@ fn an_action_carries_the_platforms_preferred_languages() {
         pre_captured_element: Some(locator_rich_element()),
         focus_epoch: 0,
         held: Vec::new(),
+        window_title: None,
     });
 
     thread::sleep(Duration::from_millis(100));
@@ -1763,6 +1780,7 @@ fn coordinate_downgrade_strips_locators_facts_and_latency() {
         pre_captured_element: None,
         focus_epoch: 0,
         held: Vec::new(),
+        window_title: None,
     });
 
     thread::sleep(Duration::from_millis(100));
@@ -1811,6 +1829,7 @@ fn context_open_carries_process_source_and_no_fabricated_opener() {
         pre_captured_element: None,
         focus_epoch: 0,
         held: Vec::new(),
+        window_title: None,
     });
 
     thread::sleep(Duration::from_millis(100));
@@ -1910,6 +1929,7 @@ fn coordinate_fallback_emits_screen_space_verbatim_for_non_origin_window() {
         pre_captured_element: None,
         focus_epoch: 0,
         held: Vec::new(),
+        window_title: None,
     });
 
     thread::sleep(Duration::from_millis(100));
@@ -1984,6 +2004,7 @@ fn scroll_accumulator_flushes_on_timeout() {
             pre_captured_element: None,
             focus_epoch: 0,
             held: Vec::new(),
+            window_title: None,
         };
         harness.send_event(raw);
     }
@@ -2036,6 +2057,7 @@ fn scroll_accumulator_flushes_on_shutdown() {
             pre_captured_element: None,
             focus_epoch: 0,
             held: Vec::new(),
+            window_title: None,
         };
         harness.send_event(raw);
     }
@@ -2082,6 +2104,7 @@ fn focus_deduplication_suppresses_consecutive_same_element() {
             pre_captured_element: None,
             focus_epoch: 0,
             held: Vec::new(),
+            window_title: None,
         };
         harness.send_event(raw);
     }
@@ -2134,6 +2157,7 @@ fn value_change_deduplication_same_value() {
             pre_captured_element: None,
             focus_epoch: 0,
             held: Vec::new(),
+            window_title: None,
         };
         harness.send_event(raw);
     }
@@ -2177,6 +2201,7 @@ fn keyboard_event_produces_key_action() {
         pre_captured_element: None,
         focus_epoch: 0,
         held: Vec::new(),
+        window_title: None,
     };
     harness.send_event(raw);
 
@@ -2219,6 +2244,7 @@ fn modifier_only_key_is_skipped() {
         pre_captured_element: None,
         focus_epoch: 0,
         held: Vec::new(),
+        window_title: None,
     };
     harness.send_event(raw);
 
@@ -2260,6 +2286,7 @@ fn foreground_event_produces_context_switch() {
         pre_captured_element: None,
         focus_epoch: 0,
         held: Vec::new(),
+        window_title: None,
     };
     harness.send_event(raw);
 
@@ -2347,6 +2374,88 @@ fn regression_761_context_switch_names_its_source_by_the_event_process() {
     );
 }
 
+// Regression: #801 — a context_switch into a window that closed, of a process
+// that had exited, before the worker described it named its source "pid:0"
+// https://github.com/Arsarneq/docent/issues/801
+#[test]
+fn regression_801_context_switch_of_an_exited_process_names_the_event_process_id() {
+    let harness = WorkerTestHarness::new(ClosedWindowBackend(MockBackend::new()));
+    let mut raw = make_raw_event(RawEventType::Foreground, 66168);
+    raw.sequence_id = 1;
+    // Not 4242: ClosedWindowBackend names no other process by its id, as the
+    // Windows backend names none that has exited.
+    raw.process_id = 4243;
+    harness.send_event(raw);
+
+    thread::sleep(Duration::from_millis(200));
+    let events = harness.shutdown();
+
+    let sources: Vec<&str> = events
+        .iter()
+        .filter_map(|e| match &e.payload {
+            ActionPayload::ContextSwitch { source, .. } => Some(source.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        sources,
+        vec!["pid:4243"],
+        "a process that cannot be read is named by the id read at the event"
+    );
+}
+
+// Regression: #801 — a context_switch into a window that closed before the
+// worker described it was written with no title
+// https://github.com/Arsarneq/docent/issues/801
+#[test]
+fn regression_801_context_switch_into_a_closed_window_states_the_title_read_at_the_event() {
+    let harness = WorkerTestHarness::new(ClosedWindowBackend(MockBackend::new()));
+    let mut raw = make_raw_event(RawEventType::Foreground, 66168);
+    raw.sequence_id = 1;
+    raw.process_id = 4242;
+    raw.window_title = Some("Untitled - Notepad".to_string());
+    harness.send_event(raw);
+
+    thread::sleep(Duration::from_millis(200));
+    let events = harness.shutdown();
+
+    let titles: Vec<Option<&str>> = events
+        .iter()
+        .filter_map(|e| match &e.payload {
+            ActionPayload::ContextSwitch { title, .. } => Some(title.as_deref()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        titles,
+        vec![Some("Untitled - Notepad")],
+        "the switch states the title read at the event, not the closed window's"
+    );
+}
+
+/// The title read with the event is written even where the window's title
+/// has changed by the time the switch is described (docent#801).
+#[test]
+fn a_context_switch_states_the_title_read_at_the_event_over_the_window_s_later_title() {
+    let harness = WorkerTestHarness::new(MockBackend::new());
+    let mut raw = make_raw_event(RawEventType::Foreground, 200);
+    raw.sequence_id = 1;
+    raw.window_title = Some("*Untitled - Notepad".to_string());
+    harness.send_event(raw);
+
+    thread::sleep(Duration::from_millis(200));
+    let events = harness.shutdown();
+
+    let titles: Vec<Option<&str>> = events
+        .iter()
+        .filter_map(|e| match &e.payload {
+            ActionPayload::ContextSwitch { title, .. } => Some(title.as_deref()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(titles, vec![Some("*Untitled - Notepad")]);
+}
+
 /// A process the backend cannot name by its id leaves the switch named by
 /// its window, as before.
 #[test]
@@ -2391,6 +2500,7 @@ fn right_click_event_produces_right_click_action() {
         pre_captured_element: None,
         focus_epoch: 0,
         held: Vec::new(),
+        window_title: None,
     };
     harness.send_event(raw);
 
@@ -2445,6 +2555,7 @@ fn excluded_pid_events_are_discarded() {
             pre_captured_element: None,
             focus_epoch: 0,
             held: Vec::new(),
+            window_title: None,
         })))
         .unwrap();
 
@@ -2466,6 +2577,7 @@ fn excluded_pid_events_are_discarded() {
             pre_captured_element: None,
             focus_epoch: 0,
             held: Vec::new(),
+            window_title: None,
         })))
         .unwrap();
 
@@ -2519,6 +2631,7 @@ fn selection_event_produces_select_action() {
         pre_captured_element: None,
         focus_epoch: 0,
         held: Vec::new(),
+        window_title: None,
     });
 
     thread::sleep(Duration::from_millis(200));
@@ -2565,6 +2678,7 @@ fn modifier_only_keys_produce_no_events() {
             pre_captured_element: None,
             focus_epoch: 0,
             held: Vec::new(),
+            window_title: None,
         });
     }
 
@@ -2605,6 +2719,7 @@ fn win_l_key_combo_is_captured_if_received() {
         pre_captured_element: None,
         focus_epoch: 0,
         held: Vec::new(),
+        window_title: None,
     });
 
     thread::sleep(Duration::from_millis(200));
@@ -2663,6 +2778,7 @@ fn packet_key(seq: u64, timestamp: u64, unit: u16) -> RawEvent {
         pre_captured_element: None,
         focus_epoch: 0,
         held: Vec::new(),
+        window_title: None,
     }
 }
 
@@ -6493,6 +6609,7 @@ fn left_click(
         pre_captured_element: Some(element),
         focus_epoch: 0,
         held: Vec::new(),
+        window_title: None,
     }
 }
 

@@ -169,6 +169,11 @@ pub struct RawEvent {
     /// keystrokes and the pointer events an action's `held_keys` is written
     /// from; empty otherwise.
     pub held: Vec<super::held_keys::HeldPress>,
+    /// The title of the event's window, read by the Input_Thread at a
+    /// foreground event, while the window was there: a window can close
+    /// before a worker gets to its switch, and then it has no title to read
+    /// (docent#801). `None` for every other event, and where it was not read.
+    pub window_title: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -4299,17 +4304,31 @@ fn handle_foreground<B: AccessibilityBackend>(
     context_id: Option<i64>,
     window_rect: Option<WindowRect>,
 ) {
-    let title = backend.window_title(raw.window_handle);
+    // The title the Input_Thread read with the event, while the window was
+    // there; the window's own where none was read then (docent#801).
+    let title = raw
+        .window_title
+        .clone()
+        .filter(|title| !title.is_empty())
+        .unwrap_or_else(|| backend.window_title(raw.window_handle));
     // The process the Input_Thread read with the event, while the window was
     // there: a window can close before a worker gets to its switch, and then
     // it names no process (docent#761). The window names it where the
     // process cannot be named by its id. An exited process's id can be
     // reused: a process started under it before the switch is read would
-    // be named instead.
+    // be named instead. Where the process has exited and the window has
+    // closed too, the window names no process ("pid:0"), and the switch is
+    // named by the id read at the event, as a process that cannot be read is
+    // (docent#801).
     let source = Some(raw.process_id)
         .filter(|pid| *pid != 0)
         .and_then(|pid| backend.process_name_of(pid))
-        .unwrap_or_else(|| backend.process_name(raw.window_handle));
+        .unwrap_or_else(|| match backend.process_name(raw.window_handle) {
+            by_window if by_window == "pid:0" && raw.process_id != 0 => {
+                format!("pid:{}", raw.process_id)
+            }
+            by_window => by_window,
+        });
 
     let _ = action_sender.send(ActionEvent {
         timestamp: raw.timestamp,
@@ -4814,6 +4833,7 @@ mod tests {
             pre_captured_element: None,
             focus_epoch: 0,
             held: Vec::new(),
+            window_title: None,
         };
 
         pool.dispatch(key()); // worker 0 takes the typing role and wedges
@@ -5073,6 +5093,7 @@ mod tests {
             pre_captured_element: None,
             focus_epoch: 0,
             held: Vec::new(),
+            window_title: None,
         }
     }
 
@@ -5093,6 +5114,7 @@ mod tests {
             pre_captured_element: None,
             focus_epoch: 0,
             held: Vec::new(),
+            window_title: None,
         }
     }
 

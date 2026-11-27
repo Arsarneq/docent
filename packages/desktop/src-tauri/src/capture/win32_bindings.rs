@@ -337,6 +337,15 @@ pub unsafe fn ImmGetDefaultIMEWnd(param0: HWND) -> HWND {
     unsafe { ImmGetDefaultIMEWnd(param0) }
 }
 #[inline]
+pub unsafe fn InternalGetWindowText(
+    hwnd: HWND,
+    pstring: windows_core::PWSTR,
+    cchmaxcount: i32,
+) -> i32 {
+    windows_core::link!("user32.dll" "system" fn InternalGetWindowText(hwnd : HWND, pstring : windows_core::PWSTR, cchmaxcount : i32) -> i32);
+    unsafe { InternalGetWindowText(hwnd, pstring, cchmaxcount) }
+}
+#[inline]
 pub unsafe fn IsWindow(hwnd: Option<HWND>) -> windows_core::BOOL {
     windows_core::link!("user32.dll" "system" fn IsWindow(hwnd : HWND) -> windows_core::BOOL);
     unsafe { IsWindow(hwnd.unwrap_or(core::mem::zeroed()) as _) }
