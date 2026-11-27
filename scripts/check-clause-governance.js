@@ -245,10 +245,6 @@ export const ALLOWLIST = new Map([
     'the integration suite’s document is cited as the home of the mock serviced-command leg; the command-surface check the same row names verifies the contract, and an edit to the suite’s document takes its own disposition line, not the shell doc’s',
   ],
   [
-    'DCP-16\tdocs/architecture/application/desktop/windows/capture-pipeline.md',
-    'the pipeline document is cited as the home of the procedure the clause links (how a worker tells the element of a keystroke); the worker-pool and control-look cases the same row names verify it, and an edit to the pipeline document takes its own disposition line, not the principles doc’s',
-  ],
-  [
     'DCP-17\tdocs/architecture/application/desktop/windows/capture-pipeline.md',
     'the pipeline document is cited as the home of the procedure the clause links (how the layout is asked whether a key is a dead key); the worker-pool cases and the Windows backend’s in-module cases the same row names verify it, and an edit to the pipeline document takes its own disposition line, not the principles doc’s',
   ],

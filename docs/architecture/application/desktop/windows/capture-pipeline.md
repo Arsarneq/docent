@@ -1,11 +1,11 @@
 # Capture Pipeline — Desktop Application
 
-How a Windows input event becomes a committed action: the delivery pipeline behind the desktop capture layer. The binding contracts are the clauses in [capture principles](capture-principles.md): the thread roles (DCP-1), ordered insertion and the commit flush barrier (DCP-2), the worker delivery guarantees (DCP-12), the element of a keystroke (DCP-16) and typing (DCP-9, DCP-17, DCP-18, DCP-19). This document orients (the stages) and holds:
+How a Windows input event becomes a committed action: the delivery pipeline behind the desktop capture layer. The binding contracts are the clauses in [capture principles](capture-principles.md): the thread roles (DCP-1), ordered insertion and the commit flush barrier (DCP-2), the worker delivery guarantees (DCP-12) and typing (DCP-9, DCP-17, DCP-18, DCP-19). This document orients (the stages) and holds:
 
 - how the pre-capture budget is computed, what it buys and the cap on describers (DCP-1);
 - why the commit's flush barrier waits as it does (DCP-2);
 - what a recording holds where capture start is slow or fails;
-- until its own cut, how a worker tells the element of a keystroke (DCP-16), and what the keyboard hook reads at a key press and how a value read in time is told (DCP-17, DCP-18, DCP-19).
+- until its own cut, what the keyboard hook reads at a key press and how a value read in time is told (DCP-17, DCP-18, DCP-19).
 
 [The capture seam](../capture-seam.md) documents the cross-platform boundary the pipeline sits behind.
 
@@ -25,7 +25,7 @@ pre-capture describers
 (capped at 5)
 ```
 
-1. **Input_Thread.** The low-level hooks and WinEvent callbacks classify each OS event into a raw event, stamp it with a monotonic sequence id, and send it to the bridge. This thread performs no accessibility queries. The click pre-capture runs on a pre-capture describer, and the mouse hook waits on it within a budget ([pre-capture at a click](#pre-capture-at-a-click)). It also stamps every raw event with the focus count, and each keystroke with the window handle of the control that holds the keyboard focus and with the number of the latest focus change that named a part of that control ([the element of a keystroke](#the-element-of-a-keystroke)). A key attributed to no window (DCP-14) is stamped with no handle. It stamps each foreground event with its window's process id and title, the title read from the window system without a message to the program, so a switch whose window has closed, or whose process has exited, before a worker gets to it is still named and titled (session format, `context_switch`). It notes, for each top-level window, the number of the event that introduced its context, which the focus worker reads to tell whether a focus it records in another window than its event's needs a switch before it (DCP-7).
+1. **Input_Thread.** The low-level hooks and WinEvent callbacks classify each OS event into a raw event, stamp it with a monotonic sequence id, and send it to the bridge. This thread performs no accessibility queries. The click pre-capture runs on a pre-capture describer, and the mouse hook waits on it within a budget ([pre-capture at a click](#pre-capture-at-a-click)). It stamps each foreground event with its window's process id and title, the title read from the window system without a message to the program, so a switch whose window has closed, or whose process has exited, before a worker gets to it is still named and titled (session format, `context_switch`). It notes, for each top-level window, the number of the event that introduced its context, which the focus worker reads to tell whether a focus it records in another window than its event's needs a switch before it (DCP-7).
 
    The keyboard hook also keeps the record of which keys are down. [What the keyboard hook reads at a key press](#what-the-keyboard-hook-reads-at-a-key-press) holds that record, the hook's other reads and what is stamped from them.
 
@@ -53,68 +53,6 @@ budget = hook timeout − HOOK_WORK_MARGIN_MS
 **What the budget buys.** Windows passes input on without a low-level hook that does not return within the system's hook timeout. It is understood, though not verified here, that Windows can remove the hook after that, after which nothing the mouse does would be recorded. With the budget the hook is never held past the system's hook timeout, so Windows does not pass the clicks after a slow one on unrecorded, and probably does not remove the hook.
 
 **The cap on describers.** At most `MAX_DESCRIBERS` (5) describer threads are alive in the process at a time. A describer is held while the application it asked has not answered. One still held when a capture session stops counts against the cap of the next session until that application answers, and stop waits on no describer. DCP-13 states what a click gets where no describer could be started.
-
-## The element of a keystroke
-
-A keystroke and a value change are described by a worker after they happened. This section holds how the worker tells which element they went to. DCP-16 holds the rule, the departure and the open cases.
-
-### The focus count
-
-The input thread counts focus changes and stamps each event with the count at its dispatch. The count has two parts:
-
-- **What the person did that can move the focus:** a mouse-down, or a key from the closed table of keys that are not plain typing keys. These are counted on the hooks at the moment of the input.
-- **The focus and foreground changes programs reported.** These arrive a moment after they happen.
-
-### A keystroke settled on its control
-
-Where the focused control has a window handle of its own, the keystroke does not depend on a description of the focused element. The input thread reads the handle of the control that holds the keyboard focus when the key is pressed (the window system's record of the foreground thread's input state, read without sending the program a message) and stamps the keystroke with it. A handle names one control for as long as the control lives.
-
-A worker looks at a control once:
-
-- When nothing inside it can take the keyboard focus (an edit field), the control is the element of every keystroke stamped with its handle.
-- A window that holds other focusable elements (a browser's page) says nothing about which of them a key went to. Its keystrokes are [described by focus](#a-keystroke-described-by-focus).
-
-**The look ahead of any key.** The typing worker also looks at the control that holds the keyboard focus when a capture starts and when a window comes to the front (each foreground change the input thread dispatches). So the first keystroke typed into it, and the read of its first value (DCP-18), do not wait on its description; that keystroke looks again only at what the control is, which takes no description. The look writes nothing. It is not taken in two cases: for a control of Docent's own process, and for one whose window does not answer a message within 50 ms (its program is busy or hung), so that a window change into such a program does not hold up the keys typed after it. No keystroke waits on a look not taken, and the control's first keystroke looks at it itself.
-
-**Looking again.** The worker looks again at what the control is: whether it still can hold the focus only itself, and whether it is a password field (a field can become one when the person unticks a box, and a page can finish loading and focus its password field). It does so at:
-
-- the first keystroke under each later count of the person's;
-- the first keystroke after a program reported a focus change that named a part of the control.
-
-The input thread notes those reported changes per window. A focus change names a window as a whole by the window's own object or its client area with no child, and a part of it by anything else. Each keystroke is stamped with the number of its control's latest one. The note remembers a fixed number of windows, and a window it let go answers the number of the latest change let go, so never one from before its own latest change.
-
-The second look takes no description. The control is described again when what it is changed, and at a new count of the person's also when the title of its window did, since the description names the window. Any other focus change a program reports (the suggestion list of a file-name field) asks for no look, because a look waits on the program, and a keystroke that waits while the person presses Enter finds its dialog gone.
-
-**When the handle is taken.** The first row that fits a keystroke decides:
-
-| The keystroke                                                                                                                                                                                                     | Is recorded on                                                                        |
-| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| No reported change named a part of its control, and the person has done nothing, since the control was last looked at                                                                                             | The control, however late the keystroke is processed, after its window closed as well |
-| Its control is gone at the second look, it enters no text (Enter after a file name), and it is under the count of the person's the control was last looked at under                                               | The control, since what the control had become cannot put a character on record       |
-| Its control is gone at the second look, in any other case                                                                                                                                                         | The element [described by focus](#a-keystroke-described-by-focus)                     |
-| It is the first keystroke under a new count of the person's, and the present confirms its handle: the person has done nothing since that can move the focus, and the handle holds the focus when the worker looks | The control                                                                           |
-| It is the first keystroke under a new count of the person's, and the present does not confirm its handle                                                                                                          | The element described by focus                                                        |
-| Nothing at all was counted since the keystroke, its window is the foreground window, and its handle no longer holds the focus (a program moved the focus by itself)                                               | The element described by focus                                                        |
-
-The handle of a first keystroke needs that confirmation because it can be read before the program acted on what the person did just before the key (Tab, then a character at once).
-
-### A keystroke described by focus
-
-The first step that applies decides:
-
-1. A keystroke is recorded on the element described under its own count, however late it is processed.
-2. While that description is the worker's latest, the keystroke's window is the foreground window and the count has not moved, the worker first confirms that the focused element is that very element. It describes afresh when a program moved the focus without reporting it.
-3. When no element was described under its count, the focused element is taken only while the keystroke's window is still the foreground window and the person has not moved the focus since.
-4. Otherwise, and when the window gives no focused element, nothing the worker reads then says which element the keystroke went to, and the action names no element.
-
-A key that moves the focus itself (Tab) goes through the same steps; DCP-16 lists what that records among its open cases.
-
-### A value change
-
-A value change is judged against the keystroke before it in its window (DCP-16):
-
-- **Described by focus.** Whether the focused element is the element that keystroke was recorded on is judged on the element itself where the worker's latest description is still that keystroke's, and on the selector otherwise.
-- **Settled on its control.** A control reported a value change about itself when the event names the control's own client object with no child element (`value_change_control`); a child element or a scroll bar is not the control itself. The value is read from the control, not from the focused element. DCP-16 holds the outcome.
 
 ## Typing
 
