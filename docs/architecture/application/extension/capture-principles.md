@@ -311,9 +311,12 @@ phase, for exactly these DOM events, on `document` unless the item names
   what the field held before), and not where the focus was lost to a press on
   a submit control of the field's own form (Exceptions Within the Surface)
 - `blur` on `window` — the window lost the focus: a key press still held
-  back is written as the `key` it was, and a key released while another
-  window has the focus sends its release there, so no key is known to be
-  down from then on (the `held_keys` of later actions)
+  back is written as the `key` it was, and no key is known to be down in
+  this document from then on (ECP-12 states the `held_keys` of later
+  actions)
+- `focus` on `window` — the window took the focus while a pointer press in
+  it was handled: the keys held in the tab's other frames are released here
+  from then on (ECP-12)
 - `pagehide` on `window` — the page is being left: a key press still held
   back is written as the `key` it was, no text coming for it any more
 
@@ -558,41 +561,66 @@ with a caveat):
   browser before the recorder's listeners see them; on a closed `<select>`
   each arrow key reaches the page and is written as the `key`, and the option
   it chooses as the `select` its `change` commits
-- A key that is down but was pressed while another document had the focus
-  is not among an action's `held_keys`, and no key is known to be down once
-  the document's window loses the focus or a drag starts. The desktop's
-  keyboard hook is handed every key wherever the focus is and names such a
-  key. Two cases differ:
-  - A key held in one frame of a tab while the person acts in another frame
-    of the same tab, both recorded: the key's release reaches the frame that
-    has the focus, where the recorder runs, so the fact can be read and
-    leaving the key out is a departure (core CP-19;
-    [docent#779](https://github.com/Arsarneq/docent/issues/779)).
-  - Every other case (another tab or window, a frame the browser does not
-    let the extension run in, the window losing the focus, a drag): the
-    browser delivers a key's events to the focused document only, sends the
-    page none while a drag lasts, and gives a page and an extension no
-    interface that reads the keyboard's state. What the layer tries is to
-    follow each key from its press to its release in the document that saw
-    it go down; from the moment the focus leaves that document, the release
-    can reach a page the extension does not run in, the browser's own
-    interface or another program, none of which tells the extension, so
-    carrying the key over would state a key as down that could already have
-    been released. A difference that comes from the platforms themselves
-    (core CP-19).
-
-  Two things are
-  exact all the same: the modifiers held at an action, wherever they were
-  pressed, which the action's own event states and `modifiers` carries; and a
-  key still held when the focus arrives or returns or the drag has ended,
-  which is named again from its next repeat in the document that has the
-  focus.
-  What is left out is a key other than a modifier, held in one document
-  while the person acts in another, until that key repeats there. A key
-  pressed while the Meta key was held is treated the same way from the
-  release of the Meta key: some systems send the page no release for such a
-  key, so it is no longer known to be down, and is named again from its next
-  repeat
+- A key is among an action's `held_keys` only while its release is sure to
+  reach a document the recorder runs in. The browser delivers a key's events
+  to the focused document only, sends the page none while a drag lasts, and
+  gives a page and an extension no interface that reads the keyboard's
+  state or says where the focus came from. The desktop's keyboard hook is
+  handed every key wherever the focus is; the difference comes from the
+  platforms themselves (core CP-19). What the layer does with what it is
+  given:
+  - A key is known to be down from its written press, in the document that
+    saw it go down, for as long as that document's window has the focus.
+  - An action in another recorded frame of the same tab names it too: each
+    recorder tells the worker the keys it names as held, their releases,
+    its window's blur, a drag, and the focus a pointer press gives its
+    window (`HELD_KEY`, beside the `POINTER_PRESSED` of the press), and the
+    worker adds the keys held in the tab's other frames to an action, ahead
+    of the action's own.
+  - Where a pointer press in another recorded frame takes the focus, the
+    keys go to that frame once it reports that focus: their releases reach
+    it from then on, and a recorder reports the release of a key it did not
+    see go down.
+  - A frame's reports can reach the worker late (a busy page, a document
+    that is being left), so a key of another frame is named only by what
+    that frame's document has reported up to the action. The worker asks
+    the frame (the `END_TYPING` of a pointer press, `HELD_KEY_REPORTS` for
+    any other action that would be given one of its keys), stores the
+    action once the report the frame names as its last has arrived, and
+    forgets the keys of a frame that gives no answer in time or is gone,
+    and those an earlier document of the frame reported. The time is the
+    500 ms of the end of typing at a press and half of that at any other
+    action: what the acting frame writes waits behind the ask, a typed
+    entry too, and such an entry is still stored ahead of the click of
+    another frame's press. A key another
+    frame reports released in that time is not named.
+  - No key is known to be down once the focus leaves the document any other
+    way (to another tab, window or program, to a frame the extension does
+    not run in, to another frame by the Tab key or a script) or a drag
+    starts: the release can then reach something that does not report it.
+    The worker forgets the keys held across frames when another tab or
+    window takes the focus, which the browser itself tells it. A key still
+    held when the focus arrives or returns or the drag has ended is named
+    again from its next repeat in the document that has the focus.
+  - A key pressed while the Meta key was held is treated as released at the
+    release of the Meta key, in whichever frame: some systems send the page
+    no release for such a key. It is named again from its next repeat.
+  - The modifiers held at an action are exact wherever they were pressed:
+    the action's own event states them and `modifiers` carries them.
+  - Between recorded frames these departures remain (core CP-19;
+    [docent#782](https://github.com/Arsarneq/docent/issues/782)). A key
+    held in another frame is missing where:
+    - the worker, which keeps these keys in memory only, was suspended;
+    - the recording was stopped and started, or a frame of the tab started
+      to navigate;
+    - the frame that reported the key gave no answer in time;
+    - a release was reported while the action waited to be stored;
+    - a frame's blur reached the worker ahead of the press that caused it.
+  - A released key can be named in one case: the focus goes to the
+    browser's own interface and comes back by a press in another frame
+    while the page of the frame that held the key, in a process of its own,
+    hangs the whole time and then answers that press in time; its late blur
+    is then taken for the press's own.
 
 - Back/forward between same-document entries (an SPA's history) — a
   browser-chrome action; the worker's committed-navigation listener does not

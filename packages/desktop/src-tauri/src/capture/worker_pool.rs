@@ -3463,12 +3463,21 @@ fn handle_focus<B: AccessibilityBackend>(
         return;
     }
     stamp_described_after(&mut element, raw.timestamp);
+    // The scope filters (DCP-5) judged the process of the window the focus
+    // event named. An element in another window of another process, or of a
+    // process that can no longer be read, was judged by no filter: the focus
+    // moved on to it while the event waited, and that process's own focus
+    // events may be the ones the filters drop. Nothing is written for it.
+    let elsewhere = element_window != 0 && Some(element_window) != context_id;
+    if elsewhere && backend.process_id_of(element_window) != raw.process_id {
+        return;
+    }
     // The element is the one focused when it is described, which need not be
     // in the window the focus event named: a dialog that closed as the focus
     // went back to its owner, for one (docent#709). The focus is recorded in
     // the context of the element's own window (DCP-7), the event's where the
     // description resolved no window.
-    let (context_id, window_rect) = if element_window != 0 && Some(element_window) != context_id {
+    let (context_id, window_rect) = if elsewhere {
         (Some(element_window), backend.window_rect(element_window))
     } else {
         (context_id, window_rect)

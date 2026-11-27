@@ -1107,6 +1107,8 @@ describe('SERVICE WORKER: APPEND_ACTION sender validation', () => {
   // No press is reported in these cases, so no append is held.
   const pressHolds = new Map();
   const pressHoldKey = () => null;
+  // No key is reported as held in another frame in these cases.
+  const watchKeysHeldElsewhere = () => null;
   async function appendSwAction(action) {
     storageData.pendingActions = [...storageData.pendingActions, action];
     storageData.pendingCount = storageData.pendingActions.length;
@@ -1114,6 +1116,12 @@ describe('SERVICE WORKER: APPEND_ACTION sender validation', () => {
 
   // -- BEGIN MIRRORED APPEND CHOKEPOINT (two-copy: background/service-worker.js <-> this suite; parity-tested) --
   async function validateAndAppend(action, sender) {
+    // The keys held in the tab's other frames are watched from the arrival of
+    // the message, and taken once the hold is over: a key this frame releases
+    // after the action was down at it, and one another frame reports released
+    // in that time, its report late, is not known to have been. Where such a
+    // key's frame is to be asked first, the watch takes a hold for it.
+    const heldElsewhere = watchKeysHeldElsewhere(action, sender);
     // What a frame sends behind its pointer press is stored behind what the
     // press made the tab's other frames write. The hold is read before anything
     // is awaited, so the frame's messages keep their order, and waited on only
@@ -1135,6 +1143,7 @@ describe('SERVICE WORKER: APPEND_ACTION sender validation', () => {
         tabId,
         frameId: sender?.frameId,
       });
+      heldElsewhere?.take();
       return;
     }
 
@@ -1146,6 +1155,10 @@ describe('SERVICE WORKER: APPEND_ACTION sender validation', () => {
       action.context_id = sender.tab.id;
     }
     if (hold) await hold;
+    // A key held in another frame of the tab went down before this frame had
+    // the focus: it is named ahead of the keys the frame saw go down (#779).
+    const elsewhere = heldElsewhere?.take() ?? [];
+    if (elsewhere.length > 0) action.held_keys = [...elsewhere, ...action.held_keys];
     await appendSwAction(action);
   }
   // -- END MIRRORED APPEND CHOKEPOINT --
@@ -1316,6 +1329,7 @@ describe('SERVICE WORKER: messages from a panel that is not the last to open a p
         get: async () => ({}),
       },
       scripting: { executeScript: async () => {} },
+      windows: { onFocusChanged: noListener },
       alarms: { create() {}, clear() {}, onAlarm: noListener },
       sidePanel: { open: async () => {} },
     };

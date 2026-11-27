@@ -84,6 +84,7 @@ export default [
         self: 'readonly',
         fetch: 'readonly',
         AbortController: 'readonly',
+        performance: 'readonly',
         setTimeout: 'readonly',
         clearTimeout: 'readonly',
         URL: 'readonly',

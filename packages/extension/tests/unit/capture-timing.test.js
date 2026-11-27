@@ -26,6 +26,7 @@ import {
   TAB_REMOVED_SWITCH_SUPPRESSION,
   TAB_CREATED_NAVIGATION_SUPPRESSION,
   END_TYPING_BOUND,
+  HELD_KEYS_ASK_BOUND,
 } from '../../lib/capture-timing.js';
 
 describe('capture-timing constants — validity', () => {
@@ -39,6 +40,7 @@ describe('capture-timing constants — validity', () => {
     TAB_REMOVED_SWITCH_SUPPRESSION,
     TAB_CREATED_NAVIGATION_SUPPRESSION,
     END_TYPING_BOUND,
+    HELD_KEYS_ASK_BOUND,
   };
 
   for (const [name, value] of Object.entries(allConstants)) {
@@ -57,6 +59,10 @@ describe('capture-timing constants — validity', () => {
 });
 
 describe('capture-timing constants — relative ordering', () => {
+  it('an ask about held keys ends with time left in the bound of an end of typing', () => {
+    assert.ok(HELD_KEYS_ASK_BOUND * 2 <= END_TYPING_BOUND);
+  });
+
   it('the synthetic click window is shorter than focus correlation', () => {
     assert.ok(SELECT_SYNTHETIC_CLICK_WINDOW <= TAB_FOCUS_CORRELATION_WINDOW);
   });

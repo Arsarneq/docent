@@ -580,6 +580,7 @@ half of the extension is documented in
 | `dispatch.test.js` | Settings round-trip, endpoint validation, payload fidelity, the authorization header, and the action-event subscription. |
 | `e2e-suite-locks.test.js` | The end-to-end guide's retry, attempt, trace, timeout and worker sentences held to the Playwright config, each key read as text and set exactly once. |
 | `frame-trust.test.js` | The per-frame trust predicate deciding whether an appended action may enter a recording. |
+| `held-keys-relay.test.js` | The keys held across a tab's frames: named to its other frames; forgotten at a release, a blur, a drag, the Meta key's release, a frame's leaving and a new recorder in a frame; handed over at a pointer press; the watch an action's keys are taken through; one recorder's numbered reports. |
 | `naming.property.test.js` | Extension actions carry the platform-neutral naming and capture mode the extension schema contract states, each type one the composed extension schema declares. |
 | `navigation-logic.test.js` | The navigation and tab-creation capture decisions across transition types and timing states, and a static-source guard that the worker's listeners decide through the module. |
 | `panel.test.js` | The send gate in the panel, run against the shipped send-gate module: button state, recording selection and the confirmation summary; the cancel path is simulated. |
@@ -590,6 +591,7 @@ half of the extension is documented in
 | `regression-294-window-rect.test.js` | A static-source guard that the extension emits no desktop-only window rectangle field. |
 | `schema-validation.test.js` | Extension export data validates against the extension schema composed from its source layers, negative cases included. |
 | `secret-crypto.test.js` | At-rest key encryption: the envelope shape, the round trip, the path taken after a restart, and tampered ciphertext. |
+| `service-worker-held-keys.test.js` | The worker adding the keys held in a tab's other frames to an action: the holding frame asked first, behind a standing hold too; a late release not named; the keys of a silent or gone frame or an earlier document forgotten, as at a navigation, a tab or window switch, and a stop. |
 | `service-worker-mirror-parity.test.js` | The append chokepoint's and the active-unit helpers' second copies stay textually identical to the shipped functions, the chokepoint under indentation only. |
 | `service-worker-navigation.test.js` | The worker's navigation proxy through its registered listeners: the duplicate check, the last-URL marker and its self-clear, and the new-tab link path. |
 | `service-worker-static-import.test.js` | A static-source guard that the background path uses the statically imported validator, never a dynamic import. |

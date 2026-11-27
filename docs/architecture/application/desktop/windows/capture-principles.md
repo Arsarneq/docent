@@ -317,15 +317,22 @@ handle as its context, which no switch introduced. And the switch before an
 action in an inactive window records that window's context, not an activation
 the person made.
 
-A focus is recorded on the element focused when a worker describes it, and in
-the context of the top-level window that element is in, as its description
-resolved it, with that window's rectangle — not the window the focus event
-named, which differs when the focus moved on before the worker described it (a
-dialog that closed as the focus went back to its owner, for example) and no
-later focus event was dispatched before the description (a focus described
-after one writes nothing, DCP-12); where the description resolved no window, the
-event's window gives the context. The
-Input_Thread introduces the event's window, not the element's (above), so a
+A focus is recorded on the element focused when a worker describes it, which
+need not be the element the focus event named: the focus can move on before
+the worker describes it (a dialog that closed as the focus went back to its
+owner, for example) with no later focus event dispatched before the
+description (a focus described after one writes nothing, DCP-12). Where it is
+recorded follows from the top-level window that element is in, as its
+description resolved it:
+
+| The element's top-level window                                        | The focus is written                                             |
+| --------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| None resolved                                                         | In the context and rectangle of the window the event named       |
+| The window the event named                                            | In that window's context, with its rectangle                     |
+| Another window of the event's process                                 | In that window's context, with its rectangle                     |
+| Another window of another process, or of a process that can't be read | Not at all: the scope filters (DCP-5) judged the event's process |
+
+The Input_Thread introduces the event's window, not the element's (above), so a
 focus recorded in a window the session introduced no other way has no
 `context_switch` before it.
 
@@ -561,17 +568,10 @@ step, once the step's actions are complete: a key-down that became text (part of
 no held key, and a typing key that was written as a `key` (one no value change
 superseded) is named as any key is. No key is
 known to be down when a capture starts, which each step's capture does anew;
-a key held across that start is named from its next repeat. On the extension
-no key is known to be down once the window loses the focus or a drag starts:
-the browser sends
-the document no key release from then on and offers no interface that reads
-the keyboard's state, so nothing says whether the key still is down, and a
-`drop` there states no held key. The
-desktop's hook is handed every release, so it keeps the key. That difference
-comes from the platforms themselves (core CP-19), save for a key held in one
-frame of a tab while the person acts in another recorded frame of it, a
-departure the extension capture document (ECP-12) states with what the
-extension tried ([docent#779](https://github.com/Arsarneq/docent/issues/779)). A keystroke that enters text into a password
+a key held across that start is named from its next repeat. The extension
+knows a key to be down only while its release is sure to reach a document it
+runs in, where the desktop's hook is handed every release (the extension
+capture document, ECP-12, states the rule; core CP-19). A keystroke that enters text into a password
 field (DCP-11's signal) is never buffered as a key: it starts or extends that
 field's masked `type` action, so typing into a password field is recorded as
 that `type` whether or not the field reports a value change. Every keystroke
@@ -744,14 +744,16 @@ was: the later event records the focus at its own place in the recording. A
 focus change the input thread sends no event for (in a process outside the
 capture's scope, outside the foreground process, uncorrelated with input, or
 redundant to a click) and a foreground change move no number, so they never
-stop a focus from being written. Three cases stay open. The element the earlier
+stop a focus from being written by its number (a focus can still write nothing
+for where its element is, DCP-7). Three cases stay open. The element the earlier
 event named is recorded by no focus, since the focus left it before any
 description could be made; the later event records where the focus went, and
 writes nothing when that is the element of the last focus written (the person
 moved the focus away and back) or an element the accessibility layer cannot
 describe. A description made after the focus moved but before the later focus
 event was dispatched, or after a focus change that sends no event, names the
-element focused by then and is written at the earlier event's place. And a
+element focused by then and is written at the earlier event's place, save
+where DCP-7 has it write nothing. And a
 platform that numbers no focus events (number `0`) writes every focus
 described. A respawned worker starts with no last
 focus, and a worker that takes the role over compares with the last focus it
@@ -945,6 +947,8 @@ with a caveat):
   the one the event named, and the later event records where the focus went,
   at its own place, save in the open cases DCP-12 states; a departure (core
   CP-18)
+- A focus whose element is in a window of a process DCP-7 names as not
+  judged by the scope filters — not written; a departure (core CP-18)
 - A key pressed while an input method composes text (the letters of a
   romanized reading, Space, the Enter that confirms, Escape, an arrow in the
   candidate list, Backspace) — written as a `key`, a typing key among them
