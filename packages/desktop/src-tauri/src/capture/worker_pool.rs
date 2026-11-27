@@ -2701,9 +2701,10 @@ impl ContextIntroductions {
     ///   nothing.
     /// - A lone Shift, Ctrl or Alt press, which the worker drops (DCP-13),
     ///   and an event with no window, count for nothing.
-    /// - Any other event is an action. One before any switch or open, where
-    ///   it is no focus (the worker can record a focus in another window), is
-    ///   in the session's first context, which needs no introduction; one in a
+    /// - Any other event is an action. The session's first, where it comes
+    ///   before any switch or open and is no focus (the worker can record a
+    ///   focus in another window), is in the session's first context, which
+    ///   needs no introduction; one in a
     ///   window not introduced yet takes the switch, and the window is
     ///   introduced from then on.
     ///
