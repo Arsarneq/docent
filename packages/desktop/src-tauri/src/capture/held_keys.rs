@@ -1046,6 +1046,7 @@ mod tests {
             pre_captured_element: None,
             focus_epoch: 0,
             held: Vec::new(),
+            window_title: None,
         }
     }
 
