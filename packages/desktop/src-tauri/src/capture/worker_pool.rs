@@ -5061,9 +5061,15 @@ mod tests {
     /// receives the event, as a worker that died would.
     const DIES: u32 = 0xFF;
 
+    /// The key code that makes a [`role_pool`] worker count its queue as
+    /// empty, as a worker that has caught up would. Its queue otherwise only
+    /// grows, so a choice by queue depends on the order of dispatch alone.
+    const CATCHES_UP: u32 = 0xFE;
+
     /// A pool of `count` workers that note each event they receive as
     /// (index, the spawn of that index counted from 0, key code), and end
-    /// their thread on an event whose key code is [`DIES`]. A worker answers a
+    /// their thread on an event whose key code is [`DIES`], and count their
+    /// queue as empty on one whose key code is [`CATCHES_UP`]. A worker answers a
     /// flush barrier unless `answers(index, spawn)` says it does not.
     fn role_pool(count: usize, answers: fn(usize, usize) -> bool) -> (WorkerPool, Received) {
         // The workers note on their own threads, so `received` holds each
@@ -5073,7 +5079,7 @@ mod tests {
         let spawns: Arc<Mutex<HashMap<usize, usize>>> = Arc::new(Mutex::new(HashMap::new()));
         let (action_tx, _action_rx) = mpsc::channel::<ActionEvent>();
         let seen = Arc::clone(&received);
-        let pool = WorkerPool::new(count, action_tx, move |idx, rx, _queue_len, _sender, _p| {
+        let pool = WorkerPool::new(count, action_tx, move |idx, rx, queue_len, _sender, _p| {
             let seen = Arc::clone(&seen);
             let spawn = {
                 let mut spawns = spawns.lock().unwrap();
@@ -5087,6 +5093,9 @@ mod tests {
                         seen.lock().unwrap().push((idx, spawn, event.key_code));
                         if event.key_code == DIES {
                             break;
+                        }
+                        if event.key_code == CATCHES_UP {
+                            queue_len.store(0, Ordering::SeqCst);
                         }
                     }
                     Ok(WorkerMessage::Flush(ack)) => {
@@ -5144,15 +5153,17 @@ mod tests {
     }
 
     /// The replacement for a dead worker is installed at its index, and a
-    /// role stays with the index: worker 1 takes the role, dies, and its
-    /// replacement takes the events of the role after it, also where worker 0
-    /// has the shorter queue by then (a tie, which goes to the lower index),
-    /// as the role chosen again would reach worker 0.
+    /// role stays with the index: worker 1 takes the role, worker 0 catches
+    /// up, worker 1 dies, and its replacement takes the events of the role
+    /// after it, where the role chosen again, as the replacement is installed
+    /// or after, would reach worker 0 (an empty queue, or a tie, which goes
+    /// to the lower index).
     fn a_role_stays_at_its_index_across_a_respawn(event_type: RawEventType) {
         let (mut pool, received) = role_pool(2, |_, _| true);
         pool.dispatch(role_event(RawEventType::Click, 1, 0x41)); // to worker 0
         pool.dispatch(role_event(event_type.clone(), 1, 0x42)); // worker 1 takes the role
-        pool.dispatch(role_event(event_type.clone(), 1, DIES)); // and dies
+        pool.dispatch(role_event(RawEventType::Click, 1, CATCHES_UP)); // to worker 0, on the tie
+        pool.dispatch(role_event(event_type.clone(), 1, DIES)); // worker 1 dies
         thread::sleep(Duration::from_millis(50));
         pool.dispatch(role_event(event_type.clone(), 1, 0x43)); // worker 1 is respawned
         pool.dispatch(role_event(event_type, 1, 0x44));
@@ -5162,6 +5173,7 @@ mod tests {
             sorted(&received),
             vec![
                 (0, 0, 0x41),
+                (0, 0, CATCHES_UP),
                 (1, 0, 0x42),
                 (1, 0, DIES),
                 (1, 1, 0x43),
@@ -5173,24 +5185,35 @@ mod tests {
 
     #[test]
     fn a_respawned_worker_counts_as_one_that_answered_the_last_flush_barrier() {
-        // Worker 0 misses a barrier and then dies; its replacement has missed
-        // none, so a role chosen after it may go to it: the first keystroke
-        // takes the shortest queue among both workers (a tie, so worker 0),
-        // where worker 0 still counted as missing would leave only worker 1.
-        let (mut pool, received) = role_pool(2, |idx, spawn| !(idx == 0 && spawn == 0));
+        // Workers 0 and 1 miss a barrier, and worker 0 then dies; its
+        // replacement has missed none, while worker 1 still has, so the first
+        // keystroke takes the shorter queue of workers 0 and 2 (a tie, so
+        // worker 0). Worker 0 still counted as missing would leave worker 2,
+        // and worker 1 counted as answering would win on its empty queue.
+        let (mut pool, received) = role_pool(3, |idx, spawn| !(idx == 1 || idx == 0 && spawn == 0));
         let missed = pool.flush_all(1, Duration::from_millis(200));
-        assert_eq!(missed, vec![0]);
-        const W: i64 = 7;
-        pool.dispatch(role_event(RawEventType::Selection, W, DIES)); // to worker 0, which dies
+        assert_eq!(missed, vec![0, 1]);
+        pool.dispatch(role_event(RawEventType::Selection, 7, 0x41)); // to worker 0
+        pool.dispatch(role_event(RawEventType::Selection, 8, 0x42)); // to worker 1
+        pool.dispatch(role_event(RawEventType::Selection, 9, 0x43)); // to worker 2
+        pool.dispatch(role_event(RawEventType::Selection, 8, CATCHES_UP)); // worker 1 catches up
+        pool.dispatch(role_event(RawEventType::Selection, 7, DIES)); // worker 0 dies
         thread::sleep(Duration::from_millis(50));
-        pool.dispatch(role_event(RawEventType::Selection, 8, 0x41)); // to worker 1
-        pool.dispatch(role_event(RawEventType::Selection, W, 0x42)); // to worker 0: respawned
-        pool.dispatch(role_event(RawEventType::Keyboard, 1, 0x43));
+        pool.dispatch(role_event(RawEventType::Selection, 7, 0x44)); // to worker 0: respawned
+        pool.dispatch(role_event(RawEventType::Keyboard, 1, 0x45));
         thread::sleep(Duration::from_millis(100));
 
         assert_eq!(
             sorted(&received),
-            vec![(0, 0, DIES), (0, 1, 0x42), (0, 1, 0x43), (1, 0, 0x41)]
+            vec![
+                (0, 0, 0x41),
+                (0, 0, DIES),
+                (0, 1, 0x44),
+                (0, 1, 0x45),
+                (1, 0, 0x42),
+                (1, 0, CATCHES_UP),
+                (2, 0, 0x43),
+            ]
         );
         pool.shutdown_with_timeout(Duration::from_millis(200));
     }
