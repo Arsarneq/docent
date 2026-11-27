@@ -191,6 +191,7 @@ function Resolve-Target($e) {
   if ($null -ne $t.index) { $pick = [int]$t.index }
   $deadline = (Get-Date).AddMilliseconds(2000)
   $found = @()
+  $script:readErrors = 0; $script:lastReadError = ''
   do {
     $found = @()
     foreach ($root in $AE::RootElement.FindAll([System.Windows.Automation.TreeScope]::Children, [System.Windows.Automation.Condition]::TrueCondition)) {
@@ -202,7 +203,7 @@ function Resolve-Target($e) {
           if ($c.BoundingRectangle.IsEmpty -or $c.IsOffscreen) { continue }
           $found += $c.BoundingRectangle
         }
-      } catch { }   # an element that went away while it was read
+      } catch { $script:readErrors += 1; $script:lastReadError = $_.Exception.Message }   # an element that went away while it was read
     }
     # With an index, the search waits until that many matches have shown.
     if ($found.Count -gt $pick) { break }
@@ -210,6 +211,7 @@ function Resolve-Target($e) {
   } while ((Get-Date) -lt $deadline)
   if ($found.Count -eq 0 -or $pick -ge $found.Count -or ($found.Count -gt 1 -and $null -eq $t.index)) {
     Write-Log "target ${what}: $($found.Count) match(es); stopped"
+    Write-TargetContext $e $AE
     Write-Host "input-driver: $what matched $($found.Count) element(s) in the guard's windows; a mouse step needs exactly one, or an index"
     exit 5
   }
@@ -227,6 +229,29 @@ function Assert-Under($e, $x, $y) {
     exit 3
   }
   return $w
+}
+
+# For a target that was not found: which top-level windows the guard took,
+# and the first elements under each, so the log shows what the search saw.
+function Write-TargetContext($e, $AE) {
+  if ($script:readErrors -gt 0) { Write-Log "  read errors: $($script:readErrors), last: $($script:lastReadError)" }
+  $all = $AE::RootElement.FindAll([System.Windows.Automation.TreeScope]::Children, [System.Windows.Automation.Condition]::TrueCondition)
+  Write-Log "  top-level windows: $($all.Count)"
+  foreach ($root in $all) {
+    try {
+      $w = Get-Window ([IntPtr]$root.Current.NativeWindowHandle)
+      $ok = Test-Guard $e $w
+      Write-Log "  window process=$($w.process) title='$($w.title)' class=$($root.Current.ClassName) guard=$ok"
+      if (-not $ok) { continue }
+      $n = 0
+      foreach ($el in $root.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition)) {
+        $c = $el.Current
+        Write-Log "    $($c.ControlType.ProgrammaticName) name='$($c.Name)' id='$($c.AutomationId)' offscreen=$($c.IsOffscreen) rect=$($c.BoundingRectangle)"
+        $n++
+        if ($n -ge 40) { Write-Log '    ...'; break }
+      }
+    } catch { Write-Log "  window read error: $($_.Exception.Message)" }
+  }
 }
 
 # Checks the window under the point against the step's guard, moves the
