@@ -1439,7 +1439,7 @@ pub trait AccessibilityBackend: Send + 'static {
     /// Whether the context of the top-level window `window` was introduced
     /// by an event the Input_Thread dispatched before the event numbered
     /// `sequence_id`: a `context_switch` or `context_open` into it, or the
-    /// session's first action, in it (DCP-7). A worker that records an
+    /// session's first action that is no focus, in it (DCP-7). A worker that records an
     /// action in a window other than the one its event named asks this, as
     /// the Input_Thread introduced only that one. A platform that does not
     /// keep the record returns `true` always.

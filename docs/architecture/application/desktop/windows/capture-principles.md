@@ -234,7 +234,7 @@ switch dispatched this way into the window in front counts as its activation,
 so a late activation of it is not written again, while one into an inactive
 window does not, so a later click into that window or its activation is
 written. Four cases stay open. A capture session started again later in a
-recording begins in its first context with no switch, whether or not the
+recording, its first action no focus, begins in its first context with no switch, whether or not the
 recording's earlier sessions introduced that context. A switch dispatched
 before an event the worker then does not write (a focus whose selector equals
 the focus worker's last, for example) is written all the same. The Input_Thread
