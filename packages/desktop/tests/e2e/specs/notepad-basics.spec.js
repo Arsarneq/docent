@@ -6,8 +6,9 @@
  * (capture-principles DCP-7, DCP-9, DCP-11, DCP-13, DCP-14; session-format;
  * sufficiency-lint SL-1). Where the specs fix a value the test asserts it;
  * where they bound it the test checks the bound; where they leave it to timing
- * or to Notepad (timestamps, element identity, the dialog's focus, what comes
- * after the dialog closes) the test does not assert it.
+ * or to Notepad (timestamps, element identity, the dialog's focus, whether a
+ * switch back or a focus comes after the dialog closes) the test does not
+ * assert it. What such an action holds when it comes is asserted.
  *
  * Input: Notepad in front, then real key presses with scan codes: `keep aa`,
  * Backspace, ` word`, Ctrl+A, Alt+F4, and Alt+N (Don't Save) in Notepad's
@@ -75,9 +76,9 @@ test('typing in Notepad and closing it unsaved exports exactly those actions', a
     { key: 'ctrl+a', scan: true },
     { key: 'alt+f4', scan: true },
   ]);
-  // Notepad's save-changes dialog takes the foreground itself; this waits for
-  // it and sends nothing when it is already in front.
-  bringToFront('notepad', { dialog: true });
+  // Notepad's save-changes dialog takes the foreground itself; this only waits
+  // for it and sends no input, which the recording would hold.
+  bringToFront('notepad', { dialog: true, noInput: true });
   typeKeys([NOTEPAD, { key: 'alt+n', scan: true }]);
   await expect.poll(() => notepad.exitCode, { timeout: 10_000 }).not.toBeNull();
 
@@ -122,15 +123,17 @@ test('typing in Notepad and closing it unsaved exports exactly those actions', a
   // keys, ended by the key that is not one (DCP-9).
   const [a1, a2, a3, a4, a5] = actions;
   const ctxA = a1.context_id;
+  // A key in a window is attributed to it (DCP-14): never null here.
+  expect(Number.isInteger(ctxA)).toBe(true);
   expect(a1.type).toBe('type');
   expect(a1.value).toBe('keep aa');
   expect(a1.context_id).toBe(ctxA);
-  expectKey(a2, { code: 'Backspace', context: ctxA });
+  expectKey(a2, { key: 'Backspace', code: 'Backspace', context: ctxA });
   expect(a3.type).toBe('type');
   expect(a3.value).toBe('keep a word');
   expect(a3.context_id).toBe(ctxA);
   expectKey(a4, { key: 'A', code: 'KeyA', on: ['ctrl'], context: ctxA });
-  expectKey(a5, { code: 'F4', on: ['alt'], context: ctxA });
+  expectKey(a5, { key: 'F4', code: 'F4', on: ['alt'], context: ctxA });
 
   // B: the save-changes dialog, introduced by a switch (DCP-7, DCP-13), an
   // optional focus on its first control, then the answer.
@@ -149,8 +152,24 @@ test('typing in Notepad and closing it unsaved exports exactly those actions', a
 
   // After the dialog closes the specs allow a switch back and a focus, nothing
   // else, and no close: Notepad was open before the recording (DCP-7, DCP-13).
+  // A switch back is the activation the system gives Notepad's main window, a
+  // context the recording introduced (DCP-7), and passed the target filter
+  // (DCP-5): it names Notepad's process, by name or by its id, and the
+  // window's title, which is never empty (session-format, context_switch). A
+  // focus is in the context the last switch entered.
+  let current = ctxB;
   for (const a of actions.slice(answer + 1)) {
     expect(['context_switch', 'focus'], `after the answer: ${a.type}`).toContain(a.type);
+    if (a.type === 'context_switch') {
+      expect(a.context_id, 'the switch back enters the main window').toBe(ctxA);
+      expect(['notepad.exe', `pid:${notepad.pid}`], 'the switch back names Notepad').toContain(
+        a.source,
+      );
+      expect(typeof a.title === 'string' && a.title.length > 0, `title ${a.title}`).toBe(true);
+      current = a.context_id;
+    } else {
+      expect(a.context_id, 'a focus after the answer').toBe(current);
+    }
   }
 
   // The schema and the sufficiency lint (SL-1). The start point is a stated

@@ -1,6 +1,6 @@
 # front.ps1: brings a process's top-level window to the foreground.
 #
-#   powershell -NoProfile -ExecutionPolicy Bypass -File front.ps1 -Process notepad [-Class '#32770'] [-TimeoutMs 15000]
+#   powershell -NoProfile -ExecutionPolicy Bypass -File front.ps1 -Process notepad [-Class '#32770'] [-TimeoutMs 15000] [-NoInput]
 #
 # A window already in front is left as it is, with no input sent. Otherwise
 # Windows lets a program take the foreground only if it sent the last input,
@@ -15,12 +15,15 @@
 # the front.
 #
 # The unlock key is input like any other: bring a window to the front before a
-# recording starts.
+# recording starts. With -NoInput the script sends nothing and only waits for
+# the window to come to the front by itself (a dialog its program activates),
+# so it can be used while a recording runs.
 
 param(
   [Parameter(Mandatory = $true)][string]$Process,
   [string]$Class = '',
-  [int]$TimeoutMs = 15000
+  [int]$TimeoutMs = 15000,
+  [switch]$NoInput
 )
 
 $ErrorActionPreference = 'Stop'
@@ -74,6 +77,11 @@ if ($h -eq [IntPtr]::Zero) { Write-Host "front: no visible window of $Process$(i
 
 if ([Front]::GetForegroundWindow() -eq $h) { Write-Host ([Front]::TitleOf($h)); exit 0 }
 while ((Get-Date) -lt $deadline) {
+  if ($NoInput) {
+    Start-Sleep -Milliseconds 100
+    if ([Front]::GetForegroundWindow() -eq $h) { Write-Host ([Front]::TitleOf($h)); exit 0 }
+    continue
+  }
   [Front]::keybd_event(0x88, 0, 0, [UIntPtr]::Zero)
   [Front]::keybd_event(0x88, 0, 2, [UIntPtr]::Zero)
   [Front]::ShowWindow($h, 5) | Out-Null

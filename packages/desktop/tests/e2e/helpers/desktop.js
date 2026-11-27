@@ -113,9 +113,14 @@ export async function launchApp() {
  * Brings a process's window to the foreground (helpers/front.ps1). With
  * `dialog`, the process's open dialog window, waited for until it opens. A
  * window already in front is left alone; otherwise the unlock key press it
- * sends (front.ps1) is input, so call it before a recording starts.
+ * sends (front.ps1) is input, so call it before a recording starts. With
+ * `noInput` it sends nothing and waits for the window to come to the front by
+ * itself, which is safe while a recording runs.
  */
-export function bringToFront(processName, { dialog = false, timeoutMs = 15_000 } = {}) {
+export function bringToFront(
+  processName,
+  { dialog = false, noInput = false, timeoutMs = 15_000 } = {},
+) {
   const args = [
     ...POWERSHELL,
     join(here, 'front.ps1'),
@@ -125,6 +130,7 @@ export function bringToFront(processName, { dialog = false, timeoutMs = 15_000 }
     String(timeoutMs),
   ];
   if (dialog) args.push('-Class', '#32770');
+  if (noInput) args.push('-NoInput');
   const r = spawnSync('powershell', args, { encoding: 'utf8' });
   if (r.status !== 0)
     throw new Error(`front.ps1 ${processName}: rc ${r.status}: ${r.stdout}${r.stderr}`);
