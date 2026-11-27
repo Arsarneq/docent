@@ -268,8 +268,8 @@ event's process after its title is read.
 
 The Input_Thread does not learn of that switch, and the focus worker keeps the
 windows it wrote one for only in its own state, which a respawned or newly
-chosen focus worker starts without. Another switch into the same window can
-therefore follow:
+chosen focus worker starts without. One of these three switches into the same
+window can therefore follow:
 
 - the window's activation;
 - a switch the Input_Thread dispatches before the first action it sees there;
