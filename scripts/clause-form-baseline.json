@@ -1,16 +1,12 @@
 {
   "description": "The cases scripts/check-clause-form.js admits: the clauses of one document that link the same issue, the pairs of clauses sharing a run of words, and the count of long units per clause. The list only shrinks: an entry the tree no longer needs reds until it is removed or lowered, and on a pull request an entry the base does not hold reds. Fix the clause; do not add an entry.",
   "issue-homes": {
-    "237": ["DCP-13", "DCP-9"],
-    "710": ["DCP-13", "DCP-9"],
-    "762": ["DCP-13", "DCP-9"]
+    "710": ["DCP-13", "DCP-9"]
   },
   "shared-text": [
     "DCP-12|DCP-7",
-    "DCP-13|DCP-9",
     "DCP-13|ECP-12",
     "DCP-4|ECP-6",
-    "DCP-9|ECP-6",
     "DI-15|SP-25",
     "ECP-12|ECP-6",
     "SP-1|SP-4",
@@ -22,7 +18,6 @@
     "ECP-6": 4,
     "ERT-5": 1,
     "DCP-7": 1,
-    "DCP-9": 1,
     "DCP-12": 1,
     "DCP-13": 6,
     "SP-1": 1,
