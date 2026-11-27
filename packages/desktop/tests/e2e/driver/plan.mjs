@@ -109,6 +109,17 @@ for (let d = 0; d <= 9; d++) {
 
 const hex = (n) => `0x${n.toString(16)}`;
 
+// The fields each op takes besides its own. A step holds exactly one op.
+const FIELDS = {
+  window: ['within'],
+  wait: [],
+  click: ['button', 'count'],
+  move: [],
+  key: ['repeat', 'scan'],
+  chars: ['scan'],
+  text: [],
+};
+
 // A mouse target: a screen point (whole pixels, negative on a monitor left of
 // or above the main one), or a UI Automation element by automation id, or by
 // name with an optional control type. Never both kinds at once.
@@ -119,6 +130,8 @@ function mouseTarget(t, kind, at) {
   const point = 'x' in t || 'y' in t;
   const element = 'id' in t || 'name' in t || 'control' in t || 'index' in t;
   if (point === element) throw bad();
+  const takes = point ? ['x', 'y'] : ['id', 'name', 'control', 'index'];
+  if (Object.keys(t).some((k) => !takes.includes(k))) throw bad();
   if (point) {
     if (!Number.isInteger(t.x) || !Number.isInteger(t.y)) throw bad();
     return { x: t.x, y: t.y };
@@ -144,8 +157,27 @@ export function plan(steps) {
       if (!guard) throw new Error(`${at}: no window guard before this input`);
       events.push({ ...guard });
     };
+    if (!step || typeof step !== 'object' || Array.isArray(step))
+      throw new Error(`${at}: a step is an object`);
+    const ops = Object.keys(step).filter((k) => k in FIELDS);
+    if (ops.length > 1) throw new Error(`${at}: one op per step, not ${ops.join(' and ')}`);
+    if (ops.length === 1) {
+      const op = ops[0];
+      for (const k of Object.keys(step)) {
+        if (k === op || FIELDS[op].includes(k)) continue;
+        if (op === 'text' && k === 'scan')
+          throw new Error(`${at}: text is Unicode injection and has no scan code`);
+        throw new Error(`${at}: ${op} does not take ${k}`);
+      }
+    }
     if (step.window) {
       const w = step.window;
+      if (
+        typeof w !== 'object' ||
+        Object.keys(w).some((k) => !['process', 'title', 'any'].includes(k)) ||
+        ('any' in w && Object.keys(w).length > 1)
+      )
+        throw new Error(`${at}: a window guard takes process, title or any`);
       if (w.any === true) {
         if ('within' in step)
           throw new Error(`${at}: within needs a guard that names a process or a title`);

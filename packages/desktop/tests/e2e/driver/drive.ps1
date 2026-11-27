@@ -52,7 +52,17 @@ public static class DriverInput {
   [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern short VkKeyScanEx(char c, IntPtr layout);
   const uint KEYUP = 0x2, UNICODE = 0x4, EXTENDED = 0x1, SCANCODE = 0x8;
   [StructLayout(LayoutKind.Sequential)] public struct POINT { public int X; public int Y; }
-  [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
+  [DllImport("user32.dll")] static extern bool SetProcessDPIAware();
+  [DllImport("user32.dll")] static extern bool SetProcessDpiAwarenessContext(IntPtr c);
+  // Per-monitor awareness (v2, context -4), so points, window lookups, the
+  // pointer read-back and UI Automation rectangles are all physical pixels on
+  // every monitor whatever its scale. Where Windows has no per-monitor
+  // awareness, or the process already has an awareness set, system awareness
+  // is the fallback; the log says which one the run got.
+  public static string DpiAware() {
+    try { if (SetProcessDpiAwarenessContext(new IntPtr(-4))) return "per-monitor"; } catch (EntryPointNotFoundException) { }
+    return SetProcessDPIAware() ? "system" : "unchanged";
+  }
   [DllImport("user32.dll")] static extern IntPtr WindowFromPoint(POINT p);
   [DllImport("user32.dll")] static extern IntPtr GetAncestor(IntPtr h, uint flags);
   [DllImport("user32.dll")] static extern bool GetCursorPos(out POINT p);
@@ -150,7 +160,7 @@ public static class DriverInput {
 "@
 
 # Screen points and element rectangles are physical pixels on every monitor.
-[DriverInput]::SetProcessDPIAware() | Out-Null
+$dpi = [DriverInput]::DpiAware()
 
 function Get-Window($h) {
   $fpid = [uint32]0
@@ -177,6 +187,8 @@ function Resolve-Target($e) {
   $prop = if ($t.id) { $AE::AutomationIdProperty } else { $AE::NameProperty }
   $value = if ($t.id) { [string]$t.id } else { [string]$t.name }
   $cond = New-Object System.Windows.Automation.PropertyCondition($prop, $value)
+  $pick = 0
+  if ($null -ne $t.index) { $pick = [int]$t.index }
   $deadline = (Get-Date).AddMilliseconds(2000)
   $found = @()
   do {
@@ -192,11 +204,10 @@ function Resolve-Target($e) {
         }
       } catch { }   # an element that went away while it was read
     }
-    if ($found.Count -gt 0) { break }
+    # With an index, the search waits until that many matches have shown.
+    if ($found.Count -gt $pick) { break }
     Start-Sleep -Milliseconds 150
   } while ((Get-Date) -lt $deadline)
-  $pick = 0
-  if ($null -ne $t.index) { $pick = [int]$t.index }
   if ($found.Count -eq 0 -or $pick -ge $found.Count -or ($found.Count -gt 1 -and $null -eq $t.index)) {
     Write-Log "target ${what}: $($found.Count) match(es); stopped"
     Write-Host "input-driver: $what matched $($found.Count) element(s) in the guard's windows; a mouse step needs exactly one, or an index"
@@ -207,17 +218,23 @@ function Resolve-Target($e) {
   return @([int]($r.X + $r.Width / 2), [int]($r.Y + $r.Height / 2))
 }
 
-# Checks the window under the point against the step's guard, moves the
-# pointer there and reads it back. Returns the point.
-function Move-Pointer($e) {
-  $pt = Resolve-Target $e
-  $x = $pt[0]; $y = $pt[1]
+# Stops the run (exit 3) unless the window under the point matches the guard.
+function Assert-Under($e, $x, $y) {
   $w = Get-Window ([DriverInput]::RootAt($x, $y))
   if (-not (Test-Guard $e $w)) {
     Write-Log "guard MISMATCH at ($x,$y) wanted process=$($e.process) title=$($e.title) got process=$($w.process) title=$($w.title)"
     Write-Host "input-driver: the window under ($x,$y) is $($w.process) '$($w.title)', not the one the steps named; stopped"
     exit 3
   }
+  return $w
+}
+
+# Checks the window under the point against the step's guard, moves the
+# pointer there and reads it back. Returns the point.
+function Move-Pointer($e) {
+  $pt = Resolve-Target $e
+  $x = $pt[0]; $y = $pt[1]
+  $w = Assert-Under $e $x $y
   [DriverInput]::MouseMove($x, $y)
   Start-Sleep -Milliseconds $GapMs
   $c = [DriverInput]::Cursor()
@@ -237,7 +254,7 @@ trap { Write-Log "error: $($_.Exception.Message)"; Write-Host "input-driver: $($
 $json = & node (Join-Path $here 'plan.mjs') $Steps
 if ($LASTEXITCODE -ne 0) { Write-Log "plan refused $Steps (rc=$LASTEXITCODE)"; exit 2 }
 $events = $json | ConvertFrom-Json
-Write-Log "start $Steps events=$(@($events).Count)"
+Write-Log "start $Steps events=$(@($events).Count) dpi=$dpi"
 
 foreach ($e in $events) {
   switch ($e.type) {
@@ -286,6 +303,10 @@ foreach ($e in $events) {
     'click' {
       $pt = Move-Pointer $e
       for ($n = 0; $n -lt [int]$e.count; $n++) {
+        # Each press is checked again where the pointer is: a window that came
+        # up under it since the move (a hover pop-up, say) stops the run.
+        $c = [DriverInput]::Cursor()
+        Assert-Under $e $c[0] $c[1] | Out-Null
         [DriverInput]::MouseButton($pt[0], $pt[1], [string]$e.button, $false)
         Start-Sleep -Milliseconds $GapMs
         [DriverInput]::MouseButton($pt[0], $pt[1], [string]$e.button, $true)

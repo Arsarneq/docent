@@ -1,5 +1,5 @@
 /**
- * desk-notepad-basics: a person types in Notepad, clicks into it, uses its
+ * Notepad basics: a person types in Notepad, clicks into it, uses its
  * Format menu and closes it without saving, and the built app's export says
  * exactly that.
  *
@@ -223,7 +223,7 @@ test('clicks, Unicode typing, a long repeat and the Format menu in Notepad expor
   const { panel } = app;
   await startRecording(panel, notepad, 'Clicks');
 
-  // Steps 1 to 5 of the scenario in one driver call. The editor is found by
+  // The whole sequence in one driver call. The editor is found by
   // its automation id (its control id, 15), since the driver's UI Automation
   // client gives the Win32 edit control no name; the menu items by name and
   // control type. Each click lands in the middle of its element. Word Wrap is
@@ -272,49 +272,78 @@ test('clicks, Unicode typing, a long repeat and the Format menu in Notepad expor
   expectType(a7, `k${e10}p`, ctxA);
 
   // B: the Format menu, twice. The click on Format is in the main window. The
-  // menu opens as a window of Notepad's own (a context_open, DCP-7), and the
-  // click on Word Wrap is a click into a window other than the one in front,
-  // so a switch is recorded beside it (DCP-6). After the menu closes, the
-  // specs allow a switch back before the next click on Format. No key, no
-  // typing and no other action.
+  // menu is a window of Notepad's own, and the click on Word Wrap is a click
+  // into a window other than the one in front, so a switch into the menu's
+  // context is recorded beside it (DCP-6). Whether the menu's window also
+  // gets a context_open depends on whether Windows shows it at creation
+  // (DCP-7), which the specs leave to Windows; one that comes names Notepad.
+  // After the menu closes, a switch back may come before the next click on
+  // Format.
+  //
+  // A click on a menu item counts as a paste key in the field typed into last
+  // (DCP-13), so if Notepad reports the editor's value again when Word Wrap
+  // changes, that is one more `type` with the same value, at most one per
+  // Word Wrap click. Word Wrap closes its menu, so a click on it described
+  // after it took effect (a pre-capture past its budget, DCP-13) names
+  // whatever is then at the point, or no element: only a click described at
+  // the input itself (described_after_ms 0) must name the item.
   const rest = actions.slice(7);
   const clicks = rest.filter((a) => a.type === 'click');
-  expect(clicks.map((a) => a.element.name)).toEqual(['Format', 'Word Wrap', 'Format', 'Word Wrap']);
+  expect(clicks).toHaveLength(4);
   for (const a of rest) {
-    expect(['click', 'context_open', 'context_switch', 'focus'], `menu part: ${a.type}`).toContain(
-      a.type,
-    );
+    expect(
+      ['click', 'context_open', 'context_switch', 'focus', 'type'],
+      `menu part: ${a.type}`,
+    ).toContain(a.type);
     if (a.type === 'context_open' || a.type === 'context_switch') {
       expect(['notepad.exe', `pid:${notepad.pid}`], `${a.type} names Notepad`).toContain(a.source);
     }
+    if (a.type === 'type') expectType(a, `k${e10}p`, ctxA);
   }
-  const opened = new Set();
   const introduced = new Set([ctxA]);
   for (const a of rest) {
-    if (a.type === 'context_open') opened.add(a.context_id);
     if (a.type === 'context_open' || a.type === 'context_switch') introduced.add(a.context_id);
     // Every action is in a context the recording introduced (DCP-7).
     expect(introduced.has(a.context_id), `${a.type} in context ${a.context_id}`).toBe(true);
   }
+  const late = new Set();
   for (const [n, a] of clicks.entries()) {
-    expectClick(a, { name: a.element.name, tag: 'MenuItem' });
+    const at = rest.indexOf(a);
     if (n % 2 === 0) {
-      // Format, in the main window.
-      expect(a.context_id, 'Format is in the main window').toBe(ctxA);
+      // Format, in the main window; it opens the menu and stays where it is.
+      expectClick(a, { name: 'Format', tag: 'MenuItem', context: ctxA });
     } else {
-      // Word Wrap, in the menu that the click on Format opened.
-      expect(opened.has(a.context_id), 'Word Wrap is in an opened menu').toBe(true);
-      const before = rest[rest.indexOf(a) - 1];
-      expect(before.type, 'a switch beside the click into the menu').toBe('context_switch');
-      expect(before.context_id).toBe(a.context_id);
+      // Word Wrap, in the menu's own context, with the switch beside it.
+      expect(a.context_id, 'Word Wrap is in the menu, not the main window').not.toBe(ctxA);
+      expect(rest[at - 1].type, 'a switch beside the click into the menu').toBe('context_switch');
+      expect(rest[at - 1].context_id).toBe(a.context_id);
+      if (a.element?.described_after_ms === 0) {
+        expectClick(a, { name: 'Word Wrap', tag: 'MenuItem' });
+      } else {
+        expectModifiers(a);
+        late.add(actions.indexOf(a));
+      }
+      // At most one repeated value between this click and the next one.
+      const until = n + 1 < clicks.length ? rest.indexOf(clicks[n + 1]) : rest.length;
+      const types = rest.slice(at + 1, until).filter((x) => x.type === 'type');
+      expect(types.length, 'at most one repeated value per Word Wrap click').toBeLessThanOrEqual(1);
     }
   }
+  // A type in the menu part only ever follows a Word Wrap click.
+  const firstWrap = rest.indexOf(clicks[1]);
+  expect(rest.slice(0, firstWrap).some((a) => a.type === 'type')).toBe(false);
 
   // The schema and the sufficiency lint (SL-1). The start point is a stated
-  // gap for a recording that starts in a window already in front.
+  // gap for a recording that starts in a window already in front. A Word Wrap
+  // click described after its menu closed may carry an element with no
+  // locators, so element-locators may fail there and nowhere else.
   const { platform, findings } = lintFile(file);
   expect(platform).toBe('desktop-windows');
   console.log(`[lint] ${JSON.stringify(findings)}`);
   expect(findings.some((f) => f.id === 'start-point' && f.class === 'gap')).toBe(true);
-  expect(findings.filter((f) => f.class === 'fail')).toEqual([]);
+  const allowed = new Set([...late].map((k) => `rec[0].step[0].action[${k}]:click`));
+  const fails = findings.filter(
+    (f) => f.class === 'fail' && !(f.id === 'element-locators' && allowed.has(f.pointer)),
+  );
+  expect(fails).toEqual([]);
 });

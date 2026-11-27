@@ -317,7 +317,7 @@ test('a waiting guard with no input after it still waits', () => {
 test('a whole sequence fits one steps file: click into the app, keys, click the panel', () => {
   const ev = plan([
     { window: { process: 'notepad.exe' } },
-    { click: { name: 'Text Editor' } },
+    { click: { id: '15', control: 'Edit' } },
     { window: { process: 'notepad.exe' }, within: 2000 },
     { chars: 'ab', scan: true },
     { key: 'ctrl+a', scan: true },
@@ -327,5 +327,61 @@ test('a whole sequence fits one steps file: click into the app, keys, click the 
   assert.deepEqual(
     ev.map((e) => e.type),
     ['click', 'assert', 'assert', 'char', 'char', 'assert', 'vk', 'vk', 'vk', 'vk', 'click'],
+  );
+});
+
+// A step holds one op and only the fields that op takes, so a mistyped steps
+// file stops before any input instead of running without what it meant.
+test('a step with two ops is refused', () => {
+  const N = { window: { process: 'notepad.exe' } };
+  assert.throws(
+    () => plan([{ window: { process: 'a.exe' }, click: { x: 1, y: 2 } }]),
+    /step 0: one op per step/,
+  );
+  assert.throws(() => plan([N, { click: { x: 1, y: 2 }, key: 'a' }]), /step 1: one op per step/);
+  assert.throws(
+    () => plan([N, { click: { x: 1, y: 2 }, move: { x: 1, y: 2 } }]),
+    /step 1: one op per step/,
+  );
+  assert.throws(() => plan([N, { chars: 'a', text: 'b' }]), /step 1: one op per step/);
+  assert.throws(() => plan([N, { wait: 5, key: 'a' }]), /step 1: one op per step/);
+});
+
+test('a field the op does not take is refused', () => {
+  const N = { window: { process: 'notepad.exe' } };
+  assert.throws(
+    () => plan([N, { move: { x: 1, y: 2 }, button: 'right' }]),
+    /step 1: move does not take button/,
+  );
+  assert.throws(
+    () => plan([N, { move: { x: 1, y: 2 }, count: 2 }]),
+    /step 1: move does not take count/,
+  );
+  assert.throws(() => plan([N, { key: 'a', within: 500 }]), /step 1: key does not take within/);
+  assert.throws(() => plan([N, { text: 'a', repeat: 2 }]), /step 1: text does not take repeat/);
+  assert.throws(() => plan([N, { chars: 'a', repeat: 2 }]), /step 1: chars does not take repeat/);
+  assert.throws(() => plan([N, { wait: 5, scan: true }]), /step 1: wait does not take scan/);
+  assert.throws(
+    () => plan([{ window: { process: 'a.exe' }, scan: true }]),
+    /step 0: window does not take scan/,
+  );
+  assert.throws(
+    () => plan([N, { click: { x: 1, y: 2 }, scan: true }]),
+    /step 1: click does not take scan/,
+  );
+  assert.throws(() => plan([N, { key: 'a', sacn: true }]), /step 1: key does not take sacn/);
+});
+
+test('a field a target or a guard does not take is refused', () => {
+  const N = { window: { process: 'notepad.exe' } };
+  assert.throws(() => plan([N, { click: { id: 'a', nmae: 'b' } }]), /step 1: click takes/);
+  assert.throws(() => plan([N, { click: { x: 1, y: 2, z: 3 } }]), /step 1: click takes/);
+  assert.throws(
+    () => plan([{ window: { process: 'a.exe', tilte: 'x' } }]),
+    /step 0: a window guard takes process, title or any/,
+  );
+  assert.throws(
+    () => plan([{ window: { any: true, process: 'a.exe' } }]),
+    /step 0: a window guard takes process, title or any/,
   );
 });

@@ -32,8 +32,11 @@ function Say($ok, $what, $detail) {
 # The target window: a separate process, so its message loop runs while this
 # script waits on the driver. It writes the box's text (UTF-8, no BOM) to
 # $out when it closes, and closes itself after 40 s if nothing closes it.
-function Start-Target($out) {
+# With -LateMs the window opens that long after its process starts and the
+# function returns at once, for the waiting guard's case.
+function Start-Target($out, [int]$LateMs = 0) {
   $form = @"
+Start-Sleep -Milliseconds $LateMs
 Add-Type -AssemblyName System.Windows.Forms
 `$f = New-Object Windows.Forms.Form
 `$f.Text = 'input-driver-test'
@@ -56,6 +59,7 @@ Add-Type -AssemblyName System.Windows.Forms
 [Windows.Forms.Application]::Run(`$f)
 "@
   $p = Start-Process -FilePath $host_exe -ArgumentList @('-NoProfile', '-STA', '-Command', $form) -PassThru
+  if ($LateMs -gt 0) { return $p }
   # Wait until the window is up and has the foreground.
   $deadline = (Get-Date).AddSeconds(15)
   while ((Get-Date) -lt $deadline) {
@@ -135,10 +139,9 @@ Say ($rc -eq 0) 'scan mode exits 0' "(rc=$rc)"
 Say ($got -ceq $expect4) 'scan mode types exactly what the steps say (Left is an extended key)' "(got '$got', wanted '$expect4')"
 
 # Case 5: mouse steps. A left and a right click on the button, found by its
-# name, then keys again in the same steps file: the waiting guard and the
-# click into the box bring the input back to it. UI Automation exposes the
-# WinForms button as ControlType.Pane, not Button,
-# so the control filter names Pane.
+# name, a move onto it, and a waiting guard on the window already in front,
+# which goes on at once. UI Automation exposes the WinForms button as
+# ControlType.Pane, not Button, so the control filter names Pane.
 $out = Join-Path $work 'case5.txt'
 $p = Start-Target $out
 $rc = Invoke-Drive @(
@@ -165,6 +168,35 @@ $rc2 = Invoke-Drive @($guard, $close)
 $p.WaitForExit(10000) | Out-Null
 $got = if (Test-Path $out) { [IO.File]::ReadAllText($out) } else { '<no output>' }
 Say ($got -ceq '') 'no click was sent for either' "(got '$got')"
+
+# Case 7: a click at a point whose window the guard does not name stops the
+# run with exit 3 before the pointer moves. The point is the main screen's
+# bottom-right corner, never the test window, which opens near the top left.
+Add-Type -AssemblyName System.Windows.Forms
+$corner = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+$out = Join-Path $work 'case7.txt'
+$p = Start-Target $out
+$before = [System.Windows.Forms.Cursor]::Position
+$rc = Invoke-Drive @($guard, @{ click = @{ x = $corner.Right - 3; y = $corner.Bottom - 3 } })
+$after = [System.Windows.Forms.Cursor]::Position
+Say ($rc -eq 3) 'a click on a window the guard does not name exits 3' "(rc=$rc)"
+Say ($before -eq $after) 'the pointer did not move' "(from $before to $after)"
+$rc2 = Invoke-Drive @($guard, $close)
+$p.WaitForExit(10000) | Out-Null
+
+# Case 8: a waiting guard waits for a window that opens late, then the input
+# goes to it. Without the wait the guard sees another window and stops.
+$out = Join-Path $work 'case8.txt'
+$p = Start-Target $out -LateMs 2500
+$rc = Invoke-Drive @(
+  @{ window = @{ process = $host_name; title = '^input-driver-test$' }; within = 20000 },
+  @{ chars = 'late' },
+  $close
+)
+$p.WaitForExit(30000) | Out-Null
+$got = if (Test-Path $out) { [IO.File]::ReadAllText($out) } else { '<no output>' }
+Say ($rc -eq 0) 'a waiting guard on a late window exits 0' "(rc=$rc)"
+Say ($got -ceq 'late') 'the keys after the wait reached the late window' "(got '$got', wanted 'late')"
 
 # Case 3: the planner's refusal stops the run with exit 2 and no input, and
 # the refusal is the missing guard, not a malformed steps file.
