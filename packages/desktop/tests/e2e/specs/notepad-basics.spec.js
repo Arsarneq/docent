@@ -224,10 +224,11 @@ test('clicks, Unicode typing, a long repeat and the Format menu in Notepad expor
   await startRecording(panel, notepad, 'Clicks');
 
   // Steps 1 to 5 of the scenario in one driver call. The editor is found by
-  // its accessibility name, the menu items by name and control type; each
-  // click lands in the middle of its element. Word Wrap is a saved Notepad
-  // setting, so it is turned on and back off.
-  const EDITOR = { click: { name: 'Text Editor' } };
+  // its automation id (its control id, 15), since the driver's UI Automation
+  // client gives the Win32 edit control no name; the menu items by name and
+  // control type. Each click lands in the middle of its element. Word Wrap is
+  // a saved Notepad setting, so it is turned on and back off.
+  const EDITOR = { click: { id: '15', control: 'Edit' } };
   const FORMAT = { click: { name: 'Format', control: 'MenuItem' } };
   const WRAP = { click: { name: 'Word Wrap', control: 'MenuItem' } };
   const e10 = 'e'.repeat(10);

@@ -61,5 +61,6 @@ The log has one line per event with a UTC timestamp. Characters are logged as co
 
 - A dead key on the layout (on Danish, for example `´` and `¨`) is pressed once and types nothing on its own; use a `text` step for such characters.
 - Windows does not let a program send input into a window running with higher rights than itself, such as an elevated app.
+- The driver finds elements with .NET's UI Automation client, which reads classic Win32 controls through its own proxies, so an element's name there can differ from the one an app reading UI Automation natively (Docent among them) records: Notepad's edit control has no name for the driver but is "Text Editor" in a recording. Target such a control by its automation id (its control id) instead.
 - No drag and no wheel yet.
 - A pop-up of a WebView2 page (a context menu, a dropdown) is a window of `msedgewebview2.exe`, not of the app that hosts the page: name that process in the guard for the step that clicks in it.
