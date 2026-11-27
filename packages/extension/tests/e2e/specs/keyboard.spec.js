@@ -1941,6 +1941,56 @@ test.describe('Every key press that is not text', () => {
     });
   }
 
+  // The timer task after a character key's `keypress` settles the presses
+  // that waited at that keypress, and no press made after it. The browser
+  // can hand the page the next keys ahead of that task; here the task is
+  // held back in the recorder's own world, so the order is the same each run.
+  test('regression_789_a_dead_key_pressed_before_the_timer_of_the_key_before_it_is_text', async ({
+    testPage,
+    serviceWorker,
+    context,
+  }) => {
+    const session = await context.newCDPSession(testPage);
+    const worlds = [];
+    session.on('Runtime.executionContextCreated', ({ context: world }) => worlds.push(world));
+    await session.send('Runtime.enable');
+    const recorderWorld = worlds.find(
+      (world) =>
+        world.auxData?.type === 'isolated' && world.origin.startsWith('chrome-extension://'),
+    );
+    expect(recorderWorld, 'the world the recorder runs in').toBeTruthy();
+    const inRecorderWorld = (expression) =>
+      session.send('Runtime.evaluate', { contextId: recorderWorld.id, expression });
+    await inRecorderWorld(`(() => {
+      const real = globalThis.setTimeout;
+      globalThis.holdTimerTasks = false;
+      globalThis.setTimeout = (task, ms, ...rest) =>
+        real(task, globalThis.holdTimerTasks && !ms ? 300 : ms, ...rest);
+    })()`);
+
+    const dead = { key: 'Dead', code: 'Equal', windowsVirtualKeyCode: 221 };
+    const enter = { key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 };
+    await testPage.focus('#editable');
+    await inRecorderWorld('globalThis.holdTimerTasks = true');
+    await testPage.keyboard.type('c');
+    await inRecorderWorld('globalThis.holdTimerTasks = false');
+    await session.send('Input.dispatchKeyEvent', { type: 'rawKeyDown', ...dead });
+    await session.send('Input.dispatchKeyEvent', { type: 'keyUp', ...dead });
+    await session.send('Input.dispatchKeyEvent', { type: 'rawKeyDown', ...enter });
+    // The timer task of the keypress of `c` runs now, behind the two keys.
+    await testPage.waitForTimeout(450);
+    await session.send('Input.dispatchKeyEvent', { type: 'char', ...enter, text: '´' });
+    await testPage.waitForTimeout(50);
+    await session.send('Input.dispatchKeyEvent', { type: 'keyUp', ...enter });
+    await testPage.locator('#btn').click();
+    const actions = (await written(serviceWorker, testPage)).filter(([type]) => type !== 'click');
+    expect(actions).toEqual([
+      ['type', 'c'],
+      ['key', 'Enter'],
+      ['type', 'c´'],
+    ]);
+  });
+
   // The same where no accent is entered and the dead key is a `key` too:
   // the text taken at the press stands ahead of both keys, and what the
   // person changed in the element after them is written behind them, never
