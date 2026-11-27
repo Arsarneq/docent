@@ -108,8 +108,8 @@ never from the message body, so a frame cannot claim to be a different tab.
 The language facts are written in two places. The recorder reads the element's `language` with the rest of its description: the value of the `lang` attribute on the nearest element at or above the acted-on one that carries the attribute, as the page stands at the action. The service worker writes `preferred_languages` on every action as it stores it, the actions it records itself included, from the browser's `navigator.languages` as the worker reads it, so a frame cannot state another list for its actions ([Session Format — Shown text](../../../technical/session-format.md#shown-text)).
 
 **ECP-5.** Injecting only while recording costs no capture fidelity because of
-a measured bound: from a frame finishing load to the recorder reporting ready
-MUST complete within half the ~200 ms deliberate-action floor — the shortest
+a measured bound: a frame MUST go from finishing load to its recorder reporting
+ready within half the ~200 ms deliberate-action floor — the shortest
 gap in which a human plausibly performs a deliberate action — so a frame is
 capture-ready before anyone can act in it (in practice the gap is well under
 the bound). The floor and the
