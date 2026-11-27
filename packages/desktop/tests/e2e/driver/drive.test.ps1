@@ -4,7 +4,8 @@
 #
 # Opens its own small window with one text box (title "input-driver-test"), drives
 # real input into it with drive.ps1, and reads back what the box holds when the
-# window closes. The window also has a button, "click-me", that writes L into
+# window closes. The window also has a Win32 menu bar (Tools, Add M, which
+# writes M into the box), for the menu case, and a button, "click-me", that writes L into
 # the box on a left click and R on a right click, for the mouse case. Takes
 # over the keyboard and the mouse for about half a minute: run it only
 # on a machine nobody is using. The AltGr and layout-key cases need the Danish
@@ -50,6 +51,11 @@ Add-Type -AssemblyName System.Windows.Forms
 `$b.add_Click({ `$t.AppendText('L') })
 `$b.add_MouseUp({ if (`$_.Button -eq 'Right') { `$t.AppendText('R') } })
 `$f.Controls.Add(`$b)
+`$m = New-Object Windows.Forms.MainMenu
+`$tools = `$m.MenuItems.Add('&Tools')
+`$add = `$tools.MenuItems.Add('Add &M')
+`$add.add_Click({ `$t.AppendText('M') })
+`$f.Menu = `$m
 `$timer = New-Object Windows.Forms.Timer
 `$timer.Interval = 40000
 `$timer.add_Tick({ `$f.Close() })
@@ -197,6 +203,22 @@ $p.WaitForExit(30000) | Out-Null
 $got = if (Test-Path $out) { [IO.File]::ReadAllText($out) } else { '<no output>' }
 Say ($rc -eq 0) 'a waiting guard on a late window exits 0' "(rc=$rc)"
 Say ($got -ceq 'late') 'the keys after the wait reached the late window' "(got '$got', wanted 'late')"
+
+# Case 9: a click on a menu bar item, then on an item of the pop-up menu it
+# opens, both found by their shown text. A Win32 menu is found by Win32
+# where UI Automation does not show its items.
+$out = Join-Path $work 'case9.txt'
+$p = Start-Target $out
+$rc = Invoke-Drive @(
+  $guard,
+  @{ click = @{ name = 'Tools'; control = 'MenuItem' } },
+  @{ click = @{ name = 'Add M'; control = 'MenuItem' } },
+  $close
+)
+$p.WaitForExit(10000) | Out-Null
+$got = if (Test-Path $out) { [IO.File]::ReadAllText($out) } else { '<no output>' }
+Say ($rc -eq 0) 'menu clicks exit 0' "(rc=$rc)"
+Say ($got -ceq 'M') 'the menu item ran once' "(got '$got', wanted 'M')"
 
 # Case 3: the planner's refusal stops the run with exit 2 and no input, and
 # the refusal is the missing guard, not a malformed steps file.

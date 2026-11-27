@@ -157,6 +157,69 @@ public static class DriverInput {
   }
   public static string Title(IntPtr h) { var s = new StringBuilder(512); GetWindowText(h, s, 512); return s.ToString(); }
 }
+
+// Classic Win32 controls and menus, read with Win32 itself, for where .NET's
+// UI Automation client sees them only as bare panes (its client-side
+// providers fail to load on some machines). Each search returns rectangles
+// as { left, top, right, bottom } in screen pixels.
+public static class Win32Find {
+  [StructLayout(LayoutKind.Sequential)] public struct RECT { public int L; public int T; public int R; public int B; }
+  delegate bool EnumProc(IntPtr h, IntPtr l);
+  [DllImport("user32.dll")] static extern bool EnumChildWindows(IntPtr parent, EnumProc f, IntPtr l);
+  [DllImport("user32.dll")] static extern bool EnumWindows(EnumProc f, IntPtr l);
+  [DllImport("user32.dll")] static extern int GetDlgCtrlID(IntPtr h);
+  [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr h);
+  [DllImport("user32.dll")] static extern bool GetWindowRect(IntPtr h, out RECT r);
+  [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetClassName(IntPtr h, StringBuilder s, int n);
+  [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
+  [DllImport("user32.dll")] static extern IntPtr GetMenu(IntPtr h);
+  [DllImport("user32.dll")] static extern int GetMenuItemCount(IntPtr m);
+  [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetMenuString(IntPtr m, uint item, StringBuilder s, int n, uint flags);
+  [DllImport("user32.dll")] static extern bool GetMenuItemRect(IntPtr h, IntPtr m, uint item, out RECT r);
+  [DllImport("user32.dll")] static extern IntPtr SendMessage(IntPtr h, uint msg, IntPtr w, IntPtr l);
+  public static string ClassOf(IntPtr h) { var s = new StringBuilder(256); GetClassName(h, s, 256); return s.ToString(); }
+  static int[] Box(RECT r) { return new int[] { r.L, r.T, r.R, r.B }; }
+  // Visible child windows of a top-level window with this control id (and
+  // window class, when one is named).
+  public static System.Collections.Generic.List<int[]> Controls(IntPtr top, int id, string cls) {
+    var found = new System.Collections.Generic.List<int[]>();
+    EnumChildWindows(top, (h, l) => {
+      if (GetDlgCtrlID(h) == id && IsWindowVisible(h) && (cls == null || ClassOf(h) == cls)) {
+        RECT r; if (GetWindowRect(h, out r) && r.R > r.L && r.B > r.T) found.Add(Box(r));
+      }
+      return true;
+    }, IntPtr.Zero);
+    return found;
+  }
+  // The text of a menu item as it shows: without the & that marks its access
+  // key, and without a shortcut after a tab.
+  static string ItemText(IntPtr m, uint i) {
+    var s = new StringBuilder(256); GetMenuString(m, i, s, 256, 0x400);
+    var t = s.ToString(); int tab = t.IndexOf('\t'); if (tab >= 0) t = t.Substring(0, tab);
+    return t.Replace("&&", "\u0001").Replace("&", "").Replace("\u0001", "&");
+  }
+  static void Items(IntPtr h, IntPtr m, string name, System.Collections.Generic.List<int[]> found) {
+    if (m == IntPtr.Zero) return;
+    int n = GetMenuItemCount(m);
+    for (uint i = 0; i < n; i++) {
+      if (ItemText(m, i) != name) continue;
+      RECT r; if (GetMenuItemRect(h, m, i, out r) && r.R > r.L && r.B > r.T) found.Add(Box(r));
+    }
+  }
+  // Menu items by their shown text: in the menu bar of a top-level window,
+  // and in every open pop-up menu of the same process.
+  public static System.Collections.Generic.List<int[]> MenuItems(IntPtr top, string name) {
+    var found = new System.Collections.Generic.List<int[]>();
+    Items(top, GetMenu(top), name, found);
+    uint pid; GetWindowThreadProcessId(top, out pid);
+    EnumWindows((h, l) => {
+      uint p; GetWindowThreadProcessId(h, out p);
+      if (p == pid && IsWindowVisible(h) && ClassOf(h) == "#32768") Items(h, SendMessage(h, 0x01E1, IntPtr.Zero, IntPtr.Zero), name, found);
+      return true;
+    }, IntPtr.Zero);
+    return found;
+  }
+}
 "@
 
 # Screen points and element rectangles are physical pixels on every monitor.
@@ -192,11 +255,15 @@ function Resolve-Target($e) {
   $deadline = (Get-Date).AddMilliseconds(2000)
   $found = @()
   $script:readErrors = 0; $script:lastReadError = ''
+  $via = 'uia'
   do {
     $found = @()
+    $tops = @()
     foreach ($root in $AE::RootElement.FindAll([System.Windows.Automation.TreeScope]::Children, [System.Windows.Automation.Condition]::TrueCondition)) {
       try {
-        if (-not (Test-Guard $e (Get-Window ([IntPtr]$root.Current.NativeWindowHandle)))) { continue }
+        $h = [IntPtr]$root.Current.NativeWindowHandle
+        if (-not (Test-Guard $e (Get-Window $h))) { continue }
+        $tops += $h
         foreach ($el in $root.FindAll([System.Windows.Automation.TreeScope]::Subtree, $cond)) {
           $c = $el.Current
           if ($t.control -and $c.ControlType.ProgrammaticName -ne "ControlType.$($t.control)") { continue }
@@ -204,6 +271,10 @@ function Resolve-Target($e) {
           $found += $c.BoundingRectangle
         }
       } catch { $script:readErrors += 1; $script:lastReadError = $_.Exception.Message }   # an element that went away while it was read
+    }
+    if ($found.Count -le $pick) {
+      $w32 = @(Find-Win32 $t $tops)
+      if ($w32.Count -gt 0) { $found = $w32; $via = 'win32' }
     }
     # With an index, the search waits until that many matches have shown.
     if ($found.Count -gt $pick) { break }
@@ -216,7 +287,7 @@ function Resolve-Target($e) {
     exit 5
   }
   $r = $found[$pick]
-  Write-Log "target $what rect=[$([int]$r.X),$([int]$r.Y),$([int]$r.Width)x$([int]$r.Height)] matches=$($found.Count)"
+  Write-Log "target $what via $via rect=[$([int]$r.X),$([int]$r.Y),$([int]$r.Width)x$([int]$r.Height)] matches=$($found.Count)"
   return @([int]($r.X + $r.Width / 2), [int]($r.Y + $r.Height / 2))
 }
 
@@ -244,6 +315,29 @@ function Initialize-Uia {
     Write-Log "uia client-side providers registered: $($table.Count)"
   } catch { Write-Log "uia client-side providers: $($_.Exception.ToString())" }
   $script:uiaReady = $true
+}
+
+# The Win32 search, for classic controls that UI Automation shows only as
+# bare panes: a numeric id is a control id (with control Edit or Button, of
+# that window class), and a name with control MenuItem is a menu item's shown
+# text, in a window's menu bar or an open pop-up menu of its process. Other
+# targets have no Win32 form. Returns rectangles with X, Y, Width, Height.
+function Find-Win32($t, $tops) {
+  $boxes = @()
+  if ($t.id -and ($t.id -match '^[0-9]+$') -and (-not $t.control -or $t.control -in @('Edit', 'Button'))) {
+    $cls = if ($t.control) { [string]$t.control } else { $null }
+    foreach ($h in $tops) { $boxes += @([Win32Find]::Controls($h, [int]$t.id, $cls)) }
+  } elseif ($t.name -and $t.control -eq 'MenuItem') {
+    foreach ($h in $tops) { $boxes += @([Win32Find]::MenuItems($h, [string]$t.name)) }
+  }
+  # A pop-up menu is found from every window of its process: keep each once.
+  $seen = @{}
+  foreach ($b in $boxes) {
+    $k = "$($b[0]),$($b[1]),$($b[2]),$($b[3])"
+    if ($seen.ContainsKey($k)) { continue }
+    $seen[$k] = $true
+    [pscustomobject]@{ X = $b[0]; Y = $b[1]; Width = $b[2] - $b[0]; Height = $b[3] - $b[1] }
+  }
 }
 
 # For a target that was not found: which top-level windows the guard took,
