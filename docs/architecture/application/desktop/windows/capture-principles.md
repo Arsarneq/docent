@@ -317,15 +317,22 @@ handle as its context, which no switch introduced. And the switch before an
 action in an inactive window records that window's context, not an activation
 the person made.
 
-A focus is recorded on the element focused when a worker describes it, and in
-the context of the top-level window that element is in, as its description
-resolved it, with that window's rectangle — not the window the focus event
-named, which differs when the focus moved on before the worker described it (a
-dialog that closed as the focus went back to its owner, for example) and no
-later focus event was dispatched before the description (a focus described
-after one writes nothing, DCP-12); where the description resolved no window, the
-event's window gives the context. The
-Input_Thread introduces the event's window, not the element's (above), so a
+A focus is recorded on the element focused when a worker describes it, which
+need not be the element the focus event named: the focus can move on before
+the worker describes it (a dialog that closed as the focus went back to its
+owner, for example) with no later focus event dispatched before the
+description (a focus described after one writes nothing, DCP-12). Where it is
+recorded follows from the top-level window that element is in, as its
+description resolved it:
+
+| The element's top-level window                                        | The focus is written                                             |
+| --------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| None resolved                                                         | In the context and rectangle of the window the event named       |
+| The window the event named                                            | In that window's context, with its rectangle                     |
+| Another window of the event's process                                 | In that window's context, with its rectangle                     |
+| Another window of another process, or of a process that can't be read | Not at all: the scope filters (DCP-5) judged the event's process |
+
+The Input_Thread introduces the event's window, not the element's (above), so a
 focus recorded in a window the session introduced no other way has no
 `context_switch` before it.
 
@@ -744,14 +751,16 @@ was: the later event records the focus at its own place in the recording. A
 focus change the input thread sends no event for (in a process outside the
 capture's scope, outside the foreground process, uncorrelated with input, or
 redundant to a click) and a foreground change move no number, so they never
-stop a focus from being written. Three cases stay open. The element the earlier
+stop a focus from being written by its number (a focus can still write nothing
+for where its element is, DCP-7). Three cases stay open. The element the earlier
 event named is recorded by no focus, since the focus left it before any
 description could be made; the later event records where the focus went, and
 writes nothing when that is the element of the last focus written (the person
 moved the focus away and back) or an element the accessibility layer cannot
 describe. A description made after the focus moved but before the later focus
 event was dispatched, or after a focus change that sends no event, names the
-element focused by then and is written at the earlier event's place. And a
+element focused by then and is written at the earlier event's place, save
+where DCP-7 has it write nothing. And a
 platform that numbers no focus events (number `0`) writes every focus
 described. A respawned worker starts with no last
 focus, and a worker that takes the role over compares with the last focus it
@@ -945,6 +954,8 @@ with a caveat):
   the one the event named, and the later event records where the focus went,
   at its own place, save in the open cases DCP-12 states; a departure (core
   CP-18)
+- A focus whose element is in a window of a process DCP-7 names as not
+  judged by the scope filters — not written; a departure (core CP-18)
 - A key pressed while an input method composes text (the letters of a
   romanized reading, Space, the Enter that confirms, Escape, an arrow in the
   candidate list, Backspace) — written as a `key`, a typing key among them
