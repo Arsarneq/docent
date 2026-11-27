@@ -906,10 +906,9 @@
     },
     {
       "path": "packages/desktop/src-tauri/tests/control_look_test.rs",
-      "reason": "The Windows backend's look at a control by its window handle, against real windows of the test process: a field as a control of its own, a password field, a window that holds fields, the value read from the control, and a handle of no window. The Windows capture doctrine states the element of a keystroke (DCP-16), the pipeline document states what a worker asks a control and when, and the suite orientation lists the binary.",
+      "reason": "The Windows backend's look at a control by its window handle, against real windows of the test process: a field as a control of its own, a password field, a window that holds fields, the value read from the control, and a handle of no window. The Windows capture doctrine states the element of a keystroke and what a control of its own is (DCP-16), and the suite orientation lists the binary.",
       "governed-by": [
         "docs/architecture/application/desktop/windows/capture-principles.md",
-        "docs/architecture/application/desktop/windows/capture-pipeline.md",
         "docs/test/desktop-rust.md"
       ]
     },
