@@ -140,6 +140,7 @@ globalThis.chrome = {
     get: async () => ({}),
   },
   scripting: { executeScript: async () => {} },
+  windows: { onFocusChanged: { addListener() {} } },
   alarms: {
     create: (name, opts) => {
       alarmCreateCalls.push({ name, opts });

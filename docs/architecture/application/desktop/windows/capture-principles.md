@@ -568,17 +568,10 @@ step, once the step's actions are complete: a key-down that became text (part of
 no held key, and a typing key that was written as a `key` (one no value change
 superseded) is named as any key is. No key is
 known to be down when a capture starts, which each step's capture does anew;
-a key held across that start is named from its next repeat. On the extension
-no key is known to be down once the window loses the focus or a drag starts:
-the browser sends
-the document no key release from then on and offers no interface that reads
-the keyboard's state, so nothing says whether the key still is down, and a
-`drop` there states no held key. The
-desktop's hook is handed every release, so it keeps the key. That difference
-comes from the platforms themselves (core CP-19), save for a key held in one
-frame of a tab while the person acts in another recorded frame of it, a
-departure the extension capture document (ECP-12) states with what the
-extension tried ([docent#779](https://github.com/Arsarneq/docent/issues/779)). A keystroke that enters text into a password
+a key held across that start is named from its next repeat. The extension
+knows a key to be down only while its release is sure to reach a document it
+runs in, where the desktop's hook is handed every release (the extension
+capture document, ECP-12, states the rule; core CP-19). A keystroke that enters text into a password
 field (DCP-11's signal) is never buffered as a key: it starts or extends that
 field's masked `type` action, so typing into a password field is recorded as
 that `type` whether or not the field reports a value change. Every keystroke

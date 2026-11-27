@@ -176,7 +176,7 @@ Once all its listeners are wired, each injected recorder sends the worker a `FRA
 
 ## Message protocol
 
-Transport is `chrome.runtime.sendMessage` into the worker's single `onMessage` dispatcher. One request goes the other way: `END_TYPING`, which the worker sends by `chrome.tabs.sendMessage` to one frame at a time and the recorder's own `onMessage` listener answers ([capture path](#capture-path)). Message types are `UPPER_SNAKE_CASE` string constants declared at their call sites. The panel↔worker surface has exactly two channels: the request/response messages below, and the watched storage keys listed under [Storage keys](#storage-keys-and-write-ownership).
+Transport is `chrome.runtime.sendMessage` into the worker's single `onMessage` dispatcher. Two requests go the other way: `END_TYPING` and `HELD_KEY_REPORTS`, which the worker sends by `chrome.tabs.sendMessage` to one frame at a time and the recorder's own `onMessage` listener answers ([capture path](#capture-path)). Message types are `UPPER_SNAKE_CASE` string constants declared at their call sites. The panel↔worker surface has exactly two channels: the request/response messages below, and the watched storage keys listed under [Storage keys](#storage-keys-and-write-ownership).
 
 **ERT-4.** The dispatcher's serviced surface is exactly the two enumerations
 this section states — the capture-path table's message types, serviced by the
@@ -208,25 +208,28 @@ change.
 
 Sent by the recorder to the worker:
 
-| Type              | Payload            | Response                                                                                                                                       |
-| ----------------- | ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GET_TAB_ID`      | `—`                | `{ tabId }`, answered synchronously — the sender's tab identity exists only on the dispatcher's `sender` argument.                             |
-| `FRAME_READY`     | `{ readyAt, url }` | None — a one-way readiness beacon ([ECP-3](capture-principles.md#frame-trust-and-readiness)).                                                  |
-| `APPEND_ACTION`   | `{ action }`       | The [response envelope](#response-contract) below.                                                                                             |
-| `POINTER_PRESSED` | `—`                | None. A one-way signal that the pointer was pressed in the sender's frame; the worker asks the tab's other frames to end their typing (below). |
+| Type              | Payload                                          | Response                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| ----------------- | ------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET_TAB_ID`      | `—`                                              | `{ tabId }`, answered synchronously — the sender's tab identity exists only on the dispatcher's `sender` argument.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `FRAME_READY`     | `{ readyAt, url }`                               | None — a one-way readiness beacon ([ECP-3](capture-principles.md#frame-trust-and-readiness)).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `APPEND_ACTION`   | `{ action }`                                     | The [response envelope](#response-contract) below.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `POINTER_PRESSED` | `—`                                              | None. A one-way signal that the pointer was pressed in the sender's frame; the worker asks the tab's other frames to end their typing (below).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `HELD_KEY`        | `{ event, code, key, underMeta, recorder, seq }` | None. A one-way report of a key held in the sender's frame: `down` (a key the recorder names as held, with its `code`, the name its `key` action carries and whether it went down under the Meta key), `up` (a release, with its `code`), `metaup` (the Meta key's release), `focus` (the window took the focus while a pointer press was handled), `blur` (the window lost the focus) or `clear` (a drag). `recorder` names the sending recorder and `seq` numbers its reports. The worker keeps the keys held across a tab's frames from these reports and from `POINTER_PRESSED` ([ECP-12](capture-principles.md#exceptions-within-the-surface)). |
 
 `APPEND_ACTION` is the single path a captured action takes into storage. The worker:
 
 - validates the sender against the frame registry ([ECP-3](capture-principles.md#frame-trust-and-readiness));
 - stamps `context_id` from the trusted sender ([ECP-4](capture-principles.md#frame-trust-and-readiness));
+- adds to an action that carries `held_keys` the keys held in the tab's other frames ([ECP-12](capture-principles.md#exceptions-within-the-surface));
 - applies the storage chokepoint ([ECP-9](capture-principles.md#sensitive-value-redaction));
 - appends to the pending buffer through a serialized write queue gated by storage pressure ([ECP-11](capture-principles.md#storage-pressure)).
 
-Sent by the worker to a recorder, one frame at a time, is the single request
+Sent by the worker to a recorder, one frame at a time, are two requests.
+
 `END_TYPING`: the frame writes a key press it still holds back to learn
 whether it was text, as the `key` it was, and then the entry typed into the
 field in focus and into editable content, through `APPEND_ACTION` as any action, and answers
-`{ ok: true }` once the worker has answered those appends. The worker sends
+`{ ok: true, heldReports }` once the worker has answered those appends. The worker sends
 it to every registered frame ahead of a step commit and ahead of a stop, and
 waits for the answers up to a bound, so the step and the recording hold the
 entry; and to the other frames of a tab on `POINTER_PRESSED`, held to the
@@ -236,6 +239,13 @@ have answered, up to the same bound, so what the press made them write is
 stored ahead of the press's own `click`
 ([ECP-6](capture-principles.md#capture-surface)). A sender test that runs as
 the worker wakes waits for the stored recording flag to be read back first.
+
+`HELD_KEY_REPORTS`: the frame answers `{ ok: true, heldReports }` at once and
+does nothing else. `heldReports` is `{ recorder, seq }`, the last `HELD_KEY`
+the recorder sent; the worker waits for that report, the ask and the wait
+together up to half that bound,
+before it names a key held in that frame to an action of another frame
+([ECP-12](capture-principles.md#exceptions-within-the-surface)).
 
 ### Panel protocol
 
