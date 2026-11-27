@@ -117,7 +117,7 @@ splices each arriving action into the in-memory pending list by
 [DCP-11](capture-principles.md#sensitive-value-redaction)); the
 `barrier_complete` sentinel is consumed by the adapter to resolve a commit's
 bounded wait and never enters the pending list or an export
-([the capture pipeline](capture-pipeline.md)). The pending list itself is
+([capture principles](capture-principles.md), DCP-2). The pending list itself is
 deliberately ephemeral —
 [Persistence](../../../../architecture/system/persistence.md#deliberately-ephemeral-state)
 owns that platform difference.
