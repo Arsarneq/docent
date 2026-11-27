@@ -367,6 +367,30 @@ pub struct HeldKeysAtAction {
     pub held_presses: Vec<u64>,
 }
 
+/// What was read of the input method at a key press (see
+/// [`held_keys::InputMethodState`]), as a `key` action states it: two fields
+/// of the action itself, each left out of the file where it was not read.
+/// The conversion mode is never there without the open status.
+#[derive(Debug, Serialize, Clone, Copy, Default, PartialEq, Eq)]
+pub struct InputMethodAtKey {
+    /// Whether an input method was on for the control that held the
+    /// keyboard focus.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub input_method_open: Option<bool>,
+    /// The input method's conversion mode, the value the system gave.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub input_method_conversion_mode: Option<u32>,
+}
+
+impl From<Option<held_keys::InputMethodState>> for InputMethodAtKey {
+    fn from(state: Option<held_keys::InputMethodState>) -> Self {
+        Self {
+            input_method_open: state.map(|s| s.open),
+            input_method_conversion_mode: state.and_then(|s| s.conversion_mode),
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Action payloads
 // ---------------------------------------------------------------------------
@@ -425,6 +449,9 @@ pub enum ActionPayload {
         /// whose scan code the table has no name for (zero among them).
         #[serde(skip_serializing_if = "Option::is_none")]
         code: Option<&'static str>,
+        /// What the keyboard hook read of the input method at the press.
+        #[serde(flatten)]
+        input_method: InputMethodAtKey,
         #[serde(flatten)]
         held: HeldKeysAtAction,
         element: ElementDescription,

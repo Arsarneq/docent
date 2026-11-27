@@ -55,6 +55,7 @@ machinery under `scripts/`.
 | `check-capture-surface.test.js` | The capture-surface admission test: both platforms' closed enumerations, the scanned population and the admission list keyed over it, and the extractors' refusals. |
 | `check-ci-filter.test.js` | The CI path-filter admission test. [Detail](#check-ci-filtertestjs) |
 | `check-clause-governance.test.js` | The clause-governance check. [Detail](#check-clause-governancetestjs) |
+| `check-clause-form.test.js` | The clause-form check: one home per rule and clause unit length, over an injected registry, documents and baseline. [Detail](#check-clause-formtestjs) |
 | `check-clause-preamble.test.js` | The clause-preamble admission test: the canonical paragraph, its computed per-document variables, and the lowercase-keyword allowlist. |
 | `check-clause-registry.test.js` | The clause-registry parity check. [Detail](#check-clause-registrytestjs) |
 | `check-cli-smoke.test.js` | End-to-end smoke tests that a check-script wrapper runs green over the committed tree. [Detail](#check-cli-smoketestjs) |
@@ -195,6 +196,24 @@ machinery under `scripts/`.
 - The step reader this check and `check-doc-closure.js` share:
   - The job's own steps, whole and in order.
   - The empty list for an absent job, a job stating no steps, and a `steps:` block that is not a list (a string and the mapping shape a bare walk ends its run on alike).
+
+### `check-clause-form.test.js`
+
+- An issue linked from one clause passing with the counts stated, one linked from two clauses of one document red naming both and the document, and one linked once in each of two documents passing.
+- A link repeated inside one clause read as one home.
+- A run of words standing in two clauses red with the run quoted, and a run one word short passing.
+- Text before the first clause, link targets and fenced blocks left out of the comparison.
+- A paragraph over the word limit red naming the clause and how the unit opens, one at the limit passing, and each list item and table row read as its own unit.
+- A baseline entry admitting exactly the case it names: a further clause, pair or long unit red beside it.
+- A baseline entry the tree does not need red until it is removed or lowered, and one naming a clause the registry does not hold, one admitting nothing, and a pair listed twice or out of order, each red.
+- A baseline entry of the wrong type as the machinery verdict.
+- A baseline held against the one at the base: an entry the base does not hold red though the baseline lists it, also when another entry left the list, the base's list, or one holding only its entries, passing, a base without a baseline not compared, and a base baseline out of shape as the machinery verdict.
+- A baseline entry naming more clauses than still link the issue, and one naming clauses of two documents, each red.
+- The longest of several long units quoted.
+- An issue read from any link to it, a `1)` list item read as its own unit, and a list item kept with its indented continuation.
+- An unreadable document, a clause marker its document does not carry, a registry that is not JSON, and a baseline that is not JSON or lacks a list, each the machinery verdict.
+- A clause set in a blockquote read without its quote marks.
+- A real-tree case holding the committed clauses to passing against the committed baseline.
 
 ### `check-clause-governance.test.js`
 
@@ -573,6 +592,8 @@ half of the extension is documented in
 | `service-worker-mirror-parity.test.js` | The append chokepoint's and the active-unit helpers' second copies stay textually identical to the shipped functions, the chokepoint under indentation only. |
 | `service-worker-navigation.test.js` | The worker's navigation proxy through its registered listeners: the duplicate check, the last-URL marker and its self-clear, and the new-tab link path. |
 | `service-worker-static-import.test.js` | A static-source guard that the background path uses the statically imported validator, never a dynamic import. |
+| `service-worker-wake-unread.test.js` | A worker whose read of its stored state failed, through its registered listener: it answers every panel request with that error and writes nothing over the stored projects. |
+| `service-worker-wake.test.js` | The worker's first messages after a wake, behind a storage that answers late: projects listed and created before the stored state is read are kept with the stored ones, and a recording can be created in such a project. |
 | `service-worker.test.js` | The worker's message handlers: the panel protocol, import and export, the trusted-sender gate, redaction (a character key on a sensitive field stored as its one masked `type`), and storage-failure recovery. [Detail](#service-workertestjs) |
 | `storage-quota.test.js` | The storage-pressure classifier: the warn band's threshold and the resume hysteresis. |
 

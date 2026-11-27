@@ -332,6 +332,11 @@ pub unsafe fn GetWindowThreadProcessId(hwnd: HWND, lpdwprocessid: Option<*mut u3
     unsafe { GetWindowThreadProcessId(hwnd, lpdwprocessid.unwrap_or(core::mem::zeroed()) as _) }
 }
 #[inline]
+pub unsafe fn ImmGetDefaultIMEWnd(param0: HWND) -> HWND {
+    windows_core::link!("imm32.dll" "system" fn ImmGetDefaultIMEWnd(param0 : HWND) -> HWND);
+    unsafe { ImmGetDefaultIMEWnd(param0) }
+}
+#[inline]
 pub unsafe fn IsWindow(hwnd: Option<HWND>) -> windows_core::BOOL {
     windows_core::link!("user32.dll" "system" fn IsWindow(hwnd : HWND) -> windows_core::BOOL);
     unsafe { IsWindow(hwnd.unwrap_or(core::mem::zeroed()) as _) }
@@ -482,6 +487,11 @@ pub unsafe fn RegisterClassW(lpwndclass: *const WNDCLASSW) -> ATOM {
     unsafe { RegisterClassW(lpwndclass) }
 }
 #[inline]
+pub unsafe fn RtlGetVersion(lpversioninformation: *mut OSVERSIONINFOW) -> windows_core::NTSTATUS {
+    windows_core::link!("ntdll.dll" "system" fn RtlGetVersion(lpversioninformation : *mut OSVERSIONINFOW) -> windows_core::NTSTATUS);
+    unsafe { RtlGetVersion(lpversioninformation as _) }
+}
+#[inline]
 pub unsafe fn SHGetFileInfoW<P0>(
     pszpath: P0,
     dwfileattributes: u32,
@@ -612,6 +622,29 @@ pub unsafe fn SetWindowsHookExW(
 pub unsafe fn ShowWindow(hwnd: HWND, ncmdshow: i32) -> windows_core::BOOL {
     windows_core::link!("user32.dll" "system" fn ShowWindow(hwnd : HWND, ncmdshow : i32) -> windows_core::BOOL);
     unsafe { ShowWindow(hwnd, ncmdshow) }
+}
+#[inline]
+pub unsafe fn ToUnicodeEx(
+    wvirtkey: u32,
+    wscancode: u32,
+    lpkeystate: *const u8,
+    pwszbuff: windows_core::PWSTR,
+    cchbuff: i32,
+    wflags: u32,
+    dwhkl: Option<HKL>,
+) -> i32 {
+    windows_core::link!("user32.dll" "system" fn ToUnicodeEx(wvirtkey : u32, wscancode : u32, lpkeystate : *const u8, pwszbuff : windows_core::PWSTR, cchbuff : i32, wflags : u32, dwhkl : HKL) -> i32);
+    unsafe {
+        ToUnicodeEx(
+            wvirtkey,
+            wscancode,
+            lpkeystate,
+            pwszbuff,
+            cchbuff,
+            wflags,
+            dwhkl.unwrap_or(core::mem::zeroed()) as _,
+        )
+    }
 }
 #[inline]
 pub unsafe fn TranslateMessage(lpmsg: *const MSG) -> windows_core::BOOL {
@@ -4571,6 +4604,21 @@ pub struct OPENFILENAMEW {
     pub dwReserved: u32,
     pub FlagsEx: u32,
 }
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct OSVERSIONINFOW {
+    pub dwOSVersionInfoSize: u32,
+    pub dwMajorVersion: u32,
+    pub dwMinorVersion: u32,
+    pub dwBuildNumber: u32,
+    pub dwPlatformId: u32,
+    pub szCSDVersion: [u16; 128],
+}
+impl Default for OSVERSIONINFOW {
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
 pub type OrientationType = i32;
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -4693,6 +4741,7 @@ impl Default for SHFILEINFOW {
 }
 pub const SHGFI_DISPLAYNAME: i32 = 512;
 pub const SMTO_ABORTIFHUNG: i32 = 2;
+pub const SMTO_BLOCK: i32 = 1;
 pub const SM_CXDOUBLECLK: i32 = 36;
 pub const SM_CXVIRTUALSCREEN: i32 = 78;
 pub const SM_CYDOUBLECLK: i32 = 37;
@@ -4887,6 +4936,7 @@ pub const WINEVENT_OUTOFCONTEXT: i32 = 0;
 pub const WM_APP: i32 = 32768;
 pub const WM_CLOSE: i32 = 16;
 pub const WM_GETOBJECT: i32 = 61;
+pub const WM_IME_CONTROL: i32 = 643;
 pub const WM_KEYDOWN: i32 = 256;
 pub const WM_KEYUP: i32 = 257;
 pub const WM_LBUTTONDOWN: i32 = 513;

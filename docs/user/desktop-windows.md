@@ -52,6 +52,6 @@ One behavior is desktop-specific. While Auto-sync is on, closing the window hide
 
 The app keeps its data on your machine:
 
-- **Projects, recordings, and settings** persist in `%APPDATA%/com.docent.desktop/session.json`. If that file is missing or unreadable, the app starts with an empty state.
+- **Projects, recordings, and settings** persist in `%APPDATA%/com.docent.desktop/session.json`. If that file is missing, the app starts with no projects. The app never writes over a session file it cannot read. It moves such a file aside, beside the original as `session.unreadable-<time>.json`, starts with no projects, and tells you where the file was kept, so nothing in it is lost. If the file cannot be moved either, the app leaves it where it is, tells you, and saves nothing until you restart it.
 - **API keys** (the dispatch and sync keys entered in Settings) are stored in Windows Credential Manager, never in the session file.
 - **Uncommitted captured actions** live only in the running app. Quitting discards them; committed steps are already saved in the session file.

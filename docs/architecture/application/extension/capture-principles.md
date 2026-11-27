@@ -108,8 +108,8 @@ never from the message body, so a frame cannot claim to be a different tab.
 The language facts are written in two places. The recorder reads the element's `language` with the rest of its description: the value of the `lang` attribute on the nearest element at or above the acted-on one that carries the attribute, as the page stands at the action. The service worker writes `preferred_languages` on every action as it stores it, the actions it records itself included, from the browser's `navigator.languages` as the worker reads it, so a frame cannot state another list for its actions ([Session Format — Shown text](../../../technical/session-format.md#shown-text)).
 
 **ECP-5.** Injecting only while recording costs no capture fidelity because of
-a measured bound: from a frame finishing load to the recorder reporting ready
-MUST complete within half the ~200 ms deliberate-action floor — the shortest
+a measured bound: a frame MUST go from finishing load to its recorder reporting
+ready within half the ~200 ms deliberate-action floor — the shortest
 gap in which a human plausibly performs a deliberate action — so a frame is
 capture-ready before anyone can act in it (in practice the gap is well under
 the bound). The floor and the
@@ -204,9 +204,26 @@ phase, for exactly these DOM events, on `document` unless the item names
   pressed elsewhere, any other action, the window losing the focus or the
   page being left making each the `key` it was; a space in such a field opens
   its picker and is written at once. A dead key enters nothing until the
-  character key after it is pressed: in a field typing can change it waits
-  for that press and is text or a `key` together with it, and any other
-  press or action makes it the `key` it was. On any other element a
+  key after it is pressed: in a field typing can change it waits for the
+  next press in that field. With a character key it is text or a `key`
+  together with that press. With a key of another kind the browser can enter
+  the bare accent while it handles that key (Enter after a dead key): that
+  key waits behind the dead key, the dead key is text where the browser's
+  `input` for typed text follows in the dead key's own field, and the key
+  behind it is then written as the `key` it was; without it both are keys,
+  the dead key first, and the press after them, any other action, the end
+  of the handling of the second key or the release of a key ends the wait.
+  Other text in the field does not make such a dead key text (the key
+  behind it can change the field by itself), nor does typed text that lands
+  in another field (that key's own character, in the field the focus moved
+  to). Editable content has its text read when its entry is written, and
+  the key behind a dead key is written after the page has handled it: the
+  text is taken at that key's press, so that the entry the key ends holds
+  what the page saw. That entry stands ahead of the dead key where it is a
+  `key` too, and goes out ahead of the presses that still wait. Text the
+  browser enters in the element after that press is its next entry, written
+  behind the keys; what the page made of the element by itself is no entry. The desktop decides the same question by the accent the field's
+  value gained (desktop capture DCP-9). On any other element a
   character key is written at once (a letter on a button). An entry a key
   press writes ahead of itself (below) carries the time of that press. A
   character key pressed with no shortcut modifier on a sensitive element is
@@ -253,9 +270,7 @@ phase, for exactly these DOM events, on `document` unless the item names
   the keys makes what the field holds
   a new entry, written also where it equals the value at focus or the entry
   written before (the same text typed over itself, a value undone or removed
-  and typed again), while a character key that entered nothing, or a
-  composition given up, makes none; text an input method composes is not
-  followed (Exceptions Within the Surface)
+  and typed again), while a character key that entered nothing makes none
 - `dragstart` — the start of a drag, which names the drag source; the browser
   sends the page no key events while a drag lasts, so no key is known to be
   down from here on, and the `drop` states none
@@ -269,7 +284,26 @@ phase, for exactly these DOM events, on `document` unless the item names
   or typing begins in another host); a pause between two keys ends nothing,
   how fast a person types being no part of what they typed; on any field,
   `input` is also the sign that the character keys just pressed in it became
-  its text, so that none of them is written as a `key`
+  its text, so that none of them is written as a `key`; an `input` that
+  carries composing text opens a composition for its field and states the
+  text it shows; text the browser names as pasted, and text inserted in a
+  field between a key the input method took there and the next key press,
+  make what the field holds a new entry, as text typed does
+- `compositionstart` — the browser opened a composition in a field, which
+  writes nothing by itself. While the composition is open, the text it shows
+  is typing not yet ended: a pointer press, a step commit or a stop writes
+  the field's entry with it, as with typed text
+- `compositionend` — the end of the composition open for the field, which
+  writes nothing by itself: a composition that ends with text makes what the
+  field holds a new entry, written where a typed one is and also where it
+  equals the value at focus or the entry written before, and a composition
+  given up makes none. Text an entry written during the composition already
+  held is not entered again by the end, unless other text was composed after
+  that write. The event counts only for a field with a composition open. The
+  browser does not mark every composition end of its own as trusted, so the
+  mark is not asked for; an end followed, with no start between, by more composing text or by a key pressed inside the composition was not the browser's, and is taken back. A composition
+  whose text is removed with an editing key gets no end from the browser: it is over at the next `input` that carries no composing text, with nothing entered, or at the next key the input method does not take, where the text it showed is typing that key ends. An open
+  composition is forgotten when a recording ends or begins
 - `blur` — a `contenteditable` host typed into lost the focus, which it also
   does when the window does: its `type` is written; an `input` or `textarea`
   lost the focus holding an entry not yet written: the entry is written, also
@@ -468,13 +502,27 @@ with a caveat):
   and the shift state, where the desktop names it from the virtual-key code:
   a departure (core CP-19;
   [docent#717](https://github.com/Arsarneq/docent/issues/717))
+- A `key` states nothing of the input method: the browser gives a page and
+  an extension no interface that reads whether one is on or its mode, where
+  the desktop writes `input_method_open` and `input_method_conversion_mode` on
+  each `key` from what Windows tells it. What the layer reads is the key's
+  own event, whose `isComposing` says a composition is open and nothing of
+  whether an input method is on or of its mode; the extension interface that
+  addresses an input method (`chrome.input.ime`) is for an extension that is
+  the input method, on ChromeOS only. A difference that comes from the
+  platforms themselves (core CP-19;
+  [docent#237](https://github.com/Arsarneq/docent/issues/237))
 - A key the input method takes: not written as a `key`. Its text arrives as
   a composition, which the field's `type` records, and a press whose
   composition is given up with no text leaves no record; a departure (core
   CP-18), and one from the desktop, whose keyboard hook is handed each key
-  ahead of the input method and writes the ones that are no typing keys (the
-  Enter that accepts a composition, for example) (core CP-19;
-  [docent#710](https://github.com/Arsarneq/docent/issues/710))
+  ahead of the input method and can read nothing that says a composition is
+  open (the desktop capture document, DCP-13, names the interfaces measured),
+  so it writes the keys pressed inside one as `key` actions, a typing
+  key among them where the field reports no value change for it; the
+  composed text is one `type` on both; a difference that comes from the
+  platforms themselves (core CP-19;
+  [docent#744](https://github.com/Arsarneq/docent/issues/744))
 - Character keys pressed in a date or time field whose parts made no value
   (a date left half filled): written as `key` actions, though the field shows
   what was typed. The field has no value for a `type` to carry; a departure
@@ -511,30 +559,41 @@ with a caveat):
   each arrow key reaches the page and is written as the `key`, and the option
   it chooses as the `select` its `change` commits
 - A key that is down but was pressed while another document had the focus
-  (another frame, another tab or window) is not among an action's `held_keys`,
-  and no key is known to be down once the document's window loses the focus
-  or a drag starts:
-  the browser delivers a key's events to the focused document only, sends the
-  page none while a drag lasts, and offers
-  no reading of the keyboard's state. From the moment the focus leaves a
-  document, nothing the browser delivers says whether a key that was down
-  still is: its release can reach another frame, a page the extension does not
-  run in, the browser's own interface or another program. Carrying the key
-  over from the document that saw it go down would state a key as down that
-  could already have been released, so it is not done. The desktop's keyboard
-  hook is
-  handed every key wherever the focus is and names such a key; the difference
-  comes from the platforms themselves (core CP-19). Two things are exact all
-  the same: the modifiers held at an action, wherever they were pressed,
-  which the action's own event states and `modifiers` carries; and a key
-  still held when the focus arrives or returns or the drag has ended, which
-  is named again from its next repeat in the document that has the focus.
+  is not among an action's `held_keys`, and no key is known to be down once
+  the document's window loses the focus or a drag starts. The desktop's
+  keyboard hook is handed every key wherever the focus is and names such a
+  key. Two cases differ:
+  - A key held in one frame of a tab while the person acts in another frame
+    of the same tab, both recorded: the key's release reaches the frame that
+    has the focus, where the recorder runs, so the fact can be read and
+    leaving the key out is a departure (core CP-19;
+    [docent#779](https://github.com/Arsarneq/docent/issues/779)).
+  - Every other case (another tab or window, a frame the browser does not
+    let the extension run in, the window losing the focus, a drag): the
+    browser delivers a key's events to the focused document only, sends the
+    page none while a drag lasts, and gives a page and an extension no
+    interface that reads the keyboard's state. What the layer tries is to
+    follow each key from its press to its release in the document that saw
+    it go down; from the moment the focus leaves that document, the release
+    can reach a page the extension does not run in, the browser's own
+    interface or another program, none of which tells the extension, so
+    carrying the key over would state a key as down that could already have
+    been released. A difference that comes from the platforms themselves
+    (core CP-19).
+
+  Two things are
+  exact all the same: the modifiers held at an action, wherever they were
+  pressed, which the action's own event states and `modifiers` carries; and a
+  key still held when the focus arrives or returns or the drag has ended,
+  which is named again from its next repeat in the document that has the
+  focus.
   What is left out is a key other than a modifier, held in one document
   while the person acts in another, until that key repeats there. A key
   pressed while the Meta key was held is treated the same way from the
   release of the Meta key: some systems send the page no release for such a
   key, so it is no longer known to be down, and is named again from its next
   repeat
+
 - Back/forward between same-document entries (an SPA's history) — a
   browser-chrome action; the worker's committed-navigation listener does not
   report it
@@ -590,19 +649,23 @@ with a caveat):
   press, two actions; a departure (core CP-18), and one from the desktop,
   whose `scroll` comes from wheel input only (core CP-19;
   [docent#710](https://github.com/Arsarneq/docent/issues/710))
-- Text entered through an input method, or a dead key's accent shown as a
-  composition, that leaves the field holding the entry last written for it
-  since it took the focus or, where none was, what it held at focus — not
-  written, where the same text typed with plain keys is; text still being
-  composed is part of an entry written meanwhile, and where the composition
-  is then given up, what the field holds after it is a new entry; a
-  departure (core CP-18), and one from the desktop, which writes a value
-  composed again (core CP-19;
-  [docent#744](https://github.com/Arsarneq/docent/issues/744))
-- A value set again with no character key to the entry last written for the
-  field since it took the focus or, where none was, to what it held at focus
-  (the same text pasted over itself) — not written; a departure (core CP-18;
+- Text a page inserts in a field between a key the input method took there
+  and the next key press — taken for that key's text, so what the field holds
+  is written as an entry the person made, also where the key itself entered
+  nothing; the browser's events do not tell the two inserts apart; a
+  departure (core CP-18)
+- The same text pasted over itself with no paste key (from a menu) —
+  written, the browser naming the paste, where the desktop, which knows a
+  paste by its key or by a click on an element described as a menu item,
+  writes none where it saw neither (the desktop capture document lists the
+  cases), and where the desktop, after a click on a menu item that pasted
+  nothing, writes a repeated report of the field's value as a `type`, the
+  extension writes none; a departure from the desktop (core CP-19;
   [docent#751](https://github.com/Arsarneq/docent/issues/751))
+- A value set again, by other means than typing, composing or pasting, to
+  the entry last written for the field since it took the focus or, where
+  none was, to what it held at focus (text dragged onto itself, for example)
+  — not written; a departure (core CP-18)
 - A `type` on an input or textarea when a button or input marked
   `type="submit"` in the same form was pressed, with any mouse button, within
   100 ms of the change, or of the field losing the focus where the browser

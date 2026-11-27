@@ -37,7 +37,7 @@ import { sync } from '../shared/sync-client.js';
 import { saveSyncState, loadSyncState, getSettings, setSettings } from '../shared/sync-store.js';
 import { testConnection, settingsFingerprint } from '../shared/connection-test.js';
 import { createAutoSyncHost } from './auto-sync-host.js';
-import { loadSessionState, saveSessionState } from './persistence.js';
+import { loadSessionState, saveSessionState, loadProblemMessage } from './persistence.js';
 import {
   UI_ACTIONS,
   deriveIndicators,
@@ -254,9 +254,15 @@ let recordingMode = 'narration'; // 'narration' or 'simple'
 
 // ─── Persistence ──────────────────────────────────────────────────────────────
 
+// Set at startup when the session file could not be used (persistence.js,
+// LoadProblem). While its `savingStopped` holds, the panel writes nothing, so
+// the empty state it started with never replaces the file (application-shell
+// §DSH-3); the backend refuses those saves as well.
+let loadProblem = null;
+
 async function loadState() {
   // The persisted shape and its defaults live once in persistence.js.
-  sessionState = await loadSessionState(invoke);
+  ({ state: sessionState, problem: loadProblem } = await loadSessionState(invoke));
   dispatchSettings = {
     endpointUrl: sessionState.settings.endpointUrl,
     apiKey: sessionState.settings.apiKey,
@@ -268,6 +274,7 @@ async function loadState() {
 }
 
 async function saveState() {
+  if (loadProblem?.savingStopped) return;
   try {
     await saveSessionState(invoke, sessionState);
   } catch (err) {
@@ -2350,3 +2357,7 @@ renderProjectsList();
 // enabled and an endpoint is configured, so triggered cycles run even when the
 // window is later closed/minimized. A no-op when Auto-Sync is off.
 syncAutoSyncHostState();
+
+// Tell the user, once the panel is up, when their saved projects could not be
+// read: where the file was kept, or that nothing will be saved this run.
+if (loadProblem) alert(loadProblemMessage(loadProblem));

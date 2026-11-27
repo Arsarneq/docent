@@ -76,9 +76,11 @@ impl ResponsiveWindow {
         use docent_desktop_lib::capture::win32_bindings::GetCurrentThreadId;
         use docent_desktop_lib::capture::win32_bindings::{
             CreateWindowExW, DestroyWindow, DispatchMessageW, GetMessageW, SetForegroundWindow,
-            TranslateMessage, MSG, WS_OVERLAPPEDWINDOW, WS_VISIBLE,
+            TranslateMessage, MSG, WM_SYSKEYDOWN, WS_OVERLAPPEDWINDOW, WS_VISIBLE,
         };
         use std::sync::mpsc as smpsc;
+        /// The virtual-key code of F4.
+        const VK_F4_KEY: usize = 0x73;
 
         let title = title.to_string();
         let (tx, rx) = smpsc::channel::<u32>();
@@ -111,6 +113,14 @@ impl ResponsiveWindow {
             // workers' queries. Exits when Drop posts WM_QUIT to this thread.
             let mut msg = MSG::default();
             while GetMessageW(&mut msg, None, 0, 0).as_bool() {
+                // Alt+F4 is not handed to the window: the default handling
+                // closes it, and the keyboard focus then falls to whatever
+                // window is next, on a CI runner the runner's own terminal,
+                // which the capture workers then ask about the focused
+                // element (docent#764). The hook has seen the key by now.
+                if msg.message == WM_SYSKEYDOWN as u32 && msg.wParam.0 == VK_F4_KEY {
+                    continue;
+                }
                 let _ = TranslateMessage(&msg);
                 DispatchMessageW(&msg);
             }
@@ -170,15 +180,33 @@ fn stop_capture_bounded(
 }
 
 /// Assert that every captured `Key` event is well-formed — a non-empty key name
-/// (captured keys are never garbled or empty). Deliberately asserts no *count*
+/// (captured keys are never garbled or empty), and no conversion mode of the
+/// input method without its open status. Deliberately asserts no *count*
 /// (see [`stop_capture_bounded`]); this is the integrity half of the
 /// environment-independent contract for real-input keyboard tests.
 fn assert_captured_keys_well_formed(events: &[ActionEvent]) {
     for e in keys(events) {
-        if let ActionPayload::Key { key, .. } = &e.payload {
+        if let ActionPayload::Key {
+            key, input_method, ..
+        } = &e.payload
+        {
             assert!(
                 !key.is_empty(),
                 "a captured key event must have a non-empty key name"
+            );
+            // The conversion mode is never stated without the open status,
+            // and stays within the bits that are carried.
+            assert!(
+                input_method.input_method_open.is_some()
+                    || input_method.input_method_conversion_mode.is_none(),
+                "a key states a conversion mode only beside the open status, got {input_method:?}"
+            );
+            assert!(
+                input_method
+                    .input_method_conversion_mode
+                    .is_none_or(|mode| mode
+                        <= docent_desktop_lib::capture::held_keys::INPUT_METHOD_MODE_MASK),
+                "a conversion mode beyond the carried bits, got {input_method:?}"
             );
         }
     }
@@ -2125,7 +2153,7 @@ mod user_actions_extended {
     #[serial]
     fn alt_f4_is_captured() {
         // Alt+F4 is a user action (close window). NOTE: we don't actually close
-        // our test window — STATIC windows don't process WM_CLOSE — we just
+        // our test window (`ResponsiveWindow` keeps the key from it), we just
         // verify the key path. Asserts the environment-independent contract
         // (no-hang + well-formed keys); see stop_capture_bounded.
         let (tx, rx) = mpsc::channel::<ActionEvent>();

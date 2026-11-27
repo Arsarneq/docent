@@ -140,7 +140,10 @@ proptest! {
                             wc.fetch_add(1, Ordering::SeqCst);
                         }
                         Ok(WorkerMessage::Flush(_)) => {}
-                        Ok(WorkerMessage::EndTyping) | Ok(WorkerMessage::LookAtFocus) => {}
+                        Ok(WorkerMessage::EndTyping)
+                        | Ok(WorkerMessage::MenuCommand)
+                    | Ok(WorkerMessage::WriteHeldKey)
+                            | Ok(WorkerMessage::LookAtFocus) => {}
                         Ok(WorkerMessage::Shutdown) => break,
                         Err(_) => break,
                     }
@@ -238,7 +241,10 @@ proptest! {
                             _ => {}
                         },
                         Ok(WorkerMessage::Flush(_)) => {}
-                        Ok(WorkerMessage::EndTyping) | Ok(WorkerMessage::LookAtFocus) => {}
+                        Ok(WorkerMessage::EndTyping)
+                        | Ok(WorkerMessage::MenuCommand)
+                    | Ok(WorkerMessage::WriteHeldKey)
+                            | Ok(WorkerMessage::LookAtFocus) => {}
                         Ok(WorkerMessage::Shutdown) => break,
                         Err(_) => break,
                     }
@@ -323,7 +329,10 @@ proptest! {
                             events.lock().unwrap().push(event_name.to_string());
                         }
                         Ok(WorkerMessage::Flush(_)) => {}
-                        Ok(WorkerMessage::EndTyping) | Ok(WorkerMessage::LookAtFocus) => {}
+                        Ok(WorkerMessage::EndTyping)
+                        | Ok(WorkerMessage::MenuCommand)
+                    | Ok(WorkerMessage::WriteHeldKey)
+                            | Ok(WorkerMessage::LookAtFocus) => {}
                         Ok(WorkerMessage::Shutdown) => break,
                         Err(_) => break,
                     }
@@ -959,7 +968,10 @@ fn worker_panic_respawns_and_redistributes() {
                             wc.fetch_add(1, Ordering::SeqCst);
                         }
                         Ok(WorkerMessage::Flush(_)) => {}
-                        Ok(WorkerMessage::EndTyping) | Ok(WorkerMessage::LookAtFocus) => {}
+                        Ok(WorkerMessage::EndTyping)
+                        | Ok(WorkerMessage::MenuCommand)
+                        | Ok(WorkerMessage::WriteHeldKey)
+                        | Ok(WorkerMessage::LookAtFocus) => {}
                         Ok(WorkerMessage::Shutdown) => break,
                         Err(_) => break,
                     }
@@ -1033,7 +1045,10 @@ fn repeatedly_failing_workers_get_respawned_and_shutdown_completes() {
                         panic!("simulated worker panic");
                     }
                     Ok(WorkerMessage::Flush(_)) => {}
-                    Ok(WorkerMessage::EndTyping) | Ok(WorkerMessage::LookAtFocus) => {}
+                    Ok(WorkerMessage::EndTyping)
+                    | Ok(WorkerMessage::MenuCommand)
+                    | Ok(WorkerMessage::WriteHeldKey)
+                    | Ok(WorkerMessage::LookAtFocus) => {}
                     Ok(WorkerMessage::Shutdown) => {}
                     Err(_) => {}
                 }
@@ -2801,6 +2816,7 @@ fn held_key(key: &str) -> ActionEvent {
             },
             repeat: false,
             code: None,
+            input_method: Default::default(),
             held: Default::default(),
             element: ElementDescription {
                 tag: "Edit".to_string(),
@@ -3058,6 +3074,144 @@ impl AccessibilityBackend for TypingBackend {
     }
 }
 
+/// The input-method fields of the one `key` action among `events`, as the
+/// action is written for the panel: each field's JSON value, `None` where the
+/// field is left out.
+fn input_method_fields_of(
+    events: &[ActionEvent],
+) -> (Option<serde_json::Value>, Option<serde_json::Value>) {
+    let keys: Vec<&ActionEvent> = events
+        .iter()
+        .filter(|e| matches!(e.payload, ActionPayload::Key { .. }))
+        .collect();
+    assert_eq!(keys.len(), 1, "one key action, got {events:?}");
+    let written = serde_json::to_value(keys[0]).unwrap();
+    (
+        written.get("input_method_open").cloned(),
+        written.get("input_method_conversion_mode").cloned(),
+    )
+}
+
+/// A key press states what the keyboard hook read of the input method at the
+/// press: whether one was on, and its conversion mode as the system gave it.
+#[test]
+fn regression_237_a_key_states_the_input_method_read_at_its_press() {
+    for (name, state, open, mode) in [
+        (
+            "on, native full-shape",
+            InputMethodState {
+                open: true,
+                conversion_mode: Some(0x9),
+            },
+            true,
+            9,
+        ),
+        (
+            "off",
+            InputMethodState {
+                open: false,
+                conversion_mode: Some(0),
+            },
+            false,
+            0,
+        ),
+        (
+            "off with a mode left set",
+            InputMethodState {
+                open: false,
+                conversion_mode: Some(0x19),
+            },
+            false,
+            0x19,
+        ),
+    ] {
+        let harness = WorkerTestHarness::new(MockBackend::new());
+        let mut enter = layout_key(1, now_ms(), 0x0D);
+        enter.callback_params[0] |= input_method_param(Some(state));
+        harness.send_event(enter);
+        thread::sleep(Duration::from_millis(100));
+        let events = harness.shutdown();
+
+        assert_eq!(
+            input_method_fields_of(&events),
+            (Some(serde_json::json!(open)), Some(serde_json::json!(mode))),
+            "{name}: got {events:?}"
+        );
+    }
+}
+
+/// A key press whose open status was read and whose conversion mode was not
+/// states the open status alone.
+#[test]
+fn regression_237_a_key_states_the_open_status_alone_where_the_mode_was_not_read() {
+    let harness = WorkerTestHarness::new(MockBackend::new());
+    let mut enter = layout_key(1, now_ms(), 0x0D);
+    enter.callback_params[0] |= input_method_param(Some(InputMethodState {
+        open: true,
+        conversion_mode: None,
+    }));
+    harness.send_event(enter);
+    thread::sleep(Duration::from_millis(100));
+    let events = harness.shutdown();
+
+    assert_eq!(
+        input_method_fields_of(&events),
+        (Some(serde_json::json!(true)), None),
+        "got {events:?}"
+    );
+}
+
+/// A key press whose input method was not read (no input-method window, no
+/// answer in time, a key attributed to no window) leaves both fields out.
+#[test]
+fn regression_237_a_key_whose_input_method_was_not_read_leaves_the_fields_out() {
+    let harness = WorkerTestHarness::new(MockBackend::new());
+    harness.send_event(layout_key(1, now_ms(), 0x0D));
+    thread::sleep(Duration::from_millis(100));
+    let events = harness.shutdown();
+
+    assert_eq!(
+        input_method_fields_of(&events),
+        (None, None),
+        "got {events:?}"
+    );
+}
+
+/// The input method read rides beside the layout character and the repeat
+/// mark, and changes neither: a repeated punctuation key keeps its name and
+/// its repeat.
+#[test]
+fn regression_237_the_input_method_read_leaves_the_key_name_and_the_repeat_mark() {
+    let harness = WorkerTestHarness::new(MockBackend::new());
+    let mut plus = layout_key(1, now_ms(), 0xBB);
+    plus.modifiers = (true, false, false, false);
+    plus.callback_params[3] = i64::from(u32::from('+')) | KEY_REPEAT_PARAM;
+    plus.callback_params[0] |= input_method_param(Some(InputMethodState {
+        open: true,
+        conversion_mode: Some(0x07FF_FFFF),
+    }));
+    harness.send_event(plus);
+    thread::sleep(Duration::from_millis(100));
+    let events = harness.shutdown();
+
+    let named: Vec<(String, bool)> = events
+        .iter()
+        .filter_map(|e| match &e.payload {
+            ActionPayload::Key { key, repeat, .. } => Some((key.clone(), *repeat)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(named, vec![("+".to_string(), true)], "got {events:?}");
+    assert_eq!(
+        input_method_fields_of(&events),
+        (
+            Some(serde_json::json!(true)),
+            Some(serde_json::json!(0x07FF_FFFF))
+        ),
+        "got {events:?}"
+    );
+}
+
 /// A keydown of a layout key (`key_code` is its virtual-key code).
 fn layout_key(seq: u64, timestamp: u64, key_code: u32) -> RawEvent {
     let mut raw = make_raw_event(RawEventType::Keyboard, 1234);
@@ -3190,7 +3344,10 @@ proptest! {
                             }
                         }
                         Ok(WorkerMessage::Flush(_)) => {}
-                        Ok(WorkerMessage::EndTyping) | Ok(WorkerMessage::LookAtFocus) => {}
+                        Ok(WorkerMessage::EndTyping)
+                        | Ok(WorkerMessage::MenuCommand)
+                    | Ok(WorkerMessage::WriteHeldKey)
+                            | Ok(WorkerMessage::LookAtFocus) => {}
                         Ok(WorkerMessage::Shutdown) => break,
                         Err(_) => break,
                     }
@@ -3541,6 +3698,12 @@ impl AccessibilityBackend for LateFocusBackend {
 
     fn focus_events_dispatched(&self) -> u64 {
         self.focus_events.load(Ordering::SeqCst)
+    }
+
+    /// Every window, the dialog and its owner alike, is Notepad's: the process
+    /// the test focus events come from.
+    fn process_id_of(&self, _window_handle: i64) -> u32 {
+        EVENT_PROCESS
     }
 
     fn window_title(&self, _window_handle: i64) -> String {
@@ -3991,6 +4154,80 @@ fn regression_719_the_event_that_ends_the_typing_writes_the_type() {
     }
 }
 
+/// A window the recording keeps nothing of comes to the front (the
+/// recorder's own window to complete the step, or a window outside the
+/// application recorded): no event of that window reaches the pool, and the typing has ended all the same. Told so, the pool has the
+/// `type` written at once, with no further key or click in the application
+/// (docent#768), and the text typed on return is the next `type`.
+#[test]
+fn regression_768_leaving_for_a_window_not_recorded_writes_the_type() {
+    let gate = closed_gate();
+    open_gate(&gate);
+    let live = Arc::new(Mutex::new(String::new()));
+    let (action_tx, action_rx) = mpsc::channel::<ActionEvent>();
+    let worker_gate = Arc::clone(&gate);
+    let worker_live = Arc::clone(&live);
+    let mut pool = WorkerPool::new(
+        3,
+        action_tx,
+        move |index, rx, queue_len, sender, pending| {
+            let backend = TypingBackend::edit_live(&worker_gate, &worker_live);
+            thread::spawn(move || {
+                let ep = Arc::new(AtomicU32::new(0));
+                worker_loop(index, backend, rx, queue_len, sender, ep, pending, None);
+            })
+        },
+    );
+    let mut seq = 0;
+    type_character(&live, 'a', &mut seq, |raw| pool.dispatch(raw));
+    type_character(&live, 'b', &mut seq, |raw| pool.dispatch(raw));
+    let typed_until = seq;
+    pool.end_typing();
+    thread::sleep(Duration::from_millis(200));
+    let before_stop: Vec<ActionEvent> = action_rx.try_iter().collect();
+    assert_eq!(
+        type_values_of(&before_stop),
+        vec!["ab"],
+        "the typing is written when the person leaves, got {before_stop:?}"
+    );
+    assert_eq!(
+        before_stop.len(),
+        1,
+        "and nothing beside it, got {before_stop:?}"
+    );
+    assert_eq!(before_stop[0].sequence_id, Some(typed_until));
+
+    type_character(&live, 'c', &mut seq, |raw| pool.dispatch(raw));
+    pool.shutdown();
+    let after: Vec<ActionEvent> = action_rx.try_iter().collect();
+    assert_eq!(
+        type_values_of(&after),
+        vec!["abc"],
+        "the text typed on return is the next type, got {after:?}"
+    );
+}
+
+/// Leaving with nothing typed writes nothing.
+#[test]
+fn regression_768_leaving_with_nothing_typed_writes_nothing() {
+    let (action_tx, action_rx) = mpsc::channel::<ActionEvent>();
+    let mut pool = WorkerPool::new(
+        3,
+        action_tx,
+        move |index, rx, queue_len, sender, pending| {
+            let backend = MockBackend::new();
+            thread::spawn(move || {
+                let ep = Arc::new(AtomicU32::new(0));
+                worker_loop(index, backend, rx, queue_len, sender, ep, pending, None);
+            })
+        },
+    );
+    pool.end_typing();
+    pool.shutdown();
+    let written: Vec<ActionEvent> = action_rx.try_iter().collect();
+    assert!(written.is_empty(), "got {written:?}");
+}
+
 /// What each worker of a three-worker pool is sent when `events` are
 /// dispatched in order: "event" for an event, "end typing" and "look at
 /// focus" for the signals.
@@ -4008,6 +4245,8 @@ fn messages_sent_for(events: Vec<RawEvent>) -> Vec<Vec<&'static str>> {
                 match rx.recv() {
                     Ok(WorkerMessage::Event(_)) => sent.lock().unwrap().push("event"),
                     Ok(WorkerMessage::EndTyping) => sent.lock().unwrap().push("end typing"),
+                    Ok(WorkerMessage::MenuCommand) => sent.lock().unwrap().push("menu command"),
+                    Ok(WorkerMessage::WriteHeldKey) => sent.lock().unwrap().push("write held key"),
                     Ok(WorkerMessage::LookAtFocus) => sent.lock().unwrap().push("look at focus"),
                     Ok(WorkerMessage::Flush(_)) => {}
                     Ok(WorkerMessage::Shutdown) | Err(_) => break,
@@ -4069,6 +4308,38 @@ fn a_window_that_comes_to_the_front_has_the_typing_worker_look_at_its_focus() {
         ]);
         assert!(
             sent.iter().all(|w| !w.contains(&"look at focus")),
+            "{name}: got {sent:?}"
+        );
+    }
+}
+
+/// A scroll is written with no place in the order of the events, by the
+/// worker that took the wheel. A key held behind a dead key must stand ahead
+/// of it, so the dispatcher tells the typing worker to write that key, behind
+/// the keys dispatched before the wheel; no other event sends that.
+#[test]
+fn a_wheel_event_has_the_typing_worker_write_the_key_it_holds() {
+    let sent = messages_sent_for(vec![
+        layout_key(1, 1000, 0x41),
+        make_raw_event(RawEventType::Scroll, 1234),
+    ]);
+    assert!(
+        sent.iter()
+            .any(|worker| worker.starts_with(&["event", "write held key"])),
+        "got {sent:?}"
+    );
+    for (name, event_type) in typing_enders().into_iter().chain([
+        ("focus", RawEventType::Focus),
+        ("key", RawEventType::Keyboard),
+        ("value change", RawEventType::ValueChange),
+        ("selection", RawEventType::Selection),
+    ]) {
+        let sent = messages_sent_for(vec![
+            layout_key(1, 1000, 0x41),
+            make_raw_event(event_type, 1234),
+        ]);
+        assert!(
+            sent.iter().all(|w| !w.contains(&"write held key")),
             "{name}: got {sent:?}"
         );
     }
@@ -4461,11 +4732,13 @@ impl AccessibilityBackend for MovingFocusBackend {
         !(self.controls.lock().unwrap().hung && self.root_window_handle(control) == DIALOG)
     }
 
+    /// The dialog's process is the test's to set; every other window, the
+    /// dialog's owner among them, is in the process the test events come from.
     fn process_id_of(&self, window_handle: i64) -> u32 {
         if window_handle == DIALOG {
             self.controls.lock().unwrap().process_id
         } else {
-            0
+            EVENT_PROCESS
         }
     }
 
@@ -5168,6 +5441,516 @@ fn regression_736_a_value_pasted_undone_and_pasted_again_is_recorded() {
         vec!["h", "", "h"],
         "got {events:?}"
     );
+}
+
+/// The same text pasted over itself: the value change that follows a paste
+/// key is the person's entry, also where it repeats the field's value.
+#[test]
+fn regression_751_the_same_text_pasted_over_itself_is_recorded() {
+    for (name, paste_code, paste_modifiers) in [
+        ("Ctrl+V", 0x56, (true, false, false, false)),
+        ("Shift+Insert", 0x2D, (false, true, false, false)),
+    ] {
+        let (backend, scene, _) = MovingFocusBackend::new(file_name_field(""));
+        let harness = WorkerTestHarness::new(backend);
+        let mut seq = 0;
+        // Paste, select all, paste again: the field holds "h" after each paste.
+        for (code, modifiers, reports) in [
+            (paste_code, paste_modifiers, true),
+            (0x41, (true, false, false, false), false), // Ctrl+A
+            (paste_code, paste_modifiers, true),
+        ] {
+            seq += 1;
+            let mut key = layout_key(seq, now_ms(), code);
+            key.modifiers = modifiers;
+            harness.send_event(in_dialog(key));
+            thread::sleep(Duration::from_millis(150));
+            if reports {
+                {
+                    let mut scene = scene.lock().unwrap();
+                    scene.element.text = Some("h".to_string());
+                    scene.element.value = Some("h".to_string());
+                }
+                seq += 1;
+                harness.send_event(in_dialog(value_change(seq, now_ms(), DIALOG)));
+                thread::sleep(Duration::from_millis(150));
+            }
+        }
+
+        thread::sleep(Duration::from_millis(900));
+        let events = harness.shutdown();
+
+        assert_eq!(
+            type_values_of(&events),
+            vec!["h", "h"],
+            "{name}: got {events:?}"
+        );
+    }
+}
+
+/// The pasted text can be reported after the next key: it is the paste's
+/// value change all the same.
+#[test]
+fn regression_751_a_paste_reported_after_the_next_key_is_recorded() {
+    let (backend, scene, _) = MovingFocusBackend::new(file_name_field(""));
+    let harness = WorkerTestHarness::new(backend);
+    let ctrl = (true, false, false, false);
+    let none = (false, false, false, false);
+
+    let mut paste = layout_key(1, now_ms(), 0x56);
+    paste.modifiers = ctrl;
+    harness.send_event(in_dialog(paste));
+    thread::sleep(Duration::from_millis(150));
+    {
+        let mut scene = scene.lock().unwrap();
+        scene.element.text = Some("h".to_string());
+        scene.element.value = Some("h".to_string());
+    }
+    harness.send_event(in_dialog(value_change(2, now_ms(), DIALOG)));
+    thread::sleep(Duration::from_millis(150));
+    // Select all, paste the same text, and press Home before the program
+    // reports the paste.
+    for (seq, code, modifiers) in [(3, 0x41, ctrl), (4, 0x56, ctrl), (5, 0x24, none)] {
+        let mut key = layout_key(seq, now_ms(), code);
+        key.modifiers = modifiers;
+        harness.send_event(in_dialog(key));
+        thread::sleep(Duration::from_millis(150));
+    }
+    harness.send_event(in_dialog(value_change(6, now_ms(), DIALOG)));
+
+    thread::sleep(Duration::from_millis(900));
+    let events = harness.shutdown();
+
+    assert_eq!(type_values_of(&events), vec!["h", "h"], "got {events:?}");
+}
+
+/// The stated limit of the paste key: one that pasted nothing still waits for
+/// the field's next value change, and a repeated report is taken for its text.
+#[test]
+fn regression_751_a_paste_key_that_pasted_nothing_takes_the_next_report_for_its_text() {
+    let (backend, scene, _) = MovingFocusBackend::new(file_name_field(""));
+    let harness = WorkerTestHarness::new(backend);
+
+    harness.send_event(in_dialog(packet_key(1, now_ms(), u16::from(b'h'))));
+    thread::sleep(Duration::from_millis(150));
+    {
+        let mut scene = scene.lock().unwrap();
+        scene.element.text = Some("h".to_string());
+        scene.element.value = Some("h".to_string());
+    }
+    harness.send_event(in_dialog(value_change(2, now_ms(), DIALOG)));
+    thread::sleep(Duration::from_millis(150));
+    // Ctrl+V with nothing to paste: the program reports no change for it.
+    let mut paste = layout_key(3, now_ms(), 0x56);
+    paste.modifiers = (true, false, false, false);
+    harness.send_event(in_dialog(paste));
+    thread::sleep(Duration::from_millis(150));
+    harness.send_event(in_dialog(value_change(4, now_ms(), DIALOG)));
+
+    thread::sleep(Duration::from_millis(900));
+    let events = harness.shutdown();
+
+    assert_eq!(type_values_of(&events), vec!["h", "h"], "got {events:?}");
+}
+
+/// A paste key stands for one value change: the same value reported again
+/// after it is a repeated report, as after typing.
+#[test]
+fn regression_751_a_value_change_reported_twice_after_a_paste_is_one_type() {
+    let (backend, scene, _) = MovingFocusBackend::new(file_name_field(""));
+    let harness = WorkerTestHarness::new(backend);
+
+    let mut paste = layout_key(1, now_ms(), 0x56);
+    paste.modifiers = (true, false, false, false);
+    harness.send_event(in_dialog(paste));
+    thread::sleep(Duration::from_millis(150));
+    {
+        let mut scene = scene.lock().unwrap();
+        scene.element.text = Some("h".to_string());
+        scene.element.value = Some("h".to_string());
+    }
+    harness.send_event(in_dialog(value_change(2, now_ms(), DIALOG)));
+    thread::sleep(Duration::from_millis(150));
+    harness.send_event(in_dialog(value_change(3, now_ms(), DIALOG)));
+    thread::sleep(Duration::from_millis(150));
+    // A key that pastes nothing follows; the program reports once more.
+    let mut select_all = layout_key(4, now_ms(), 0x41);
+    select_all.modifiers = (true, false, false, false);
+    harness.send_event(in_dialog(select_all));
+    thread::sleep(Duration::from_millis(150));
+    harness.send_event(in_dialog(value_change(5, now_ms(), DIALOG)));
+
+    thread::sleep(Duration::from_millis(900));
+    let events = harness.shutdown();
+
+    assert_eq!(type_values_of(&events), vec!["h"], "got {events:?}");
+}
+
+/// The Danish acute accent key, a dead key: the keyboard hook reads its
+/// accent from the layout with the dead-key flag in bit 31.
+fn dead_key(seq: u64) -> RawEvent {
+    let mut key = layout_key(seq, now_ms(), 0xDD);
+    key.callback_params = [0x0D, 0, 0, 0x8000_0000 | i64::from(u32::from('\u{b4}'))];
+    in_dialog(key)
+}
+
+/// A dead key is text where the character key after it enters text, however
+/// long the person waits between the two: the wait for a value change does
+/// not make it a key, because a dead key enters nothing by itself.
+#[test]
+fn regression_744_a_dead_key_is_text_when_the_next_key_enters_text() {
+    let (backend, scene, _) = MovingFocusBackend::new(file_name_field(""));
+    let harness = WorkerTestHarness::new(backend);
+
+    harness.send_event(dead_key(1));
+    thread::sleep(Duration::from_millis(900));
+    harness.send_event(in_dialog(layout_key(2, now_ms(), 0x45)));
+    {
+        let mut scene = scene.lock().unwrap();
+        scene.element.text = Some("\u{e9}".to_string());
+        scene.element.value = Some("\u{e9}".to_string());
+    }
+    harness.send_event(in_dialog(value_change(3, now_ms(), DIALOG)));
+
+    thread::sleep(Duration::from_millis(900));
+    let events = harness.shutdown();
+
+    assert_eq!(type_values_of(&events), vec!["\u{e9}"], "got {events:?}");
+    assert_eq!(
+        key_names_of(&events),
+        Vec::<String>::new(),
+        "got {events:?}"
+    );
+}
+
+/// A dead key is a `key` where no character follows it: the key that is no
+/// text writes it ahead of itself.
+#[test]
+fn regression_744_a_dead_key_is_a_key_when_no_character_follows() {
+    let (backend, _scene, _) = MovingFocusBackend::new(file_name_field(""));
+    let harness = WorkerTestHarness::new(backend);
+
+    harness.send_event(dead_key(1));
+    thread::sleep(Duration::from_millis(900));
+    harness.send_event(in_dialog(layout_key(2, now_ms(), 0x08)));
+
+    thread::sleep(Duration::from_millis(300));
+    let events = harness.shutdown();
+
+    assert_eq!(
+        key_names_of(&events),
+        vec!["\u{b4}", "Backspace"],
+        "got {events:?}"
+    );
+}
+
+/// A key that is no typing key follows a dead key, and the program enters the
+/// bare accent as a character with it (Notepad at Tab: the accent and a tab
+/// character). The `type` holds what was entered, so the dead key is part of
+/// that text and is no `key` beside it (docent#769). The key that followed is
+/// a `key` as always.
+#[test]
+fn regression_769_a_dead_key_whose_accent_the_program_enters_is_text() {
+    let (backend, scene, _) = MovingFocusBackend::new(file_name_field(""));
+    let harness = WorkerTestHarness::new(backend);
+
+    harness.send_event(dead_key(1));
+    thread::sleep(Duration::from_millis(150));
+    harness.send_event(in_dialog(layout_key(2, now_ms(), 0x09)));
+    {
+        let mut scene = scene.lock().unwrap();
+        scene.element.text = Some("\u{b4}\t".to_string());
+        scene.element.value = Some("\u{b4}\t".to_string());
+    }
+    harness.send_event(in_dialog(value_change(3, now_ms(), DIALOG)));
+
+    thread::sleep(Duration::from_millis(900));
+    let events = harness.shutdown();
+
+    assert_eq!(type_values_of(&events), vec!["\u{b4}\t"], "got {events:?}");
+    assert_eq!(key_names_of(&events), vec!["Tab"], "got {events:?}");
+}
+
+/// The same behind typed text and with a pause before the key that is no
+/// typing key (Enter): the text typed first is its own `type`, and the
+/// accent the program entered at Enter is in the next one, with no `key` for
+/// the dead key (docent#769).
+#[test]
+fn regression_769_a_dead_key_behind_typed_text_whose_accent_the_program_enters_is_text() {
+    let (backend, scene, _) = MovingFocusBackend::new(file_name_field(""));
+    let harness = WorkerTestHarness::new(backend);
+
+    harness.send_event(in_dialog(layout_key(1, now_ms(), 0x43)));
+    {
+        let mut scene = scene.lock().unwrap();
+        scene.element.text = Some("c".to_string());
+        scene.element.value = Some("c".to_string());
+    }
+    harness.send_event(in_dialog(value_change(2, now_ms(), DIALOG)));
+    thread::sleep(Duration::from_millis(900));
+    harness.send_event(dead_key(3));
+    thread::sleep(Duration::from_millis(900));
+    harness.send_event(in_dialog(layout_key(4, now_ms(), 0x0D)));
+    {
+        let mut scene = scene.lock().unwrap();
+        scene.element.text = Some("c\u{b4}\r\n".to_string());
+        scene.element.value = Some("c\u{b4}\r\n".to_string());
+    }
+    harness.send_event(in_dialog(value_change(5, now_ms(), DIALOG)));
+
+    thread::sleep(Duration::from_millis(900));
+    let events = harness.shutdown();
+
+    assert_eq!(
+        type_values_of(&events),
+        vec!["c", "c\u{b4}\r\n"],
+        "got {events:?}"
+    );
+    assert_eq!(key_names_of(&events), vec!["Enter"], "got {events:?}");
+}
+
+/// A dead key still waiting when the typing ends (a pointer press, a window
+/// change) is written then, ahead of what follows.
+#[test]
+fn regression_744_a_dead_key_waiting_is_written_when_the_typing_ends() {
+    let (backend, _scene, _) = MovingFocusBackend::new(file_name_field(""));
+    let harness = WorkerTestHarness::new(backend);
+
+    harness.send_event(dead_key(1));
+    thread::sleep(Duration::from_millis(900));
+    assert_eq!(
+        key_names_of(&harness.drain_actions()),
+        Vec::<String>::new(),
+        "the dead key waits for the key after it"
+    );
+    harness.event_tx.send(WorkerMessage::EndTyping).unwrap();
+    let written = harness.drain_actions();
+    let _ = harness.shutdown();
+
+    assert_eq!(key_names_of(&written), vec!["\u{b4}"], "got {written:?}");
+}
+
+/// Text is typed, then a dead key: the field's `type` is still held when the
+/// typing ends, and the dead key behind it took no part in that text. It is
+/// written as a `key` behind the `type`, whatever ends the typing.
+#[test]
+fn regression_744_a_dead_key_behind_typed_text_is_written_behind_the_type() {
+    for ender in ["end of typing", "commit", "stop"] {
+        let (backend, scene, _) = MovingFocusBackend::new(file_name_field(""));
+        let harness = WorkerTestHarness::new(backend);
+
+        harness.send_event(in_dialog(layout_key(1, now_ms(), 0x43)));
+        {
+            let mut scene = scene.lock().unwrap();
+            scene.element.text = Some("c".to_string());
+            scene.element.value = Some("c".to_string());
+        }
+        harness.send_event(in_dialog(value_change(2, now_ms(), DIALOG)));
+        thread::sleep(Duration::from_millis(150));
+        harness.send_event(dead_key(3));
+        thread::sleep(Duration::from_millis(900));
+
+        let mut events = Vec::new();
+        match ender {
+            "end of typing" => {
+                harness.event_tx.send(WorkerMessage::EndTyping).unwrap();
+                events.extend(harness.drain_actions());
+            }
+            "commit" => {
+                harness.flush();
+                events.extend(harness.drain_actions());
+            }
+            _ => {}
+        }
+        events.extend(harness.shutdown());
+
+        let written: Vec<String> = events
+            .iter()
+            .filter_map(|e| match &e.payload {
+                ActionPayload::Type { value, .. } => Some(format!("type {value}")),
+                ActionPayload::Key { key, .. } => Some(format!("key {key}")),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            written,
+            vec!["type c", "key \u{b4}"],
+            "{ender}: got {events:?}"
+        );
+    }
+}
+
+/// A dead key and the character key after it are both keys where the control
+/// took no text from them.
+#[test]
+fn regression_744_a_dead_key_and_its_character_are_keys_where_no_text_was_taken() {
+    let (backend, _scene, _) = MovingFocusBackend::new(file_name_field(""));
+    let harness = WorkerTestHarness::new(backend);
+
+    harness.send_event(dead_key(1));
+    thread::sleep(Duration::from_millis(150));
+    harness.send_event(in_dialog(layout_key(2, now_ms(), 0x45)));
+    thread::sleep(Duration::from_millis(900));
+    let written = harness.drain_actions();
+    let _ = harness.shutdown();
+
+    assert_eq!(
+        key_names_of(&written),
+        vec!["\u{b4}", "E"],
+        "got {written:?}"
+    );
+}
+
+/// Paste "h" into the dialog's field with the paste key, so the field's last
+/// recorded value is "h".
+fn paste_h_with_the_key(harness: &WorkerTestHarness, scene: &Arc<Mutex<FocusScene>>) {
+    let mut paste = layout_key(1, now_ms(), 0x56);
+    paste.modifiers = (true, false, false, false);
+    harness.send_event(in_dialog(paste));
+    thread::sleep(Duration::from_millis(150));
+    {
+        let mut scene = scene.lock().unwrap();
+        scene.element.text = Some("h".to_string());
+        scene.element.value = Some("h".to_string());
+    }
+    harness.send_event(in_dialog(value_change(2, now_ms(), DIALOG)));
+    thread::sleep(Duration::from_millis(150));
+}
+
+/// The same text pasted over itself from a menu: the click on the menu item
+/// ends the typing and is a command to the field typed into last, so that
+/// field's next value change is the person's entry, also where it repeats
+/// the value recorded for the field.
+#[test]
+fn regression_751_the_same_text_pasted_over_itself_from_a_menu_is_recorded() {
+    let (backend, scene, _) = MovingFocusBackend::new(file_name_field(""));
+    let harness = WorkerTestHarness::new(backend);
+    paste_h_with_the_key(&harness, &scene);
+
+    // The click on the menu's Paste item, as the dispatcher tells the typing
+    // worker of it; the program then reports the field's value, again "h".
+    harness.event_tx.send(WorkerMessage::EndTyping).unwrap();
+    harness.event_tx.send(WorkerMessage::MenuCommand).unwrap();
+    harness.send_event(in_dialog(value_change(3, now_ms(), DIALOG)));
+
+    thread::sleep(Duration::from_millis(900));
+    let events = harness.shutdown();
+
+    assert_eq!(type_values_of(&events), vec!["h", "h"], "got {events:?}");
+}
+
+/// A menu command stands for one value change: the same value reported again
+/// after it is a repeated report.
+#[test]
+fn regression_751_a_value_change_reported_twice_after_a_menu_command_is_one_type() {
+    let (backend, scene, _) = MovingFocusBackend::new(file_name_field(""));
+    let harness = WorkerTestHarness::new(backend);
+    paste_h_with_the_key(&harness, &scene);
+
+    harness.event_tx.send(WorkerMessage::EndTyping).unwrap();
+    harness.event_tx.send(WorkerMessage::MenuCommand).unwrap();
+    harness.send_event(in_dialog(value_change(3, now_ms(), DIALOG)));
+    thread::sleep(Duration::from_millis(150));
+    harness.send_event(in_dialog(value_change(4, now_ms(), DIALOG)));
+
+    thread::sleep(Duration::from_millis(900));
+    let events = harness.shutdown();
+
+    assert_eq!(type_values_of(&events), vec!["h", "h"], "got {events:?}");
+}
+
+/// The stated limit of the menu command: which item was clicked is not read,
+/// so after an item that pasted nothing (Save, Copy) a report that repeats
+/// the field's value is taken for a paste and written, once.
+#[test]
+fn regression_751_a_menu_item_that_pasted_nothing_takes_the_next_report_for_its_text() {
+    let (backend, scene, _) = MovingFocusBackend::new(file_name_field(""));
+    let harness = WorkerTestHarness::new(backend);
+    paste_h_with_the_key(&harness, &scene);
+
+    // The click on the item changes no text; a key follows, and only then
+    // does the program report the field's value once more, and again.
+    harness.event_tx.send(WorkerMessage::EndTyping).unwrap();
+    harness.event_tx.send(WorkerMessage::MenuCommand).unwrap();
+    harness.send_event(in_dialog(layout_key(3, now_ms(), 0x24)));
+    thread::sleep(Duration::from_millis(150));
+    harness.send_event(in_dialog(value_change(4, now_ms(), DIALOG)));
+    thread::sleep(Duration::from_millis(150));
+    harness.send_event(in_dialog(value_change(5, now_ms(), DIALOG)));
+
+    thread::sleep(Duration::from_millis(900));
+    let events = harness.shutdown();
+
+    assert_eq!(type_values_of(&events), vec!["h", "h"], "got {events:?}");
+}
+
+/// A menu command with no field typed into before it waits for nothing: the
+/// first text of a field is recorded as ever.
+#[test]
+fn regression_751_a_menu_command_before_any_typing_leaves_the_first_text_one_type() {
+    let (backend, scene, _) = MovingFocusBackend::new(file_name_field(""));
+    let harness = WorkerTestHarness::new(backend);
+
+    harness.event_tx.send(WorkerMessage::EndTyping).unwrap();
+    harness.event_tx.send(WorkerMessage::MenuCommand).unwrap();
+    {
+        let mut scene = scene.lock().unwrap();
+        scene.element.text = Some("h".to_string());
+        scene.element.value = Some("h".to_string());
+    }
+    harness.send_event(in_dialog(value_change(1, now_ms(), DIALOG)));
+    thread::sleep(Duration::from_millis(150));
+    harness.send_event(in_dialog(value_change(2, now_ms(), DIALOG)));
+
+    thread::sleep(Duration::from_millis(900));
+    let events = harness.shutdown();
+
+    assert_eq!(type_values_of(&events), vec!["h"], "got {events:?}");
+}
+
+/// A click whose element is `tag`, as the Input_Thread describes it at the
+/// release.
+fn click_on(tag: &str) -> RawEvent {
+    let mut click = make_raw_event(RawEventType::Click, 1234);
+    click.sequence_id = 2;
+    click.pre_captured_element = Some(ElementDescription {
+        tag: tag.to_string(),
+        ..file_name_field("").element
+    });
+    click
+}
+
+/// A click on a menu item is routed like any click, to a worker that is
+/// seldom the typing worker; the dispatcher tells the typing worker of the
+/// command, behind the end of the typing.
+#[test]
+fn regression_751_the_typing_worker_is_told_of_a_click_on_a_menu_item() {
+    let sent = messages_sent_for(vec![layout_key(1, 1000, 0x41), click_on("MenuItem")]);
+    assert!(
+        sent.iter()
+            .any(|worker| worker.starts_with(&["event", "end typing", "menu command"])),
+        "got {sent:?}"
+    );
+}
+
+/// A click on anything else, and a click whose element was not described at
+/// the release, is no menu command.
+#[test]
+fn regression_751_a_click_on_no_menu_item_is_no_menu_command() {
+    let plain = make_raw_event(RawEventType::Click, 1234);
+    let mut right_click = click_on("MenuItem");
+    right_click.event_type = RawEventType::RightClick;
+    for (name, click) in [
+        ("a button", click_on("Button")),
+        ("an element not described", plain),
+        ("a right click on a menu item", right_click),
+    ] {
+        let sent = messages_sent_for(vec![layout_key(1, 1000, 0x41), click]);
+        assert!(
+            sent.iter().all(|w| !w.contains(&"menu command")),
+            "{name}: got {sent:?}"
+        );
+    }
 }
 
 /// A program that reports one change twice writes one `type`: the second
@@ -6112,6 +6895,8 @@ fn a_click_completing_a_double_click_routes_to_the_previous_clicks_worker() {
                     Ok(WorkerMessage::Event(raw)) => got.lock().unwrap().push(raw.sequence_id),
                     Ok(WorkerMessage::Flush(_))
                     | Ok(WorkerMessage::EndTyping)
+                    | Ok(WorkerMessage::MenuCommand)
+                    | Ok(WorkerMessage::WriteHeldKey)
                     | Ok(WorkerMessage::LookAtFocus) => {}
                     Ok(WorkerMessage::Shutdown) | Err(_) => break,
                 }
@@ -7126,10 +7911,16 @@ fn an_action_after_a_switch_is_not_the_sessions_first_context() {
 }
 
 /// A backend whose focused element is in `window` (0: the description
-/// resolved none), with a rectangle of its own for every window handle.
+/// resolved none), with a rectangle of its own for every window handle. Every
+/// window belongs to process 1, the process the test focus events come from,
+/// except `window` itself, which belongs to `window_process`.
 struct FocusWindowBackend {
     window: i64,
+    window_process: u32,
 }
+
+/// The process every test focus event comes from (`make_raw_event`).
+const EVENT_PROCESS: u32 = 1;
 
 fn rect_of(window_handle: i64) -> docent_desktop_lib::capture::WindowRect {
     docent_desktop_lib::capture::WindowRect {
@@ -7176,14 +7967,34 @@ impl AccessibilityBackend for FocusWindowBackend {
     fn selected_item_name(&self, _window_handle: i64) -> Option<(ElementDescription, String)> {
         None
     }
+    fn process_id_of(&self, window_handle: i64) -> u32 {
+        if window_handle == self.window {
+            self.window_process
+        } else {
+            EVENT_PROCESS
+        }
+    }
 }
 
 /// The context and rectangle of the focus written for one focus event named
-/// `DIALOG`, with the focused element in `window`.
+/// `DIALOG`, with the focused element in `window` of the event's own process.
 fn focus_written_with_element_in(
     window: i64,
 ) -> Vec<(Option<i64>, Option<docent_desktop_lib::capture::WindowRect>)> {
-    let harness = WorkerTestHarness::new(FocusWindowBackend { window });
+    focus_written_with_element_in_process(window, EVENT_PROCESS)
+}
+
+/// The context and rectangle of the focus written for one focus event named
+/// `DIALOG`, with the focused element in `window`, which belongs to
+/// `window_process`.
+fn focus_written_with_element_in_process(
+    window: i64,
+    window_process: u32,
+) -> Vec<(Option<i64>, Option<docent_desktop_lib::capture::WindowRect>)> {
+    let harness = WorkerTestHarness::new(FocusWindowBackend {
+        window,
+        window_process,
+    });
     let mut focus = make_raw_event(RawEventType::Focus, DIALOG);
     focus.sequence_id = 1;
     harness.send_event(focus);
@@ -7214,6 +8025,39 @@ fn a_focus_whose_element_resolved_no_window_keeps_the_events_window() {
         focus_written_with_element_in(0),
         vec![(Some(DIALOG), Some(rect_of(DIALOG)))]
     );
+}
+
+/// A focus whose element is in the window the event named is written there,
+/// whatever that window's process reads as: the scope filters judged it with
+/// the event.
+#[test]
+fn a_focus_whose_element_is_in_the_events_own_window_is_written_there() {
+    assert_eq!(
+        focus_written_with_element_in_process(DIALOG, 0),
+        vec![(Some(DIALOG), Some(rect_of(DIALOG)))]
+    );
+}
+
+/// The scope filters judged the process the focus event came from, not the
+/// process of the window the element is in by the time it is described (the
+/// focus can move on to another application's window while the event waits,
+/// one whose own focus events the filters drop): a focus whose element is in
+/// a window of another process writes nothing.
+#[test]
+fn a_focus_whose_element_is_in_another_process_s_window_writes_nothing() {
+    const OTHER_PROCESS: u32 = 99;
+    assert_eq!(
+        focus_written_with_element_in_process(NOTEPAD, OTHER_PROCESS),
+        vec![]
+    );
+}
+
+/// A window whose process can no longer be read is not one the scope filters
+/// kept (DCP-5's resolvable-window filter): a focus whose element is in such a
+/// window writes nothing.
+#[test]
+fn a_focus_whose_element_s_window_has_no_readable_process_writes_nothing() {
+    assert_eq!(focus_written_with_element_in_process(NOTEPAD, 0), vec![]);
 }
 
 /// A right or middle press into an inactive window not introduced yet writes
@@ -7690,7 +8534,7 @@ fn regression_696_keys_buffered_on_one_element_survive_typing_into_another() {
 // ---------------------------------------------------------------------------
 
 use docent_desktop_lib::capture::held_keys::{
-    HeldKeys, HeldPress, KEY_EXTENDED_PARAM, KEY_REPEAT_PARAM,
+    input_method_param, HeldKeys, HeldPress, InputMethodState, KEY_EXTENDED_PARAM, KEY_REPEAT_PARAM,
 };
 use docent_desktop_lib::capture::HeldKeysAtAction;
 
@@ -8399,5 +9243,428 @@ fn open_case_762_a_pasted_value_read_late_is_recorded_nowhere() {
         typed_actions_of(&harness.shutdown()),
         on_field(&["key V", "key Enter"]),
         "the open case: the pasted text is recorded nowhere"
+    );
+}
+
+/// The `type` and `key` actions of a recording, each as one word and its
+/// text, in the order they were written.
+fn types_and_keys(events: &[ActionEvent]) -> Vec<String> {
+    events
+        .iter()
+        .filter_map(|e| match &e.payload {
+            ActionPayload::Type { value, .. } => Some(format!("type {value}")),
+            ActionPayload::Key { key, .. } => Some(format!("key {key}")),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn a_key_ahead_of_a_waiting_dead_key_is_written_once_when_its_value_comes_after_the_typing_ends() {
+    // X, a dead key, the typing ends (a click), and only then the program
+    // reports X's text. The dead key is a key: no character followed it. X is
+    // the text of the `type`, and is not written as a key beside it.
+    let (backend, scene, _) = MovingFocusBackend::new(file_name_field(""));
+    let harness = WorkerTestHarness::new(backend);
+    harness.send_event(in_dialog(layout_key(1, now_ms(), 0x58)));
+    harness.send_event(dead_key(2));
+    harness.event_tx.send(WorkerMessage::EndTyping).unwrap();
+    {
+        let mut scene = scene.lock().unwrap();
+        scene.element.text = Some("x".to_string());
+        scene.element.value = Some("x".to_string());
+    }
+    harness.send_event(in_dialog(value_change(3, now_ms(), DIALOG)));
+    thread::sleep(Duration::from_millis(900));
+    assert_eq!(
+        types_and_keys(&harness.shutdown()),
+        vec!["key \u{b4}", "type x"]
+    );
+}
+
+#[test]
+fn a_value_change_of_an_earlier_key_leaves_a_waiting_dead_key_to_be_written() {
+    // C, a dead key, then C's value change, then the typing ends. The dead
+    // key entered nothing; the value change is C's.
+    let (backend, scene, _) = MovingFocusBackend::new(file_name_field(""));
+    let harness = WorkerTestHarness::new(backend);
+    harness.send_event(in_dialog(layout_key(1, now_ms(), 0x43)));
+    harness.send_event(dead_key(2));
+    {
+        let mut scene = scene.lock().unwrap();
+        scene.element.text = Some("c".to_string());
+        scene.element.value = Some("c".to_string());
+    }
+    harness.send_event(in_dialog(value_change(3, now_ms(), DIALOG)));
+    thread::sleep(Duration::from_millis(900));
+    harness.event_tx.send(WorkerMessage::EndTyping).unwrap();
+    assert_eq!(
+        types_and_keys(&harness.shutdown()),
+        vec!["type c", "key \u{b4}"]
+    );
+}
+
+#[test]
+fn a_value_reported_again_behind_a_waiting_dead_key_leaves_it_to_be_written() {
+    // C and its value change, a dead key, then the program reports the same
+    // value once more, then the typing ends.
+    let (backend, scene, _) = MovingFocusBackend::new(file_name_field(""));
+    let harness = WorkerTestHarness::new(backend);
+    harness.send_event(in_dialog(layout_key(1, now_ms(), 0x43)));
+    {
+        let mut scene = scene.lock().unwrap();
+        scene.element.text = Some("c".to_string());
+        scene.element.value = Some("c".to_string());
+    }
+    harness.send_event(in_dialog(value_change(2, now_ms(), DIALOG)));
+    thread::sleep(Duration::from_millis(150));
+    harness.send_event(dead_key(3));
+    harness.send_event(in_dialog(value_change(4, now_ms(), DIALOG)));
+    thread::sleep(Duration::from_millis(900));
+    harness.event_tx.send(WorkerMessage::EndTyping).unwrap();
+    assert_eq!(
+        types_and_keys(&harness.shutdown()),
+        vec!["type c", "key \u{b4}"]
+    );
+}
+
+/// A dead key as the hook read it for the press itself: the layout asked
+/// about the key with the modifiers held (docent#769).
+fn dead_key_as_pressed(seq: u64, modifiers: (bool, bool, bool, bool), dead: bool) -> RawEvent {
+    key_as_pressed(seq, modifiers, dead.then_some('\u{60}'))
+}
+
+/// The same with the accent the layout named for the press: `None` for a key
+/// that is no dead key as pressed.
+fn key_as_pressed(seq: u64, modifiers: (bool, bool, bool, bool), accent: Option<char>) -> RawEvent {
+    use docent_desktop_lib::capture::held_keys::{dead_as_pressed_param, AsPressed};
+    let mut key = dead_key(seq);
+    key.modifiers = modifiers;
+    key.callback_params[3] |= dead_as_pressed_param(Some(match accent {
+        Some(accent) => AsPressed::DeadKey {
+            accent: accent as u16,
+        },
+        None => AsPressed::NoDeadKey,
+    }));
+    key
+}
+
+/// Set the value the dialog's field holds.
+fn field_holds(scene: &std::sync::Mutex<FocusScene>, value: &str) {
+    let mut scene = scene.lock().unwrap();
+    scene.element.text = Some(value.to_string());
+    scene.element.value = Some(value.to_string());
+}
+
+/// A dead key pressed twice: the program enters both accents as characters
+/// at the second press. The `type` holds them, and neither press is a `key`
+/// beside it (docent#769).
+#[test]
+fn regression_769_a_dead_key_pressed_twice_is_the_text_the_program_enters() {
+    let (backend, scene, _) = MovingFocusBackend::new(file_name_field(""));
+    let harness = WorkerTestHarness::new(backend);
+    harness.send_event(dead_key(1));
+    thread::sleep(Duration::from_millis(900));
+    harness.send_event(dead_key(2));
+    field_holds(&scene, "\u{b4}\u{b4}");
+    harness.send_event(in_dialog(value_change(3, now_ms(), DIALOG)));
+    thread::sleep(Duration::from_millis(900));
+    harness.event_tx.send(WorkerMessage::EndTyping).unwrap();
+    assert_eq!(
+        types_and_keys(&harness.shutdown()),
+        vec!["type \u{b4}\u{b4}"]
+    );
+}
+
+/// The same where the second press is a key dead with Shift (the grave
+/// accent on the Danish acute key): both accents are in the `type`
+/// (docent#769).
+#[test]
+fn regression_769_a_dead_key_and_a_shifted_dead_key_are_the_text_the_program_enters() {
+    let (backend, scene, _) = MovingFocusBackend::new(file_name_field(""));
+    let harness = WorkerTestHarness::new(backend);
+    harness.send_event(dead_key(1));
+    thread::sleep(Duration::from_millis(150));
+    harness.send_event(key_as_pressed(
+        2,
+        (false, true, false, false),
+        Some('\u{60}'),
+    ));
+    field_holds(&scene, "\u{b4}\u{60}");
+    harness.send_event(in_dialog(value_change(3, now_ms(), DIALOG)));
+    thread::sleep(Duration::from_millis(900));
+    harness.event_tx.send(WorkerMessage::EndTyping).unwrap();
+    assert_eq!(
+        types_and_keys(&harness.shutdown()),
+        vec!["type \u{b4}\u{60}"]
+    );
+}
+
+/// A dead key pressed three times: the first two are the text the program
+/// entered at the second press, and the third still waits for the key after
+/// it. With no such key it is a `key` when the typing ends.
+#[test]
+fn a_dead_key_pressed_a_third_time_waits_behind_the_text_of_the_first_two() {
+    let (backend, scene, _) = MovingFocusBackend::new(file_name_field(""));
+    let harness = WorkerTestHarness::new(backend);
+    harness.send_event(dead_key(1));
+    thread::sleep(Duration::from_millis(150));
+    harness.send_event(dead_key(2));
+    harness.send_event(dead_key(3));
+    thread::sleep(Duration::from_millis(150));
+    field_holds(&scene, "\u{b4}\u{b4}");
+    harness.send_event(in_dialog(value_change(4, now_ms(), DIALOG)));
+    thread::sleep(Duration::from_millis(900));
+    harness.event_tx.send(WorkerMessage::EndTyping).unwrap();
+    assert_eq!(
+        types_and_keys(&harness.shutdown()),
+        vec!["type \u{b4}\u{b4}", "key \u{b4}"]
+    );
+}
+
+/// A dead key and then a key that is no typing key, in a program that enters
+/// nothing for the two (Tab in a dialog moves the focus): both are keys, in
+/// the order pressed, once the wait for a value change is over.
+#[test]
+fn a_dead_key_and_a_key_that_enters_nothing_are_keys_in_the_order_pressed() {
+    let (backend, _scene, _) = MovingFocusBackend::new(file_name_field(""));
+    let harness = WorkerTestHarness::new(backend);
+    harness.send_event(dead_key(1));
+    harness.send_event(in_dialog(layout_key(2, now_ms(), 0x09)));
+    thread::sleep(Duration::from_millis(900));
+    let mut written = Vec::new();
+    while let Ok(event) = harness.action_rx.try_recv() {
+        written.push(event);
+    }
+    assert_eq!(
+        types_and_keys(&written),
+        vec!["key \u{b4}", "key Tab"],
+        "written at the wait, before the recording stops"
+    );
+    assert!(types_and_keys(&harness.shutdown()).is_empty());
+}
+
+/// The same where the person clicks before the wait is over: the two keys
+/// are written ahead of the click, in the order pressed.
+#[test]
+fn a_dead_key_and_the_key_behind_it_are_written_ahead_of_a_click() {
+    let (backend, _scene, _) = MovingFocusBackend::new(file_name_field(""));
+    let harness = WorkerTestHarness::new(backend);
+    harness.send_event(dead_key(1));
+    harness.send_event(in_dialog(layout_key(2, now_ms(), 0x09)));
+    harness.send_event(click_on("Button"));
+    let events = harness.shutdown();
+    let order: Vec<String> = events
+        .iter()
+        .filter_map(|e| match &e.payload {
+            ActionPayload::Key { key, .. } => Some(format!("key {key}")),
+            ActionPayload::Click { .. } => Some("click".to_string()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(order, vec!["key \u{b4}", "key Tab", "click"]);
+}
+
+/// The typing worker, told to write the key it holds behind a dead key (a
+/// wheel was turned), writes the dead key and that key at once, in the order
+/// pressed; with no key held it writes nothing, and a dead key goes on
+/// waiting.
+#[test]
+fn the_key_held_behind_a_dead_key_is_written_when_the_worker_is_told() {
+    let (backend, _scene, _) = MovingFocusBackend::new(file_name_field(""));
+    let harness = WorkerTestHarness::new(backend);
+    harness.send_event(dead_key(1));
+    harness.event_tx.send(WorkerMessage::WriteHeldKey).unwrap();
+    thread::sleep(Duration::from_millis(150));
+    assert!(harness.action_rx.try_recv().is_err(), "a dead key waits");
+    harness.send_event(in_dialog(layout_key(2, now_ms(), 0x25)));
+    harness.event_tx.send(WorkerMessage::WriteHeldKey).unwrap();
+    thread::sleep(Duration::from_millis(150));
+    let mut written = Vec::new();
+    while let Ok(event) = harness.action_rx.try_recv() {
+        written.push(event);
+    }
+    assert_eq!(
+        types_and_keys(&written),
+        vec!["key \u{b4}", "key ArrowLeft"]
+    );
+    assert!(types_and_keys(&harness.shutdown()).is_empty());
+}
+
+/// A dead key, a key that is no typing key, and a value that holds no more
+/// of the accent than before (the program took the key and dropped the
+/// accent): the dead key entered nothing and is a `key`, ahead of the key
+/// behind it.
+#[test]
+fn a_dead_key_whose_accent_the_program_does_not_enter_is_a_key() {
+    let (backend, scene, _) = MovingFocusBackend::new(file_name_field(""));
+    let harness = WorkerTestHarness::new(backend);
+    harness.send_event(in_dialog(layout_key(1, now_ms(), 0x43)));
+    field_holds(&scene, "c");
+    harness.send_event(in_dialog(value_change(2, now_ms(), DIALOG)));
+    thread::sleep(Duration::from_millis(150));
+    harness.send_event(dead_key(3));
+    harness.send_event(in_dialog(layout_key(4, now_ms(), 0x09)));
+    field_holds(&scene, "c\t");
+    harness.send_event(in_dialog(value_change(5, now_ms(), DIALOG)));
+    thread::sleep(Duration::from_millis(900));
+    assert_eq!(
+        types_and_keys(&harness.shutdown()),
+        vec!["type c", "key \u{b4}", "key Tab", "type c\t"]
+    );
+}
+
+/// A field that held the accent already: the value after the dead key and
+/// Tab holds one more of it, so the dead key is text; a value that holds as
+/// many as before leaves it a `key`.
+#[test]
+fn a_dead_key_is_text_only_where_the_field_gained_its_accent() {
+    for (after, expected) in [
+        ("\u{b4}\u{b4}\t", vec!["key Tab", "type \u{b4}\u{b4}\t"]),
+        ("\u{b4}\t", vec!["key \u{b4}", "key Tab", "type \u{b4}\t"]),
+    ] {
+        let (backend, scene, _) = MovingFocusBackend::new(file_name_field("\u{b4}"));
+        field_holds(&scene, "\u{b4}");
+        let harness = WorkerTestHarness::new(backend);
+        harness.send_event(dead_key(1));
+        thread::sleep(Duration::from_millis(150));
+        harness.send_event(in_dialog(layout_key(2, now_ms(), 0x09)));
+        field_holds(&scene, after);
+        harness.send_event(in_dialog(value_change(3, now_ms(), DIALOG)));
+        thread::sleep(Duration::from_millis(900));
+        assert_eq!(types_and_keys(&harness.shutdown()), expected, "{after:?}");
+    }
+}
+
+#[test]
+fn a_key_that_is_dead_only_unshifted_is_no_dead_key_when_pressed_with_shift() {
+    // The layout marks the key as dead for the press with no modifier. With
+    // Shift it enters a character of its own (the German `^` key enters `°`),
+    // so its value change makes it text and it is not written as a key. This
+    // holds where the hook asked about the press (and was told it is not
+    // dead) and where it could not ask.
+    for asked in [true, false] {
+        let (backend, scene, _) = MovingFocusBackend::new(file_name_field(""));
+        let harness = WorkerTestHarness::new(backend);
+        let key = if asked {
+            dead_key_as_pressed(1, (false, true, false, false), false)
+        } else {
+            let mut key = dead_key(1);
+            key.modifiers = (false, true, false, false);
+            key
+        };
+        harness.send_event(key);
+        {
+            let mut scene = scene.lock().unwrap();
+            scene.element.text = Some("\u{b0}".to_string());
+            scene.element.value = Some("\u{b0}".to_string());
+        }
+        harness.send_event(in_dialog(value_change(2, now_ms(), DIALOG)));
+        thread::sleep(Duration::from_millis(900));
+        harness.event_tx.send(WorkerMessage::EndTyping).unwrap();
+        assert_eq!(
+            types_and_keys(&harness.shutdown()),
+            vec!["type \u{b0}"],
+            "asked: {asked}"
+        );
+    }
+}
+
+/// A key that is dead with Shift or with AltGr held (the Danish acute key
+/// with Shift is the grave accent, the diaeresis key with AltGr the tilde) is
+/// a dead key as much as with no modifier: it waits for the key after it
+/// however long the person takes, and is part of that key's text, with no
+/// `key` beside it (docent#769).
+#[test]
+fn regression_769_a_key_dead_with_shift_or_altgr_is_text_when_the_next_key_enters_text() {
+    for (name, modifiers, text) in [
+        ("Shift", (false, true, false, false), "\u{e8}"),
+        ("AltGr", (true, false, true, false), "\u{f1}"),
+    ] {
+        let (backend, scene, _) = MovingFocusBackend::new(file_name_field(""));
+        let harness = WorkerTestHarness::new(backend);
+
+        harness.send_event(dead_key_as_pressed(1, modifiers, true));
+        thread::sleep(Duration::from_millis(900));
+        harness.send_event(in_dialog(layout_key(2, now_ms(), 0x45)));
+        {
+            let mut scene = scene.lock().unwrap();
+            scene.element.text = Some(text.to_string());
+            scene.element.value = Some(text.to_string());
+        }
+        harness.send_event(in_dialog(value_change(3, now_ms(), DIALOG)));
+
+        thread::sleep(Duration::from_millis(900));
+        assert_eq!(
+            types_and_keys(&harness.shutdown()),
+            vec![format!("type {text}")],
+            "{name}"
+        );
+    }
+}
+
+/// A key the layout marks dead with no modifier, pressed with a modifier that
+/// makes it an ordinary character (the Danish acute key with AltGr enters
+/// `|`), is no dead key: with no value change it is written as a `key` after
+/// the wait, not held for the key after it (docent#769).
+#[test]
+fn regression_769_a_key_not_dead_as_pressed_is_an_ordinary_key() {
+    let (backend, _scene, _) = MovingFocusBackend::new(file_name_field(""));
+    let harness = WorkerTestHarness::new(backend);
+
+    harness.send_event(dead_key_as_pressed(1, (true, false, true, false), false));
+    thread::sleep(Duration::from_millis(900));
+    let written_at_the_wait = types_and_keys(&harness.shutdown());
+    assert_eq!(written_at_the_wait, vec!["key \u{b4}"]);
+}
+
+#[test]
+fn a_key_that_took_no_text_is_written_ahead_of_the_dead_key_behind_it_when_the_typing_ends() {
+    // X and a dead key in a control that reports no value change, a pause
+    // longer than the wait, then the typing ends (a click). Both are keys,
+    // written in the order they were pressed, and before what ended the
+    // typing.
+    let (backend, _scene, _) = MovingFocusBackend::new(file_name_field(""));
+    let harness = WorkerTestHarness::new(backend);
+    harness.send_event(in_dialog(layout_key(1, now_ms(), 0x58)));
+    harness.send_event(dead_key(2));
+    thread::sleep(Duration::from_millis(900));
+    harness.event_tx.send(WorkerMessage::EndTyping).unwrap();
+    thread::sleep(Duration::from_millis(30));
+    assert_eq!(
+        types_and_keys(&harness.drain_actions()),
+        vec!["key X", "key \u{b4}"]
+    );
+    harness.shutdown();
+}
+
+#[test]
+fn a_value_reported_again_while_only_a_dead_key_waits_is_no_second_type() {
+    // C and its value, a dead key, a value change that gives no value (it
+    // writes the `type` and keeps the keys), and then the program reports the
+    // field's value once more. Only the dead key is buffered, and it enters
+    // nothing, so the report is a repeat and no text typed over itself.
+    let set_value = |scene: &Arc<Mutex<FocusScene>>, value: Option<&str>| {
+        let mut scene = scene.lock().unwrap();
+        scene.element.text = value.map(str::to_string);
+        scene.element.value = value.map(str::to_string);
+    };
+    let (backend, scene, _) = MovingFocusBackend::new(file_name_field(""));
+    let harness = WorkerTestHarness::new(backend);
+    harness.send_event(in_dialog(layout_key(1, now_ms(), 0x43)));
+    set_value(&scene, Some("c"));
+    harness.send_event(in_dialog(value_change(2, now_ms(), DIALOG)));
+    thread::sleep(Duration::from_millis(150));
+    harness.send_event(dead_key(3));
+    set_value(&scene, None);
+    harness.send_event(in_dialog(value_change(4, now_ms(), DIALOG)));
+    thread::sleep(Duration::from_millis(150));
+    set_value(&scene, Some("c"));
+    harness.send_event(in_dialog(value_change(5, now_ms(), DIALOG)));
+    thread::sleep(Duration::from_millis(150));
+    harness.event_tx.send(WorkerMessage::EndTyping).unwrap();
+    assert_eq!(
+        types_and_keys(&harness.shutdown()),
+        vec!["type c", "key \u{b4}"]
     );
 }

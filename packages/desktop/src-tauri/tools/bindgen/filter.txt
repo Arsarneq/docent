@@ -78,6 +78,7 @@ Windows.Win32.IUIAutomationElement
 Windows.Win32.IUIAutomationElementArray
 Windows.Win32.IUIAutomationSelectionPattern
 Windows.Win32.IUIAutomationTreeWalker
+Windows.Win32.ImmGetDefaultIMEWnd
 Windows.Win32.IsWindow
 Windows.Win32.IsWindowVisible
 Windows.Win32.KBDLLHOOKSTRUCT
@@ -104,6 +105,7 @@ Windows.Win32.OBJID_WINDOW
 Windows.Win32.OFN_EXPLORER
 Windows.Win32.OFN_FILEMUSTEXIST
 Windows.Win32.OPENFILENAMEW
+Windows.Win32.OSVERSIONINFOW
 Windows.Win32.OpenProcess
 Windows.Win32.PM_NOREMOVE
 Windows.Win32.POINT
@@ -124,11 +126,13 @@ Windows.Win32.RRF_RT_REG_DWORD
 Windows.Win32.RRF_RT_REG_SZ
 Windows.Win32.RegGetValueW
 Windows.Win32.RegisterClassW
+Windows.Win32.RtlGetVersion
 Windows.Win32.SAFEARRAY
 Windows.Win32.SHFILEINFOW
 Windows.Win32.SHGFI_DISPLAYNAME
 Windows.Win32.SHGetFileInfoW
 Windows.Win32.SMTO_ABORTIFHUNG
+Windows.Win32.SMTO_BLOCK
 Windows.Win32.SM_CXDOUBLECLK
 Windows.Win32.SM_CXVIRTUALSCREEN
 Windows.Win32.SM_CYDOUBLECLK
@@ -150,6 +154,7 @@ Windows.Win32.SetWindowTextW
 Windows.Win32.SetWindowsHookExW
 Windows.Win32.ShowWindow
 Windows.Win32.TH32CS_SNAPPROCESS
+Windows.Win32.ToUnicodeEx
 Windows.Win32.TranslateMessage
 Windows.Win32.TreeScope_Descendants
 Windows.Win32.TreeScope_Subtree
@@ -178,6 +183,7 @@ Windows.Win32.WINEVENT_OUTOFCONTEXT
 Windows.Win32.WM_APP
 Windows.Win32.WM_CLOSE
 Windows.Win32.WM_GETOBJECT
+Windows.Win32.WM_IME_CONTROL
 Windows.Win32.WM_KEYDOWN
 Windows.Win32.WM_KEYUP
 Windows.Win32.WM_LBUTTONDOWN

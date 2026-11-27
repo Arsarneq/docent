@@ -350,6 +350,31 @@ describe('_insertOrdered redacts sensitive field values', () => {
     assert.equal('code' in adapter.getPendingActions()[0], false);
   });
 
+  it('regression_237_a_key_recorded_as_the_masked_type_carries_no_input_method_fields', () => {
+    // The fields belong to a `key` action; the masked `type` is none.
+    insertOrdered({
+      ...keyOn(cardField(), '4', 1),
+      input_method_open: true,
+      input_method_conversion_mode: 9,
+    });
+
+    assert.deepEqual(shape(), [`type ${SENSITIVE_MASK}`]);
+    assert.equal('input_method_open' in adapter.getPendingActions()[0], false);
+    assert.equal('input_method_conversion_mode' in adapter.getPendingActions()[0], false);
+  });
+
+  it('regression_237_a_key_that_stays_a_key_keeps_its_input_method_fields', () => {
+    insertOrdered({
+      ...keyOn(cardField(), 'Enter', 1),
+      input_method_open: false,
+      input_method_conversion_mode: 0,
+    });
+
+    stripSeqFields();
+    assert.equal(adapter.getPendingActions()[0].input_method_open, false);
+    assert.equal(adapter.getPendingActions()[0].input_method_conversion_mode, 0);
+  });
+
   it('regression_717_a_key_that_stays_a_key_on_a_sensitive_field_keeps_its_code', () => {
     insertOrdered({ ...keyOn(cardField(), 'Enter', 1), code: 'NumpadEnter' });
 

@@ -56,8 +56,8 @@ Docent has several capabilities with distinct attack surfaces:
 
 ### Data transmission
 
-- Both platforms can dispatch session data to a user-configured HTTP endpoint, with an optional API key sent as a Bearer token.
-- Vulnerabilities that allow an attacker to redirect dispatch output, inject content into the payload, or expose the API key are in scope.
+- Both platforms can dispatch session data to a user-configured HTTP endpoint and sync session data with a user-configured sync server, each with an optional API key sent as a Bearer token.
+- Vulnerabilities that allow an attacker to redirect dispatch or sync traffic, inject content into a payload, or expose an API key are in scope.
 
 ### Local data persistence
 
@@ -75,9 +75,15 @@ Docent has several capabilities with distinct attack surfaces:
 - The desktop application uses OS accessibility APIs and global input hooks. On future platforms (Linux — see [#84](https://github.com/Arsarneq/docent/issues/84)), this may require explicit user permission grants.
 - Vulnerabilities that allow bypassing permission checks or escalating OS-level access are in scope.
 
+### Reference implementations
+
+- A vulnerability that reproduces in the code of a [reference implementation](../reference-implementations/README.md) as it stands on `main`, run as its README documents, is in scope, even when you found it on a deployment of your own. Test only against a deployment you run. Examples for the sync server: a request served without the configured token, a project id that escapes the storage directory, or one project's data returned for another. Please name the commit you tested.
+- A behavior a reference implementation's README states as intended is not a flaw in itself: the sync server running open when no token is configured, and its `/__debug/` endpoints. A README line saying that a requirement of the specification is not verified on a platform names a gap, not intended behavior: a failure to meet that requirement is a flaw.
+
 ### Out of scope
 
-- Vulnerabilities in the receiving endpoint (that is outside this project)
+- Vulnerabilities in a user's own receiving endpoint or sync server, other than in a reference implementation's code (see above)
+- How a user configures, exposes or hosts their own deployment of a reference implementation
 - Issues requiring physical access to the machine
 - Social engineering
 

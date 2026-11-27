@@ -160,7 +160,7 @@
       "doc": "docs/architecture/system/capture-principles.md",
       "clause": "CP-19",
       "tag": "judgment-only",
-      "justification": "Judgment at review: whether a change to what one platform records leaves the other platform recording the same input differently reads both platforms' capture paths side by side, and whether a remaining difference comes from the platforms themselves (an input one platform's events never deliver, a quantity that is each platform's own) or is a departure is a reading no check decides. The platforms' capture documents and the session-format rows state the departures, each beside its issue, and the review reads a change against them: a difference they do not state is a new departure."
+      "justification": "Judgment at review: whether a change to what one platform records leaves the other platform recording the same input differently reads both platforms' capture paths side by side, and whether a remaining difference comes from the platforms themselves (an input one platform's events never deliver, a fact no interface of the platform lets the layer read at any moment from the input until its action is written, with the missing interface and what was tried named, a quantity that is each platform's own) or is a departure is a reading no check decides. The platforms' capture documents and the session-format rows state the departures, each beside its issue, and the review reads a change against them: a difference they do not state is a new departure."
     },
     {
       "doc": "docs/technical/locator-resolution.md",
@@ -583,7 +583,7 @@
       "doc": "docs/architecture/application/desktop/windows/capture-principles.md",
       "clause": "DCP-7",
       "tag": "check-exists",
-      "check-ref": "The correlation gates are exercised end-to-end by the enigo integration suites (real input, real WinEvents) and probed by the desktop corpus sessions (npm run test:desktop:rust for the integration tier; npm run corpus:check:desktop)."
+      "check-ref": "The correlation gates are exercised end-to-end by the enigo integration suites (real input, real WinEvents) and probed by the desktop corpus sessions (npm run test:desktop:rust for the integration tier; npm run corpus:check:desktop); the focus that writes nothing for its element's window is pinned by packages/desktop/src-tauri/tests/worker_pool_test.rs's a_focus_whose_element_is_in_another_process_s_window_writes_nothing and a_focus_whose_element_s_window_has_no_readable_process_writes_nothing (npm run test:desktop:rust)."
     },
     {
       "doc": "docs/architecture/application/desktop/windows/capture-principles.md",
@@ -1128,6 +1128,12 @@
       "clause": "DSH-2",
       "tag": "check-exists",
       "check-ref": "The strip/re-inject pair is pinned by the in-module unit tests in packages/desktop/src-tauri/src/secret_store.rs (strip_then_inject_round_trips asserts the on-disk text contains neither key; strip_deletes_store_entry_for_empty_string and strip_leaves_store_untouched_when_field_absent pin the clear-vs-omit semantics) and at the command wrappers by the secret_wrappers tests in packages/desktop/src-tauri/src/commands.rs (strip_removes_api_key_from_written_json, inject_restores_api_key_into_read_json); run via npm run test:desktop:rust. Named residue: that no other code path writes the session file is held by the file I/O living only in packages/desktop/src-tauri/src/commands.rs (session_file_path is module-private) and review, not by a named check."
+    },
+    {
+      "doc": "docs/architecture/application/desktop/windows/application-shell.md",
+      "clause": "DSH-3",
+      "tag": "check-exists",
+      "check-ref": "Pinned by the persistence tests in packages/desktop/src-tauri/tests/commands_test.rs (load_state_sets_aside_a_file_that_is_not_json_and_keeps_its_bytes, load_state_sets_aside_json_that_is_not_an_object, load_state_sets_aside_a_file_that_is_not_text, load_state_sets_aside_a_session_path_it_cannot_read, a_save_after_a_set_aside_writes_a_new_file_and_leaves_the_kept_one_alone, a_second_set_aside_never_replaces_the_first, save_state_leaves_only_the_session_file_behind) and the session_guard tests in packages/desktop/src-tauri/src/commands.rs (the move that fails, the later load that moves nothing and the refusal that lasts the run, the unknown location and the later load that answers its same error, the set-aside's starting state carrying the stored keys, the error's kind tags), run via npm run test:desktop:rust; the frontend's reading of the error by packages/desktop/tests/unit/persistence-unit.test.js (loadSessionState, loadProblemMessage, loadErrorText) and the settings saves' wording of it by packages/desktop/tests/unit/adapter-tauri.test.js. Named residue: that the panel shows the message and writes nothing itself is held by the desktop panel suite, not cited here, and that a save cut short leaves the previous file whole rests on the temporary-file-and-rename write in save_to and review, not on a test that cuts a save short."
     },
     {
       "doc": "docs/verification/sufficiency-lint.md",

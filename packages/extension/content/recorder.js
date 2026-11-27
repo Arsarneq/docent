@@ -84,6 +84,9 @@
         editableTypedInto = null;
         forgetPendingKeys();
       }
+      // A composition open when a recording ends or begins is no part of the
+      // next one, and neither is a key the input method took.
+      forgetComposition();
     }
   });
 
@@ -773,6 +776,13 @@
     fieldsEditedByKey.delete(el);
     entryLastWritten.set(el, value);
     entryMadeAgain.delete(el);
+    // The text being composed in the field is in the entry written: the
+    // composition's end enters it again only if it is composed on from here.
+    if (composition?.field === el) {
+      composition.written = composition.text;
+      composition.composedOn = false;
+      composition.undoEnd = null;
+    }
     return sent;
   }
 
@@ -800,6 +810,15 @@
   // when the typing in it ends. Null while none has been typed into since the
   // last entry was written.
   let editableTypedInto = null;
+  // What the editable content typed into held at the press of a key that
+  // waits behind a dead key, and whether the browser entered text in it
+  // since (`{ el, value, inputSince }`), until that key's entry is written.
+  // Null otherwise.
+  let editableAtKeyBehind = null;
+  // That text has been written. What the person enters in the element since
+  // came with or after the key behind the dead key, so no press that waited
+  // with that key writes it ahead of itself.
+  let editableReadAtPress = false;
 
   /**
    * Write the text the editable content typed into holds, as its `type`. The
@@ -811,17 +830,27 @@
    *   typing, when a key press writes the entry
    * @returns {Promise<void>} settled once the worker has answered
    */
+  const editableText = (el) => el.innerText.trim().slice(0, 500);
+
   function writeEditableEntry(timestamp = Date.now()) {
     const el = editableTypedInto;
     if (!el) return Promise.resolve();
-    editableTypedInto = null;
+    const now = editableText(el);
+    // The text taken at the press of a key that waited behind a dead key is
+    // what that key ended. Text the element holds beyond it came with or
+    // after the key, and is the element's next entry.
+    // Only text the browser entered since (an `input`) is the person's: what
+    // the page made of the element by itself is no entry.
+    const atPress = editableAtKeyBehind?.el === el ? editableAtKeyBehind : null;
+    editableAtKeyBehind = null;
+    const value = atPress ? atPress.value : now;
+    if (atPress) editableReadAtPress = true;
+    if (!atPress?.inputSince || value === now || !active) editableTypedInto = null;
     if (!active) return Promise.resolve();
-    const sent = appendAction({
-      type: 'type',
-      timestamp,
-      element: describeElement(el),
-      value: el.innerText.trim().slice(0, 500),
-    });
+    const entry = { type: 'type', timestamp, element: describeElement(el), value };
+    // The text taken at the press was complete before the presses that still
+    // wait, and goes out ahead of them.
+    const sent = atPress ? sendAction(entry) : appendAction(entry);
     markUserAction();
     return sent;
   }
@@ -853,7 +882,9 @@
     return (
       takesEntry(el) &&
       fieldsEditedByKey.has(el) &&
-      (el.value !== fieldValueAtFocus.get(el) || entryMadeAgain.has(el))
+      (el.value !== fieldValueAtFocus.get(el) ||
+        entryMadeAgain.has(el) ||
+        composesUnwrittenText(el))
     );
   }
 
@@ -925,10 +956,16 @@
   // Two kinds of press wait for more than themselves. A date or time field
   // has a value, and sends `input`, only once its parts make one: the
   // character keys typed into one wait together as a run (`byParts`). A dead
-  // key enters nothing until the next character key is pressed: it waits for
-  // that press and is text or a key together with it (`dead`). The timer and
-  // a release leave both kinds waiting, and a press that does not belong with
-  // them ends the wait.
+  // key enters nothing until the next key is pressed in its field (`dead`).
+  // With a character key it is text or a key together with that press. A key
+  // of another kind waits behind it (`behindDead`) while the browser handles
+  // that key: where the bare accent is entered then (`input` with inputType
+  // `insertText` in the dead key's own field), the dead key is text and only
+  // the key behind it is a `key`; otherwise both are keys, in the order
+  // pressed (#769). The field holding other text does not make such a dead
+  // key text: the key behind it can change the field by itself. The timer and a release leave a run and a dead key with
+  // nothing behind it waiting, and a press that does not belong with them
+  // ends the wait.
   let pendingKeys = [];
   // The actions the browser caused while it handled a waiting press, other
   // than entries: written behind the press once it is known what it was.
@@ -993,7 +1030,7 @@
     }
     // The key ends the typing in editable content too: its entry stands ahead
     // of the key.
-    writeEditableEntry(time);
+    if (!editableReadAtPress) writeEditableEntry(time);
     sendAction(press.action);
     markUserAction();
     // What the field holds after a key that can change it is an entry the
@@ -1028,8 +1065,14 @@
     const resolved = pending.filter((press) => !pendingKeys.includes(press));
     writingPendingKeys = true;
     try {
-      for (const press of resolved) {
-        if (press.textAtPress !== null && textHeld(press.field) !== press.textAtPress) {
+      for (const [at, press] of resolved.entries()) {
+        // A dead key with a key behind it is text only by the `input` for
+        // its accent in its own field (`pendingKeysBecameText`): the key
+        // behind it can change the field by itself.
+        const keyBehind = press.dead && resolved.slice(at + 1).some((later) => later.behindDead);
+        const fieldChanged =
+          press.textAtPress !== null && textHeld(press.field) !== press.textAtPress;
+        if (fieldChanged && !keyBehind) {
           noteTextEntered(press.field);
         } else {
           writeKeyPress(press);
@@ -1037,6 +1080,10 @@
       }
     } finally {
       writingPendingKeys = false;
+    }
+    if (pendingKeys.length === 0) {
+      editableAtKeyBehind = null;
+      editableReadAtPress = false;
     }
     releaseHeldBehindPendingKeys();
   }
@@ -1056,8 +1103,15 @@
     if (pendingKeys.length === 0) return;
     const target = e.composedPath?.()[0] ?? e.target;
     const waiting = pendingKeys.length;
+    const keyBehind = pendingKeys.some((press) => press.behindDead);
     pendingKeys = pendingKeys.filter((press) => {
       if (press.byParts) return press.field !== target && press.el !== e.target;
+      // The key behind a dead key is no text: the text is the dead key's.
+      if (press.behindDead) return true;
+      // With a key behind it, a dead key is text only where the typed text
+      // lands in its own field: that key's own character can land in the
+      // field the focus moved to (#769).
+      if (press.dead && keyBehind) return !(typed && press.field === target);
       return press.dead ? !typed && !composed : !typed;
     });
     // The text can land in another field than the one the key was pressed in
@@ -1069,6 +1123,11 @@
       fieldsEditedByKey.add(e.target);
       if (typed) noteEntryMadeAgain(e.target);
     }
+    // A key that waited behind a dead key waits for nothing more once the
+    // dead key is known to be text.
+    if (pendingKeys.length > 0 && pendingKeys.every((press) => press.behindDead)) {
+      resolvePendingKeys();
+    }
     releaseHeldBehindPendingKeys();
   }
 
@@ -1076,6 +1135,8 @@
   function forgetPendingKeys() {
     pendingKeys = [];
     heldBehindPendingKeys = [];
+    editableAtKeyBehind = null;
+    editableReadAtPress = false;
   }
 
   // ─── Click capture ────────────────────────────────────────────────────────────
@@ -1151,6 +1212,159 @@
     entryMadeAgain.add(field);
     entryLastWritten.delete(field);
   }
+
+  // ─── Text composed by an input method (#744) ─────────────────────────────────
+  //
+  // One composition that ends with text is one act of entering text: what its
+  // field holds afterwards is a new entry, as after the same text typed with
+  // plain keys. A composition given up enters nothing. The keys pressed inside
+  // a composition are no `key` actions (`keyPressKind`).
+  //
+  //   Open: from the browser's `compositionstart` on a field, or from the first
+  //     composing `input` (`insertCompositionText`) where no start was seen (a
+  //     recording that began inside the composition), to the `compositionend`
+  //     that follows.
+  //   While it is open, the text it shows is typing not yet ended: a pointer
+  //     press, a step commit or a stop writes the field's entry with it, as
+  //     with typed text, also where the field then holds what it held at focus.
+  //   At its end the composition entered text when the text it showed last is
+  //     not empty, unless an entry written while it was open held that text
+  //     already and nothing was composed since. Text composed on after such a
+  //     write and taken back to the text written is entered again, as plain
+  //     typing writes `a`, then `ab`, then `a`.
+  //   Over with no end: when the browser changes the field's text by other
+  //     means than composing (the composing text removed with an editing
+  //     key). Nothing was entered by it.
+  //   Forgotten: when a recording ends or begins.
+  //
+  // The browser does not mark every composition end it sends itself as
+  // trusted, so the mark cannot be asked for, and a page can send the event
+  // while the person composes. The start tells the two apart: the browser's is
+  // trusted, and with no start since an end, more composing text or a key
+  // pressed inside the composition says the end was not the browser's. That end is then taken back,
+  // and the composition goes on as if it had not come.
+  //
+  // The composition last opened: its field, the text it showed last, the
+  // composing text an entry written during it held (undefined when none was
+  // written), whether another text was composed after that write, whether an
+  // end has come for it, and how to take that end back.
+  let composition = null;
+  // The field a key the input method took was pressed in, until the next key
+  // press: text the browser inserts there in that time is the key's, also
+  // with no composition around it.
+  let fieldOfTakenKey = null;
+
+  /** The browser opened a composition in a field. */
+  function openComposition(field) {
+    if (!takesEntry(field)) return;
+    composition = {
+      field,
+      text: '',
+      written: undefined,
+      composedOn: false,
+      ended: false,
+      endedByEvent: false,
+      undoEnd: null,
+    };
+  }
+
+  /**
+   * The composition in `field` goes on although a `compositionend` came for
+   * it, with no start since: the end was not the browser's and is taken back.
+   */
+  function takeBackEnd(field) {
+    if (composition?.field !== field || !composition.endedByEvent) return;
+    composition.ended = false;
+    composition.endedByEvent = false;
+    composition.undoEnd?.();
+    composition.undoEnd = null;
+  }
+
+  /** Text was composed in a field: note it for the composition's end. */
+  function noteComposingText(e) {
+    const field = e.target;
+    if (!takesEntry(field)) return;
+    if (composition?.field !== field) openComposition(field);
+    takeBackEnd(field);
+    // Composing text after a composition left with no end, and no start
+    // since, is the composition going on too.
+    composition.ended = false;
+    composition.text = e.data ?? '';
+    if (composition.written !== undefined && composition.text !== composition.written) {
+      composition.composedOn = true;
+    }
+    fieldsEditedByKey.add(field);
+  }
+
+  /**
+   * Whether the field shows composing text that no entry written holds yet:
+   * typing not yet ended, as text typed with plain keys is.
+   *
+   * @param {Element} el
+   * @returns {boolean}
+   */
+  function composesUnwrittenText(el) {
+    return (
+      composition?.field === el &&
+      !composition.ended &&
+      composition.text !== '' &&
+      (composition.written === undefined || composition.composedOn)
+    );
+  }
+
+  /**
+   * The browser changed the field's text by other means than composing: the
+   * composition is over. The browser sends no end where the composing text is
+   * removed with an editing key (a dead key's accent shown, then Backspace).
+   * Nothing was entered by it; what the field holds is judged as after any
+   * other key.
+   */
+  function closeCompositionLeft(field) {
+    if (composition?.field !== field || composition.ended) return;
+    composition.ended = true;
+  }
+
+  /** The open composition ended: its text, if it entered any, is a new entry. */
+  function endComposition(field) {
+    const ended = composition;
+    if (ended?.field !== field || ended.ended) return;
+    ended.ended = true;
+    ended.endedByEvent = true;
+    if (ended.text === '') return;
+    if (ended.written !== undefined && !ended.composedOn) return;
+    const wasMadeAgain = entryMadeAgain.has(field);
+    const hadWritten = entryLastWritten.has(field);
+    const lastWritten = entryLastWritten.get(field);
+    ended.undoEnd = () => {
+      if (!wasMadeAgain) entryMadeAgain.delete(field);
+      if (hadWritten) entryLastWritten.set(field, lastWritten);
+    };
+    fieldsEditedByKey.add(field);
+    noteEntryMadeAgain(field);
+  }
+
+  /** Nothing of a composition or of a key the input method took is kept. */
+  function forgetComposition() {
+    composition = null;
+    fieldOfTakenKey = null;
+  }
+
+  /**
+   * The browser inserted text in a field with no waiting press to stand for
+   * it: text a key the input method took entered with no composition, or text
+   * pasted. What the field holds is a new entry. Text a page inserts between
+   * a key the input method took and the next key press cannot be told from
+   * that key's own and is taken for it.
+   */
+  function noteTextInserted(e) {
+    const field = e.target;
+    if (!takesEntry(field)) return;
+    const byTakenKey = e.inputType === 'insertText' && fieldOfTakenKey === field;
+    if (!byTakenKey && e.inputType !== 'insertFromPaste') return;
+    fieldsEditedByKey.add(field);
+    noteEntryMadeAgain(field);
+  }
+
   /** The modifiers held at a trusted key, mouse or drag event (#239). */
   const modifiersOf = (e) => ({
     ctrl: e.ctrlKey,
@@ -1401,6 +1615,9 @@
       // A key the input method takes is reported with key code 229, also where
       // the browser names it as the key it would be without the input method.
       const kind = keyPressKind(e.key, e.isComposing || e.keyCode === 229);
+      // A key the input method took counts for its field until the next press.
+      fieldOfTakenKey =
+        kind === 'composed' && fieldInFocus && takesEntry(fieldInFocus) ? fieldInFocus : null;
       const shortcut = isShortcut(modifiers, ALT_ENTERS_CHARACTERS);
       const focused = focusPath();
       const field = focused.at(-1) ?? null;
@@ -1432,24 +1649,28 @@
       const secret = character || altCode ? (sensitiveField ?? sensitiveHost) : null;
       // A press before this one that still waits has had its chance: the
       // browser enters a key's text before the next key. A run goes on with
-      // a press that belongs to it, and a dead key waits for a character key
-      // through the modifiers and the input method's keys pressed on the way.
+      // a press that belongs to it. A dead key waits for the next key press
+      // in its field, through the modifiers and the input method's keys
+      // pressed on the way: its accent goes into the character a character
+      // key enters, and the browser can enter the bare accent with a key of
+      // another kind, while it handles that key (#769). Once such a key
+      // waits behind it, the press after that ends the wait of both.
+      const keyBehindWaits = pendingKeys.some((press) => press.behindDead);
       const goesOn = inRun
         ? (press) => press.byParts && press.field === field
-        : mayBeText || kind === 'modifier' || kind === 'composed'
-          ? (press) => press.dead && press.field === field
-          : undefined;
+        : keyBehindWaits
+          ? undefined
+          : (press) => press.dead && press.field === field;
       resolvePendingKeys(goesOn);
       // The entry the person made in the field is complete before this press,
       // and the browser's `change` for it comes only while it handles the
       // press (Enter's submission, the blur Tab causes), or later. Noted here
       // as it stands, it is written ahead of the key (#703).
+      // A key pressed inside a composition says it is still open.
+      if (e.isComposing && fieldInFocus) takeBackEnd(fieldInFocus);
       const entry =
         fieldInFocus &&
-        takesEntry(fieldInFocus) &&
-        fieldsEditedByKey.has(fieldInFocus) &&
-        (fieldInFocus.value !== fieldValueAtFocus.get(fieldInFocus) ||
-          entryMadeAgain.has(fieldInFocus)) &&
+        hasUnwrittenEntry(fieldInFocus) &&
         entryLastWritten.get(fieldInFocus) !== fieldInFocus.value
           ? { value: fieldInFocus.value }
           : null;
@@ -1458,15 +1679,19 @@
       // field. Whether it makes what the field holds a new entry is known
       // when its text arrives (`noteEntryMadeAgain`): a key the page cancels
       // enters nothing, and the entry written before it is not written again.
-      // Text an input method composes is not followed: what the field holds
-      // after it is written where it differs from the entry last written
-      // since the focus or, where none was, from what it held at focus.
+      // For a key the input method takes it is known at the end of the
+      // composition (`endComposition`) or when its text is inserted with none
+      // (`noteTextInserted`).
       const entersText = mayBeText || kind === 'composed';
       if (entersText && fieldInFocus && takesEntry(fieldInFocus)) {
         fieldsEditedByKey.add(fieldInFocus);
       }
       // No press to write: a modifier alone, and a key the input method takes.
       if (kind === 'modifier' || kind === 'composed') return;
+      // A key the input method does not take: no composition is open any
+      // more, also where the browser sent no end for it (a page that took
+      // the composing text out). What it showed is in `entry` above.
+      if (fieldInFocus) closeCompositionLeft(fieldInFocus);
       // A key pressed while the Meta key is held may never be seen released.
       if (e.metaKey && e.key !== 'Meta') downUnderMeta.add(e.code);
       const key = keyActionName(e.key);
@@ -1486,6 +1711,10 @@
         downByThis,
         byParts: inRun,
         dead,
+        // A key that is no character key, pressed behind a dead key that
+        // still waits: it is written behind the dead key, once it is known
+        // what that was.
+        behindDead: !mayBeText && pendingKeys.length > 0,
         secret,
         // What the field held at the press, for a press that waits.
         textAtPress: mayBeText ? textHeld(field) : null,
@@ -1508,8 +1737,18 @@
       // the press's events; a press that waits is marked like one written.
       pressedKeysDown.add(e.code);
       markKeyEvent();
-      if (mayBeText) pendingKeys.push(press);
+      if (mayBeText || press.behindDead) pendingKeys.push(press);
       else writeKeyPress(press);
+      // A key behind a dead key is written once the browser and the page
+      // have handled it: the editable content's text is taken here, before
+      // they act, for the entry that key ends.
+      if (press.behindDead && editableTypedInto && !editableAtKeyBehind) {
+        editableAtKeyBehind = {
+          el: editableTypedInto,
+          value: editableText(editableTypedInto),
+          inputSince: false,
+        };
+      }
     },
     { capture: true, passive: true },
   );
@@ -1860,6 +2099,12 @@
       if (!active) return;
       if (!e.isTrusted) return;
       pendingKeysBecameText(e);
+      if (e.inputType === 'insertCompositionText') {
+        noteComposingText(e);
+      } else {
+        closeCompositionLeft(e.target);
+        noteTextInserted(e);
+      }
       if (document.visibilityState === 'hidden') return;
       const el = e.target;
       if (
@@ -1870,6 +2115,7 @@
       // Typing in another element ends the typing in the one before it.
       if (editableTypedInto !== el) writeEditableEntry();
       editableTypedInto = el;
+      if (editableAtKeyBehind?.el === el) editableAtKeyBehind.inputSince = true;
     },
     { capture: true, passive: true },
   );
@@ -1879,6 +2125,27 @@
     (e) => {
       if (e.target === editableTypedInto) writeEditableEntry();
       writeEntryAtBlur(e);
+    },
+    { capture: true, passive: true },
+  );
+
+  // The start and the end of a composition (see the map at `composition`).
+  // Neither writes anything: the entry is written where plain typing's is.
+  document.addEventListener(
+    'compositionstart',
+    (e) => {
+      if (!active) return;
+      if (!e.isTrusted) return;
+      openComposition(e.target);
+    },
+    { capture: true, passive: true },
+  );
+
+  document.addEventListener(
+    'compositionend',
+    (e) => {
+      if (!active) return;
+      endComposition(e.target);
     },
     { capture: true, passive: true },
   );

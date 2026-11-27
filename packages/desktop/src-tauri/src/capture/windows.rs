@@ -48,23 +48,25 @@ use super::win32_bindings::{
     GetCurrentThreadId, GetDoubleClickTime, GetForegroundWindow, GetGUIThreadInfo,
     GetKeyboardLayout, GetMessageW, GetParent, GetSystemMetrics, GetUserPreferredUILanguages,
     GetWindow, GetWindowLongW, GetWindowTextW, GetWindowThreadProcessId, IUIAutomation,
-    IUIAutomationCondition, IUIAutomationElement, IUIAutomationSelectionPattern, IsWindow,
-    IsWindowVisible, LCIDToLocaleName, MapVirtualKeyExW, PeekMessageW, PostThreadMessageW,
-    RegGetValueW, SendMessageTimeoutW, SetProcessDpiAwarenessContext, SetWinEventHook,
-    SetWindowsHookExW, TranslateMessage, TreeScope_Descendants, TreeScope_Subtree, UnhookWinEvent,
-    UnhookWindowsHookEx, WindowFromPoint, CHILDID_SELF, CLSCTX_ALL, COINIT_APARTMENTTHREADED,
-    COINIT_MULTITHREADED, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, EVENT_OBJECT_CREATE,
-    EVENT_OBJECT_DESTROY, EVENT_OBJECT_FOCUS, EVENT_OBJECT_SELECTION, EVENT_OBJECT_VALUECHANGE,
-    EVENT_SYSTEM_FOREGROUND, GA_ROOT, GA_ROOTOWNER, GUITHREADINFO, GWL_STYLE, GW_OWNER, HANDLE,
-    HHOOK, HKEY_CURRENT_USER, HKL, HWINEVENTHOOK, HWND, INVALID_HANDLE_VALUE, KBDLLHOOKSTRUCT,
-    LCID, LLKHF_EXTENDED, LOCALE_ALLOW_NEUTRAL_NAMES, LOCALE_NAME_MAX_LENGTH, LPARAM, LRESULT,
-    MAPVK_VK_TO_CHAR, MSG, MSLLHOOKSTRUCT, MUI_LANGUAGE_NAME, OBJID_WINDOW, PM_NOREMOVE, POINT,
-    PROPERTYID, RRF_RT_REG_DWORD, RRF_RT_REG_SZ, SMTO_ABORTIFHUNG, SM_CXDOUBLECLK, SM_CYDOUBLECLK,
+    IUIAutomationCondition, IUIAutomationElement, IUIAutomationSelectionPattern,
+    ImmGetDefaultIMEWnd, IsWindow, IsWindowVisible, LCIDToLocaleName, MapVirtualKeyExW,
+    PeekMessageW, PostThreadMessageW, RegGetValueW, SendMessageTimeoutW,
+    SetProcessDpiAwarenessContext, SetWinEventHook, SetWindowsHookExW, TranslateMessage,
+    TreeScope_Descendants, TreeScope_Subtree, UnhookWinEvent, UnhookWindowsHookEx, WindowFromPoint,
+    CHILDID_SELF, CLSCTX_ALL, COINIT_APARTMENTTHREADED, COINIT_MULTITHREADED,
+    DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, EVENT_OBJECT_CREATE, EVENT_OBJECT_DESTROY,
+    EVENT_OBJECT_FOCUS, EVENT_OBJECT_SELECTION, EVENT_OBJECT_VALUECHANGE, EVENT_SYSTEM_FOREGROUND,
+    GA_ROOT, GA_ROOTOWNER, GUITHREADINFO, GWL_STYLE, GW_OWNER, HANDLE, HHOOK, HKEY_CURRENT_USER,
+    HKL, HWINEVENTHOOK, HWND, INVALID_HANDLE_VALUE, KBDLLHOOKSTRUCT, LCID, LLKHF_EXTENDED,
+    LOCALE_ALLOW_NEUTRAL_NAMES, LOCALE_NAME_MAX_LENGTH, LPARAM, LRESULT, MAPVK_VK_TO_CHAR, MSG,
+    MSLLHOOKSTRUCT, MUI_LANGUAGE_NAME, OBJID_WINDOW, PM_NOREMOVE, POINT, PROPERTYID,
+    RRF_RT_REG_DWORD, RRF_RT_REG_SZ, SMTO_ABORTIFHUNG, SMTO_BLOCK, SM_CXDOUBLECLK, SM_CYDOUBLECLK,
     UIA_HWND, VK_CONTROL, VK_LWIN, VK_MENU, VK_RWIN, VK_SHIFT, VT_EMPTY, WH_KEYBOARD_LL,
-    WH_MOUSE_LL, WINEVENT_OUTOFCONTEXT, WM_APP, WM_KEYDOWN, WM_LBUTTONDOWN, WM_LBUTTONUP,
-    WM_MBUTTONDOWN, WM_MOUSEHWHEEL, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_NULL, WM_QUIT, WM_RBUTTONDOWN,
-    WM_SYSKEYDOWN, WM_USER, WPARAM, WS_CHILD,
+    WH_MOUSE_LL, WINEVENT_OUTOFCONTEXT, WM_APP, WM_IME_CONTROL, WM_KEYDOWN, WM_LBUTTONDOWN,
+    WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MOUSEHWHEEL, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_NULL, WM_QUIT,
+    WM_RBUTTONDOWN, WM_SYSKEYDOWN, WM_USER, WPARAM, WS_CHILD,
 };
+use super::win32_bindings::{RtlGetVersion, ToUnicodeEx, OSVERSIONINFOW};
 use windows_core::{Error, Interface, BOOL, BSTR, PWSTR};
 
 use super::element_mapping::{
@@ -111,6 +113,9 @@ enum BridgeMessage {
         barrier_id: u64,
         done: std::sync::mpsc::Sender<Vec<usize>>,
     },
+    /// A window the recording keeps nothing of came to the front, away from
+    /// the field typed into (docent#768). FIFO-ordered behind the keys already sent.
+    TypingEnded,
 }
 
 /// A pending commit-barrier request handed from the command thread to the
@@ -425,6 +430,11 @@ thread_local! {
     static INPUT_INCLUDED_PID: std::cell::RefCell<Option<Arc<AtomicU32>>> =
         const { std::cell::RefCell::new(None) };
 
+    /// What the foreground layout answered about its dead keys, asked once
+    /// per key and modifier state ([`foreground_dead_as_pressed`]).
+    static INPUT_DEAD_KEY_ANSWERS: std::cell::RefCell<super::held_keys::DeadKeyAnswers> =
+        const { std::cell::RefCell::new(super::held_keys::DeadKeyAnswers::new()) };
+
     /// PID of the current foreground window. Updated on EVENT_SYSTEM_FOREGROUND.
     /// Events from non-foreground processes are filtered out.
     static INPUT_FOREGROUND_PID: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
@@ -491,6 +501,11 @@ thread_local! {
     /// timeout, for a pre-capture started at a later click.
     static INPUT_PRE_CAPTURE_BUDGET: std::cell::Cell<Duration> =
         const { std::cell::Cell::new(Duration::ZERO) };
+    /// How long the keyboard hook waits for each answer of a key press's
+    /// input-method read, set at the session's start from the system's hook
+    /// timeout (`timing::input_method_read_timeout_ms`); 0 until then, and
+    /// where the hook does not read.
+    static INPUT_METHOD_QUESTION_LIMIT_MS: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
 
     /// Timestamp of the most recent low-level input event (button press or
     /// release, key press, or wheel). Used to correlate WinEvent callbacks
@@ -935,6 +950,7 @@ impl CaptureLayer for WindowsCapture {
                         let wedged = pool.flush_all(barrier_id, FLUSH_BARRIER_TIMEOUT);
                         let _ = done.send(wedged);
                     }
+                    BridgeMessage::TypingEnded => pool.end_typing(),
                 }
             }
             // Channel closed (input thread dropped raw_tx) — return pool for shutdown.
@@ -1486,6 +1502,29 @@ fn input_send_raw_event(mut event: RawEvent) {
     });
 }
 
+/// What the Input_Thread does with a window event the scope filters drop:
+/// nothing is written for it, and a dropped window that comes to the front
+/// (`EVENT_SYSTEM_FOREGROUND`) has taken the keyboard from the field typed
+/// into, so the pool is told the typing has ended. Without this the field's
+/// `type` waited for the next key or click in a recorded window, and text
+/// typed last in a step was not in the step when the person went to the
+/// recorder's panel to complete it (docent#768).
+///
+/// A pointer press on a dropped window is no such end by itself: a window
+/// that takes no focus (an on-screen keyboard, the emoji panel) leaves the
+/// person typing in the field. Any other window event of a dropped window
+/// tells the pool nothing.
+fn input_dropped_window_event(event: u32) {
+    if event != EVENT_SYSTEM_FOREGROUND as u32 {
+        return;
+    }
+    INPUT_RAW_SENDER.with(|s| {
+        if let Some(sender) = s.borrow().as_ref() {
+            let _ = sender.send(BridgeMessage::TypingEnded);
+        }
+    });
+}
+
 /// Forward a pending commit-barrier request (docent#298) onto the Input_Thread's
 /// own bridge sender. Called from the message pump on `WM_APP_FLUSH`, so the
 /// resulting [`BridgeMessage::Flush`] is FIFO-ordered behind every raw event the
@@ -1607,8 +1646,9 @@ fn spawn_click_pre_capture() -> std::io::Result<ClickPreCapture> {
     )
 }
 
-/// Set the session's pre-capture budget from the system's low-level hook
-/// timeout, start the click pre-capture's describers (DCP-1), and wait, for
+/// Set the session's pre-capture budget and the time limit of the keyboard
+/// hook's questions to an input-method window from the system's low-level
+/// hook timeout, start the click pre-capture's describers (DCP-1), and wait, for
 /// at most `PRE_CAPTURE_READY_TIMEOUT`, for the first to build its
 /// accessibility client, so the first click is pre-captured. `None`, logged,
 /// when no describer can be started (a later click tries again); a warning
@@ -1617,8 +1657,10 @@ fn spawn_click_pre_capture() -> std::io::Result<ClickPreCapture> {
 fn start_click_pre_capture() -> Option<ClickPreCapture> {
     let hook_timeout_ms = timing::hook_timeout_ms(&read_hook_timeout_setting());
     let budget_ms = timing::pre_capture_budget_ms(hook_timeout_ms);
-    hook_diagnostics::session_bounds(hook_timeout_ms, budget_ms);
+    let question_limit_ms = timing::input_method_read_timeout_ms(hook_timeout_ms);
+    hook_diagnostics::session_bounds(hook_timeout_ms, budget_ms, question_limit_ms);
     INPUT_PRE_CAPTURE_BUDGET.with(|b| b.set(Duration::from_millis(budget_ms)));
+    INPUT_METHOD_QUESTION_LIMIT_MS.with(|t| t.set(question_limit_ms as u32));
     match spawn_click_pre_capture() {
         Ok(pre_capture) => {
             match pre_capture.wait_ready(PRE_CAPTURE_READY_TIMEOUT) {
@@ -1878,6 +1920,7 @@ unsafe fn input_win_event_handle(
 
     // PID exclusion check (cached — covers both PID tree and ownership).
     if !input_should_keep_event_cached(process_id, excluded, hwnd) {
+        input_dropped_window_event(event);
         return;
     }
 
@@ -2654,6 +2697,12 @@ unsafe extern "system" fn input_keyboard_ll_proc(
 
             if attribution != KeyAttribution::Dropped {
                 let layout_char = foreground_layout_char(kb_struct.vkCode, thread_id);
+                let dead_as_pressed = foreground_dead_as_pressed(
+                    kb_struct.vkCode,
+                    kb_struct.scanCode,
+                    modifiers,
+                    thread_id,
+                );
                 let timestamp = current_timestamp_ms();
                 let foreground_handle = hwnd.0 as i64;
                 let (window_handle, process_id) = match attribution {
@@ -2679,6 +2728,13 @@ unsafe extern "system" fn input_keyboard_ll_proc(
                 let control = match attribution {
                     KeyAttribution::NoWindow => 0,
                     _ => focused_control_of_thread(thread_id),
+                };
+                // What the input method of that control says of itself at
+                // this press, before the key takes effect; none for a key
+                // with no window.
+                let input_method = match attribution {
+                    KeyAttribution::NoWindow => None,
+                    _ => input_method_state_of(control, hwnd),
                 };
                 // The key's number among its window's keys, counted here,
                 // where the key is sure to be sent: a worker that read a
@@ -2712,23 +2768,29 @@ unsafe extern "system" fn input_keyboard_ll_proc(
                     // And the number of the latest focus change that named a
                     // part of that control, from this thread's own note.
                     // Then the character a punctuation key enters on the
-                    // foreground window's layout, read above (docent#691), and
+                    // foreground window's layout, read above (docent#691),
+                    // with whether the key is a dead key as pressed
+                    // (docent#769), and
                     // above it whether the key was already down at this
                     // key-down: a press key repeat generated (docent#696),
                     // and above that the key's number, counted above.
                     // Above the scan code sits the hook's extended mark,
                     // which tells apart two keys that share a key code;
                     // the two together name the physical key (docent#717).
+                    // Above that mark sits what was read of the input method
+                    // (docent#237).
                     callback_params: [
                         i64::from(kb_struct.scanCode)
                             | if kb_struct.flags & LLKHF_EXTENDED as u32 != 0 {
                                 super::held_keys::KEY_EXTENDED_PARAM
                             } else {
                                 0
-                            },
+                            }
+                            | super::held_keys::input_method_param(input_method),
                         control,
                         INPUT_PART_FOCUS.with(|note| note.borrow().of(control)),
                         i64::from(layout_char)
+                            | super::held_keys::dead_as_pressed_param(dead_as_pressed)
                             | if repeat {
                                 super::held_keys::KEY_REPEAT_PARAM
                             } else {
@@ -2753,6 +2815,89 @@ unsafe extern "system" fn input_keyboard_ll_proc(
     CallNextHookEx(None, n_code, w_param, l_param)
 }
 
+/// The `WM_IME_CONTROL` command that asks an input-method window whether its
+/// input method is on (`IMC_GETOPENSTATUS`).
+const IMC_GETOPENSTATUS: usize = 0x0005;
+/// The `WM_IME_CONTROL` command that asks an input-method window for its
+/// conversion mode (`IMC_GETCONVERSIONMODE`).
+const IMC_GETCONVERSIONMODE: usize = 0x0001;
+
+/// What the input method says of itself for the control `control` (the
+/// control that holds the keyboard focus; the foreground window `foreground`
+/// where none was read): whether it is on, and its conversion mode. `None`
+/// where the window has no input-method window, where that window gave no
+/// answer to the first ask within the session's time limit
+/// (`timing::input_method_read_timeout_ms`) or refused it, or where that
+/// limit is 0.
+///
+/// Called on the keyboard hook. The input-method window belongs to the
+/// program's own thread, which has to answer, so each of the two asks waits
+/// for at most the time limit and gives up at once on a thread the system
+/// knows to be hung; which is asked when, and what stands where one gets no
+/// answer, is [`super::held_keys::read_input_method`]'s to state. The wait
+/// dispatches no message to this thread (`SMTO_BLOCK`), so no hook call runs
+/// inside it.
+unsafe fn input_method_state_of(
+    control: i64,
+    foreground: HWND,
+) -> Option<super::held_keys::InputMethodState> {
+    use super::held_keys::InputMethodQuestion;
+    use hook_diagnostics::InputMethodReadOutcome;
+    let timeout_ms = INPUT_METHOD_QUESTION_LIMIT_MS.with(|t| t.get());
+    if timeout_ms == 0 {
+        return None;
+    }
+    let started = Instant::now();
+    let window = if control != 0 {
+        HWND(control as *mut core::ffi::c_void)
+    } else {
+        foreground
+    };
+    let input_method_window = if window.0.is_null() {
+        window
+    } else {
+        ImmGetDefaultIMEWnd(window)
+    };
+    if input_method_window.0.is_null() {
+        hook_diagnostics::input_method_read(started.elapsed(), InputMethodReadOutcome::NoWindow);
+        return None;
+    }
+    let state = super::held_keys::read_input_method(|question| {
+        let command = match question {
+            InputMethodQuestion::OpenStatus => IMC_GETOPENSTATUS,
+            InputMethodQuestion::ConversionMode => IMC_GETCONVERSIONMODE,
+        };
+        ask_input_method(input_method_window, command, timeout_ms)
+    });
+    let outcome = match state {
+        None => InputMethodReadOutcome::NoAnswer,
+        Some(state) if state.conversion_mode.is_none() => InputMethodReadOutcome::OpenStatusAlone,
+        Some(_) => InputMethodReadOutcome::Answered,
+    };
+    hook_diagnostics::input_method_read(started.elapsed(), outcome);
+    state
+}
+
+/// Ask an input-method window one `WM_IME_CONTROL` question; `None` when no
+/// answer came within the time limit, or the message was refused.
+unsafe fn ask_input_method(
+    input_method_window: HWND,
+    command: usize,
+    timeout_ms: u32,
+) -> Option<usize> {
+    let mut answer = 0usize;
+    let sent = SendMessageTimeoutW(
+        input_method_window,
+        WM_IME_CONTROL as u32,
+        WPARAM(command),
+        LPARAM(0),
+        (SMTO_ABORTIFHUNG | SMTO_BLOCK) as u32,
+        timeout_ms,
+        Some(&mut answer),
+    );
+    (sent.0 != 0).then_some(answer)
+}
+
 /// What the keyboard layout of the foreground window's thread (`thread_id`,
 /// the thread `GetWindowThreadProcessId` names) gives punctuation key `vk`,
 /// for the worker to name the key by (`worker_pool::punctuation_key_name`
@@ -2766,6 +2911,151 @@ unsafe fn foreground_layout_char(vk: u32, thread_id: u32) -> u32 {
         return 0;
     }
     layout_char(vk, GetKeyboardLayout(thread_id))
+}
+
+/// Whether this Windows honors the flag that makes `ToUnicodeEx` leave the
+/// keyboard state as it is (flag 4: Windows 10 version 1607, build 14393, and
+/// later). Without it the call takes the pending accent of a dead key, in the
+/// application typed into too, so the layout is not asked there. Read once.
+fn layout_read_leaves_key_state() -> bool {
+    static HONORED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *HONORED.get_or_init(|| {
+        let mut version = OSVERSIONINFOW {
+            dwOSVersionInfoSize: std::mem::size_of::<OSVERSIONINFOW>() as u32,
+            ..Default::default()
+        };
+        // SAFETY: a sized, writable version structure of this frame.
+        let status = unsafe { RtlGetVersion(&mut version) };
+        status.is_ok() && windows_build_honors_flag(version.dwMajorVersion, version.dwBuildNumber)
+    })
+}
+
+/// Whether a Windows of this major version and build honors `ToUnicodeEx`'s
+/// flag 4: Windows 10 from build 14393 on.
+const fn windows_build_honors_flag(major: u32, build: u32) -> bool {
+    major > 10 || (major == 10 && build >= 14393)
+}
+
+/// Whether typing key `vk` (scan code `scan_code`) is a dead key as pressed,
+/// with `modifiers` (Ctrl, Shift, Alt, Meta) held, on the keyboard layout of
+/// the foreground window's thread (`thread_id`): `None` where it is not known
+/// (no thread or layout, a key that is no typing key, an injected character,
+/// a shortcut modifier held, neither Shift nor AltGr held, a Windows that
+/// does not honor the flag below, or a key pressed while an accent is pending
+/// before the layout was asked about it, see below).
+///
+/// The layout is asked with `ToUnicodeEx` and its flag 4, which leaves the
+/// keyboard state as it is: measured on Windows 10 (19045) from a low-level
+/// keyboard hook, dead keys in the application typed into compose as with no
+/// call at all, where the same call with no flag breaks every one of them
+/// (docent#769).
+///
+/// The answer depends on an accent already pending, and the accent pending
+/// when the hook runs is the one the application has got to, not the one the
+/// keys pressed so far will leave. So the layout is asked only while nothing
+/// is pending ([`layout_has_no_accent_pending`], checked before and after),
+/// and its answer is kept for the layout ([`INPUT_DEAD_KEY_ANSWERS`]): what a
+/// key is with given modifiers is then the same at every press, however far
+/// behind the application is. CapsLock is no part of the question.
+///
+/// Called on the keyboard hook: three user32 reads until the layout has
+/// answered for a key with given modifiers and none after, no accessibility call,
+/// lock or allocation.
+unsafe fn foreground_dead_as_pressed(
+    vk: u32,
+    scan_code: u32,
+    modifiers: (bool, bool, bool, bool),
+    thread_id: u32,
+) -> Option<super::held_keys::AsPressed> {
+    let (ctrl, shift, alt, meta) = modifiers;
+    // Ctrl and Alt together are AltGr; either alone, or Meta, is a shortcut,
+    // which enters no text and is asked nothing.
+    if thread_id == 0
+        || meta
+        || ctrl != alt
+        || vk == super::worker_pool::VK_PACKET
+        || !super::worker_pool::is_typing_key_code(vk)
+        || !layout_read_leaves_key_state()
+    {
+        return None;
+    }
+    let alt_gr = ctrl && alt;
+    // A press with neither is the layout's own mark for the key, which the
+    // worker has already and which depends on nothing pending.
+    if !shift && !alt_gr {
+        return None;
+    }
+    let hkl = GetKeyboardLayout(thread_id);
+    let layout = hkl.0 as isize;
+    if let Some(kept) = INPUT_DEAD_KEY_ANSWERS.with(|a| a.borrow().get(layout, vk, shift, alt_gr)) {
+        return Some(kept);
+    }
+    let dead = dead_as_pressed(vk, scan_code, shift, alt_gr, hkl)?;
+    INPUT_DEAD_KEY_ANSWERS.with(|a| a.borrow_mut().learn(layout, vk, shift, alt_gr, dead));
+    Some(dead)
+}
+
+/// `ToUnicodeEx`: the keyboard state is not changed.
+const LEAVE_KEY_STATE: u32 = 4;
+
+/// Whether no accent of a dead key is pending for `hkl` right now: the layout
+/// answers Enter with the one carriage return. With an accent pending it
+/// answers with the accent as well, or with something else.
+unsafe fn layout_has_no_accent_pending(hkl: HKL) -> bool {
+    let state = [0u8; 256];
+    let mut entered = [0u16; 8];
+    let answer = ToUnicodeEx(
+        0x0D,
+        0x1C,
+        state.as_ptr(),
+        windows_core::PWSTR(entered.as_mut_ptr()),
+        entered.len() as i32,
+        LEAVE_KEY_STATE,
+        Some(hkl),
+    );
+    answer == 1 && entered[0] == 0x0D
+}
+
+/// What layout `hkl` answers for the key with Shift or AltGr held: whether it
+/// is a dead key, and the accent it names for one. `None` for no layout, and where an accent is pending before
+/// or after the question, since the answer then says what the key does to
+/// that accent and not what the key is.
+unsafe fn dead_as_pressed(
+    vk: u32,
+    scan_code: u32,
+    shift: bool,
+    alt_gr: bool,
+    hkl: HKL,
+) -> Option<super::held_keys::AsPressed> {
+    use super::held_keys::AsPressed;
+    if hkl.0.is_null() || !layout_has_no_accent_pending(hkl) {
+        return None;
+    }
+    let mut state = [0u8; 256];
+    if shift {
+        state[0x10] = 0x80;
+    }
+    if alt_gr {
+        state[0x11] = 0x80;
+        state[0x12] = 0x80;
+    }
+    let mut entered = [0u16; 8];
+    // A negative answer is a dead key, with its accent in the buffer.
+    let answer = ToUnicodeEx(
+        vk,
+        scan_code,
+        state.as_ptr(),
+        windows_core::PWSTR(entered.as_mut_ptr()),
+        entered.len() as i32,
+        LEAVE_KEY_STATE,
+        Some(hkl),
+    );
+    let read = if answer < 0 {
+        AsPressed::DeadKey { accent: entered[0] }
+    } else {
+        AsPressed::NoDeadKey
+    };
+    layout_has_no_accent_pending(hkl).then_some(read)
 }
 
 /// The character `vk` enters with no modifier on keyboard layout `hkl`, with
@@ -4192,7 +4482,93 @@ mod tests {
         }
     }
 
+    /// The Danish layout asked about a key as pressed: the acute key is dead
+    /// alone and with Shift (grave) and enters `|` with AltGr; the diaeresis
+    /// key is dead alone, with Shift (circumflex) and with AltGr (tilde); a
+    /// letter is none. Asking leaves the keyboard state as it is, so the same
+    /// question gets the same answer twice and no accent is pending after.
+    /// While an accent is pending the layout is not asked: its answer would
+    /// say what the key does to the accent (docent#769).
     #[test]
+    #[serial_test::serial(danish_layout)]
+    fn regression_769_the_danish_layout_says_which_keys_are_dead_as_pressed() {
+        if !super::layout_read_leaves_key_state() {
+            return; // a Windows before 10.0.14393: the layout is not asked
+        }
+        use crate::capture::held_keys::AsPressed;
+        let danish = LoadedLayout::load("00000406", 0x0406);
+        let acute = danish.vk_at(0x0D);
+        let diaeresis = danish.vk_at(0x1B);
+        let e = danish.vk_at(0x12);
+        let ask = |vk, scan, shift, alt_gr| {
+            // SAFETY: a read of a loaded layout's tables that leaves the key state.
+            unsafe { super::dead_as_pressed(vk, scan, shift, alt_gr, danish.hkl) }
+        };
+        let dead = |accent: char| {
+            Some(AsPressed::DeadKey {
+                accent: accent as u16,
+            })
+        };
+        for _ in 0..2 {
+            assert_eq!(ask(acute, 0x0D, false, false), dead('\u{b4}'));
+            assert_eq!(ask(acute, 0x0D, true, false), dead('\u{60}'));
+            assert_eq!(ask(acute, 0x0D, false, true), Some(AsPressed::NoDeadKey));
+            assert_eq!(ask(diaeresis, 0x1B, false, false), dead('\u{a8}'));
+            assert_eq!(ask(diaeresis, 0x1B, true, false), dead('\u{5e}'));
+            assert_eq!(ask(diaeresis, 0x1B, false, true), dead('\u{7e}'));
+            assert_eq!(ask(e, 0x12, false, false), Some(AsPressed::NoDeadKey));
+        }
+        // SAFETY: reads of a loaded layout's tables.
+        assert!(unsafe { super::layout_has_no_accent_pending(danish.hkl) });
+        assert_eq!(
+            unsafe { super::dead_as_pressed(acute, 0x0D, false, false, HKL(std::ptr::null_mut())) },
+            None
+        );
+
+        // An accent made pending (the same read with no flag takes the key
+        // into the keyboard state): nothing is answered until it is gone.
+        let state = [0u8; 256];
+        let mut entered = [0u16; 8];
+        let press = |vk, scan, entered: &mut [u16; 8]| {
+            // SAFETY: a keyboard-state read of this thread; the accent it
+            // leaves pending is taken out again below.
+            unsafe {
+                super::ToUnicodeEx(
+                    vk,
+                    scan,
+                    state.as_ptr(),
+                    windows_core::PWSTR(entered.as_mut_ptr()),
+                    8,
+                    0,
+                    Some(danish.hkl),
+                )
+            }
+        };
+        assert!(
+            press(acute, 0x0D, &mut entered) < 0,
+            "the acute key is dead"
+        );
+        let pending = unsafe { super::layout_has_no_accent_pending(danish.hkl) };
+        let answered = ask(e, 0x12, false, false);
+        // Enter takes the accent out again, whatever the asserts below find.
+        press(0x0D, 0x1C, &mut entered);
+        assert!(!pending, "an accent is pending after the dead key");
+        assert_eq!(answered, None, "the layout is not asked while one is");
+        assert!(unsafe { super::layout_has_no_accent_pending(danish.hkl) });
+        assert_eq!(ask(e, 0x12, false, false), Some(AsPressed::NoDeadKey));
+    }
+
+    #[test]
+    fn regression_769_the_layout_is_asked_only_where_windows_leaves_the_key_state() {
+        assert!(!super::windows_build_honors_flag(6, 9600));
+        assert!(!super::windows_build_honors_flag(10, 10586));
+        assert!(super::windows_build_honors_flag(10, 14393));
+        assert!(super::windows_build_honors_flag(10, 19045));
+        assert!(super::windows_build_honors_flag(11, 0));
+    }
+
+    #[test]
+    #[serial_test::serial(danish_layout)]
     fn layout_char_reads_what_the_danish_layout_gives_a_punctuation_key() {
         let danish = LoadedLayout::load("00000406", 0x0406);
         // VK_OEM_PLUS, the key right of 0, enters `+` (`=` on the US layout).
@@ -4373,6 +4749,10 @@ mod tests {
         RawEventType, CLICK_IS_MIDDLE_BUTTON, DRAG_THRESHOLD_PX, HWND, INPUT_INCLUDED_PID,
         INPUT_PID_CACHE, POINT, WM_LBUTTONDOWN, WM_MBUTTONDOWN, WM_MOUSEWHEEL, WM_RBUTTONDOWN,
     };
+    use super::{
+        input_dropped_window_event, BridgeMessage, EVENT_OBJECT_FOCUS, EVENT_OBJECT_VALUECHANGE,
+        EVENT_SYSTEM_FOREGROUND, INPUT_RAW_SENDER,
+    };
     use std::cell::{Cell, RefCell};
     use std::collections::HashMap;
 
@@ -4381,6 +4761,23 @@ mod tests {
     const OTHER_APP: u32 = 777; // some other running application
     const DOCENT: u32 = 1001; // Docent's own process (the excluded one)
     const DIALOG_HOST: u32 = 2002; // the process hosting a dialog Docent opened
+
+    /// A dropped window that comes to the front tells the pool that the
+    /// typing has ended, and sends no event of that window; its other window
+    /// events tell the pool nothing (docent#768).
+    #[test]
+    fn regression_768_a_dropped_window_that_comes_to_the_front_ends_the_typing() {
+        let (tx, rx) = std::sync::mpsc::channel::<BridgeMessage>();
+        INPUT_RAW_SENDER.with(|s| *s.borrow_mut() = Some(tx));
+        input_dropped_window_event(EVENT_SYSTEM_FOREGROUND as u32);
+        assert!(matches!(rx.try_recv(), Ok(BridgeMessage::TypingEnded)));
+        assert!(rx.try_recv().is_err(), "one message only");
+        for other in [EVENT_OBJECT_FOCUS as u32, EVENT_OBJECT_VALUECHANGE as u32] {
+            input_dropped_window_event(other);
+            assert!(rx.try_recv().is_err(), "event {other:#x}");
+        }
+        INPUT_RAW_SENDER.with(|s| *s.borrow_mut() = None);
+    }
 
     /// A verdict cache for one capture session's worth of events, plus a count
     /// of the owner lookups the decision spent against it.
@@ -4943,6 +5340,7 @@ mod tests {
                 },
                 repeat: false,
                 code: None,
+                input_method: Default::default(),
                 held: crate::capture::HeldKeysAtAction::default(),
                 element: ElementDescription {
                     tag: "Edit".to_string(),

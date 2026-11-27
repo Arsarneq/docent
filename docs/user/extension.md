@@ -163,7 +163,7 @@ A sync can instead halt:
 After a sync, rows that need a decision carry a badge:
 
 - **Review**: the server changed (or deleted) something you have not touched. You choose whether to apply it.
-- **Conflict**: the same recording or project changed on both sides. You choose which version to keep. A project whose name and metadata this client and the server have not yet agreed on counts as changed on the side that still holds it when the other side deletes it (sync protocol [SP-11](../api/sync-protocol.md#what-causes-a-conflict-that-must-be-resolved)).
+- **Conflict**: the same recording or project changed on both sides. You choose which version to keep. A project whose name and metadata this client and the server have not yet agreed on counts as changed on the side that still holds it when the other side deletes it (sync protocol [SP-10](../api/sync-protocol.md#reconcile-phase)).
 
 A recording row in the project view shows its own badge, and so does a project row. A project row also shows one rolled-up badge per kind when any of its recordings needs attention. Selecting a rolled-up badge opens the project to show the marked recordings. Selecting any other badge opens the resolution view, where **Back** leaves the item unresolved and keeps the badge.
 

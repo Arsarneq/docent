@@ -35,11 +35,12 @@ inventoried, with its local command, in
 [the lint table](ci.md#the-lint-and-freshness-gates), which
 is the one home of that list. In short:
 
-| When you          | You                                                                                                                        | Held by                                                                  |
-| ----------------- | -------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| Add or move a doc | Link it from the documentation map and give it a home in the area map                                                      | `lint:links`, `lint:reachability`, `lint:area-map`                       |
-| Add a code file   | Make it resolve to an area of the area map, in the same PR                                                                 | `lint:area-map`                                                          |
-| Mint a clause     | Mark it with a stable id, give it a registry row, state the preamble, and keep the paths its row cites governed by its doc | `lint:clause-registry`, `lint:clause-preamble`, `lint:clause-governance` |
+| When you                 | You                                                                                                                                    | Held by                                                                  |
+| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| Add or move a doc        | Link it from the documentation map and give it a home in the area map                                                                  | `lint:links`, `lint:reachability`, `lint:area-map`                       |
+| Add a code file          | Make it resolve to an area of the area map, in the same PR                                                                             | `lint:area-map`                                                          |
+| Mint a clause            | Mark it with a stable id, give it a registry row, state the preamble, and keep the paths its row cites governed by its doc             | `lint:clause-registry`, `lint:clause-preamble`, `lint:clause-governance` |
+| Write or change a clause | State a rule in one clause and cite that clause from any other, and keep each paragraph, list item and table row within the word limit | `lint:clause-form`                                                       |
 
 The detail for each:
 
@@ -106,6 +107,12 @@ The detail for each:
   - **Meaning and justification.** A clause's meaning lives in the doctrine
     text; a row's justification states how compliance is verified and why no
     check decides it, never the clause's meaning.
+  - **One home and unit length.** `lint:clause-form` checks the rules below as far as a check can read them. The [lint table](ci.md#the-lint-and-freshness-gates) states what it reds on, what it does not see, and where its list of admitted cases lives. What it does not see is a review judgment.
+    - A rule is stated in one clause. Another clause that needs it cites that clause by its id.
+    - Within a document, a departure or an open case is linked to its issue from one clause. A case that holds on two platforms is linked once in each platform's document, on that platform's exception list.
+    - A sentence two platform documents both need is stated in the cross-platform clause, and each platform clause cites that clause.
+    - A paragraph, a list item or a table row holds at most 150 words. A longer one is split into paragraphs or a list. The limit is on one unit, never on how much a clause or a document says.
+    - A red is fixed in the clause. No entry is added to the list of admitted cases.
   - **Lists.** A list inside a clause's scope — bulleted, numbered, a table's
     rows, or an inline series of three or more members of one set — states
     whether it is closed.
