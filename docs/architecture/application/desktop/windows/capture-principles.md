@@ -648,8 +648,8 @@ Which worker an event reaches, and how the typing and focus workers are chosen, 
   [session format](../../../../technical/session-format.md#key-names) lists
   the cases under Key names. The key is named from nothing else, since a
   name taken from its key code would guess the character and its case.
-- The key pressed behind a dead key is named by what Windows' own
-  translation of the keys makes of the two
+- The key pressed behind a dead key in the same thread of a program is named
+  by what Windows' own translation of the keys makes of the two
   ([session format](../../../../technical/session-format.md#key-names), Key
   names), where the extension writes what the browser entered. The two differ
   in these cases; each is a departure (core CP-19; [docent#829](https://github.com/Arsarneq/docent/issues/829)):
@@ -664,6 +664,15 @@ Which worker an event reaches, and how the typing and focus workers are chosen, 
     - after a key-down the typing worker lost (its processing failed), and
       for a worker that takes the typing over from one that stopped
       answering or ended;
+    - after a dead key, for a key pressed in a window of another thread, and
+      from then on for the first key an accent would rename in each thread,
+      until the thread the dead key was pressed in has had one. Programs
+      differ in whether an accent begun in one window is used in another:
+      on a Windows PC, Notepad used an accent begun in another program's
+      window, and Calculator neither used one nor handed its own on
+      ([docent#836](https://github.com/Arsarneq/docent/issues/836)). The
+      desktop cannot read which a program does. The thread is that of the
+      foreground window at the key-down;
     - after a key the system can act on itself, pressed behind an accent
       (a key with the Windows key held, Ctrl with Escape, Alt with Tab or
       Escape): the system takes it or hands it to the program, the desktop
