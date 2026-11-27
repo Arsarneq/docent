@@ -154,10 +154,10 @@ test('typing in Notepad and closing it unsaved exports exactly those actions', a
   // else, and no close: Notepad was open before the recording (DCP-7, DCP-13).
   // A switch back is the activation the system gives Notepad's main window, a
   // context the recording introduced (DCP-7), and passed the target filter
-  // (DCP-5): it names Notepad's process, by name or by its id, and the
-  // window's title, which is never empty (session-format, context_switch). A
-  // focus is in the context the last switch entered.
-  let current = ctxB;
+  // (DCP-5): it names Notepad's process, by name or by its id
+  // (session-format, context_switch), and carries the main window's title,
+  // which Notepad never leaves empty. A focus is in the context of its
+  // element's window (DCP-7), so in one of Notepad's two windows.
   for (const a of actions.slice(answer + 1)) {
     expect(['context_switch', 'focus'], `after the answer: ${a.type}`).toContain(a.type);
     if (a.type === 'context_switch') {
@@ -166,9 +166,8 @@ test('typing in Notepad and closing it unsaved exports exactly those actions', a
         a.source,
       );
       expect(typeof a.title === 'string' && a.title.length > 0, `title ${a.title}`).toBe(true);
-      current = a.context_id;
     } else {
-      expect(a.context_id, 'a focus after the answer').toBe(current);
+      expect([ctxA, ctxB], 'a focus after the answer').toContain(a.context_id);
     }
   }
 
