@@ -11,7 +11,7 @@ This area is documentation _about_ the suites: what each covers and the doctrine
 - [Test strategy — mutation testing](strategy/mutation.md): the weekly mutation-score signal (Stryker for JavaScript, cargo-mutants for Rust), what is mutated and why, and the ratchet-not-fixed-bar thresholds.
 - [Unit tests — JavaScript](unit.md): the shared, desktop, and extension unit trees, with what each suite covers, file by file, and the discovery shape they share.
 - [End-to-end tests — extension](e2e.md): the extension's Playwright suite (real Chrome, real input), covering the capture specs plus the panel, service-worker, and sync flows, and the harness contract they run under (frame readiness, one-worker serialization, retries, settle waits).
-- [End-to-end tests — desktop](e2e/desktop.md): the desktop app's suite on Windows: the built app, its panel driven over WebView2's DevTools port, other programs and dialogs given real keyboard input, and the file it exports.
+- [End-to-end tests — desktop](e2e/desktop.md): the desktop app's suite on Windows: the built app, its panel driven over WebView2's DevTools port, other programs and dialogs given real keyboard and mouse input, and the file it exports.
 - [Desktop Rust tests](desktop-rust.md): the Tauri crate's cargo suite, covering the in-module unit tests, the test binaries (property tests included), the real-input integration suite, and how each test classifies itself for CI.
 - [Desktop integration tests](integration/desktop.md): the Playwright suite that drives the built desktop frontend against a mocked Tauri backend.
 - [Manual tests — extension](manual/extension.md): the retired manual capture scenarios, each mapped to the automated test that replaced it.
