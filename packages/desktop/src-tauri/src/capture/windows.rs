@@ -1230,6 +1230,7 @@ fn input_thread_main(
     // --- Store thread-local state for hook callbacks ---
     INPUT_RAW_SENDER.with(|s| *s.borrow_mut() = Some(raw_tx));
     INPUT_SEQUENCE_COUNTER.with(|c| *c.borrow_mut() = Some(sequence_counter));
+    CONTEXTS_INTRODUCED_AT.clear();
     INPUT_ACTIVE.with(|a| *a.borrow_mut() = Some(active.clone()));
     INPUT_EXCLUDED_PID.with(|p| *p.borrow_mut() = Some(excluded_pid));
     INPUT_INCLUDED_PID.with(|p| *p.borrow_mut() = Some(included_pid));
@@ -1381,6 +1382,7 @@ fn input_thread_main(
     INPUT_FLUSH_REQUESTS.with(|q| *q.borrow_mut() = None);
     INPUT_FOREGROUND_PID.with(|p| p.set(0));
     INPUT_CONTEXTS.with(|c| *c.borrow_mut() = Default::default());
+    CONTEXTS_INTRODUCED_AT.clear();
     INPUT_MOUSE_DOWN_POS.with(|p| p.set(None));
     INPUT_OPENED_WINDOWS.with(|s| s.borrow_mut().clear());
     INPUT_PID_CACHE.with(|c| c.borrow_mut().clear());
@@ -1413,6 +1415,13 @@ static FOCUS_EPOCH: AtomicU64 = AtomicU64::new(1);
 /// Process-wide, so the workers read it directly.
 static FOCUS_EVENTS_DISPATCHED: AtomicU64 = AtomicU64::new(0);
 
+/// The number of the event that introduced each context of the capture
+/// session (`AccessibilityBackend::context_introduced_before`, docent#817).
+/// Noted on the Input_Thread as it dispatches; process-wide, so the workers
+/// read it directly. Cleared when the Input_Thread starts and stops.
+static CONTEXTS_INTRODUCED_AT: super::worker_pool::ContextsIntroducedAt =
+    super::worker_pool::ContextsIntroducedAt::new();
+
 /// The key presses the Input_Thread dispatched, numbered per window
 /// (`AccessibilityBackend::keys_dispatched`, docent#761). Process-wide, so the
 /// workers read it directly.
@@ -1441,18 +1450,28 @@ fn focus_epoch_advance_by_person() {
 fn input_dispatch_raw_event(event: RawEvent) {
     let root = input_root_of(event.window_handle);
     let foreground_root = input_root_of(unsafe { GetForegroundWindow() }.0 as i64);
-    if INPUT_CONTEXTS.with(|c| c.borrow_mut().switch_before(&event, root, foreground_root)) {
-        let mut process_id: u32 = 0;
-        unsafe { GetWindowThreadProcessId(HWND(root as *mut _), Some(&mut process_id)) };
-        input_send_raw_event(super::worker_pool::switch_before_event(
-            &event,
-            root,
-            foreground_root,
-            process_id,
-            input_window_title(HWND(root as *mut _)),
-        ));
+    let switch =
+        if INPUT_CONTEXTS.with(|c| c.borrow_mut().switch_before(&event, root, foreground_root)) {
+            let mut process_id: u32 = 0;
+            unsafe { GetWindowThreadProcessId(HWND(root as *mut _), Some(&mut process_id)) };
+            Some(input_send_raw_event(
+                super::worker_pool::switch_before_event(
+                    &event,
+                    root,
+                    foreground_root,
+                    process_id,
+                    input_window_title(HWND(root as *mut _)),
+                ),
+            ))
+        } else {
+            None
+        };
+    let sequence_id = input_send_raw_event(event);
+    // The switch, or else the event, introduced `root` where it is
+    // introduced now; a note of a later event leaves the earlier one.
+    if INPUT_CONTEXTS.with(|c| c.borrow().is_introduced(root)) {
+        CONTEXTS_INTRODUCED_AT.note(root, switch.unwrap_or(sequence_id));
     }
-    input_send_raw_event(event);
 }
 
 /// The title of `hwnd` as the system holds it, read on the Input_Thread with
@@ -1480,8 +1499,9 @@ fn input_root_of(window_handle: i64) -> i64 {
     }
 }
 
-/// Assign a sequence ID and send a `RawEvent` to the bridge thread.
-fn input_send_raw_event(mut event: RawEvent) {
+/// Assign a sequence ID and send a `RawEvent` to the bridge thread; the ID
+/// assigned.
+fn input_send_raw_event(mut event: RawEvent) -> u64 {
     event.focus_epoch = FOCUS_EPOCH.load(Ordering::SeqCst);
     // Assign monotonic sequence ID.
     let seq_id = INPUT_SEQUENCE_COUNTER.with(|c| {
@@ -1500,6 +1520,7 @@ fn input_send_raw_event(mut event: RawEvent) {
             let _ = sender.send(BridgeMessage::Event(Box::new(event)));
         }
     });
+    seq_id
 }
 
 /// What the Input_Thread does with a window event the scope filters drop:
@@ -4148,6 +4169,10 @@ impl AccessibilityBackend for WindowsAccessibilityBackend {
 
     fn focus_events_dispatched(&self) -> u64 {
         FOCUS_EVENTS_DISPATCHED.load(Ordering::SeqCst)
+    }
+
+    fn context_introduced_before(&self, window: i64, sequence_id: u64) -> bool {
+        CONTEXTS_INTRODUCED_AT.introduced_before(window, sequence_id)
     }
 
     fn keys_dispatched(&self, window: i64) -> u64 {

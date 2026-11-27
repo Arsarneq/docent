@@ -256,9 +256,14 @@ description resolved it:
 | Another window of the event's process                                 | In that window's context, with its rectangle                     |
 | Another window of another process, or of a process that can't be read | Not at all: the scope filters (DCP-5) judged the event's process |
 
-The Input_Thread introduces the event's window, not the element's (above), so a
-focus recorded in a window the session introduced no other way has no
-`context_switch` before it.
+The Input_Thread introduces the event's window, not the element's (above). It
+keeps the number of the event that introduced each context, and where no event
+dispatched before the focus introduced the element's window, the worker writes
+a `context_switch` into that window before the focus, at the focus's place in
+the recording, named and titled as the window reads when the focus is
+described. That switch is written once per window by the focus worker; an
+activation of the window dispatched after the focus is written as well, so a
+second switch into the same window can follow.
 
 **DCP-8.** **Window-scoping:** Value changes and selections are only
 correlated with input from the same root window — value changes against the keyboard input's

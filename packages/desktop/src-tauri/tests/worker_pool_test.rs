@@ -438,7 +438,8 @@ use std::time::Duration;
 
 use docent_desktop_lib::capture::worker_pool::{
     focus_names_a_part, key_number_param, worker_loop, AccessibilityBackend, ContextIntroductions,
-    ControlLook, ControlNature, PartFocusNote, PendingBuffers, FOCUS_EPOCH_PERSON_STEP,
+    ContextsIntroducedAt, ControlLook, ControlNature, PartFocusNote, PendingBuffers,
+    FOCUS_EPOCH_PERSON_STEP,
 };
 use docent_desktop_lib::capture::{
     ActionPayload, CaptureError, CaptureMode, ElementDescription, Modifiers,
@@ -8086,10 +8087,15 @@ fn an_action_after_a_switch_is_not_the_sessions_first_context() {
 /// A backend whose focused element is in `window` (0: the description
 /// resolved none), with a rectangle of its own for every window handle. Every
 /// window belongs to process 1, the process the test focus events come from,
-/// except `window` itself, which belongs to `window_process`.
+/// except `window` itself, which belongs to `window_process`. `window`'s
+/// context was introduced by the event numbered `window_introduced_at`, none
+/// where `None`; every other window's before any test event.
 struct FocusWindowBackend {
     window: i64,
     window_process: u32,
+    window_introduced_at: Option<u64>,
+    /// The focused element's selector.
+    selector: Arc<Mutex<String>>,
 }
 
 /// The process every test focus event comes from (`make_raw_event`).
@@ -8115,7 +8121,7 @@ impl AccessibilityBackend for FocusWindowBackend {
     fn focused_element(&self) -> Option<ElementDescription> {
         Some(scene_element(
             "Document",
-            "Notepad > Document:Text editor",
+            &self.selector.lock().unwrap(),
             None,
         ))
     }
@@ -8147,6 +8153,13 @@ impl AccessibilityBackend for FocusWindowBackend {
             EVENT_PROCESS
         }
     }
+    fn context_introduced_before(&self, window_handle: i64, sequence_id: u64) -> bool {
+        if window_handle == self.window {
+            self.window_introduced_at.is_some_and(|at| at < sequence_id)
+        } else {
+            true
+        }
+    }
 }
 
 /// The context and rectangle of the focus written for one focus event named
@@ -8167,6 +8180,8 @@ fn focus_written_with_element_in_process(
     let harness = WorkerTestHarness::new(FocusWindowBackend {
         window,
         window_process,
+        window_introduced_at: Some(0),
+        selector: Arc::new(Mutex::new("Notepad > Document:Text editor".to_string())),
     });
     let mut focus = make_raw_event(RawEventType::Focus, DIALOG);
     focus.sequence_id = 1;
@@ -8231,6 +8246,141 @@ fn a_focus_whose_element_is_in_another_process_s_window_writes_nothing() {
 #[test]
 fn a_focus_whose_element_s_window_has_no_readable_process_writes_nothing() {
     assert_eq!(focus_written_with_element_in_process(NOTEPAD, 0), vec![]);
+}
+
+/// What is written, as (kind, context), for one focus event named `DIALOG`
+/// and numbered 5, with the focused element in `NOTEPAD` of the event's own
+/// process, whose context was introduced by the event numbered
+/// `notepad_introduced_at` (`None`: by no event).
+fn written_for_focus_into_notepad_introduced_at(
+    notepad_introduced_at: Option<u64>,
+) -> Vec<(&'static str, Option<i64>)> {
+    let harness = WorkerTestHarness::new(FocusWindowBackend {
+        window: NOTEPAD,
+        window_process: EVENT_PROCESS,
+        window_introduced_at: notepad_introduced_at,
+        selector: Arc::new(Mutex::new("Notepad > Document:Text editor".to_string())),
+    });
+    let mut focus = make_raw_event(RawEventType::Focus, DIALOG);
+    focus.sequence_id = 5;
+    harness.send_event(focus);
+    thread::sleep(Duration::from_millis(100));
+    harness
+        .shutdown()
+        .into_iter()
+        .filter_map(|e| match e.payload {
+            ActionPayload::Focus { .. } => Some(("focus", e.context_id)),
+            ActionPayload::ContextSwitch { .. } => Some(("context_switch", e.context_id)),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Regression for docent#817: a focus is recorded in the window its element
+/// is in (docent#709), and the Input_Thread introduces the window the focus
+/// event named, not that one. Where no switch or open dispatched before the
+/// focus introduced the element's window, the focus is the first action in
+/// its context, and a `context_switch` into it is written before it (core
+/// CP-17, session-format SF-10).
+/// https://github.com/Arsarneq/docent/issues/817
+#[test]
+fn regression_817_a_focus_in_a_window_no_event_before_it_introduced_is_preceded_by_a_switch() {
+    let switch_then_focus = vec![("context_switch", Some(NOTEPAD)), ("focus", Some(NOTEPAD))];
+    // Introduced by no event.
+    assert_eq!(
+        written_for_focus_into_notepad_introduced_at(None),
+        switch_then_focus
+    );
+    // Introduced only by an event dispatched after the focus (the activation
+    // the dialog's closing caused, say), which the recording holds after it.
+    assert_eq!(
+        written_for_focus_into_notepad_introduced_at(Some(6)),
+        switch_then_focus
+    );
+}
+
+/// A second focus in a window no event introduced, on another element, takes
+/// no second switch: the first focus's switch introduced the window.
+#[test]
+fn a_second_focus_in_a_window_a_focus_introduced_takes_no_second_switch() {
+    let selector = Arc::new(Mutex::new(String::new()));
+    let harness = WorkerTestHarness::new(FocusWindowBackend {
+        window: NOTEPAD,
+        window_process: EVENT_PROCESS,
+        window_introduced_at: None,
+        selector: selector.clone(),
+    });
+    for (sequence_id, element) in [
+        (5, "Notepad > Document:Text editor"),
+        (7, "Notepad > Edit:Find"),
+    ] {
+        *selector.lock().unwrap() = element.to_string();
+        let mut focus = make_raw_event(RawEventType::Focus, DIALOG);
+        focus.sequence_id = sequence_id;
+        harness.send_event(focus);
+        thread::sleep(Duration::from_millis(100));
+    }
+    let written: Vec<(&str, Option<i64>)> = harness
+        .shutdown()
+        .into_iter()
+        .filter_map(|e| match e.payload {
+            ActionPayload::Focus { .. } => Some(("focus", e.context_id)),
+            ActionPayload::ContextSwitch { .. } => Some(("context_switch", e.context_id)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        written,
+        vec![
+            ("context_switch", Some(NOTEPAD)),
+            ("focus", Some(NOTEPAD)),
+            ("focus", Some(NOTEPAD)),
+        ]
+    );
+}
+
+/// The Input_Thread's record of when each context was introduced keeps the
+/// earliest event that introduced it, and a context counts as introduced
+/// before an event only by an event dispatched earlier.
+#[test]
+fn a_context_is_introduced_before_an_event_by_the_earliest_event_that_introduced_it() {
+    let record = ContextsIntroducedAt::default();
+    assert!(!record.introduced_before(NOTEPAD, 10));
+    record.note(NOTEPAD, 4);
+    record.note(NOTEPAD, 9);
+    assert!(!record.introduced_before(NOTEPAD, 4));
+    assert!(record.introduced_before(NOTEPAD, 5));
+    assert!(!record.introduced_before(DIALOG, 5));
+    // A new capture session starts with none introduced.
+    record.clear();
+    assert!(!record.introduced_before(NOTEPAD, 5));
+}
+
+/// What the Input_Thread notes of a context it introduces: `is_introduced`
+/// tells whether `ContextIntroductions` has introduced a window, which it does
+/// with the window's first switch, open or action, and not with a close.
+#[test]
+fn a_window_is_introduced_by_its_first_switch_open_or_action() {
+    let mut contexts = ContextIntroductions::default();
+    assert!(!contexts.is_introduced(NOTEPAD));
+    contexts.switch_before(&key_in(NOTEPAD, 0x41), NOTEPAD, NOTEPAD);
+    assert!(contexts.is_introduced(NOTEPAD));
+    let close = event_in(RawEventType::WindowDestroy, DIALOG, 0, NO_MODIFIERS);
+    contexts.switch_before(&close, DIALOG, NOTEPAD);
+    assert!(!contexts.is_introduced(DIALOG));
+    let open = event_in(RawEventType::WindowCreate, DIALOG, 0, NO_MODIFIERS);
+    contexts.switch_before(&open, DIALOG, NOTEPAD);
+    assert!(contexts.is_introduced(DIALOG));
+}
+
+/// A focus in another window of its process that an event before it
+/// introduced takes no switch.
+#[test]
+fn a_focus_in_a_window_introduced_before_it_takes_no_switch() {
+    assert_eq!(
+        written_for_focus_into_notepad_introduced_at(Some(4)),
+        vec![("focus", Some(NOTEPAD))]
+    );
 }
 
 /// A right or middle press into an inactive window not introduced yet writes
