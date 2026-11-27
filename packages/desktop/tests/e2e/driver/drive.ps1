@@ -10,15 +10,11 @@
 # the steps did not name. The check is per op: the keys of one op follow a
 # single check, so a window that takes the foreground in the middle of a long
 # "chars" step gets the rest of it. Every event goes to the log with a timestamp.
-# Mouse steps ("click", "move") go to a screen point or to a UI Automation
-# element of the guard's process; their guard is the window under the point.
-# After every pointer move the driver reads the pointer back, so input that
-# Windows accepts and then drops stops the run instead of passing silently.
+# Mouse steps go to the point or element README.md (section Steps file)
+# describes; after every pointer move the driver reads the pointer back, so
+# input that Windows accepts and then drops stops the run.
 #
-# Exit: 0 done · 2 the planner refused the steps · 3 a window did not match
-# the guard (nothing more is sent) · 4 a character is not on the window's
-# keyboard layout, or Windows refused or dropped the input · 5 a mouse step's
-# element was not found, or several matched and no index picked one.
+# Exit codes: README.md, section Running it.
 
 param(
   [Parameter(Mandatory = $true)][string]$Steps,
@@ -207,6 +203,29 @@ public static class Win32Find {
       RECT r; if (GetMenuItemRect(h, m, i, out r) && r.R > r.L && r.B > r.T) found.Add(Box(r));
     }
   }
+  // For the log of a target that was not found: the child windows (control
+  // id, class) and the menu texts the Win32 search looks through, at most max.
+  public static System.Collections.Generic.List<string> Describe(IntPtr top, int max) {
+    var lines = new System.Collections.Generic.List<string>();
+    EnumChildWindows(top, (h, l) => {
+      if (lines.Count < max) lines.Add("child id=" + GetDlgCtrlID(h) + " class=" + ClassOf(h) + " visible=" + IsWindowVisible(h));
+      return true;
+    }, IntPtr.Zero);
+    uint pid; GetWindowThreadProcessId(top, out pid);
+    var menus = new System.Collections.Generic.List<IntPtr[]>();
+    menus.Add(new IntPtr[] { top, GetMenu(top) });
+    EnumWindows((h, l) => {
+      uint p; GetWindowThreadProcessId(h, out p);
+      if (p == pid && IsWindowVisible(h) && ClassOf(h) == "#32768") menus.Add(new IntPtr[] { h, SendMessage(h, 0x01E1, IntPtr.Zero, IntPtr.Zero) });
+      return true;
+    }, IntPtr.Zero);
+    foreach (var hm in menus) {
+      if (hm[1] == IntPtr.Zero) continue;
+      int n = GetMenuItemCount(hm[1]);
+      for (uint i = 0; i < n && lines.Count < max; i++) lines.Add("menu of " + hm[0] + " item " + i + " '" + ItemText(hm[1], i) + "'");
+    }
+    return lines;
+  }
   // Menu items by their shown text: in the menu bar of a top-level window,
   // and in every open pop-up menu of the same process.
   public static System.Collections.Generic.List<int[]> MenuItems(IntPtr top, string name) {
@@ -239,8 +258,8 @@ function Test-Guard($e, $w) {
 }
 
 # The screen point of a mouse step: the point itself, or the middle of the
-# one UI Automation element the target names, looked for in the windows of
-# the guard's process for up to two seconds (a menu takes a moment to open).
+# one element the target names (README.md, section Steps file), polled for
+# up to two seconds since a menu takes a moment to open.
 function Resolve-Target($e) {
   $t = $e.target
   if ($null -ne $t.x) { return @([int]$t.x, [int]$t.y) }
@@ -256,9 +275,9 @@ function Resolve-Target($e) {
   $deadline = (Get-Date).AddMilliseconds(2000)
   $found = @()
   $script:readErrors = 0; $script:lastReadError = ''
-  $via = 'uia'
   do {
     $found = @()
+    $via = 'uia'
     $tops = @()
     foreach ($root in $AE::RootElement.FindAll([System.Windows.Automation.TreeScope]::Children, [System.Windows.Automation.Condition]::TrueCondition)) {
       try {
@@ -283,7 +302,7 @@ function Resolve-Target($e) {
   } while ((Get-Date) -lt $deadline)
   if ($found.Count -eq 0 -or $pick -ge $found.Count -or ($found.Count -gt 1 -and $null -eq $t.index)) {
     Write-Log "target ${what}: $($found.Count) match(es); stopped"
-    Write-TargetContext $e $AE
+    Write-TargetContext $e $AE $tops
     Write-Host "input-driver: $what matched $($found.Count) element(s) in the guard's windows; a mouse step needs exactly one, or an index"
     exit 5
   }
@@ -304,14 +323,15 @@ function Assert-Under($e, $x, $y) {
   return $w
 }
 
-# .NET's UI Automation client reads classic Win32 controls (an edit box, a
-# menu) only through its client-side providers; without them such a control
-# is a bare Pane with no name, and a menu's items are not there at all. The
-# providers are registered once, before the first search.
+# .NET's UI Automation client reads classic Win32 controls only through its
+# client-side providers. They are registered once, before the first search,
+# where they load; where they do not (README.md, Limits), the Win32 search
+# below still finds edit boxes, buttons and menu items.
 function Initialize-Uia {
   if ($script:uiaReady) { return }
-  Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes, UIAutomationClientsideProviders
+  Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
   try {
+    Add-Type -AssemblyName UIAutomationClientsideProviders
     $table = [UIAutomationClientsideProviders.UIAutomationClientSideProviders]::ClientSideProviderDescriptionTable
     [System.Windows.Automation.ClientSettings]::RegisterClientSideProviders($table)
     Write-Log "uia client-side providers registered: $($table.Count)"
@@ -319,11 +339,9 @@ function Initialize-Uia {
   $script:uiaReady = $true
 }
 
-# The Win32 search, for classic controls that UI Automation shows only as
-# bare panes: a numeric id is a control id (with control Edit or Button, of
-# that window class), and a name with control MenuItem is a menu item's shown
-# text, in a window's menu bar or an open pop-up menu of its process. Other
-# targets have no Win32 form. Returns rectangles with X, Y, Width, Height.
+# The Win32 search of README.md's element table, for classic controls that
+# UI Automation shows only as bare panes. Returns rectangles with X, Y,
+# Width, Height.
 function Find-Win32($t, $tops) {
   $boxes = @()
   if ($t.id -and ($t.id -match '^[0-9]+$') -and (-not $t.control -or $t.control -in @('Edit', 'Button'))) {
@@ -344,7 +362,7 @@ function Find-Win32($t, $tops) {
 
 # For a target that was not found: which top-level windows the guard took,
 # and the first elements under each, so the log shows what the search saw.
-function Write-TargetContext($e, $AE) {
+function Write-TargetContext($e, $AE, $tops) {
   if ($script:readErrors -gt 0) { Write-Log "  read errors: $($script:readErrors), last: $($script:lastReadError)" }
   $all = $AE::RootElement.FindAll([System.Windows.Automation.TreeScope]::Children, [System.Windows.Automation.Condition]::TrueCondition)
   Write-Log "  top-level windows: $($all.Count)"
@@ -362,6 +380,10 @@ function Write-TargetContext($e, $AE) {
         if ($n -ge 40) { Write-Log '    ...'; break }
       }
     } catch { Write-Log "  window read error: $($_.Exception.Message)" }
+  }
+  # What the Win32 search saw in the same windows: child controls and menu texts.
+  foreach ($h in $tops) {
+    foreach ($line in [Win32Find]::Describe($h, 40)) { Write-Log "  win32 $line" }
   }
 }
 

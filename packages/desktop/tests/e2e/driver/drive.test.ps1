@@ -4,7 +4,7 @@
 #
 # Opens its own small window with one text box (title "input-driver-test"), drives
 # real input into it with drive.ps1, and reads back what the box holds when the
-# window closes. The window also has a Win32 menu bar (Tools, Add M, which
+# window closes, and clicks Notepad's edit box by its control id. The window also has a Win32 menu bar (Tools, Add M, which
 # writes M into the box), for the menu case, and a button, "click-me", that writes L into
 # the box on a left click and R on a right click, for the mouse case. Takes
 # over the keyboard and the mouse for about half a minute: run it only
@@ -26,8 +26,22 @@ $layout = [System.Windows.Forms.InputLanguage]::CurrentInputLanguage.LayoutName
 $danish = ($layout -eq 'Danish')
 $script:fails = 0
 
+# A failed check prints the tail of the last driver call's log, so a red
+# case in CI shows what the driver saw.
 function Say($ok, $what, $detail) {
-  if ($ok) { Write-Host "PASS: $what" } else { Write-Host "FAIL: $what $detail"; $script:fails++ }
+  if ($ok) { Write-Host "PASS: $what"; return }
+  Write-Host "FAIL: $what $detail"; $script:fails++
+  if ($script:lastLog -and (Test-Path $script:lastLog)) { Get-Content $script:lastLog -Tail 12 | ForEach-Object { Write-Host "  log: $_" } }
+}
+
+# Which search found an element: on a machine whose UI Automation client
+# has no client-side providers, a classic control is found only by Win32.
+function Test-FoundBy($what) {
+  $lines = @(Get-Content $script:lastLog)
+  $noProviders = @($lines | Where-Object { $_ -match 'uia client-side providers: ' }).Count -gt 0
+  $hit = @($lines | Where-Object { $_ -match [regex]::Escape("target $what via ") }) | Select-Object -First 1
+  if (-not $hit) { return $false }
+  return (-not $noProviders) -or ($hit -match ' via win32 ')
 }
 
 # The target window: a separate process, so its message loop runs while this
@@ -86,8 +100,8 @@ function Write-Steps($steps) {
 }
 
 function Invoke-Drive($steps) {
-  $log = Join-Path $work 'drive.log'
-  & $host_exe -NoProfile -ExecutionPolicy Bypass -File $drive -Steps (Write-Steps $steps) -Log $log | Out-Host
+  $script:lastLog = Join-Path $work ("drive-" + [Guid]::NewGuid().ToString('N').Substring(0, 6) + '.log')
+  & $host_exe -NoProfile -ExecutionPolicy Bypass -File $drive -Steps (Write-Steps $steps) -Log $script:lastLog | Out-Host
   return $LASTEXITCODE
 }
 
@@ -205,25 +219,41 @@ Say ($rc -eq 0) 'a waiting guard on a late window exits 0' "(rc=$rc)"
 Say ($got -ceq 'late') 'the keys after the wait reached the late window' "(got '$got', wanted 'late')"
 
 # Case 9: a click on a menu bar item, then on an item of the pop-up menu it
-# opens, both found by their shown text. A Win32 menu is found by Win32
-# where UI Automation does not show its items.
+# opens, both found by their shown text. The pop-up menu is a window of its
+# own with no title, so the clicks' guard names the process only. A Win32
+# menu is found by Win32 where UI Automation does not show its items.
 $out = Join-Path $work 'case9.txt'
 $p = Start-Target $out
 $rc = Invoke-Drive @(
-  $guard,
+  @{ window = @{ process = $host_name } },
   @{ click = @{ name = 'Tools'; control = 'MenuItem' } },
   @{ click = @{ name = 'Add M'; control = 'MenuItem' } },
+  $guard,
   $close
 )
 $p.WaitForExit(10000) | Out-Null
 $got = if (Test-Path $out) { [IO.File]::ReadAllText($out) } else { '<no output>' }
 Say ($rc -eq 0) 'menu clicks exit 0' "(rc=$rc)"
-if ($rc -ne 0) { Get-Content (Join-Path $work 'drive.log') -Tail 8 | ForEach-Object { Write-Host "  log: $_" } }
+Say (Test-FoundBy "name 'Add M' control MenuItem") 'the pop-up menu item was found, by Win32 where UI Automation has no providers' ''
 Say ($got -ceq 'M') 'the menu item ran once' "(got '$got', wanted 'M')"
+
+# Case 10: a click on a classic edit box by its control id, in Notepad
+# (its edit box is control 15), found by Win32 where UI Automation shows a
+# bare pane.
+$np = Start-Process notepad.exe -PassThru
+try {
+  $rc = Invoke-Drive @(
+    @{ window = @{ process = 'notepad.exe' }; within = 10000 },
+    @{ click = @{ id = '15'; control = 'Edit' } }
+  )
+  Say ($rc -eq 0) 'a click on an edit box by control id exits 0' "(rc=$rc)"
+  Say (Test-FoundBy "id '15' control Edit") 'the edit box was found, by Win32 where UI Automation has no providers' ''
+} finally { Stop-Process -Id $np.Id -Force -ErrorAction SilentlyContinue }
 
 # Case 3: the planner's refusal stops the run with exit 2 and no input, and
 # the refusal is the missing guard, not a malformed steps file.
 $log = Join-Path $work 'drive.log'
+$script:lastLog = $log
 $eap = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
 $said = & $host_exe -NoProfile -ExecutionPolicy Bypass -File $drive -Steps (Write-Steps @(@{ chars = 'no guard' })) -Log $log 2>&1 | Out-String -Width 4096
 $rc = $LASTEXITCODE

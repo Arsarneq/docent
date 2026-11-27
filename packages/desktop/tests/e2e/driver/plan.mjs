@@ -2,28 +2,9 @@
 // Windows executor (drive.ps1) sends with SendInput. Pure, so it is tested
 // anywhere (plan.test.mjs); the executor does only input and the guard.
 //
-// Steps (a JSON array):
-//   { "window": { "process": "notepad.exe", "title": "<regex>" } }  guard
-//   { "window": { "any": true } }       guard that accepts any foreground window
-//   { "key": "ctrl+shift+s", "repeat": 2 }   real virtual-key presses
-//   { "chars": "keep" }   real key presses, mapped on the machine's own layout
-//   { "text": "hello" }   Unicode injection (VK_PACKET)
-//   "scan": true on a key or chars step sends each key with its scan code
-//   (and the extended mark where a keyboard sets it), so the app sees a
-//   physical key; without it keys go by virtual key only.
-//   { "wait": 500 }       milliseconds
-//   { "click": { "x": 448, "y": 259 } }   a mouse click at a screen point, or on
-//   a UI Automation element of the guard's process: { "id": "btn-commit-step" }
-//   or { "name": "Paste", "control": "MenuItem" } ("index" picks one of several
-//   matches). "button": left | right | middle, "count": 2 for a double click.
-//   { "move": { ... } }   the pointer on the same kinds of target, no button
-//   "within": 3000 on a guard waits up to that long for its window to be the
-//   foreground one, so one steps file can follow the input from window to window.
-// Every input op needs a guard before it, and the executor re-checks the guard
-// before each op: input never lands in a window the steps did not name. For a
-// key the guard is the foreground window; for a mouse step it is the window
-// under the point, since a person clicks a window to bring it forward. The
-// check is per op: the keys of one op follow one check.
+// The steps file, its guards and its exit codes are described in README.md
+// (section Steps file), next to this file; this planner refuses anything
+// that section does not give.
 //
 // CLI: node plan.mjs <steps.json>  -> prints the event list as JSON.
 
@@ -120,9 +101,7 @@ const FIELDS = {
   text: [],
 };
 
-// A mouse target: a screen point (whole pixels, negative on a monitor left of
-// or above the main one), or a UI Automation element by automation id, or by
-// name with an optional control type. Never both kinds at once.
+// A mouse target, as README.md section Steps file gives it.
 function mouseTarget(t, kind, at) {
   const bad = () =>
     new Error(`${at}: ${kind} takes { x, y } in whole screen pixels, { id } or { name, control }`);
@@ -136,6 +115,9 @@ function mouseTarget(t, kind, at) {
     if (!Number.isInteger(t.x) || !Number.isInteger(t.y)) throw bad();
     return { x: t.x, y: t.y };
   }
+  for (const k of ['id', 'name'])
+    if (k in t && typeof t[k] !== 'string')
+      throw new Error(`${at}: id and name are strings, so a control id is "15", not 15`);
   const has = (k) => typeof t[k] === 'string' && t[k] !== '';
   if (has('id') === has('name')) throw bad();
   if ('control' in t && !has('control')) throw bad();

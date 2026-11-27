@@ -269,6 +269,8 @@ test('a bad click is refused with the step index', () => {
   assert.throws(() => plan([D, { click: { x: 1, y: 2, id: 'a' } }]), /step 1: click takes/);
   assert.throws(() => plan([D, { click: { control: 'Button' } }]), /step 1: click takes/);
   assert.throws(() => plan([D, { click: { id: 'a', index: -1 } }]), /step 1: index/);
+  assert.throws(() => plan([D, { click: { id: 15 } }]), /step 1: id and name are strings/);
+  assert.throws(() => plan([D, { click: { name: 7 } }]), /step 1: id and name are strings/);
   assert.throws(
     () => plan([D, { click: { x: 1, y: 2 }, button: 'thumb' }]),
     /step 1: button is left, right or middle/,
