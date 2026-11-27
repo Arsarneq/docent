@@ -79,7 +79,7 @@ update.
   advisory published once users can update. If you reported an issue and want to
   help fix it, you will be invited to the advisory's private fork rather than
   asked to open a public PR.
-- **Fixing a vulnerability in a reference implementation?** No release ships the [reference implementations](../reference-implementations/README.md); their users update by pulling `main`. The fix is prepared in private the same way, and the advisory is published when the fix merges to `main`.
+- **Fixing a vulnerability in a reference implementation?** A fix to a [reference implementation](../reference-implementations/README.md) ships when it merges to `main`: it is prepared in private the same way, and the advisory is published at that merge.
 
 ## Development Setup
 
