@@ -49,8 +49,8 @@ use super::win32_bindings::{
     GetKeyboardLayout, GetMessageW, GetParent, GetSystemMetrics, GetUserPreferredUILanguages,
     GetWindow, GetWindowLongW, GetWindowTextW, GetWindowThreadProcessId, IUIAutomation,
     IUIAutomationCondition, IUIAutomationElement, IUIAutomationSelectionPattern,
-    ImmGetDefaultIMEWnd, IsWindow, IsWindowVisible, LCIDToLocaleName, MapVirtualKeyExW,
-    PeekMessageW, PostThreadMessageW, RegGetValueW, SendMessageTimeoutW,
+    ImmGetDefaultIMEWnd, InternalGetWindowText, IsWindow, IsWindowVisible, LCIDToLocaleName,
+    MapVirtualKeyExW, PeekMessageW, PostThreadMessageW, RegGetValueW, SendMessageTimeoutW,
     SetProcessDpiAwarenessContext, SetWinEventHook, SetWindowsHookExW, TranslateMessage,
     TreeScope_Descendants, TreeScope_Subtree, UnhookWinEvent, UnhookWindowsHookEx, WindowFromPoint,
     CHILDID_SELF, CLSCTX_ALL, COINIT_APARTMENTTHREADED, COINIT_MULTITHREADED,
@@ -1461,9 +1461,21 @@ fn input_dispatch_raw_event(event: RawEvent) {
             // A switch states no held keys: only a keystroke, a click, a
             // right-click and a drop are stamped with them (held_keys).
             held: Vec::new(),
+            window_title: input_window_title(HWND(root as *mut _)),
         });
     }
     input_send_raw_event(event);
+}
+
+/// The title of `hwnd` as the system holds it, read on the Input_Thread with
+/// a foreground event, while the window is there (docent#801). It sends the
+/// window no message, so a window whose thread does not answer cannot hold
+/// the hooks. Read into the 512-unit buffer [`get_window_title`] uses;
+/// `None` when the window has no title or is gone.
+fn input_window_title(hwnd: HWND) -> Option<String> {
+    let mut buf = [0u16; 512];
+    let len = unsafe { InternalGetWindowText(hwnd, PWSTR(buf.as_mut_ptr()), buf.len() as i32) };
+    (len > 0).then(|| String::from_utf16_lossy(&buf[..len as usize]))
 }
 
 /// The top-level (`GA_ROOT`) window of `window_handle`: the handle itself
@@ -1975,6 +1987,7 @@ unsafe fn input_win_event_handle(
                 pre_captured_element: None,
                 focus_epoch: 0,
                 held: Vec::new(),
+                window_title: input_window_title(hwnd),
             });
         }
 
@@ -2016,6 +2029,7 @@ unsafe fn input_win_event_handle(
                 pre_captured_element: None,
                 focus_epoch: 0,
                 held: Vec::new(),
+                window_title: None,
             });
             // Track this window so we only emit context_close for it.
             INPUT_OPENED_WINDOWS.with(|s| s.borrow_mut().insert(window_handle));
@@ -2079,6 +2093,7 @@ unsafe fn input_win_event_handle(
                         pre_captured_element: None,
                         focus_epoch: 0,
                         held: Vec::new(),
+                        window_title: None,
                     });
                 }
             }
@@ -2127,6 +2142,7 @@ unsafe fn input_win_event_handle(
                 pre_captured_element: None,
                 focus_epoch: 0,
                 held: Vec::new(),
+                window_title: None,
             });
         }
 
@@ -2181,6 +2197,7 @@ unsafe fn input_win_event_handle(
                 pre_captured_element: None,
                 focus_epoch: 0,
                 held: Vec::new(),
+                window_title: None,
             });
         }
 
@@ -2246,6 +2263,7 @@ unsafe fn input_win_event_handle(
                 pre_captured_element: None,
                 focus_epoch: 0,
                 held: Vec::new(),
+                window_title: None,
             });
         }
 
@@ -2327,6 +2345,7 @@ unsafe fn input_press_switch(point_hwnd: HWND, fg_hwnd: HWND, timestamp: u64) {
         pre_captured_element: None,
         focus_epoch: 0,
         held: Vec::new(),
+        window_title: input_window_title(clicked_root),
     });
 }
 
@@ -2469,6 +2488,7 @@ unsafe fn input_mouse_ll_handle(n_code: i32, w_param: WPARAM, l_param: LPARAM) {
                             pre_captured_element: None,
                             focus_epoch: 0,
                             held: down_held,
+                            window_title: None,
                         });
 
                         input_dispatch_raw_event(RawEvent {
@@ -2486,6 +2506,7 @@ unsafe fn input_mouse_ll_handle(n_code: i32, w_param: WPARAM, l_param: LPARAM) {
                             pre_captured_element: None,
                             focus_epoch: 0,
                             held: Vec::new(),
+                            window_title: None,
                         });
                     } else {
                         // Click detected — pre-capture the element while
@@ -2516,6 +2537,7 @@ unsafe fn input_mouse_ll_handle(n_code: i32, w_param: WPARAM, l_param: LPARAM) {
                             pre_captured_element: pre_element,
                             focus_epoch: 0,
                             held: Vec::new(),
+                            window_title: None,
                         });
                         INPUT_LAST_CLICK_TIMESTAMP.with(|t| t.set(timestamp));
                         hook_diagnostics::left_click_dispatched();
@@ -2543,6 +2565,7 @@ unsafe fn input_mouse_ll_handle(n_code: i32, w_param: WPARAM, l_param: LPARAM) {
                         pre_captured_element: None,
                         focus_epoch: 0,
                         held: Vec::new(),
+                        window_title: None,
                     });
                 }
                 WM_MOUSEHWHEEL => {
@@ -2563,6 +2586,7 @@ unsafe fn input_mouse_ll_handle(n_code: i32, w_param: WPARAM, l_param: LPARAM) {
                         pre_captured_element: None,
                         focus_epoch: 0,
                         held: Vec::new(),
+                        window_title: None,
                     });
                 }
                 // The middle and right buttons record on the press itself, each
@@ -2593,6 +2617,7 @@ unsafe fn input_mouse_ll_handle(n_code: i32, w_param: WPARAM, l_param: LPARAM) {
                             pre_captured_element: pre_element,
                             focus_epoch: 0,
                             held: Vec::new(),
+                            window_title: None,
                         });
                     }
                 }
@@ -2801,6 +2826,7 @@ unsafe extern "system" fn input_keyboard_ll_proc(
                     pre_captured_element: None,
                     focus_epoch: 0,
                     held: Vec::new(),
+                    window_title: None,
                 });
             }
             // After the key's own dispatch, so the key keeps the epoch it was
