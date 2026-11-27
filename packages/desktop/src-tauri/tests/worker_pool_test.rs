@@ -3700,6 +3700,12 @@ impl AccessibilityBackend for LateFocusBackend {
         self.focus_events.load(Ordering::SeqCst)
     }
 
+    /// Every window, the dialog and its owner alike, is Notepad's: the process
+    /// the test focus events come from.
+    fn process_id_of(&self, _window_handle: i64) -> u32 {
+        EVENT_PROCESS
+    }
+
     fn window_title(&self, _window_handle: i64) -> String {
         "Test Window".to_string()
     }
