@@ -148,7 +148,7 @@ proptest! {
                         Ok(WorkerMessage::EndTyping)
                         | Ok(WorkerMessage::MenuCommand)
                     | Ok(WorkerMessage::WriteHeldKey)
-                            | Ok(WorkerMessage::UnrecordedKey { .. })
+                            | Ok(WorkerMessage::UnrecordedKey { .. } | WorkerMessage::AccentsNotKnown { .. })
                             | Ok(WorkerMessage::LookAtFocus) => {}
                         Ok(WorkerMessage::Shutdown) => break,
                         Err(_) => break,
@@ -250,7 +250,7 @@ proptest! {
                         Ok(WorkerMessage::EndTyping)
                         | Ok(WorkerMessage::MenuCommand)
                     | Ok(WorkerMessage::WriteHeldKey)
-                            | Ok(WorkerMessage::UnrecordedKey { .. })
+                            | Ok(WorkerMessage::UnrecordedKey { .. } | WorkerMessage::AccentsNotKnown { .. })
                             | Ok(WorkerMessage::LookAtFocus) => {}
                         Ok(WorkerMessage::Shutdown) => break,
                         Err(_) => break,
@@ -339,7 +339,7 @@ proptest! {
                         Ok(WorkerMessage::EndTyping)
                         | Ok(WorkerMessage::MenuCommand)
                     | Ok(WorkerMessage::WriteHeldKey)
-                            | Ok(WorkerMessage::UnrecordedKey { .. })
+                            | Ok(WorkerMessage::UnrecordedKey { .. } | WorkerMessage::AccentsNotKnown { .. })
                             | Ok(WorkerMessage::LookAtFocus) => {}
                         Ok(WorkerMessage::Shutdown) => break,
                         Err(_) => break,
@@ -1024,7 +1024,10 @@ fn worker_panic_respawns_and_redistributes() {
                         Ok(WorkerMessage::EndTyping)
                         | Ok(WorkerMessage::MenuCommand)
                         | Ok(WorkerMessage::WriteHeldKey)
-                        | Ok(WorkerMessage::UnrecordedKey { .. })
+                        | Ok(
+                            WorkerMessage::UnrecordedKey { .. }
+                            | WorkerMessage::AccentsNotKnown { .. },
+                        )
                         | Ok(WorkerMessage::LookAtFocus) => {}
                         Ok(WorkerMessage::Shutdown) => break,
                         Err(_) => break,
@@ -1102,7 +1105,9 @@ fn repeatedly_failing_workers_get_respawned_and_shutdown_completes() {
                     Ok(WorkerMessage::EndTyping)
                     | Ok(WorkerMessage::MenuCommand)
                     | Ok(WorkerMessage::WriteHeldKey)
-                    | Ok(WorkerMessage::UnrecordedKey { .. })
+                    | Ok(
+                        WorkerMessage::UnrecordedKey { .. } | WorkerMessage::AccentsNotKnown { .. },
+                    )
                     | Ok(WorkerMessage::LookAtFocus) => {}
                     Ok(WorkerMessage::Shutdown) => {}
                     Err(_) => {}
@@ -3625,7 +3630,7 @@ proptest! {
                         Ok(WorkerMessage::EndTyping)
                         | Ok(WorkerMessage::MenuCommand)
                     | Ok(WorkerMessage::WriteHeldKey)
-                            | Ok(WorkerMessage::UnrecordedKey { .. })
+                            | Ok(WorkerMessage::UnrecordedKey { .. } | WorkerMessage::AccentsNotKnown { .. })
                             | Ok(WorkerMessage::LookAtFocus) => {}
                         Ok(WorkerMessage::Shutdown) => break,
                         Err(_) => break,
@@ -4526,9 +4531,9 @@ fn messages_sent_for(events: Vec<RawEvent>) -> Vec<Vec<&'static str>> {
                     Ok(WorkerMessage::MenuCommand) => sent.lock().unwrap().push("menu command"),
                     Ok(WorkerMessage::WriteHeldKey) => sent.lock().unwrap().push("write held key"),
                     Ok(WorkerMessage::LookAtFocus) => sent.lock().unwrap().push("look at focus"),
-                    Ok(WorkerMessage::UnrecordedKey { .. }) => {
-                        sent.lock().unwrap().push("unrecorded key")
-                    }
+                    Ok(
+                        WorkerMessage::UnrecordedKey { .. } | WorkerMessage::AccentsNotKnown { .. },
+                    ) => sent.lock().unwrap().push("unrecorded key"),
                     Ok(WorkerMessage::Flush(_)) => {}
                     Ok(WorkerMessage::Shutdown) | Err(_) => break,
                 }
@@ -7235,7 +7240,9 @@ fn a_click_completing_a_double_click_routes_to_the_previous_clicks_worker() {
                     | Ok(WorkerMessage::EndTyping)
                     | Ok(WorkerMessage::MenuCommand)
                     | Ok(WorkerMessage::WriteHeldKey)
-                    | Ok(WorkerMessage::UnrecordedKey { .. })
+                    | Ok(
+                        WorkerMessage::UnrecordedKey { .. } | WorkerMessage::AccentsNotKnown { .. },
+                    )
                     | Ok(WorkerMessage::LookAtFocus) => {}
                     Ok(WorkerMessage::Shutdown) | Err(_) => break,
                 }

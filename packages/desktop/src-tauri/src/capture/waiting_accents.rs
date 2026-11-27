@@ -36,6 +36,11 @@ pub fn met_by_an_accent(
     }
 }
 
+/// The layout's list of what an accent and a character make together could
+/// not be read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct NoList;
+
 /// What is known of the accent that waits on one layout.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Waiting {
@@ -83,24 +88,62 @@ impl WaitingAccents {
         }
     }
 
+    /// What waits is not known on any layout: this worker did not get every
+    /// key-down from the start of the recording in the order pressed.
+    pub fn forget(&mut self) {
+        self.layouts.clear();
+        self.rest = Waiting::NotKnown;
+    }
+
+    /// What waits on `layout` is not known: an accent waited on it when the
+    /// recording started.
+    pub fn forget_on(&mut self, layout: i64) {
+        self.set(layout, Waiting::NotKnown);
+    }
+
+    /// A key went down that the system may act on itself, with no program
+    /// translating it (the Windows key held, Ctrl and Escape): [`press`]
+    /// (Self::press) where the key changes what waits in neither case. Where
+    /// it would, what waits is not known from here on, and a key the accent
+    /// would rename is named not known.
+    pub fn press_the_system_may_take(
+        &mut self,
+        layout: i64,
+        as_held: Option<LayoutAnswer>,
+        composed: impl FnOnce(char, char) -> Result<Option<Composed>, NoList>,
+    ) -> Named {
+        if as_held.is_none() {
+            return self.press(layout, as_held, composed);
+        }
+        let before = self.of(layout);
+        let named = self.press(layout, as_held, composed);
+        if self.of(layout) != before {
+            self.set(layout, Waiting::NotKnown);
+        }
+        match named {
+            Named::AsPressed => Named::AsPressed,
+            Named::Composed(_) | Named::NotKnown => Named::NotKnown,
+        }
+    }
+
     /// A key went down on `layout` (`0` where none was read). `as_held` is
     /// what the key brings to an accent ([`met_by_an_accent`]), `None`
     /// where the layout could not be asked; `composed` what the layout lists for an accent and a
-    /// character together. Says what the key is named, and takes the key
+    /// character together, [`NoList`] where its list could not be read: the
+    /// key behind an accent is then named not known, and so is what waits. Says what the key is named, and takes the key
     /// into what waits.
     pub fn press(
         &mut self,
         layout: i64,
         as_held: Option<LayoutAnswer>,
-        composed: impl FnOnce(char, char) -> Option<Composed>,
+        composed: impl FnOnce(char, char) -> Result<Option<Composed>, NoList>,
     ) -> Named {
         let Some(as_held) = as_held else {
             // The key may have been a dead key, or have taken an accent
             // away: what waits is no longer known, on its layout or, with no
             // layout read, on any.
             if layout == 0 {
-                self.layouts.clear();
-                self.rest = Waiting::NotKnown;
+                self.forget();
             } else {
                 self.set(layout, Waiting::NotKnown);
             }
@@ -136,7 +179,13 @@ impl WaitingAccents {
                 Named::NotKnown
             }
             Waiting::Accent(accent) => match composed(accent, brings) {
-                Some(Composed::Char(made)) => {
+                // Whether the two make one character, an accent or nothing
+                // is not known.
+                Err(NoList) => {
+                    self.set(layout, Waiting::NotKnown);
+                    Named::NotKnown
+                }
+                Ok(Some(Composed::Char(made))) => {
                     self.set(layout, Waiting::None);
                     if made.is_control() {
                         Named::AsPressed
@@ -144,12 +193,12 @@ impl WaitingAccents {
                         Named::Composed(made)
                     }
                 }
-                Some(Composed::Dead(made)) => {
+                Ok(Some(Composed::Dead(made))) => {
                     self.set(layout, Waiting::Accent(made));
                     Named::AsPressed
                 }
                 // The two are entered one after the other.
-                None => {
+                Ok(None) => {
                     self.set(layout, Waiting::None);
                     Named::AsPressed
                 }
@@ -187,6 +236,10 @@ impl WaitingAccents {
 /// more than a keyboard gives.
 const RENAMED_PRESSES_KEPT: usize = 1024;
 
+/// How many key-downs sent to be named and not named yet are kept: more
+/// wait only where a worker stopped taking its keys.
+const AWAITED_PRESSES_KEPT: usize = 1024;
+
 /// What the key of one key-down was named, as another worker reads it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PressName {
@@ -195,17 +248,20 @@ pub enum PressName {
     /// By this value ([`super::key_value::with_value`]): the key was pressed
     /// behind an accent that waited.
     Renamed(u32),
-    /// Not known: the worker that names keys did not get to the press within
+    /// Not known: the worker the press was sent to did not get to it within
     /// the wait, or its name is no longer kept.
     NotKnown,
 }
 
 /// The key-downs that were named by something else than their own key
 /// ([`Named::Composed`], [`Named::NotKnown`]), by the sequence id of the
-/// key-down, shared by the workers: the worker that takes the keys in the
-/// order pressed notes each, and a worker that states the keys held at an
-/// action reads what a held key's own press was named, so the key is named
-/// there as its `key` action names it.
+/// key-down, shared by the workers: the pool says which key-downs it sent to
+/// be named ([`expect`](Self::expect)), the worker that takes the keys in
+/// the order pressed notes each, and a worker that states the keys held at
+/// an action reads what a held key's own press was named, so the key is
+/// named there as its `key` action names it. A key-down sent and not noted
+/// has no name yet, whatever was noted after it: the worker it was sent to
+/// may no longer be the one that names the keys.
 #[derive(Debug, Default)]
 pub struct NamedPresses {
     names: std::sync::Mutex<PressNames>,
@@ -215,12 +271,28 @@ pub struct NamedPresses {
 #[derive(Debug, Default)]
 struct PressNames {
     /// The sequence id of the last key-down noted: every key-down up to it
-    /// has its name.
+    /// has its name, but for the ones in `awaited`.
     through: u64,
-    /// The sequence id of the last renamed press dropped from `renamed`.
+    /// The key-downs sent to be named and not noted yet.
+    awaited: std::collections::VecDeque<u64>,
+    /// The sequence id of the last press dropped from `renamed` or from
+    /// `awaited`: nothing says how a press up to it was named.
     forgotten_through: u64,
-    /// The renamed presses and their values, in the order pressed.
-    renamed: std::collections::VecDeque<(u64, u32)>,
+    /// The presses named otherwise than by their own key, and their values;
+    /// `None` for a press that was asked about and had no name in time.
+    renamed: std::collections::VecDeque<(u64, Option<u32>)>,
+}
+
+impl PressNames {
+    fn keep(&mut self, press: u64, value: Option<u32>) {
+        self.renamed.retain(|(kept, _)| *kept != press);
+        if self.renamed.len() == RENAMED_PRESSES_KEPT {
+            if let Some((dropped, _)) = self.renamed.pop_front() {
+                self.forgotten_through = self.forgotten_through.max(dropped);
+            }
+        }
+        self.renamed.push_back((press, value));
+    }
 }
 
 impl NamedPresses {
@@ -232,18 +304,28 @@ impl NamedPresses {
         self.names.lock().unwrap_or_else(|e| e.into_inner())
     }
 
+    /// The key-down with sequence id `press` was sent to a worker to be
+    /// named. Called before the key-down is sent, so no worker asks about
+    /// it first.
+    pub fn expect(&self, press: u64) {
+        let mut names = self.names();
+        if names.awaited.len() == AWAITED_PRESSES_KEPT {
+            if let Some(dropped) = names.awaited.pop_front() {
+                names.forgotten_through = names.forgotten_through.max(dropped);
+            }
+        }
+        names.awaited.push_back(press);
+    }
+
     /// The key-down with sequence id `press` has its name: `renamed` where it
     /// is another than the key's own.
     pub fn note(&self, press: u64, renamed: Option<u32>) {
         let mut names = self.names();
         names.through = names.through.max(press);
-        if let Some(value) = renamed {
-            if names.renamed.len() == RENAMED_PRESSES_KEPT {
-                if let Some((dropped, _)) = names.renamed.pop_front() {
-                    names.forgotten_through = dropped;
-                }
-            }
-            names.renamed.push_back((press, value));
+        names.awaited.retain(|awaited| *awaited != press);
+        match renamed {
+            Some(value) => names.keep(press, Some(value)),
+            None => names.renamed.retain(|(kept, _)| *kept != press),
         }
         drop(names);
         self.noted.notify_all();
@@ -252,16 +334,26 @@ impl NamedPresses {
     /// What the key-down with sequence id `press` was named, waiting for at
     /// most `wait` for the worker that names keys to get to it.
     pub fn of(&self, press: u64, wait: std::time::Duration) -> PressName {
+        let unnamed =
+            |names: &mut PressNames| names.through < press || names.awaited.contains(&press);
         let names = self.names();
-        let (names, _) = self
+        // Asked about before and not named in time: not waited for again.
+        if names.renamed.contains(&(press, None)) {
+            return PressName::NotKnown;
+        }
+        let (mut names, _) = self
             .noted
-            .wait_timeout_while(names, wait, |names| names.through < press)
+            .wait_timeout_while(names, wait, unnamed)
             .unwrap_or_else(|e| e.into_inner());
-        if names.through < press {
+        if unnamed(&mut names) {
+            // Kept as not known, so that it is not waited for again; a name
+            // that comes later takes its place.
+            names.keep(press, None);
             return PressName::NotKnown;
         }
         match names.renamed.iter().find(|(noted, _)| *noted == press) {
-            Some((_, value)) => PressName::Renamed(*value),
+            Some((_, Some(value))) => PressName::Renamed(*value),
+            Some((_, None)) => PressName::NotKnown,
             // A press as old as a dropped one may have been renamed.
             None if press <= names.forgotten_through => PressName::NotKnown,
             None => PressName::AsPressed,
@@ -281,7 +373,11 @@ mod tests {
 
     /// A list like the Danish layout's, with one accent that waits in its
     /// turn and one pair that makes a control character.
-    fn list(accent: char, base: char) -> Option<Composed> {
+    fn list(accent: char, base: char) -> Result<Option<Composed>, NoList> {
+        Ok(pairs(accent, base))
+    }
+
+    fn pairs(accent: char, base: char) -> Option<Composed> {
         match (accent, base) {
             (ACUTE, 'e') => Some(Composed::Char('é')),
             (ACUTE, 'A') => Some(Composed::Char('Á')),
@@ -528,6 +624,101 @@ mod tests {
         assert_eq!(waiting.press(OTHER_LAYOUT, character('e'), list), AsPressed);
     }
 
+    #[test]
+    fn a_key_behind_an_accent_is_not_known_where_the_list_was_not_read() {
+        let no_list = |_: char, _: char| Err(NoList);
+        let mut waiting = WaitingAccents::new();
+        assert_eq!(waiting.press(DANISH, dead(ACUTE), no_list), AsPressed);
+        // é or e: the list would say. What waits afterwards (the two can
+        // make an accent) is not known either.
+        assert_eq!(waiting.press(DANISH, character('e'), no_list), NotKnown);
+        assert_eq!(waiting.press(DANISH, character('e'), no_list), NotKnown);
+        assert_eq!(waiting.press(DANISH, character('e'), no_list), AsPressed);
+        // A second dead key behind the first likewise.
+        assert_eq!(waiting.press(DANISH, dead(ACUTE), no_list), AsPressed);
+        assert_eq!(waiting.press(DANISH, dead(GRAVE), no_list), NotKnown);
+        // With no accent waiting the list is not asked.
+        let mut waiting = WaitingAccents::new();
+        assert_eq!(waiting.press(DANISH, character('e'), no_list), AsPressed);
+        assert_eq!(waiting.waiting_on(DANISH), None);
+    }
+
+    #[test]
+    fn a_worker_that_missed_keys_knows_no_layout() {
+        let mut waiting = WaitingAccents::new();
+        waiting.press(DANISH, character('q'), list);
+        waiting.forget();
+        assert_eq!(waiting.press(DANISH, character('e'), list), NotKnown);
+        assert_eq!(waiting.press(DANISH, character('e'), list), AsPressed);
+        assert_eq!(waiting.press(OTHER_LAYOUT, character('e'), list), NotKnown);
+    }
+
+    #[test]
+    fn an_accent_that_waited_at_the_start_is_not_known_on_its_layout_alone() {
+        let mut waiting = WaitingAccents::new();
+        waiting.forget_on(DANISH);
+        assert_eq!(waiting.press(OTHER_LAYOUT, character('e'), list), AsPressed);
+        assert_eq!(waiting.press(DANISH, character('e'), list), NotKnown);
+        assert_eq!(waiting.press(DANISH, character('e'), list), AsPressed);
+    }
+
+    #[test]
+    fn a_key_the_system_may_take_leaves_what_waits_not_known_where_it_would_change_it() {
+        // Behind an accent: translated, the key is é and the accent is used;
+        // taken by the system, the accent waits on.
+        let mut waiting = WaitingAccents::new();
+        waiting.press(DANISH, dead(ACUTE), list);
+        assert_eq!(
+            waiting.press_the_system_may_take(DANISH, character('e'), list),
+            NotKnown
+        );
+        assert_eq!(waiting.press(DANISH, character('e'), list), NotKnown);
+        assert_eq!(waiting.press(DANISH, character('e'), list), AsPressed);
+        // A control character behind an accent (Ctrl and Escape) is named
+        // as pressed either way, and what waits is not known.
+        let mut waiting = WaitingAccents::new();
+        waiting.press(DANISH, dead(ACUTE), list);
+        assert_eq!(
+            waiting.press_the_system_may_take(DANISH, Some(LayoutAnswer::Other), list),
+            AsPressed
+        );
+        assert_eq!(waiting.press(DANISH, character('e'), list), NotKnown);
+        // A dead key with no accent waiting: its accent waits or none does.
+        let mut waiting = WaitingAccents::new();
+        assert_eq!(
+            waiting.press_the_system_may_take(DANISH, dead(ACUTE), list),
+            AsPressed
+        );
+        assert_eq!(waiting.press(DANISH, character('e'), list), NotKnown);
+    }
+
+    #[test]
+    fn a_key_the_system_may_take_changes_nothing_where_no_accent_waits() {
+        let mut waiting = WaitingAccents::new();
+        assert_eq!(
+            waiting.press_the_system_may_take(DANISH, character('e'), list),
+            AsPressed
+        );
+        assert_eq!(
+            waiting.press_the_system_may_take(DANISH, Some(LayoutAnswer::Other), list),
+            AsPressed
+        );
+        assert_eq!(waiting.press(DANISH, character('e'), list), AsPressed);
+        // A key that gives nothing leaves an accent waiting either way.
+        waiting.press(DANISH, dead(ACUTE), list);
+        assert_eq!(
+            waiting.press_the_system_may_take(DANISH, Some(LayoutAnswer::Nothing), list),
+            AsPressed
+        );
+        assert_eq!(waiting.press(DANISH, character('e'), list), Made('é'));
+        // A layout that could not be asked: as for any key.
+        assert_eq!(
+            waiting.press_the_system_may_take(DANISH, None, list),
+            AsPressed
+        );
+        assert_eq!(waiting.press(DANISH, character('e'), list), NotKnown);
+    }
+
     use std::sync::Arc;
     use std::time::{Duration, Instant};
 
@@ -557,6 +748,46 @@ mod tests {
         );
         assert!(asked.elapsed() >= Duration::from_millis(30));
         assert_eq!(presses.of(4, NO_WAIT), PressName::NotKnown);
+    }
+
+    #[test]
+    fn a_press_sent_and_not_named_has_no_name_whatever_was_named_after_it() {
+        // Presses 4 and 5 went to a worker that stopped; 6 was named by the
+        // worker that took the keys over.
+        let presses = NamedPresses::new();
+        presses.note(3, None);
+        presses.expect(4);
+        presses.expect(5);
+        presses.expect(6);
+        presses.note(6, None);
+        assert_eq!(presses.of(6, NO_WAIT), PressName::AsPressed);
+        let asked = Instant::now();
+        assert_eq!(
+            presses.of(4, Duration::from_millis(30)),
+            PressName::NotKnown
+        );
+        assert!(asked.elapsed() >= Duration::from_millis(30));
+        // Not waited for a second time.
+        let asked = Instant::now();
+        assert_eq!(presses.of(4, Duration::from_secs(30)), PressName::NotKnown);
+        assert!(asked.elapsed() < Duration::from_secs(20));
+        // The first worker gets to its keys after all.
+        presses.note(4, None);
+        presses.note(5, Some(0xE9));
+        assert_eq!(presses.of(4, NO_WAIT), PressName::AsPressed);
+        assert_eq!(presses.of(5, NO_WAIT), PressName::Renamed(0xE9));
+    }
+
+    #[test]
+    fn a_press_sent_and_no_longer_kept_is_not_known() {
+        let presses = NamedPresses::new();
+        for press in 1..=(AWAITED_PRESSES_KEPT as u64 + 1) {
+            presses.expect(press);
+        }
+        let last = AWAITED_PRESSES_KEPT as u64 + 1;
+        presses.note(last, None);
+        assert_eq!(presses.of(1, NO_WAIT), PressName::NotKnown);
+        assert_eq!(presses.of(last, NO_WAIT), PressName::AsPressed);
     }
 
     #[test]

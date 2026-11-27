@@ -321,12 +321,19 @@ pub enum WorkerMessage {
     /// that wait ([`super::waiting_accents`]), since it can be a dead key or
     /// take an accent away like any other: the layout it went down on, its
     /// code, and the modifiers and the Caps Lock state of the press
-    /// ([`super::key_value::Held::index`]). Sent to the typing worker only.
+    /// ([`super::key_value::Held::index`]), with [`SYSTEM_MAY_TAKE`] set
+    /// where the system may act on the key itself. Sent to the typing worker
+    /// only.
     UnrecordedKey {
         layout: i64,
         key_code: u32,
         held: u8,
     },
+    /// The worker did not get every key-down in the order pressed, or an
+    /// accent waited when the recording started: which accent waits is not
+    /// known, on `layout` or, with none named, on any
+    /// ([`super::waiting_accents`]). Sent to the typing worker only.
+    AccentsNotKnown { layout: Option<i64> },
     /// Poison pill — drain remaining events then exit.
     Shutdown,
 }
@@ -782,6 +789,10 @@ pub struct WorkerPool {
     /// so typing does not queue behind a wedged accessibility call for the
     /// rest of the capture. `NO_TYPING_WORKER` while none is chosen.
     typing_worker: AtomicUsize,
+    /// Whether the typing role was given out before: a worker that gets it
+    /// after another is told that it did not get every key
+    /// ([`WorkerMessage::AccentsNotKnown`]).
+    typing_worker_chosen_before: bool,
     /// The workers that did not answer the most recent flush barrier, one bit
     /// per index. The typing role is not given to one of them while another
     /// worker is available; a respawn clears its index's bit.
@@ -869,6 +880,7 @@ impl WorkerPool {
             sequence_counter: Arc::new(AtomicU64::new(0)),
             named_presses,
             typing_worker: AtomicUsize::new(NO_TYPING_WORKER),
+            typing_worker_chosen_before: false,
             missed_last_barrier: AtomicU64::new(0),
             focus_worker: AtomicUsize::new(NO_FOCUS_WORKER),
             window_affinity: HashMap::new(),
@@ -932,6 +944,10 @@ impl WorkerPool {
         }
         let comes_to_front = matches!(event.event_type, RawEventType::Foreground);
         let worker_index = self.select_worker(&event);
+        if matches!(event.event_type, RawEventType::Keyboard) {
+            // Before it is sent: its name is awaited from here on.
+            self.named_presses.expect(event.sequence_id);
+        }
         self.send_to_worker(worker_index, event);
         if comes_to_front {
             self.look_at_focus();
@@ -958,7 +974,29 @@ impl WorkerPool {
         }
         let idx = self.responsive_shortest_queue_worker();
         self.typing_worker.store(idx, Ordering::SeqCst);
+        // A worker that takes the role over did not get the keys before it:
+        // which accent waits is not known to it.
+        if self.typing_worker_chosen_before {
+            if let Some(worker) = self.workers.get(idx) {
+                let _ = worker
+                    .sender
+                    .send(WorkerMessage::AccentsNotKnown { layout: None });
+            }
+        }
+        self.typing_worker_chosen_before = true;
         idx
+    }
+
+    /// An accent waited on `layout` when the recording started: the typing
+    /// worker, one chosen now where none holds the role, is told that what
+    /// waits there is not known ([`WorkerMessage::AccentsNotKnown`]).
+    pub fn accent_not_known_on(&mut self, layout: i64) {
+        let index = self.typing_worker_index();
+        if let Some(worker) = self.workers.get(index) {
+            let _ = worker.sender.send(WorkerMessage::AccentsNotKnown {
+                layout: Some(layout),
+            });
+        }
     }
 
     /// The typing in a field has ended with no event to dispatch: a window
@@ -1204,6 +1242,14 @@ impl WorkerPool {
 
         // Clear sticky affinity entries that pointed to the dead worker.
         self.window_affinity.retain(|_, &mut v| v != index);
+
+        // A replacement of the typing worker did not get the keys the worker
+        // before it got: which accent waits is not known to it.
+        if self.typing_worker.load(Ordering::SeqCst) == index {
+            let _ = self.workers[index]
+                .sender
+                .send(WorkerMessage::AccentsNotKnown { layout: None });
+        }
 
         // The typing and focus workers keep their index: the replacement is
         // installed at that index, so keyboard and value-change events stay
@@ -1604,16 +1650,17 @@ pub trait AccessibilityBackend: Send + 'static {
     /// What keyboard layout `layout` lists for `accent` and `base` together:
     /// the one character a program enters for a key that gives `base`,
     /// pressed behind a dead key with that accent, or an accent that waits in
-    /// its turn. `None` where the layout lists nothing for the two, and where
-    /// its list cannot be read (a platform with none, or a layout file that
-    /// is not in the form read).
+    /// its turn. `None` where the layout lists nothing for the two;
+    /// [`NoList`](super::waiting_accents::NoList) where its list cannot be
+    /// read (a platform with none, or a layout file that is not in the form
+    /// read).
     fn composed(
         &self,
         _layout: i64,
         _accent: char,
         _base: char,
-    ) -> Option<super::layout_file::Composed> {
-        None
+    ) -> Result<Option<super::layout_file::Composed>, super::waiting_accents::NoList> {
+        Err(super::waiting_accents::NoList)
     }
 
     /// Read a file dialog path from the given window: the dialog itself or
@@ -1907,6 +1954,8 @@ fn held_at<B: AccessibilityBackend>(
     backend: &B,
     presses: &NamedPresses,
 ) -> HeldKeysAtAction {
+    // One wait for the action, whatever number of keys is held at it.
+    let wait_ends = Instant::now() + HELD_NAME_WAIT;
     let (held_keys, held_presses) = raw
         .held
         .iter()
@@ -1924,7 +1973,7 @@ fn held_at<B: AccessibilityBackend>(
                 key_name_of(
                     k.key_code,
                     i64::from(k.scan_code),
-                    held_key_value(k, as_pressed, presses),
+                    held_key_value(k, as_pressed, presses, wait_ends),
                     super::key_value::primary_language(k.layout),
                 ),
                 k.press,
@@ -1937,8 +1986,9 @@ fn held_at<B: AccessibilityBackend>(
     }
 }
 
-/// How long a worker waits for the typing worker to name the key-down a held
-/// key is down by, before it names the key `Unidentified`.
+/// How long a worker waits at one action for the typing worker to name the
+/// key-downs its held keys are down by, before it names a key
+/// `Unidentified`.
 const HELD_NAME_WAIT: Duration = if cfg!(test) {
     Duration::from_millis(60)
 } else {
@@ -1952,12 +2002,14 @@ const HELD_NAME_WAIT: Duration = if cfg!(test) {
 ///
 /// The typing worker names the keys in the order pressed; another worker can
 /// get to an action before the typing worker got to the held key's key-down.
-/// It then waits for that name, for at most [`HELD_NAME_WAIT`], and names the
-/// key `Unidentified` where none came: no name is guessed.
+/// It then waits for that name until `wait_ends` ([`HELD_NAME_WAIT`] from
+/// when the action's held keys were first asked about), and names the key
+/// `Unidentified` where none came: no name is guessed.
 fn held_key_value(
     key: &super::held_keys::HeldPress,
     as_pressed: u32,
     presses: &NamedPresses,
+    wait_ends: Instant,
 ) -> u32 {
     use super::key_value::{as_held_of, with_value, LayoutAnswer};
     use super::waiting_accents::PressName;
@@ -1970,7 +2022,10 @@ fn held_key_value(
     if !renamable {
         return as_pressed;
     }
-    match presses.of(key.press, HELD_NAME_WAIT) {
+    match presses.of(
+        key.press,
+        wait_ends.saturating_duration_since(Instant::now()),
+    ) {
         PressName::AsPressed => as_pressed,
         PressName::Renamed(value) => value,
         PressName::NotKnown => with_value(as_pressed, LayoutAnswer::Nothing),
@@ -2027,9 +2082,12 @@ fn name_behind_waiting_accent<B: AccessibilityBackend>(
         caps_lock: raw.caps_lock,
     };
     let meets = met_by_an_accent(as_held_of(raw.key_value), raw.key_code, held);
-    let named = accents.press(layout, meets, |accent, base| {
-        backend.composed(layout, accent, base)
-    });
+    let composed = |accent, base| backend.composed(layout, accent, base);
+    let named = if super::scroll::system_takes_key(raw.key_code, raw.modifiers) {
+        accents.press_the_system_may_take(layout, meets, composed)
+    } else {
+        accents.press(layout, meets, composed)
+    };
     let value = match named {
         Named::AsPressed => None,
         Named::Composed(made) => Some(with_value(raw.key_value, LayoutAnswer::Char(made))),
@@ -2041,6 +2099,10 @@ fn name_behind_waiting_accent<B: AccessibilityBackend>(
         ..raw.clone()
     })
 }
+
+/// Set in the `held` of a [`WorkerMessage::UnrecordedKey`] where the system
+/// may act on the key itself ([`super::scroll::system_takes_key`]).
+pub const SYSTEM_MAY_TAKE: u8 = 0x10;
 
 /// Whether a virtual-key code is a Shift, Control or Alt key's, generic or
 /// left or right: a key that gives nothing on any layout.
@@ -2063,12 +2125,16 @@ fn note_unrecorded_key<B: AccessibilityBackend>(
     if key_code == VK_PACKET || is_shift_ctrl_or_alt(key_code) {
         return;
     }
-    let held = Held::from_index(usize::from(held));
+    let system_may_take = held & SYSTEM_MAY_TAKE != 0;
+    let held = Held::from_index(usize::from(held & 0x0F));
     let value = backend.key_value(layout, key_code, held);
     let meets = met_by_an_accent(as_held_of(value), key_code, held);
-    let _ = accents.press(layout, meets, |accent, base| {
-        backend.composed(layout, accent, base)
-    });
+    let composed = |accent, base| backend.composed(layout, accent, base);
+    let _ = if system_may_take {
+        accents.press_the_system_may_take(layout, meets, composed)
+    } else {
+        accents.press(layout, meets, composed)
+    };
 }
 
 /// Whether a key name is the empty name [`key_name`] gives the
@@ -2452,6 +2518,11 @@ pub fn worker_loop<B: AccessibilityBackend>(
                         "[Worker {worker_index}] panic processing event (seq={}): {msg}",
                         raw.sequence_id
                     );
+                    // A key-down may not have been taken into the accents
+                    // that wait: which waits is no longer known.
+                    if matches!(raw.event_type, RawEventType::Keyboard) {
+                        state.accents.forget();
+                    }
                 }
             }
             Ok(WorkerMessage::Flush(ack)) => {
@@ -2479,10 +2550,17 @@ pub fn worker_loop<B: AccessibilityBackend>(
                 held,
             }) => {
                 // One read of the layout's table; the buffers are not touched.
-                let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let taken = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                     note_unrecorded_key(layout, key_code, held, &backend, &mut state.accents);
                 }));
+                if taken.is_err() {
+                    state.accents.forget();
+                }
             }
+            Ok(WorkerMessage::AccentsNotKnown { layout }) => match layout {
+                Some(layout) => state.accents.forget_on(layout),
+                None => state.accents.forget(),
+            },
             Ok(WorkerMessage::LookAtFocus) => {
                 // Backend calls only; the buffers are not touched.
                 let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -2501,18 +2579,26 @@ pub fn worker_loop<B: AccessibilityBackend>(
                     match message {
                         WorkerMessage::Event(raw) => {
                             queue_len.fetch_sub(1, Ordering::SeqCst);
-                            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                                process_raw_event(
-                                    worker_index,
-                                    &raw,
-                                    &backend,
-                                    &action_sender,
-                                    &excluded_pid,
-                                    &mut state,
-                                    &pending,
-                                );
-                            }));
+                            let done =
+                                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                                    process_raw_event(
+                                        worker_index,
+                                        &raw,
+                                        &backend,
+                                        &action_sender,
+                                        &excluded_pid,
+                                        &mut state,
+                                        &pending,
+                                    );
+                                }));
+                            if done.is_err() && matches!(raw.event_type, RawEventType::Keyboard) {
+                                state.accents.forget();
+                            }
                         }
+                        WorkerMessage::AccentsNotKnown { layout } => match layout {
+                            Some(layout) => state.accents.forget_on(layout),
+                            None => state.accents.forget(),
+                        },
                         WorkerMessage::EndTyping => {
                             lock_buffers(&pending)
                                 .end_typing(current_timestamp_ms(), &action_sender);
@@ -2529,15 +2615,19 @@ pub fn worker_loop<B: AccessibilityBackend>(
                             key_code,
                             held,
                         } => {
-                            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                                note_unrecorded_key(
-                                    layout,
-                                    key_code,
-                                    held,
-                                    &backend,
-                                    &mut state.accents,
-                                );
-                            }));
+                            let taken =
+                                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                                    note_unrecorded_key(
+                                        layout,
+                                        key_code,
+                                        held,
+                                        &backend,
+                                        &mut state.accents,
+                                    );
+                                }));
+                            if taken.is_err() {
+                                state.accents.forget();
+                            }
                         }
                         WorkerMessage::Flush(ack) => {
                             lock_buffers(&pending).drain_into(&action_sender);
@@ -5344,7 +5434,9 @@ mod tests {
                     Ok(WorkerMessage::EndTyping)
                     | Ok(WorkerMessage::MenuCommand)
                     | Ok(WorkerMessage::WriteHeldKey)
-                    | Ok(WorkerMessage::UnrecordedKey { .. })
+                    | Ok(
+                        WorkerMessage::UnrecordedKey { .. } | WorkerMessage::AccentsNotKnown { .. },
+                    )
                     | Ok(WorkerMessage::LookAtFocus) => {}
                     Ok(WorkerMessage::Shutdown) | Err(_) => break,
                 }
@@ -5436,6 +5528,9 @@ mod tests {
                             let _ = ack.send(idx);
                         }
                     }
+                    Ok(WorkerMessage::AccentsNotKnown { .. }) => {
+                        seen.lock().unwrap().push((idx, spawn, ACCENTS_NOT_KNOWN));
+                    }
                     Ok(WorkerMessage::EndTyping)
                     | Ok(WorkerMessage::MenuCommand)
                     | Ok(WorkerMessage::WriteHeldKey)
@@ -5448,11 +5543,109 @@ mod tests {
         (pool, received)
     }
 
-    /// What `received` holds, sorted.
+    /// What a [`role_pool`] worker notes in place of a key code when it is
+    /// told that the accents that wait are not known.
+    const ACCENTS_NOT_KNOWN: u32 = u32::MAX;
+
+    /// The events `received` holds, sorted.
     fn sorted(received: &Received) -> Vec<(usize, usize, u32)> {
         let mut all = received.lock().unwrap().clone();
+        all.retain(|(_, _, key_code)| *key_code != ACCENTS_NOT_KNOWN);
         all.sort_unstable();
         all
+    }
+
+    /// The workers (index, spawn) told that the accents that wait are not
+    /// known, and how many of its events each had got before it was told.
+    fn told_accents_not_known(received: &Received) -> Vec<(usize, usize, usize)> {
+        let all = received.lock().unwrap().clone();
+        all.iter()
+            .enumerate()
+            .filter(|(_, (_, _, key_code))| *key_code == ACCENTS_NOT_KNOWN)
+            .map(|(at, (idx, spawn, _))| {
+                let before = all[..at]
+                    .iter()
+                    .filter(|(i, s, k)| i == idx && s == spawn && *k != ACCENTS_NOT_KNOWN)
+                    .count();
+                (*idx, *spawn, before)
+            })
+            .collect()
+    }
+
+    /// A worker that takes the typing role after another did not get the
+    /// keys before it: it is told so ahead of its first key. The first
+    /// worker to take the role is told nothing.
+    #[test]
+    fn regression_717_a_worker_that_takes_the_typing_role_over_is_told_it_missed_keys() {
+        let (mut pool, received) = role_pool(2, |idx, _| idx != 1);
+        pool.dispatch(role_event(RawEventType::Click, 1, 0x41)); // to worker 0
+        pool.dispatch(role_event(RawEventType::Keyboard, 1, 0x42)); // worker 1 takes the role
+        thread::sleep(Duration::from_millis(50));
+        assert_eq!(told_accents_not_known(&received), vec![]);
+        // Worker 1 misses a barrier and gives the role up.
+        assert_eq!(pool.flush_all(1, Duration::from_millis(200)), vec![1]);
+        pool.dispatch(role_event(RawEventType::Keyboard, 1, 0x43)); // worker 0 takes it
+        pool.dispatch(role_event(RawEventType::Keyboard, 1, 0x44));
+        thread::sleep(Duration::from_millis(100));
+        assert_eq!(
+            sorted(&received),
+            vec![(0, 0, 0x41), (0, 0, 0x43), (0, 0, 0x44), (1, 0, 0x42)]
+        );
+        // Told once, after its click and ahead of its first key.
+        assert_eq!(told_accents_not_known(&received), vec![(0, 0, 1)]);
+        pool.shutdown_with_timeout(Duration::from_millis(200));
+    }
+
+    /// A key-down whose processing panics is dropped, and may not have been
+    /// taken into the accents that wait: the next key is not known.
+    #[test]
+    fn regression_717_a_key_down_lost_to_a_panic_leaves_the_accent_not_known() {
+        let (mut pool, rx) = pool_with_probe_backend(false, false);
+        pool.dispatch(probe_key(PROBE_DEAD_KEY, false, 1));
+        pool.dispatch(probe_key(PROBE_PANICS, false, 2));
+        pool.dispatch(probe_key(0x45, false, 3));
+        pool.dispatch(probe_key(0x45, false, 4));
+        thread::sleep(Duration::from_millis(100));
+        pool.shutdown_with_timeout(Duration::from_secs(5));
+        assert_eq!(
+            key_names(&drain_events(&rx)),
+            vec!["Dead", "Unidentified", "e"]
+        );
+    }
+
+    /// An accent that waited when the recording started is told to the
+    /// typing worker, for its layout.
+    #[test]
+    fn regression_717_an_accent_that_waited_at_the_start_makes_the_next_key_not_known() {
+        let (mut pool, rx) = pool_with_probe_backend(false, false);
+        pool.accent_not_known_on(PROBE_LAYOUT);
+        pool.dispatch(probe_key(0x45, false, 1));
+        pool.dispatch(probe_key(0x45, false, 2));
+        thread::sleep(Duration::from_millis(100));
+        pool.shutdown_with_timeout(Duration::from_secs(5));
+        assert_eq!(key_names(&drain_events(&rx)), vec!["Unidentified", "e"]);
+    }
+
+    /// The pool says which key-downs it sent to be named: one that its
+    /// worker never names has no name, whatever was named after it.
+    #[test]
+    fn regression_717_a_key_down_sent_and_never_named_is_not_named_as_pressed() {
+        use crate::capture::waiting_accents::PressName;
+        let (mut pool, _received) = role_pool(1, |_, _| true);
+        let mut key = role_event(RawEventType::Keyboard, 1, 0x45);
+        key.sequence_id = 7;
+        pool.dispatch(key); // the role pool's worker names nothing
+        let presses = Arc::clone(&pool.named_presses);
+        presses.note(8, None);
+        assert_eq!(presses.of(7, Duration::ZERO), PressName::NotKnown);
+        assert_eq!(presses.of(8, Duration::ZERO), PressName::AsPressed);
+        // An event that is no key-down is not awaited.
+        let mut click = role_event(RawEventType::Click, 1, 0);
+        click.sequence_id = 9;
+        pool.dispatch(click);
+        presses.note(10, None);
+        assert_eq!(presses.of(9, Duration::ZERO), PressName::AsPressed);
+        pool.shutdown_with_timeout(Duration::from_millis(200));
     }
 
     /// An event of `event_type` in `window_handle` with key code `key_code`.
@@ -5503,7 +5696,7 @@ mod tests {
         pool.dispatch(role_event(event_type.clone(), 1, DIES)); // worker 1 dies
         thread::sleep(Duration::from_millis(50));
         pool.dispatch(role_event(event_type.clone(), 1, 0x43)); // worker 1 is respawned
-        pool.dispatch(role_event(event_type, 1, 0x44));
+        pool.dispatch(role_event(event_type.clone(), 1, 0x44));
         thread::sleep(Duration::from_millis(100));
 
         assert_eq!(
@@ -5517,6 +5710,14 @@ mod tests {
                 (1, 1, 0x44),
             ]
         );
+        // The replacement of the typing worker did not get the keys before
+        // it, and is told so ahead of its first; no other role is.
+        let told = if matches!(event_type, RawEventType::Keyboard) {
+            vec![(1, 1, 0)]
+        } else {
+            vec![]
+        };
+        assert_eq!(told_accents_not_known(&received), told);
         pool.shutdown_with_timeout(Duration::from_millis(200));
     }
 
@@ -5718,6 +5919,8 @@ mod tests {
     /// space; the grave accent makes `è` with `e`.
     const PROBE_LAYOUT: i64 = 0x0409_0409;
     const PROBE_DEAD_KEY: u32 = 0xDD;
+    /// A key code the probe backend panics on when its layout is asked.
+    const PROBE_PANICS: u32 = 0x87;
     const ACUTE: char = '\u{b4}';
 
     impl AccessibilityBackend for ProbeBackend {
@@ -5730,7 +5933,15 @@ mod tests {
             if layout != PROBE_LAYOUT {
                 return 0;
             }
+            if key_code == PROBE_PANICS {
+                panic!("the probe layout was asked about the key that panics");
+            }
             let answers = |with: crate::capture::key_value::Held| {
+                // An injected character is no key of the layout: as on
+                // Windows, the layout has no answer for it.
+                if key_code == VK_PACKET {
+                    return None;
+                }
                 Some(match key_code {
                     0x41..=0x5A if with.ctrl || with.alt => LayoutAnswer::Nothing,
                     0x41..=0x5A if with.shift != with.caps_lock => {
@@ -5755,18 +5966,21 @@ mod tests {
             layout: i64,
             accent: char,
             base: char,
-        ) -> Option<crate::capture::layout_file::Composed> {
+        ) -> Result<
+            Option<crate::capture::layout_file::Composed>,
+            crate::capture::waiting_accents::NoList,
+        > {
             use crate::capture::layout_file::Composed;
             if layout != PROBE_LAYOUT {
-                return None;
+                return Err(crate::capture::waiting_accents::NoList);
             }
-            match (accent, base) {
+            Ok(match (accent, base) {
                 (ACUTE, 'e') => Some(Composed::Char('é')),
                 (ACUTE, 'A') => Some(Composed::Char('Á')),
                 (ACUTE, ' ') => Some(Composed::Char(ACUTE)),
                 ('`', 'e') => Some(Composed::Char('è')),
                 _ => None,
-            }
+            })
         }
 
         fn init(&mut self) -> Result<(), CaptureError> {
@@ -6552,6 +6766,52 @@ mod tests {
         assert_eq!(named_in(&mut state, &probe_key(0x45, false, 4)), "é");
     }
 
+    /// A key the system may act on itself (the Windows key held) may never
+    /// reach the layout: behind an accent its name and what waits after it
+    /// are not known; with no accent waiting it changes nothing.
+    #[test]
+    fn regression_717_a_key_the_system_may_take_is_not_known_behind_an_accent() {
+        let win = |vk: u32, sequence_id: u64| {
+            let mut raw = probe_key(vk, false, sequence_id);
+            raw.modifiers = (false, false, false, true);
+            raw
+        };
+        let mut state = WorkerState::new(Arc::new(NamedPresses::new()));
+        assert_eq!(named_in(&mut state, &win(0x45, 1)), "e");
+        assert_eq!(named_in(&mut state, &probe_key(0x45, false, 2)), "e");
+        assert_eq!(
+            named_in(&mut state, &probe_key(PROBE_DEAD_KEY, false, 3)),
+            "Dead"
+        );
+        assert_eq!(named_in(&mut state, &win(0x45, 4)), "Unidentified");
+        assert_eq!(
+            named_in(&mut state, &probe_key(0x45, false, 5)),
+            "Unidentified"
+        );
+        assert_eq!(named_in(&mut state, &probe_key(0x45, false, 6)), "e");
+        // The same for a key outside the recording.
+        let backend = probe();
+        let mut state = WorkerState::new(Arc::new(NamedPresses::new()));
+        note_unrecorded_key(
+            PROBE_LAYOUT,
+            PROBE_DEAD_KEY,
+            0,
+            &backend,
+            &mut state.accents,
+        );
+        note_unrecorded_key(
+            PROBE_LAYOUT,
+            0x45,
+            SYSTEM_MAY_TAKE,
+            &backend,
+            &mut state.accents,
+        );
+        assert_eq!(
+            named_in(&mut state, &probe_key(0x45, false, 1)),
+            "Unidentified"
+        );
+    }
+
     #[test]
     fn regression_717_a_key_outside_the_recording_is_taken_into_the_accents_that_wait() {
         let backend = probe();
@@ -6664,17 +6924,38 @@ mod tests {
             asked.elapsed() < HELD_NAME_WAIT * 4,
             "one wait, for one key"
         );
-        // Its name comes while the click's worker waits.
+        // One wait for the action, whatever number of its held keys has
+        // no name yet; and a key-down that had no name in time is not
+        // waited for at the next action.
+        click.held = vec![held(0x45, 9), held(0x45, 11), held(0x45, 12)];
+        let asked = Instant::now();
+        assert_eq!(
+            held_at(&click, &probe(), &presses).held_keys,
+            vec!["Unidentified", "Unidentified", "Unidentified"]
+        );
+        assert!(
+            asked.elapsed() < HELD_NAME_WAIT * 2,
+            "one wait, for the action"
+        );
+        let asked = Instant::now();
+        click.held = vec![held(0x45, 9), held(0x45, 11), held(0x45, 12)];
+        let _ = held_at(&click, &probe(), &presses);
+        assert!(asked.elapsed() < HELD_NAME_WAIT, "not waited for again");
+        // A name that comes while the click's worker waits is the key's.
         let naming = {
             let presses = Arc::clone(&presses);
             thread::spawn(move || {
                 thread::sleep(HELD_NAME_WAIT / 4);
-                presses.note(9, None);
+                presses.note(13, None);
             })
         };
-        click.held = vec![held(0x45, 9)];
+        click.held = vec![held(0x45, 13)];
         assert_eq!(held_at(&click, &probe(), &presses).held_keys, vec!["e"]);
         naming.join().unwrap();
+        // And one that comes after the wait is the key's from then on.
+        presses.note(9, None);
+        click.held = vec![held(0x45, 9)];
+        assert_eq!(held_at(&click, &probe(), &presses).held_keys, vec!["e"]);
     }
 
     /// Through the pool: the keys of a field that reports no value change are

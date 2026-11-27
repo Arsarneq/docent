@@ -689,7 +689,7 @@ with a caveat):
 - A key press whose keyboard layout could not be asked is written with `key`
   `Unidentified` where the key has no name of its own (a letter, a digit, a
   punctuation key), where the extension writes the character; a departure
-  (core CP-19). The
+  (core CP-19; [docent#829](https://github.com/Arsarneq/docent/issues/829)). The
   [session format](../../../../technical/session-format.md#key-names) lists
   the cases under Key names. The key is named from nothing else, since a
   name taken from its key code would guess the character and its case.
@@ -697,33 +697,46 @@ with a caveat):
   translation of the keys makes of the two
   ([session format](../../../../technical/session-format.md#key-names), Key
   names), where the extension writes what the browser entered. The two differ
-  in these cases; each is a departure (core CP-19):
+  in these cases; each is a departure (core CP-19; [docent#829](https://github.com/Arsarneq/docent/issues/829)):
   - a program that does not use Windows' translation (it enters the two
     apart, or composes by a rule of its own): the `key` states a character
     the program did not enter;
-  - an accent that was waiting when the recording started: the key behind it
-    is named by its own character;
+  - where the desktop does not know which accent waits, the next key an
+    accent would rename is `Unidentified`. That is so:
+    - on a layout an accent waited on when the recording started;
+    - after a key that went down while its layout could not be asked (the
+      bullet above);
+    - after a key-down the typing worker lost (its processing failed), and
+      for a worker that takes the typing over from one that stopped
+      answering or ended;
+    - after a key the system can act on itself, pressed behind an accent
+      (a key with the Windows key held, Ctrl with Escape, Alt with Tab or
+      Escape): the system takes it or hands it to the program, the desktop
+      cannot tell which, and that key is `Unidentified` too where the accent
+      would rename it;
   - a layout whose list could not be read (a layout file built for another
     processor, as on Windows on ARM, or in another form than the one read):
-    the key is named by its own character, and the log says so once for the
-    layout;
-  - a key that went down while its layout could not be asked (the bullet
-    above): whether an accent waits is then not known, and the next key an
-    accent would rename is `Unidentified`;
-  - a key named among the `held_keys` of a pointer action before the worker
-    that names keys got to its key-down: the action waits for that name for
-    at most 5 s, and names the key `Unidentified` where none came.
+    the key behind a dead key is `Unidentified`, so is the next key an
+    accent would rename, and the log says so once for the layout;
+  - a key named among the `held_keys` of a pointer action before its own
+    key-down was named: the action waits for the names of its held keys for
+    at most 5 s in all, and names a key `Unidentified` where none came.
 
-  A keystroke injected as Unicode (`VK_PACKET`) is taken to leave a waiting
-  accent as it is; that was read from how Windows hands such a character on
-  and not measured.
+  Three things were read from how Windows behaves and not measured against
+  a browser: a keystroke injected as Unicode (`VK_PACKET`) leaves a waiting
+  accent as it is; a key whose character makes another accent with the
+  waiting one keeps its own name; and Ctrl with a letter key leaves the
+  accent waiting on every layout, which Windows' own translation showed on
+  the six layouts the tests ask (Danish, German, French, Spanish, Czech and
+  United States-International).
 
 - A press of the key with virtual-key code `0xE1` (`VK_OEM_AX`) is written
   as any typing key is: a `key` named from the keyboard layout, or part of
   its field's `type`, and it is named among the held keys. The extension
   writes nothing for the press where the browser names the key `AltGraph`,
   which is what the browser's published source does on Windows; that side
-  was read from the source and not measured. A departure (core CP-19).
+  was read from the source and not measured. A departure (core CP-19;
+  [docent#829](https://github.com/Arsarneq/docent/issues/829)).
 - Win+D (show desktop) — a keypress, but the system intercepts it before the
   hooks
 - Win+L (lock screen) — a keypress, but the system intercepts it before the

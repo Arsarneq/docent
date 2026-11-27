@@ -82,6 +82,7 @@ use super::pre_capture::{
 };
 use super::scroll::KeyAttribution;
 use super::timing;
+use super::waiting_accents::NoList;
 use super::worker_pool::{
     fallback_drain_and_seal, worker_loop, AccessibilityBackend, ClickPress, ControlLook,
     ControlNature, DoubleClickBounds, DoubleClickTracker, PendingDirectory, RawEvent, RawEventType,
@@ -126,6 +127,12 @@ enum BridgeMessage {
         layout: i64,
         key_code: u32,
         held: u8,
+    },
+    /// An accent of a dead key waited on `layout` when the keyboard hook was
+    /// set ([`super::worker_pool::WorkerMessage::AccentsNotKnown`]). Sent
+    /// ahead of every key.
+    AccentWaitedAtStart {
+        layout: i64,
     },
 }
 
@@ -967,6 +974,9 @@ impl CaptureLayer for WindowsCapture {
                         key_code,
                         held,
                     } => pool.unrecorded_key(layout, key_code, held),
+                    BridgeMessage::AccentWaitedAtStart { layout } => {
+                        pool.accent_not_known_on(layout);
+                    }
                 }
             }
             // Channel closed (input thread dropped raw_tx) — return pool for shutdown.
@@ -1315,6 +1325,16 @@ fn input_thread_main(
             return Err(CaptureError::HookFailed(format!("WH_KEYBOARD_LL: {e}")));
         }
         ll_hooks.push(kb_hook);
+        // An accent a dead key left waiting before the hook was set: the
+        // key behind it is not known. Read once the hook is set, so every
+        // key from here on is seen, and sent ahead of every key.
+        for layout in layouts_with_accent_waiting() {
+            INPUT_RAW_SENDER.with(|s| {
+                if let Some(sender) = s.borrow().as_ref() {
+                    let _ = sender.send(BridgeMessage::AccentWaitedAtStart { layout });
+                }
+            });
+        }
         // A key already held now is a held key at its next key-down.
         INPUT_HELD_KEYS.with(|held| {
             *held.borrow_mut() = super::held_keys::HeldKeys::seeded(|vk| {
@@ -1570,13 +1590,23 @@ fn input_dropped_window_event(event: u32) {
 /// keeps nothing of it but what waits afterwards.
 ///
 /// Called on the keyboard hook: one send, like a key's own.
-fn input_send_unrecorded_key(layout: i64, key_code: u32, held: super::key_value::Held) {
+fn input_send_unrecorded_key(
+    layout: i64,
+    key_code: u32,
+    held: super::key_value::Held,
+    system_may_take: bool,
+) {
+    let system_may_take = if system_may_take {
+        super::worker_pool::SYSTEM_MAY_TAKE
+    } else {
+        0
+    };
     INPUT_RAW_SENDER.with(|s| {
         if let Some(sender) = s.borrow().as_ref() {
             let _ = sender.send(BridgeMessage::UnrecordedKey {
                 layout,
                 key_code,
-                held: held.index() as u8,
+                held: held.index() as u8 | system_may_take,
             });
         }
     });
@@ -2933,6 +2963,7 @@ unsafe extern "system" fn input_keyboard_ll_proc(
                         alt,
                         caps_lock,
                     },
+                    super::scroll::system_takes_key(kb_struct.vkCode, modifiers),
                 );
             }
             // After the key's own dispatch, so the key keeps the epoch it was
@@ -3215,14 +3246,18 @@ static LAYOUT_LISTS: Mutex<Vec<(isize, LayoutList)>> = Mutex::new(Vec::new());
 /// key ([`super::waiting_accents`]). The list is read from the layout's file
 /// the first time the layout is asked about ([`read_layout_list`]).
 ///
-/// `None` where the layout lists nothing for the two, and for a layout whose
-/// list could not be read: the key is then named by its own character, and
-/// the log says once for the layout why.
+/// `None` where the layout lists nothing for the two; [`NoList`] for a
+/// layout whose list could not be read: the key is then named
+/// `Unidentified`, and the log says once for the layout why.
 ///
 /// Called by a worker, never on the keyboard hook.
-fn layout_composed(layout: i64, accent: char, base: char) -> Option<super::layout_file::Composed> {
+fn layout_composed(
+    layout: i64,
+    accent: char,
+    base: char,
+) -> Result<Option<super::layout_file::Composed>, NoList> {
     if layout == 0 {
-        return None;
+        return Err(NoList);
     }
     let id = layout as isize;
     let lists = || LAYOUT_LISTS.lock().unwrap_or_else(|e| e.into_inner());
@@ -3242,8 +3277,8 @@ fn layout_composed(layout: i64, accent: char, base: char) -> Option<super::layou
                 Err(why) => {
                     eprintln!(
                         "[WindowsCapture] The dead-key list of keyboard layout {:08X} was not \
-                         read ({why}): a key pressed behind a dead key is named by its own \
-                         character on this layout.",
+                         read ({why}): a key pressed behind a dead key is named Unidentified \
+                         on this layout.",
                         layout as u32
                     );
                     None
@@ -3262,7 +3297,7 @@ fn layout_composed(layout: i64, accent: char, base: char) -> Option<super::layou
             }
         }
     };
-    list?.of(accent, base)
+    list.map(|list| list.of(accent, base)).ok_or(NoList)
 }
 
 /// The registry key that lists the keyboard layouts, one key a layout.
@@ -3492,6 +3527,28 @@ unsafe fn fill_layout_answers(hkl: HKL, answers: &mut super::key_value::LayoutAn
         super::key_value::layout_answer(answered, entered[0])
     };
     answers.fill(hkl.0 as isize, ask, || layout_has_no_accent_pending(hkl))
+}
+
+/// The keyboard layouts loaded that an accent of a dead key waits on right
+/// now ([`layout_has_no_accent_pending`]). None on a Windows where asking a
+/// layout would take the accent away: no layout is asked there, and no key is
+/// named behind an accent.
+fn layouts_with_accent_waiting() -> Vec<i64> {
+    if !layout_read_leaves_key_state() {
+        return Vec::new();
+    }
+    // SAFETY: the list is read into a buffer of the size the first call
+    // reports, and each layout asked is a loaded one.
+    unsafe {
+        let mut loaded = vec![HKL::default(); GetKeyboardLayoutList(0, None) as usize];
+        let n = GetKeyboardLayoutList(loaded.len() as i32, Some(loaded.as_mut_ptr()));
+        loaded.truncate(n.max(0) as usize);
+        loaded
+            .into_iter()
+            .filter(|hkl| !layout_has_no_accent_pending(*hkl))
+            .map(|hkl| hkl.0 as isize as i64)
+            .collect()
+    }
 }
 
 /// Whether no accent of a dead key is pending for `hkl` right now: the layout
@@ -4741,7 +4798,7 @@ impl AccessibilityBackend for WindowsAccessibilityBackend {
         layout: i64,
         accent: char,
         base: char,
-    ) -> Option<super::layout_file::Composed> {
+    ) -> Result<Option<super::layout_file::Composed>, NoList> {
         layout_composed(layout, accent, base)
     }
 
@@ -5196,25 +5253,67 @@ mod tests {
         let layout = danish.hkl.0 as isize as i64;
         assert_eq!(
             super::layout_composed(layout, '\u{b4}', 'e'),
-            Some(Composed::Char('é'))
+            Ok(Some(Composed::Char('é')))
         );
         assert_eq!(
             super::layout_composed(layout, '`', 'A'),
-            Some(Composed::Char('À'))
+            Ok(Some(Composed::Char('À')))
         );
-        assert_eq!(super::layout_composed(layout, '\u{b4}', 'q'), None);
-        assert_eq!(super::layout_composed(0, '\u{b4}', 'e'), None);
+        assert_eq!(super::layout_composed(layout, '\u{b4}', 'q'), Ok(None));
+        // No layout read: no list.
+        assert_eq!(
+            super::layout_composed(0, '\u{b4}', 'e'),
+            Err(crate::capture::waiting_accents::NoList)
+        );
         let international = LoadedLayout::load("00020409", 0x0409);
         let layout = international.hkl.0 as isize as i64;
         assert_eq!(
             super::layout_composed(layout, '\'', 'e'),
-            Some(Composed::Char('é'))
+            Ok(Some(Composed::Char('é')))
         );
         // The plain United States layout has no dead key.
         let us = LoadedLayout::load("00000409", 0x0409);
         assert!(super::read_layout_list(us.hkl.0 as isize as i64)
             .expect("read")
             .is_empty());
+    }
+
+    /// An accent that waits on a layout as the recording starts is seen, and
+    /// reading it leaves it waiting.
+    #[test]
+    #[serial_test::serial(danish_layout)]
+    fn regression_717_an_accent_waiting_at_the_start_is_seen() {
+        if !super::layout_read_leaves_key_state() {
+            return; // a Windows before 10.0.14393: the layout is not asked
+        }
+        let danish = LoadedLayout::load("00000406", 0x0406);
+        let layout = danish.hkl.0 as isize as i64;
+        let press = |vk: u32| -> (i32, u16) {
+            let state = [0u8; 256];
+            let mut entered = [0u16; 8];
+            // SAFETY: a keyboard-state read of a loaded layout; the accent
+            // it leaves pending is taken out by the E below.
+            let answered = unsafe {
+                super::ToUnicodeEx(
+                    vk,
+                    0,
+                    state.as_ptr(),
+                    windows_core::PWSTR(entered.as_mut_ptr()),
+                    8,
+                    0,
+                    Some(danish.hkl),
+                )
+            };
+            (answered, entered[0])
+        };
+        assert!(!super::layouts_with_accent_waiting().contains(&layout));
+        // The acute accent's key on the Danish layout.
+        assert_eq!(press(0xDD).0, -1, "the dead key");
+        assert!(super::layouts_with_accent_waiting().contains(&layout));
+        assert!(super::layouts_with_accent_waiting().contains(&layout));
+        // Still waiting after the reads: the E behind it is é.
+        assert_eq!(press(0x45), (1, 0xE9));
+        assert!(!super::layouts_with_accent_waiting().contains(&layout));
     }
 
     /// The rule for the key behind a dead key, held against Windows' own
@@ -5323,7 +5422,7 @@ mod tests {
                         let space = press(0x20, PLAIN);
                         // What the rule says.
                         let mut accents = WaitingAccents::new();
-                        let of = |a: char, b: char| list.of(a, b);
+                        let of = |a: char, b: char| Ok(list.of(a, b));
                         let dead_meets =
                             met_by_an_accent(as_held(dead_vk, dead_held), dead_vk, dead_held);
                         accents.press(layout, dead_meets, of);
