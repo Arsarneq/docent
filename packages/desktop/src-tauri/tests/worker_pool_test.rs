@@ -4613,6 +4613,41 @@ fn a_scroll_between_the_keys_leaves_the_typing_one_type() {
     assert_eq!(type_values_of(&events), vec!["ab"], "got {events:?}");
 }
 
+// Regression: #810 — a wheel turn over a window the session had not
+// introduced has a foreground event dispatched ahead of it, which ended the
+// typing in the field, so one text was written as two type actions
+// https://github.com/Arsarneq/docent/issues/810
+#[test]
+fn regression_810_a_wheel_over_a_window_not_yet_introduced_leaves_the_typing_one_type() {
+    let gate = closed_gate();
+    open_gate(&gate);
+    let live = Arc::new(Mutex::new(String::new()));
+    let harness = WorkerTestHarness::new(TypingBackend::edit_live(&gate, &live));
+
+    let mut seq = 0;
+    for character in "ab".chars() {
+        type_character(&live, character, &mut seq, |raw| harness.send_event(raw));
+    }
+    // The wheel over the second window, as the Input_Thread dispatches it:
+    // the switch that introduces that window, then the scroll.
+    seq += 1;
+    let mut switch = make_raw_event(RawEventType::Foreground, 5678);
+    switch.sequence_id = seq;
+    switch.timestamp = now_ms();
+    switch.callback_params[3] = docent_desktop_lib::capture::worker_pool::SWITCH_BEFORE_ITS_ACTION;
+    harness.send_event(switch);
+    seq += 1;
+    let mut scroll = make_raw_event(RawEventType::Scroll, 5678);
+    scroll.sequence_id = seq;
+    scroll.timestamp = now_ms();
+    scroll.scroll_delta = 10.0;
+    harness.send_event(scroll);
+    type_character(&live, 'c', &mut seq, |raw| harness.send_event(raw));
+    let events = harness.shutdown();
+
+    assert_eq!(type_values_of(&events), vec!["abc"], "got {events:?}");
+}
+
 /// Regression: the last recorded value was kept per selector alone, so a value
 /// typed in one window hid the same value arriving in another window whose
 /// element has an equal selector (two documents of one application).

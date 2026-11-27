@@ -1455,7 +1455,7 @@ fn input_dispatch_raw_event(event: RawEvent) {
             key_code: 0,
             modifiers: (false, false, false, false),
             scroll_delta: 0.0,
-            callback_params: [0, 0, 0, 0],
+            callback_params: [0, 0, 0, super::worker_pool::SWITCH_BEFORE_ITS_ACTION],
             pre_captured_element: None,
             focus_epoch: 0,
             // A switch states no held keys: only a keystroke, a click, a
