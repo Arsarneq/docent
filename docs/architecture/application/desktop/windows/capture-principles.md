@@ -216,9 +216,8 @@ CP-17 the first action taken in such a window establishes its context. The
 Input_Thread keeps, per capture session, the top-level windows whose context it
 introduced: each window it dispatched a `context_switch` or a `context_open`
 for and, when the session's first dispatched action precedes every such
-switch and open and is no focus, that action's window (the session's first
-context). A focus is not, as the worker records it in the window its element
-is in (below), which need not be the window the event named. An event
+switch and open and is no focus (the worker can record a focus in another
+window, below), that action's window (the session's first context). An event
 to be dispatched in a top-level window outside that set has a
 `context_switch` into that window dispatched before it, with the event's
 timestamp, and the window joins the set. A close introduces nothing, and a
@@ -233,16 +232,19 @@ deduplication compares with the last switch into the window in front: a
 switch dispatched this way into the window in front counts as its activation,
 so a late activation of it is not written again, while one into an inactive
 window does not, so a later click into that window or its activation is
-written. Four cases stay open. A capture session started again later in a
-recording, its first action no focus, begins in its first context with no switch, whether or not the
-recording's earlier sessions introduced that context. A switch dispatched
-before an event the worker then does not write (a focus whose selector equals
-the focus worker's last, for example) is written all the same. The Input_Thread
-reads an event's top-level window when it dispatches the event, a worker when
-it describes it: an event whose window is gone by then takes that window's own
-handle as its context, which no switch introduced. And the switch before an
-action in an inactive window records that window's context, not an activation
-the person made.
+written. Four cases stay open:
+
+- A capture session started again later in a recording begins in its first
+  context with no switch, where its first action is no focus, whether or not
+  the recording's earlier sessions introduced that context.
+- A switch dispatched before an event the worker then does not write (a focus
+  whose selector equals the focus worker's last, for example) is written all
+  the same.
+- The Input_Thread reads an event's top-level window when it dispatches the
+  event, a worker when it describes it: an event whose window is gone by then
+  takes that window's own handle as its context, which no switch introduced.
+- The switch before an action in an inactive window records that window's
+  context, not an activation the person made.
 
 A focus is recorded on the element focused when a worker describes it, which
 need not be the element the focus event named: the focus can move on before
