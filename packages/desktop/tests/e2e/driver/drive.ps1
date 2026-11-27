@@ -33,7 +33,26 @@ function Write-Log($line) {
 $script:held = [System.Collections.ArrayList]::new()
 $script:toggled = @{}
 function Stop-Run([int]$code) {
-  # Red check only: no clean-up, to show case 11 catches its absence.
+  for ($i = $script:held.Count - 1; $i -ge 0; $i--) {
+    $k = $script:held[$i]
+    # The log write stays out of the try, and may fail on its own, so a log
+    # that cannot be written never stops the keys after this one going up.
+    $said = "release vk 0x$($k.vk.ToString('x')) on the way out"
+    try {
+      if ($k.scan) { [DriverInput]::VkScan($k.vk, $true, $k.ext) } else { [DriverInput]::Vk($k.vk, $true) }
+    } catch { $said = "release vk 0x$($k.vk.ToString('x')) failed: $($_.Exception.Message)" }
+    try { Write-Log $said } catch { }
+  }
+  $script:held.Clear()
+  foreach ($vk in @($script:toggled.Keys)) {
+    if ($script:toggled[$vk] % 2 -eq 0) { continue }
+    $said = "toggle 0x$($vk.ToString('x')) pressed once more, back to where the run found it"
+    try {
+      [DriverInput]::Vk([uint16]$vk, $false); [DriverInput]::Vk([uint16]$vk, $true)
+    } catch { $said = "toggle 0x$($vk.ToString('x')) not put back: $($_.Exception.Message)" }
+    try { Write-Log $said } catch { }
+  }
+  $script:toggled = @{}
   exit $code
 }
 
