@@ -932,7 +932,7 @@
       "doc": "docs/architecture/application/desktop/windows/capture-principles.md",
       "clause": "DCP-20",
       "tag": "check-exists",
-      "check-ref": "The cases named here (packages/desktop/src-tauri/tests/worker_pool_test.rs; npm run test:desktop:rust) pin the record of the windows a session introduced: a key in a dialog whose activation was not recorded takes a switch before it; a window introduced by a switch or an open takes no further switch, and a close introduces nothing; a lone modifier press and a key attributed to no window introduce nothing; an action after a switch is not the session's first context; a switch into the window in front stands for its late activation, and one into an inactive window does not swallow its later activation; and a right press into an inactive window writes one switch. Checked by no case named here: that an action after a `context_open` is not the session's first context, and the five open cases, in packages/desktop/src-tauri/src/capture/worker_pool.rs (ContextIntroductions, handle_focus) and packages/desktop/src-tauri/src/capture/windows.rs. The reviewer of any pull request that changes that code or this clause reads the one against the other and records the outcome in that pull request's change record. The step passes when the code does what the clause states; a difference is a finding of that review.",
+      "check-ref": "The cases named here (packages/desktop/src-tauri/tests/worker_pool_test.rs; npm run test:desktop:rust) pin the record of the windows a session introduced: a key in a dialog whose activation was not recorded takes a switch before it; a window introduced by a switch or an open takes no further switch, and a close introduces nothing; a lone modifier press and a key attributed to no window introduce nothing; an action after a switch is not the session's first context; a switch into the window in front stands for its late activation, and one into an inactive window does not swallow its later activation; a right press into an inactive window writes one switch; the switch the focus worker writes ahead of a focus in a window no earlier event introduced, and where it writes none; and the Input_Thread's note of the event that introduced each window. Checked by no case named here: that the Windows hook thread calls that dispatch and clears the record when it starts and stops (a Windows integration case in which capture starts in a program's dialog, the dialog closes and the focus returns to its owner would check it); that an action after a `context_open` is not the session's first context; and the four open cases, in packages/desktop/src-tauri/src/capture/worker_pool.rs (ContextIntroductions, handle_focus) and packages/desktop/src-tauri/src/capture/windows.rs. The reviewer of any pull request that changes that code or this clause reads the one against the other and records the outcome in that pull request's change record. The step passes when the code does what the clause states; a difference is a finding of that review.",
       "test-cases": [
         "regression_708_a_key_in_a_dialog_whose_activation_was_not_recorded_is_introduced_by_a_switch",
         "a_window_introduced_by_a_switch_or_an_open_takes_no_further_switch",
@@ -941,7 +941,15 @@
         "an_action_after_a_switch_is_not_the_sessions_first_context",
         "a_switch_into_the_window_in_front_stands_for_its_late_activation",
         "a_switch_into_an_inactive_window_does_not_swallow_its_later_activation",
-        "a_right_press_into_an_inactive_window_writes_one_switch"
+        "a_right_press_into_an_inactive_window_writes_one_switch",
+        "regression_817_a_focus_in_a_window_no_event_before_it_introduced_is_preceded_by_a_switch",
+        "a_focus_in_a_window_introduced_before_it_takes_no_switch",
+        "a_second_focus_in_a_window_a_focus_introduced_takes_no_second_switch",
+        "a_focus_in_another_process_s_window_no_event_introduced_writes_no_switch",
+        "a_focus_whose_window_changes_process_before_its_switch_is_written_writes_nothing",
+        "a_focus_whose_window_changes_process_as_its_title_is_read_writes_nothing",
+        "the_switch_ahead_of_a_focus_reads_its_window_s_title_once",
+        "a_dispatched_event_notes_the_number_of_what_introduced_its_window"
       ]
     },
     {

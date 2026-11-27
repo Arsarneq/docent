@@ -1436,6 +1436,17 @@ pub trait AccessibilityBackend: Send + 'static {
         0
     }
 
+    /// Whether the context of the top-level window `window` was introduced
+    /// by an event the Input_Thread dispatched before the event numbered
+    /// `sequence_id`: a `context_switch` or `context_open` into it, or the
+    /// session's first action, in it (DCP-20). A worker that records an
+    /// action in a window other than the one its event named asks this, as
+    /// the Input_Thread introduced only that one. A platform that does not
+    /// keep the record returns `true` always.
+    fn context_introduced_before(&self, _window: i64, _sequence_id: u64) -> bool {
+        true
+    }
+
     /// The number of the latest key press the Input_Thread dispatched in
     /// `window`; each keystroke carries its own number
     /// ([`RawEvent::callback_params`], see [`KeyNumbers`]). While the two are
@@ -2297,6 +2308,9 @@ pub fn worker_loop<B: AccessibilityBackend>(
 struct WorkerState {
     /// The focus last written: its context and its element's selector.
     last_focus: Option<(Option<i64>, String)>,
+    /// The windows a focus took a `context_switch` into, written by this
+    /// worker before it because no event introduced them (docent#817).
+    introduced_by_focus: std::collections::HashSet<i64>,
     /// The value of the field typed into last, as last taken for its `type`.
     last_value: Option<LastValue>,
     /// The field a paste key (see [`is_paste_key`]) was pressed in, or the
@@ -2328,6 +2342,7 @@ impl WorkerState {
     fn new() -> Self {
         Self {
             last_focus: None,
+            introduced_by_focus: Default::default(),
             last_value: None,
             pasted_into: None,
             last_drag_element: None,
@@ -2704,6 +2719,21 @@ impl ContextIntroductions {
         switched
     }
 
+    /// Whether the session has introduced `root`: by a switch or open into
+    /// it, or by an action in it.
+    pub fn is_introduced(&self, root: i64) -> bool {
+        self.introduced.contains(&root)
+    }
+
+    /// The number the Input_Thread notes for `root` ([`ContextsIntroducedAt`])
+    /// once it has dispatched the event numbered `event`, and ahead of it the
+    /// switch numbered `switch` where [`switch_before`](Self::switch_before)
+    /// dispatched one: the switch's where there was one, the event's
+    /// otherwise; none where `root` is not introduced.
+    pub fn introduced_by(&self, root: i64, switch: Option<u64>, event: u64) -> Option<u64> {
+        self.is_introduced(root).then(|| switch.unwrap_or(event))
+    }
+
     fn introduces(&mut self, event: &RawEvent, root: i64) -> bool {
         if root == 0 {
             return false;
@@ -2719,6 +2749,74 @@ impl ContextIntroductions {
                 let first = self.introduced.is_empty();
                 self.introduced.insert(root) && !first
             }
+        }
+    }
+}
+
+/// The number of the event that introduced each context of a capture session,
+/// by top-level window handle: the `context_switch` or `context_open` into it,
+/// or its first action where that introduced it ([`ContextIntroductions`]).
+/// Noted by the Input_Thread as it dispatches, and read by a worker that
+/// records an action in a window other than the one its event named
+/// (docent#817), so it is shared, behind a lock held only for the map's own
+/// work.
+#[derive(Debug, Default)]
+pub struct ContextsIntroducedAt {
+    at: Mutex<std::collections::BTreeMap<i64, u64>>,
+}
+
+impl ContextsIntroducedAt {
+    /// None introduced, as a `static` can hold it.
+    pub const fn new() -> Self {
+        Self {
+            at: Mutex::new(std::collections::BTreeMap::new()),
+        }
+    }
+
+    /// Note that the event numbered `sequence_id` introduced `root`; a window
+    /// noted already keeps its number.
+    pub fn note(&self, root: i64, sequence_id: u64) {
+        let mut at = self.at.lock().unwrap_or_else(|e| e.into_inner());
+        at.entry(root).or_insert(sequence_id);
+    }
+
+    /// Whether an event dispatched before the event numbered `sequence_id`
+    /// introduced `root`.
+    pub fn introduced_before(&self, root: i64, sequence_id: u64) -> bool {
+        let at = self.at.lock().unwrap_or_else(|e| e.into_inner());
+        at.get(&root).is_some_and(|noted| *noted < sequence_id)
+    }
+
+    /// Forget every context, for a new capture session.
+    pub fn clear(&self) {
+        self.at.lock().unwrap_or_else(|e| e.into_inner()).clear();
+    }
+}
+
+/// The Input_Thread's dispatch of `event`, whose window's top-level window is
+/// `root`, while `foreground_root` is in front: where
+/// [`ContextIntroductions::switch_before`] says the window needs one, the
+/// switch `switch_into` makes for it is sent ahead of the event; then the
+/// event. `send` sends one event and answers the number it gave it. Where
+/// this dispatch introduced `root`, `introduced_at` notes the number of the
+/// switch, or of the event where it took none (docent#817).
+pub fn dispatch_introducing(
+    contexts: &mut ContextIntroductions,
+    introduced_at: &ContextsIntroducedAt,
+    event: RawEvent,
+    root: i64,
+    foreground_root: i64,
+    switch_into: impl FnOnce(&RawEvent) -> RawEvent,
+    mut send: impl FnMut(RawEvent) -> u64,
+) {
+    let known = contexts.is_introduced(root);
+    let switch = contexts
+        .switch_before(&event, root, foreground_root)
+        .then(|| send(switch_into(&event)));
+    let sequence_id = send(event);
+    if !known {
+        if let Some(by) = contexts.introduced_by(root, switch, sequence_id) {
+            introduced_at.note(root, by);
         }
     }
 }
@@ -3097,6 +3195,7 @@ fn process_raw_event<B: AccessibilityBackend>(
                 action_sender,
                 context_id,
                 &mut state.last_focus,
+                &mut state.introduced_by_focus,
                 window_rect.clone(),
             );
         }
@@ -3451,6 +3550,7 @@ fn handle_focus<B: AccessibilityBackend>(
     action_sender: &mpsc::Sender<ActionEvent>,
     context_id: Option<i64>,
     last_focus: &mut Option<(Option<i64>, String)>,
+    introduced_by_focus: &mut std::collections::HashSet<i64>,
     window_rect: Option<WindowRect>,
 ) {
     let (mut element, element_window) = match backend.focused_element_in_window() {
@@ -3494,7 +3594,44 @@ fn handle_focus<B: AccessibilityBackend>(
     if last_focus.as_ref() == Some(&key) {
         return;
     }
+
+    // The Input_Thread introduced the window the event named, not the
+    // element's (DCP-20). Where no event before this one introduced the
+    // element's window, the focus is the first action in its context, and a
+    // `context_switch` into it is written first, at the focus's own place in
+    // the recording (docent#817). It is named by the event's process, the
+    // one the scope filters judged, and titled as the window reads now. The
+    // window's process is read again after its title, and nothing about the
+    // window is read after that: a window that changed process since the
+    // check above (it closed, and its handle went to another process's
+    // window) is one no filter judged, and nothing is written.
+    let switch = if elsewhere
+        && !introduced_by_focus.contains(&element_window)
+        && !backend.context_introduced_before(element_window, raw.sequence_id)
+    {
+        let title = backend.window_title(element_window);
+        if backend.process_id_of(element_window) != raw.process_id {
+            return;
+        }
+        let source = backend
+            .process_name_of(raw.process_id)
+            .unwrap_or_else(|| format!("pid:{}", raw.process_id));
+        Some((source, title))
+    } else {
+        None
+    };
     *last_focus = Some(key);
+    if let Some((source, title)) = switch {
+        introduced_by_focus.insert(element_window);
+        send_context_switch(
+            raw,
+            source,
+            title,
+            action_sender,
+            context_id,
+            window_rect.clone(),
+        );
+    }
 
     let _ = action_sender.send(ActionEvent {
         timestamp: raw.timestamp,
@@ -4330,6 +4467,19 @@ fn handle_foreground<B: AccessibilityBackend>(
             by_window => by_window,
         });
 
+    send_context_switch(raw, source, title, action_sender, context_id, window_rect);
+}
+
+/// Send the `context_switch` for `raw`, named `source` and titled `title`
+/// (none where empty).
+fn send_context_switch(
+    raw: &RawEvent,
+    source: String,
+    title: String,
+    action_sender: &mpsc::Sender<ActionEvent>,
+    context_id: Option<i64>,
+    window_rect: Option<WindowRect>,
+) {
     let _ = action_sender.send(ActionEvent {
         timestamp: raw.timestamp,
         context_id,

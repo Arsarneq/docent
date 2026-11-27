@@ -241,7 +241,15 @@ Three events take no switch and introduce no window:
 - a lone Shift, Ctrl or Alt press, which the worker drops (DCP-13);
 - a key attributed to no window (DCP-14), which has no window to introduce.
 
-A window introduced once takes no further switch when actions return to it. An action in a window introduced earlier carries that window's `context_id` with no switch before it (after a wheel over an inactive window, a key in the window in front, for example).
+A window introduced once takes no further switch from the Input_Thread when actions return to it (the focus worker can write one, below). An action in a window introduced earlier carries that window's `context_id` with no switch before it (after a wheel over an inactive window, a key in the window in front, for example).
+
+The Input_Thread introduces the window a focus event named, and the focus can be recorded in another window of that process (DCP-21's table). Where no event dispatched before the focus introduced that window, the focus worker writes a `context_switch` into it ahead of the focus, at the focus's place in the recording. That switch is named by the event's process, the one the scope filters judged, and titled by the window's title as read when the focus is described, read once, so a window with no title gives a switch with none. Nothing is written where the window no longer belongs to the event's process after its title is read.
+
+The Input_Thread does not learn of that switch, and the focus worker keeps the windows it wrote one for only in its own state, which a respawned or newly chosen focus worker starts without. One of these three switches into the same window can therefore follow:
+
+- the window's activation;
+- a switch the Input_Thread dispatches before the first action it sees there;
+- a new focus worker's switch ahead of a later focus.
 
 The foreground row's deduplication compares with the last switch into the window in front. A switch this clause dispatches counts for it by where the window is:
 
@@ -250,13 +258,12 @@ The foreground row's deduplication compares with the last switch into the window
 | The window in front | Yes                                   | A late activation of it is not written again                  |
 | An inactive window  | No                                    | A later click into that window, or its activation, is written |
 
-Five cases stay open:
+Four cases stay open:
 
 - A capture session started again later in a recording begins in its first context with no switch, whether or not the recording's earlier sessions introduced that context.
 - A switch dispatched before an event the worker then does not write (a focus DCP-21 leaves unwritten, for example) is written all the same.
 - The Input_Thread reads an event's top-level window when it dispatches the event, a worker when it describes it. An event whose window is gone by then takes that window's own handle as its context, which no switch introduced.
 - The switch before an action in an inactive window records that window's context, not an activation the person made.
-- A focus recorded in another window of the event's process (DCP-21's table) has no `context_switch` before it where the session has not introduced that window: the Input_Thread introduces the window the event named. DCP-13 lists it as a departure.
 
 ### Which focus is written, and where
 
@@ -277,7 +284,7 @@ Where a focus is recorded follows from the top-level window its element is in, a
 | Another window of the event's process                                 | In that window's context, with its rectangle                     |
 | Another window of another process, or of a process that can't be read | Not at all: the scope filters (DCP-5) judged the event's process |
 
-The third row can record a focus in a window the session has not introduced (DCP-20's open cases).
+For the third row, DCP-20 states the switch written ahead of the focus where nothing introduced that window.
 
 Two cases stay open:
 
@@ -699,7 +706,6 @@ Which worker an event reaches, and how the typing and focus workers are chosen, 
 - A focus on the element the focus worker wrote last (its selector within its window; DCP-21) — not written; a departure (core CP-18)
 - A focus that a worker describes after the input thread dispatched a later focus event (DCP-21) — not written, save in the open cases DCP-21 states; a departure (core CP-18)
 - A focus whose element is in a window of a process the scope filters did not judge (DCP-21's table) — not written; a departure (core CP-18)
-- A focus recorded in a window of the event's process that the session has not introduced (DCP-20's fifth open case) — no `context_switch` before it; a departure (core CP-17; [docent#817](https://github.com/Arsarneq/docent/issues/817))
 - A key pressed while an input method composes text (the letters of a romanized reading, Space, the Enter that confirms, Escape, an arrow in the candidate list, Backspace) — written as a `key`. A typing key is written so too, unless the field reports a value change for it: a field that reports the composing text as its value has those keys in its `type` instead. The composed text is the field's `type` when it is confirmed. A composition given up leaves its keys, and no `type` where the field reported no value for it.
 
   The keyboard hook is handed each key ahead of the input method, and nothing a program outside the application can read says that a composition is open. Three things were measured on Windows 11 with the Japanese Microsoft IME in Notepad and in a WebView2 field:
