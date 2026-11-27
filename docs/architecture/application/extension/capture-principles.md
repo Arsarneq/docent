@@ -218,7 +218,7 @@ phase, for exactly these DOM events, on `document` unless the item names
   `key` too, and goes out ahead of the presses that still wait. Text the
   browser enters in the element after that press is its next entry, written
   behind the keys; what the page made of the element by itself is no entry. The desktop decides the same question by the accent the field's
-  value gained (desktop capture DCP-9). On any other element a
+  value gained (desktop capture DCP-17). On any other element a
   character key is written at once (a letter on a button). An entry a key
   press writes ahead of itself (below) carries the time of that press. A
   character key pressed with no shortcut modifier on a sensitive element is
@@ -276,8 +276,7 @@ phase, for exactly these DOM events, on `document` unless the item names
 - `input` — editing of a `contenteditable` host, which writes nothing by
   itself: the host's text is one `type`, written when the typing in it ends
   (the host loses the focus, a key press is written, the pointer is pressed,
-  or typing begins in another host); a pause between two keys ends nothing,
-  how fast a person types being no part of what they typed; on any field,
+  or typing begins in another host); a pause between two keys ends nothing (the [session format](../../../technical/session-format.md#shared-both-platforms)'s `type` row holds the rule); on any field,
   `input` is also the sign that the character keys just pressed in it became
   its text, so that none of them is written as a `key`; an `input` that
   carries composing text opens a composition for its field and states the

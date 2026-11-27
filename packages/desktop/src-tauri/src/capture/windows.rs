@@ -1444,25 +1444,13 @@ fn input_dispatch_raw_event(event: RawEvent) {
     if INPUT_CONTEXTS.with(|c| c.borrow_mut().switch_before(&event, root, foreground_root)) {
         let mut process_id: u32 = 0;
         unsafe { GetWindowThreadProcessId(HWND(root as *mut _), Some(&mut process_id)) };
-        input_send_raw_event(RawEvent {
-            event_type: RawEventType::Foreground,
-            sequence_id: 0,
-            timestamp: event.timestamp,
-            screen_x: 0,
-            screen_y: 0,
-            window_handle: root,
+        input_send_raw_event(super::worker_pool::switch_before_event(
+            &event,
+            root,
+            foreground_root,
             process_id,
-            key_code: 0,
-            modifiers: (false, false, false, false),
-            scroll_delta: 0.0,
-            callback_params: [0, 0, 0, 0],
-            pre_captured_element: None,
-            focus_epoch: 0,
-            // A switch states no held keys: only a keystroke, a click, a
-            // right-click and a drop are stamped with them (held_keys).
-            held: Vec::new(),
-            window_title: input_window_title(HWND(root as *mut _)),
-        });
+            input_window_title(HWND(root as *mut _)),
+        ));
     }
     input_send_raw_event(event);
 }

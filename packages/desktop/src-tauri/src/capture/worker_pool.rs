@@ -880,7 +880,7 @@ impl WorkerPool {
     /// worker are cleared so subsequent events are re-routed; the typing and
     /// focus workers stay the respawned index.
     pub fn dispatch(&mut self, event: RawEvent) {
-        if ends_typing(&event.event_type) {
+        if ends_typing(&event) {
             self.tell_typing_worker(WorkerMessage::EndTyping);
         }
         if is_menu_command(&event) {
@@ -3055,7 +3055,7 @@ fn process_raw_event<B: AccessibilityBackend>(
     // The typing in a field has ended: its `type` goes out ahead of this
     // event's action. The dispatcher tells the typing worker the same when
     // the event is another worker's.
-    if ends_typing(&raw.event_type) {
+    if ends_typing(raw) {
         lock_buffers(pending).flush_pending_type_only(action_sender);
     }
     // A key held behind dead keys is written ahead of this event's action. A
@@ -4508,16 +4508,68 @@ fn write_keys_that_took_no_text(
 /// typing already, and a program that reports the focus again on the field
 /// being typed into ends nothing. A value change that reaches the worker
 /// after one of these events starts the field's next `type`.
-fn ends_typing(event_type: &RawEventType) -> bool {
-    matches!(
-        event_type,
+///
+/// Nor is the foreground event the Input_Thread dispatches ahead of a first
+/// action in an inactive window the session had not introduced
+/// ([`switch_before_event`]): that window has not come to the front (a wheel
+/// turned or a drop made over it), and the action behind it ends the typing
+/// where it is one that does (docent#810).
+fn ends_typing(event: &RawEvent) -> bool {
+    match event.event_type {
+        RawEventType::Foreground => event.callback_params[3] != SWITCH_BEFORE_ITS_ACTION,
         RawEventType::Click
-            | RawEventType::RightClick
-            | RawEventType::DragStart { .. }
-            | RawEventType::Drop { .. }
-            | RawEventType::Foreground
-    )
+        | RawEventType::RightClick
+        | RawEventType::DragStart { .. }
+        | RawEventType::Drop { .. } => true,
+        _ => false,
+    }
 }
+
+/// The foreground event the Input_Thread dispatches ahead of `action`, the
+/// first action in a window the session had not introduced
+/// (`ContextIntroductions::switch_before`): into `root`, whose process is
+/// `process_id` and whose title, read with it, is `window_title`. Marked
+/// [`SWITCH_BEFORE_ITS_ACTION`] where `root` is not the window in front
+/// (`foreground_root`), which has then not come to the front; a switch into
+/// the window in front counts as its activation (DCP-7) and is not marked.
+pub fn switch_before_event(
+    action: &RawEvent,
+    root: i64,
+    foreground_root: i64,
+    process_id: u32,
+    window_title: Option<String>,
+) -> RawEvent {
+    let mark = if root == foreground_root {
+        0
+    } else {
+        SWITCH_BEFORE_ITS_ACTION
+    };
+    RawEvent {
+        event_type: RawEventType::Foreground,
+        sequence_id: 0,
+        timestamp: action.timestamp,
+        screen_x: 0,
+        screen_y: 0,
+        window_handle: root,
+        process_id,
+        key_code: 0,
+        modifiers: (false, false, false, false),
+        scroll_delta: 0.0,
+        callback_params: [0, 0, 0, mark],
+        pre_captured_element: None,
+        focus_epoch: 0,
+        // A switch states no held keys: only a keystroke, a click, a
+        // right-click and a drop are stamped with them (held_keys).
+        held: Vec::new(),
+        window_title,
+    }
+}
+
+/// The mark, in the fourth callback parameter, of a foreground event the
+/// Input_Thread dispatches ahead of a first action in an inactive window the
+/// session had not introduced ([`switch_before_event`]), rather than for a
+/// window that came to the front.
+pub const SWITCH_BEFORE_ITS_ACTION: i64 = 1;
 
 // ---------------------------------------------------------------------------
 // Tests
