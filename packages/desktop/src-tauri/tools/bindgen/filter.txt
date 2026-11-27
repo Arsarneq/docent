@@ -79,6 +79,7 @@ Windows.Win32.IUIAutomationElementArray
 Windows.Win32.IUIAutomationSelectionPattern
 Windows.Win32.IUIAutomationTreeWalker
 Windows.Win32.ImmGetDefaultIMEWnd
+Windows.Win32.InternalGetWindowText
 Windows.Win32.IsWindow
 Windows.Win32.IsWindowVisible
 Windows.Win32.KBDLLHOOKSTRUCT

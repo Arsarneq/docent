@@ -944,7 +944,8 @@
   //   Made the `key` it was (written with the time of the press) by whichever
   //   of these comes first:
   //     - the timer task after the press's `keypress` (the browser enters a
-  //       key's text while it handles that event);
+  //       key's text while it handles that event), for the presses that
+  //       waited at that `keypress`;
   //     - the key's release, or the release of any key;
   //     - the next key press;
   //     - a pointer action, or any other action written in a later task;
@@ -1826,10 +1827,18 @@
       if (pressedKeysDown.has(e.code)) markKeyEvent();
       // The browser enters a key's text while it handles this event. A press
       // still waiting once that is over entered none: the next timer task
-      // comes after it, whether or not the key is released.
+      // comes after it, whether or not the key is released. The browser can
+      // hand over the next key presses ahead of that task, so it settles the
+      // presses that wait now and leaves a later one waiting (#789).
       if (pendingKeys.some((press) => !press.byParts)) {
+        const waitingNow = new Set(pendingKeys);
         setTimeout(() => {
-          if (active) resolvePendingKeys(waitsForMore);
+          if (!active) return;
+          resolvePendingKeys((press, at, all) => {
+            if (!waitingNow.has(press)) return true;
+            const waitedThen = all.filter((other) => waitingNow.has(other));
+            return waitsForMore(press, waitedThen.indexOf(press), waitedThen);
+          });
         }, 0);
       }
     },
