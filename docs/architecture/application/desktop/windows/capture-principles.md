@@ -578,11 +578,13 @@ capture document, ECP-12, states the rule; core CP-19). A keystroke that enters 
 field (DCP-11's signal) is never buffered as a key: it starts or extends that
 field's masked `type` action, so typing into a password field is recorded as
 that `type` whether or not the field reports a value change. Every keystroke
-enters text there except the keys that enter no character (the editing,
-navigation, lock, system, modifier and function keys, a closed list) and a
-key with Ctrl, Alt or Meta held other than Ctrl and Alt together; those are
-`key` actions there as anywhere, and a key the name table does not know
-counts as text.
+enters text there except the keys that enter no character (Shift, Control
+and Alt, the function keys, and every key with a name of its own other than
+`Process`; a closed list) and a key with Ctrl, Alt or Meta held other than
+Ctrl and Alt together; those are `key` actions there as anywhere. Every other
+key counts as text: a character, `Space`, `Dead`, `Unidentified`, and
+`Process`, the name of a key an input method took, which stands for a typing
+key.
 
 Timing constants and correlation windows live in `src/capture/timing.rs`.
 

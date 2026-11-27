@@ -2724,7 +2724,7 @@ fn modifier_only_keys_produce_no_events() {
 
     // VK_LSHIFT = 0xA0, VK_RSHIFT = 0xA1, VK_LCONTROL = 0xA2,
     // VK_RCONTROL = 0xA3, VK_LMENU = 0xA4, VK_RMENU = 0xA5
-    // These all return empty string from vk_to_key_name → skipped.
+    // These are all given the empty name, and skipped.
     for vk in [0xA0u32, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5] {
         harness.send_event(RawEvent {
             event_type: RawEventType::Keyboard,

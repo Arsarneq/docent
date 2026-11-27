@@ -1551,8 +1551,9 @@ mod capture_behaviour {
 
         // No count assertion (see above). Whatever printable keys ARE captured
         // must be clean single characters with no Ctrl/Alt/Meta — captured keys
-        // are never garbled. (vk_to_key_name maps VK 'A'..'Z' to uppercase
-        // regardless of shift state, so compare case-insensitively.)
+        // are never garbled. (A letter is named in the case the press gives
+        // it, which Caps Lock on the machine decides, so compare
+        // case-insensitively.)
         for e in keys(&events) {
             if let ActionPayload::Key { key, modifiers, .. } = &e.payload {
                 if key.len() == 1 && !modifiers.ctrl && !modifiers.alt && !modifiers.meta {

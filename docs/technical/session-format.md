@@ -433,9 +433,10 @@ The desktop names a key from what Windows gives it:
 - The press is looked up by its virtual-key code, the modifiers and the Caps
   Lock state the keyboard hook read at the press, and the keyboard layout of
   the foreground window's thread.
-- Where no layout was read for the press, and on Windows before 10.0.14393,
-  which has no read that leaves the keyboard state alone, a key with no name
-  of its own is `Unidentified`.
+- Where no layout was read for the press, where the layout's table could not
+  be built yet because an accent was waiting, and on Windows before
+  10.0.14393, which has no read that leaves the keyboard state alone, a key
+  with no name of its own is `Unidentified`.
 - A keystroke injected as Unicode (`VK_PACKET`) is the character it carried,
   a space as `Space`, or `Unidentified` for a code unit that is no character
   on its own (half of a surrogate pair, or a control character).

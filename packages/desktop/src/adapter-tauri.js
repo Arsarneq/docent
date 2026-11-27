@@ -191,10 +191,12 @@ function _redactSensitive(action) {
 // not reach. On a sensitive field a key that enters text is therefore recorded
 // as what it is there — typing into the field — in the one shape that typing
 // has: the field's masked `type`. Keys that enter no character (Enter, Tab,
-// Backspace, the arrows) and shortcuts (Ctrl, Alt or Meta held, other than
-// Ctrl and Alt together, which is AltGr) stay keys.
-// The test is closed on the keys that stay keys, so a key name this list does
-// not know counts as text and is masked. The native layer's password rule
+// Backspace, the arrows, every key with a name of its own) and shortcuts
+// (Ctrl, Alt or Meta held, other than Ctrl and Alt together, which is AltGr)
+// stay keys.
+// The test is closed on the keys that stay keys, so every other name counts
+// as text and is masked: a character, `Space`, `Dead`, `Unidentified`, and
+// `Process`, the key an input method took, which stands for a typing key. The native layer's password rule
 // keeps the same list (NON_TEXT_KEY_NAMES in src-tauri/src/capture/worker_pool.rs).
 const _NON_TEXT_KEY_NAMES = new Set([
   'Backspace',
@@ -220,6 +222,54 @@ const _NON_TEXT_KEY_NAMES = new Set([
   'Meta',
   'NumLock',
   'ScrollLock',
+  'Cancel',
+  'Clear',
+  'JunjaMode',
+  'FinalMode',
+  'Convert',
+  'NonConvert',
+  'Accept',
+  'ModeChange',
+  'Select',
+  'Print',
+  'Execute',
+  'Help',
+  'ContextMenu',
+  'Standby',
+  'BrowserBack',
+  'BrowserForward',
+  'BrowserRefresh',
+  'BrowserStop',
+  'BrowserSearch',
+  'BrowserFavorites',
+  'BrowserHome',
+  'AudioVolumeMute',
+  'AudioVolumeDown',
+  'AudioVolumeUp',
+  'MediaTrackNext',
+  'MediaTrackPrevious',
+  'MediaStop',
+  'MediaPlayPause',
+  'LaunchMail',
+  'LaunchMediaPlayer',
+  'LaunchApplication1',
+  'LaunchApplication2',
+  'Attn',
+  'CrSel',
+  'ExSel',
+  'EraseEof',
+  'Play',
+  'ZoomToggle',
+  'HangulMode',
+  'HanjaMode',
+  'KanaMode',
+  'KanjiMode',
+  'Alphanumeric',
+  'Katakana',
+  'Hiragana',
+  'Hankaku',
+  'Zenkaku',
+  'Romaji',
 ]);
 
 // The control types that take no typed text: a key pressed on one presses,
