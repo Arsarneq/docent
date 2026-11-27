@@ -356,7 +356,7 @@ digits, letters, the numeric keypad (digits, operators, decimal and
 separator), the punctuation keys of every layout, and a keystroke injected as
 Unicode. So a space, a keypad digit or an AltGr character typed into a text
 field is part of that field's `type` value, as on the extension, and a `key`
-(`Space`, `Numpad1`) where no value change of its own element follows it. On
+(`Space`, `1`) where no value change of its own element follows it. On
 a control that takes no typed text (a closed list of control types: `Button`,
 `CheckBox`, `Hyperlink`, `MenuItem`, `RadioButton`, `SplitButton`, `TabItem`)
 a typing key is not buffered at all: it is written at once as the `key` that
@@ -493,13 +493,18 @@ stacks, software keyboards and automation) is printable input whatever it
 carries: the hook passes on its scan code, which is the injected UTF-16 code
 unit, and the worker names the key by that character (a space as `Space`,
 and a unit that is no character on its own as `Unidentified`), so the same
-text is never recorded twice. For a punctuation key (the codes the
-[session format](../../../../technical/session-format.md)'s `key` row lists,
-with the naming) the hook also reads the character the key enters with no
-modifier on the keyboard layout of the foreground window's thread, a read that
-leaves the keyboard state alone, and the worker names the key by it (by its
-code, `VK_0x..`, where none was read); a punctuation key is a typing key
-either way. Every keyboard event and every value-change
+text is never recorded twice. A key is named as the
+[session format](../../../../technical/session-format.md)'s `key` row states:
+the hook reads the keyboard layout of the thread that holds the keyboard
+focus and whether Caps Lock is on, two reads that leave the keyboard state
+alone, and the worker names the key from the table built for that layout
+(`Unidentified` where no layout was read and the key
+has no fixed name). For a punctuation key (the codes `0xBA`–`0xC2`,
+`0xDB`–`0xDF`, `0xE1`–`0xE4`, `0xE6`, whose character each layout assigns
+for itself) the hook also reads the character the key enters with no
+modifier on that layout, which tells the worker whether the key is a dead
+key and which accent it carries; a punctuation key is a typing key either
+way. Every keyboard event and every value-change
 event is processed by one worker, the typing worker, in the order the input
 thread dispatched them, so a value change is processed after the keystrokes
 that caused it and supersedes each buffered one, however busy the pool is
@@ -561,8 +566,8 @@ name that action carries, in the order they went down. The hook's record
 supplies them: it notes, for each key that is down, the key-down that was
 dispatched for recording (the press, or the first repeat dispatched when the
 press was not, in an excluded window or before the capture started), with
-the layout character that key-down carried, so a held punctuation key is named
-by it as its own `key` is, and stamps each keystroke with the keys so noted.
+the modifiers, the Caps Lock state and the layout read at that key-down, so a
+held key is named as its own `key` is, and stamps each keystroke with the keys so noted.
 The panel keeps a name only where that key-down is a `key` action of the
 step, once the step's actions are complete: a key-down that became text (part of a `type`, masked or not) names
 no held key, and a typing key that was written as a `key` (one no value change
