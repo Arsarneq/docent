@@ -480,7 +480,7 @@
       "doc": "docs/architecture/application/extension/capture-principles.md",
       "clause": "ECP-9",
       "tag": "check-exists",
-      "check-ref": "The corpus redaction session verifies mask + text-null + redacted end-to-end (npm run corpus:check); the shared detection util is unit-tested (npm run test:shared); scripts/sufficiency-lint.js enforces the locator masking half."
+      "check-ref": "The corpus redaction session verifies mask + text-null + redacted end-to-end (npm run corpus:check); the shared detection util is unit-tested (npm run test:shared); scripts/sufficiency-lint.js enforces the locator masking half. That the recorder's logic and the service worker hold the same lists of controls that take no typed text, and agree on every such control, is pinned by the takesNoTypedText cases (packages/extension/tests/unit/recorder-logic.test.js, which reads packages/extension/content/recorder-logic.js); that packages/extension/content/recorder.js mirrors that file is held by packages/extension/tests/unit/recorder-mirror-parity.test.js; both run via npm run test:unit. That the closed list this clause prints equals those lists (NON_TEXT_TAGS, NON_TEXT_ROLES and NON_ENTRY_INPUT_TYPES) is checked by no test: the reviewer of any pull request that changes one of the code lists or this clause compares the printed list with them and records the outcome in that pull request's change record. A test that parses this clause's list and compares it with the arrays would make it checkable."
     },
     {
       "doc": "docs/architecture/application/extension/capture-principles.md",

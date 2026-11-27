@@ -96,23 +96,15 @@ event attributed to no window is judged by the target filter alone:
 - **Target application** — when the user selects a target application, only
   events attributed to its process are captured; with no target set, all
   applications are captured.
-- **Self-capture exclusion** — events from Docent's own process are excluded
-  by default, on three grounds: processes in Docent's own process **tree**
-  (a bounded walk up the parent chain; the bound lives in code); processes
-  recognized by executable name — the webview runtime's, or Docent's own
-  binary name — which are excluded regardless of tree membership; and
-  processes judged to have their window owned by an excluded process's
-  window (the system dialogs Docent itself opens). The verdict those grounds
-  reach is **per-process**: it is evaluated on the first event a process sends
-  through them and cached for the capture session, so every window of that
-  process shares whichever verdict came first — including the owned-window
-  ground, which is therefore decided from the first event's window alone. An
-  event the target filter has already dropped never reaches them, so it is
-  judged by no ground and caches nothing.
-  The setting is a persisted toggle, default on, applied when the app starts
-  and the moment it changes; the exclusion takes priority over the target
-  filter, so selecting Docent itself as the target still excludes it while
-  the exclusion is on.
+- **Self-capture exclusion** — events from Docent's own process are excluded by default, on three grounds:
+  - processes in Docent's own process **tree** (a bounded walk up the parent chain; the bound lives in code);
+  - processes recognized by executable name — the webview runtime's, or Docent's own binary name — which are excluded regardless of tree membership;
+  - processes judged to have their window owned by an excluded process's window (the system dialogs Docent itself opens).
+
+  The verdict those grounds reach is **per-process**: it is evaluated on the first event a process sends through them and cached for the capture session, so every window of that process shares whichever verdict came first — including the owned-window ground, which is therefore decided from the first event's window alone. An event the target filter has already dropped never reaches them, so it is judged by no ground and caches nothing.
+
+  The setting is a persisted toggle, default on, applied when the app starts and the moment it changes; the exclusion takes priority over the target filter, so selecting Docent itself as the target still excludes it while the exclusion is on.
+
 - **Resolvable window** — an event whose window is already destroyed by the
   time it is examined (its process can no longer be resolved) is skipped.
 
@@ -129,26 +121,27 @@ event source of the DCP-4 surface names the window whose process is judged:
 | Low-level keyboard hook | The foreground window, or no window for a key the system takes (below)                   |
 | WinEvent callbacks      | The window the event names                                                               |
 
-A key the system takes is one the system acts on, not the foreground window:
-the Windows key, or any key pressed while it is held; Escape with Ctrl held
-and Alt not (Ctrl+Esc opens Start); and Tab or Escape with Alt held (Alt+Tab
-and Alt+Esc switch windows). An Alt press alone is none of these. Such a key
-is attributed to no window when the self-capture exclusion (DCP-5) excludes
-the foreground window, and that window stays out of the recording; under any
-other foreground window it is attributed to the foreground window, as every
-key is. With a target set, a key attributed to no window is not the target's
-input and is dropped. With none, it is recorded with `context_id` and
-`window_rect` null and with the stand-in element of a key whose element is
-unknown (tag `Unknown`, empty selector) with no name, also where the system
-then acts on the foreground window (Win+Arrow, for example); the input thread
-reads no focused control for it ([capture pipeline, stage 1](capture-pipeline.md#stages)), so no control of the excluded window
-is its element. It carries `modifiers`, `repeat` and `held_keys` as every
-`key` does (DCP-9), the Windows key held at it among its modifiers. Its press
-counts
-as low-level input for the window changes it causes (DCP-7), the switch an
-Alt+Tab makes among them (DCP-6), with the excluded foreground window as the
-input's window (DCP-8); it counts as no keyboard input, so no value change
-correlates with it.
+A key the system takes is one the system acts on, not the foreground window. It is one of these three, a closed list:
+
+- the Windows key, or any key pressed while it is held;
+- Escape with Ctrl held and Alt not (Ctrl+Esc opens Start);
+- Tab or Escape with Alt held (Alt+Tab and Alt+Esc switch windows).
+
+An Alt press alone is none of these.
+
+Such a key is attributed to no window when the self-capture exclusion (DCP-5) excludes the foreground window, and that window stays out of the recording; under any other foreground window it is attributed to the foreground window, as every key is.
+
+With a target set, a key attributed to no window is not the target's input and is dropped. With none, it is recorded as a `key` with these field values, also where the system then acts on the foreground window (Win+Arrow, for example):
+
+| Field                              | Value                                                                                           |
+| ---------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `context_id`, `window_rect`        | null                                                                                            |
+| `element`                          | The stand-in element of a key whose element is unknown (tag `Unknown`, empty selector), no name |
+| `modifiers`, `repeat`, `held_keys` | As every `key` carries them (DCP-9), the Windows key held at the press among its modifiers      |
+
+The input thread reads no focused control for such a key ([capture pipeline, stage 1](capture-pipeline.md#stages)), so no control of the excluded window is its element.
+
+The press of a key attributed to no window counts as low-level input for the window changes it causes (DCP-7), the switch an Alt+Tab makes among them (DCP-6), with the excluded foreground window as the input's window (DCP-8); it counts as no keyboard input, so no value change correlates with it.
 
 WinEvents are additionally **foreground-gated**: the Input_Thread tracks the
 foreground process — seeded from the foreground window when capture starts,
@@ -518,22 +511,11 @@ Timing constants and correlation windows live in `src/capture/timing.rs`.
 
 ## Pointer gesture classification
 
-**DCP-10.** A left press-move-release is classified at release: movement of
-more than 5 px on either axis between button-down and button-up records a
-`drag_start`/`drop` pair (both dispatched at release, the source described
-from the button-down point); movement within the threshold records a `click`.
-A middle-button press records a `click` (the format has no separate
-middle-click type); a right-button press records a `right_click`. Each of
-these actions carries `modifiers`, the modifier keys held, and `held_keys`,
-the other keys that were down (DCP-9), as they stood at the input the action
-stands for: for a left `click` and a `drop` at the release of the button, for
-a middle-button `click` and a `right_click` at the press of their button, and
-for a `drag_start` at the first pointer position past the threshold after the
-button-down, which is where the drag started (the release itself, when no
-earlier position passed it); the extension reads a `drag_start`'s at the
-browser's `dragstart`, the point at which the browser takes the gesture for a
-drag, by a threshold of its own. The extension writes a `right_click` at the
-press of the right button too.
+**DCP-10.** A left press-move-release is classified at release: movement of more than 5 px on either axis between button-down and button-up records a `drag_start`/`drop` pair (both dispatched at release, the source described from the button-down point); movement within the threshold records a `click`.
+
+A middle-button press records a `click` (the format has no separate middle-click type); a right-button press records a `right_click`.
+
+Each of these actions carries `modifiers`, the modifier keys held, and `held_keys`, the other keys that were down (DCP-9), as they stood at the input the action stands for. The [session format](../../../../technical/session-format.md#shared-both-platforms)'s rows for `click`, `right_click`, `drag_start` and `drop` hold which input that is, on both platforms. This clause adds one case: where no pointer position before the release passed the threshold, the drag started at the release itself, and the `drag_start` carries what was held then. On the extension the browser takes the gesture for a drag by a threshold of its own.
 
 A left click whose press is the second press of a double-click is marked as
 completing one. The test is the system's own: the press lands in the same
