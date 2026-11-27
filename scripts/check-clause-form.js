@@ -55,7 +55,12 @@ import { readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { extractClauseSection, selfPath } from './check-test-inventory.js';
-import { REGISTRY_INPUT_ERROR_NAME, REGISTRY_PATH, loadRegistry } from './governance-data.js';
+import {
+  REGISTRY_INPUT_ERROR_NAME,
+  REGISTRY_PATH,
+  baseFileReader,
+  loadRegistry,
+} from './governance-data.js';
 
 const SELF_PATH = selfPath(import.meta.filename);
 const ROOT = resolve(import.meta.dirname, '..');
@@ -415,23 +420,16 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const git = (args) =>
     execFileSync('git', args, { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
   const baseRef = process.argv[2];
-  let base;
+  let readBaseFile;
   try {
-    base = baseRef === undefined ? undefined : git(['merge-base', baseRef, 'HEAD']).trim();
-  } catch {
-    console.error(`✗ an input this check reads could not be read:\n    no merge base of ${baseRef} and HEAD`); // prettier-ignore
+    readBaseFile = baseRef === undefined ? undefined : baseFileReader(git, baseRef);
+  } catch (e) {
+    console.error(`✗ an input this check reads could not be read:\n    ${e.message}`);
     process.exit(2);
   }
-  const readBaseFile = (rel) => {
-    try {
-      return git(['show', `${base}:${rel}`]);
-    } catch {
-      return null;
-    }
-  };
   process.exitCode = main({
     readFile: (rel) => readFileSync(join(ROOT, rel), 'utf8'),
-    readBaseFile: base === undefined ? undefined : readBaseFile,
+    readBaseFile,
     log: (line) => console.log(line),
     error: (line) => console.error(line),
   });

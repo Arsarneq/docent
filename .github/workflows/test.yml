@@ -300,6 +300,16 @@ jobs:
             npm run lint:clause-form
           fi
 
+      # Prints, for each document that holds clauses, the words it held at the
+      # base and the words it holds now, and writes the same table to the job
+      # summary. The step passes however much a document grew and fails only
+      # when an input it reads cannot be read. The base branch is the one the
+      # step above fetched. docs/guides/docs-governance.md ("Words before and
+      # after") holds what the numbers are for.
+      - name: Report words before and after in clause documents
+        if: github.event_name == 'pull_request'
+        run: npm run report:clause-doc-words -- "origin/$GITHUB_BASE_REF"
+
       # The committed data that goes stale around the test suites, held to the
       # tree: what each suite document enumerates, the coverage plumbing's
       # hand-maintained file lists, how a suite is registered and where its
