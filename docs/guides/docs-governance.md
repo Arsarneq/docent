@@ -167,4 +167,6 @@ Shorter is better, as long as the reader still gets what they need and gets it w
 - what the reader does not need in order to act on the passage;
 - words that carry nothing.
 
-This list is open. A cut that takes away something the reader needs is a loss of meaning, not a cut. A form from the table above often says the same in fewer words than prose does.
+This list is open. A cut that takes away something the reader needs is a meaning change, not a cut. A form from the table above often says the same in fewer words than prose does.
+
+The pull request's reviewer names each touched passage that fails this, with its line, as a review finding recorded in the pull request's change record, and the rule passes when no such finding is open. For a document that holds clauses, Words before and after (above) shows the count.
