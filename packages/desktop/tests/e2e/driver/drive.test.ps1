@@ -219,14 +219,14 @@ Say ($rc -eq 0) 'a waiting guard on a late window exits 0' "(rc=$rc)"
 Say ($got -ceq 'late') 'the keys after the wait reached the late window' "(got '$got', wanted 'late')"
 
 # Case 9: a click on a menu bar item, then on an item of the pop-up menu it
-# opens, both found by their shown text. The pop-up menu is a window of its
-# own with no title, so the clicks' guard names the process only. A Win32
-# menu is found by Win32 where UI Automation does not show its items.
+# opens, both found by their shown text; the pop-up's guard follows
+# README.md, section Limits.
 $out = Join-Path $work 'case9.txt'
 $p = Start-Target $out
 $rc = Invoke-Drive @(
-  @{ window = @{ process = $host_name } },
+  $guard,
   @{ click = @{ name = 'Tools'; control = 'MenuItem' } },
+  @{ window = @{ process = $host_name; title = '^$' } },
   @{ click = @{ name = 'Add M'; control = 'MenuItem' } },
   $guard,
   $close
@@ -237,9 +237,8 @@ Say ($rc -eq 0) 'menu clicks exit 0' "(rc=$rc)"
 Say (Test-FoundBy "name 'Add M' control MenuItem") 'the pop-up menu item was found, by Win32 where UI Automation has no providers' ''
 Say ($got -ceq 'M') 'the menu item ran once' "(got '$got', wanted 'M')"
 
-# Case 10: a click on a classic edit box by its control id, in Notepad
-# (its edit box is control 15), found by Win32 where UI Automation shows a
-# bare pane.
+# Case 10: a click on Notepad's edit box by its control id (README.md,
+# section Limits).
 $np = Start-Process notepad.exe -PassThru
 try {
   $rc = Invoke-Drive @(

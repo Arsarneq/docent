@@ -2,9 +2,9 @@
 // Windows executor (drive.ps1) sends with SendInput. Pure, so it is tested
 // anywhere (plan.test.mjs); the executor does only input and the guard.
 //
-// The steps file, its guards and its exit codes are described in README.md
-// (section Steps file), next to this file; this planner refuses anything
-// that section does not give.
+// The steps file and its guards are described in README.md (section Steps
+// file), next to this file, and the exit codes in its section Running it;
+// this planner refuses anything the Steps file section does not give.
 //
 // CLI: node plan.mjs <steps.json>  -> prints the event list as JSON.
 

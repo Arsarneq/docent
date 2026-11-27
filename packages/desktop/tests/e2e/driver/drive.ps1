@@ -2,17 +2,11 @@
 #
 #   powershell -NoProfile -ExecutionPolicy Bypass -File packages/desktop/tests/e2e/driver/drive.ps1 -Steps <steps.json> [-Log <file>]
 #
-# Runs plan.mjs (node) on the steps file and sends the events with SendInput,
-# the way a person's keyboard does: the Windows key, real key presses for
-# "chars" (mapped on the foreground window's own layout, AltGr included), and
-# Unicode injection for "text". Before every input op it checks the foreground
-# window against the guard the steps named, so input never lands in a window
-# the steps did not name. The check is per op: the keys of one op follow a
-# single check, so a window that takes the foreground in the middle of a long
-# "chars" step gets the rest of it. Every event goes to the log with a timestamp.
-# Mouse steps go to the point or element README.md (section Steps file)
-# describes; after every pointer move the driver reads the pointer back, so
-# input that Windows accepts and then drops stops the run.
+# Runs plan.mjs (node) on the steps file, checks each input op against its
+# guard and sends the events with SendInput, the way a person's keyboard and
+# mouse do. What each step does and which window its guard is checked
+# against: README.md, section Steps file. Every event goes to the log with a
+# timestamp.
 #
 # Exit codes: README.md, section Running it.
 

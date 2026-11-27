@@ -227,7 +227,9 @@ test('clicks, Unicode typing, a long repeat and the Format menu in Notepad expor
   // control id, 15, and the menu items by their shown text: the driver may see
   // Notepad's classic controls only by Win32 (driver README, Limits). Each
   // click lands in the middle of its element. Word Wrap is a saved Notepad
-  // setting, so it is turned on and back off.
+  // setting, so it is turned on and back off. A click in the open menu has
+  // the pop-up menu's guard (driver README, Limits).
+  const MENU = { window: { process: 'notepad.exe', title: '^$' } };
   const EDITOR = { click: { id: '15', control: 'Edit' } };
   const FORMAT = { click: { name: 'Format', control: 'MenuItem' } };
   const WRAP = { click: { name: 'Word Wrap', control: 'MenuItem' } };
@@ -242,8 +244,11 @@ test('clicks, Unicode typing, a long repeat and the Format menu in Notepad expor
     { key: 'ctrl+a', scan: true },
     { chars: `k${e10}p`, scan: true },
     FORMAT,
+    MENU,
     WRAP,
+    NOTEPAD,
     FORMAT,
+    MENU,
     WRAP,
   ]);
 
