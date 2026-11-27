@@ -78,7 +78,7 @@ test('wait is a sleep and needs no guard', () => {
 test('unknown keys, empty text and unknown ops are refused with the step index', () => {
   assert.throws(() => plan([W, { key: 'hyper' }]), /step 1: unknown key 'hyper'/);
   assert.throws(() => plan([W, { text: '' }]), /step 1: empty text/);
-  assert.throws(() => plan([W, { click: [1, 2] }]), /step 1: unknown op/);
+  assert.throws(() => plan([W, { tap: [1, 2] }]), /step 1: unknown op/);
   assert.throws(
     () => plan([{ window: {} }]),
     /step 0: a window guard names a process, a title or any/,
@@ -102,14 +102,14 @@ import { join } from 'node:path';
 const PLAN = fileURLToPath(new URL('./plan.mjs', import.meta.url));
 
 test('the CLI reads a steps file that starts with a byte-order mark', () => {
-  const f = join(mkdtempSync(join(tmpdir(), 'keyboard-driver-')), 'steps.json');
+  const f = join(mkdtempSync(join(tmpdir(), 'input-driver-')), 'steps.json');
   writeFileSync(f, '﻿' + JSON.stringify([W, { text: 'ab' }]), 'utf8');
   const out = JSON.parse(execFileSync(process.execPath, [PLAN, f], { encoding: 'utf8' }));
   assert.equal(out.length, 3);
 });
 
 test('the CLI prints ASCII only, with non-ASCII characters escaped', () => {
-  const f = join(mkdtempSync(join(tmpdir(), 'keyboard-driver-')), 'steps.json');
+  const f = join(mkdtempSync(join(tmpdir(), 'input-driver-')), 'steps.json');
   writeFileSync(f, JSON.stringify([W, { text: 'æøå€' }]), 'utf8');
   const raw = execFileSync(process.execPath, [PLAN, f], { encoding: 'utf8' });
   assert.match(raw, /^[\n\r\x20-\x7e]*$/);
@@ -202,4 +202,188 @@ test('scan is a yes or no, and text (Unicode injection) has no scan mode', () =>
 
 test('without scan the events are as before', () => {
   assert.deepEqual(plan([W, { key: 'enter' }])[1], { type: 'vk', vk: '0xd', up: false });
+});
+
+// Mouse steps. Clicks go through the driver, guarded like keys. The guard of a click is the window
+// under the point, not the foreground one, since a person clicks a window to
+// bring it forward.
+const D = { window: { process: 'docent-desktop.exe', title: '^Docent Desktop$' } };
+
+test('a click at a screen point carries its guard and defaults to one left click', () => {
+  const ev = plan([D, { click: { x: 448, y: 259 } }]);
+  assert.deepEqual(ev, [
+    {
+      type: 'click',
+      target: { x: 448, y: 259 },
+      button: 'left',
+      count: 1,
+      process: 'docent-desktop.exe',
+      title: '^Docent Desktop$',
+    },
+  ]);
+});
+
+test('a click can name its target by automation id, or by name and control type', () => {
+  assert.deepEqual(plan([D, { click: { id: 'btn-commit-step' } }])[0].target, {
+    id: 'btn-commit-step',
+  });
+  assert.deepEqual(plan([D, { click: { name: 'Paste', control: 'MenuItem' } }])[0].target, {
+    name: 'Paste',
+    control: 'MenuItem',
+  });
+  assert.deepEqual(plan([D, { click: { name: 'Paste', index: 1 } }])[0].target, {
+    name: 'Paste',
+    index: 1,
+  });
+});
+
+test('right, middle and double clicks', () => {
+  assert.equal(plan([D, { click: { x: 1, y: 2 }, button: 'right' }])[0].button, 'right');
+  assert.equal(plan([D, { click: { x: 1, y: 2 }, button: 'middle' }])[0].button, 'middle');
+  assert.equal(plan([D, { click: { x: 1, y: 2 }, count: 2 }])[0].count, 2);
+});
+
+test('a move puts the pointer on a target without pressing a button', () => {
+  assert.deepEqual(plan([D, { move: { x: 10, y: 20 } }]), [
+    {
+      type: 'move',
+      target: { x: 10, y: 20 },
+      process: 'docent-desktop.exe',
+      title: '^Docent Desktop$',
+    },
+  ]);
+});
+
+test('a mouse step needs a guard that names a window: any is refused', () => {
+  assert.throws(() => plan([{ click: { x: 1, y: 2 } }]), /step 0: no window guard/);
+  assert.throws(
+    () => plan([{ window: { any: true } }, { click: { x: 1, y: 2 } }]),
+    /step 1: a mouse step needs a guard that names a process or a title/,
+  );
+});
+
+test('a bad click is refused with the step index', () => {
+  assert.throws(() => plan([D, { click: [1, 2] }]), /step 1: click takes/);
+  assert.throws(() => plan([D, { click: { x: 1 } }]), /step 1: click takes/);
+  assert.throws(() => plan([D, { click: { x: 1.5, y: 2 } }]), /step 1: click takes/);
+  assert.throws(() => plan([D, { click: { x: 1, y: 2, id: 'a' } }]), /step 1: click takes/);
+  assert.throws(() => plan([D, { click: { control: 'Button' } }]), /step 1: click takes/);
+  assert.throws(() => plan([D, { click: { id: 'a', index: -1 } }]), /step 1: index/);
+  assert.throws(() => plan([D, { click: { id: 15 } }]), /step 1: id and name are strings/);
+  assert.throws(() => plan([D, { click: { name: 7 } }]), /step 1: id and name are strings/);
+  assert.throws(
+    () => plan([D, { click: { x: 1, y: 2 }, button: 'thumb' }]),
+    /step 1: button is left, right or middle/,
+  );
+  assert.throws(() => plan([D, { click: { x: 1, y: 2 }, count: 3 }]), /step 1: count is 1 or 2/);
+});
+
+test('screen points may be negative: a monitor left of or above the main one', () => {
+  assert.deepEqual(plan([D, { click: { x: -1200, y: -40 } }])[0].target, { x: -1200, y: -40 });
+});
+
+// A guard that waits: one steps file can follow the input from window to
+// window (a menu, a dialog, the app coming forward after a click) instead of
+// one driver call per key with a sleep in between.
+test('within makes a guard wait for its window, up to a limit', () => {
+  const ev = plan([{ window: { process: 'notepad.exe' }, within: 3000 }, { key: 'enter' }]);
+  assert.deepEqual(ev[0], { type: 'assert', process: 'notepad.exe', title: null, within: 3000 });
+  assert.throws(
+    () => plan([{ window: { process: 'notepad.exe' }, within: 60001 }]),
+    /step 0: within takes 0 to 60000 ms/,
+  );
+  assert.throws(
+    () => plan([{ window: { any: true }, within: 100 }]),
+    /step 0: within needs a guard that names a process or a title/,
+  );
+});
+
+test('a waiting guard waits once, where it stands, and later inputs check at once', () => {
+  const ev = plan([
+    { window: { process: 'notepad.exe' }, within: 3000 },
+    { key: 'a' },
+    { key: 'b' },
+  ]).filter((e) => e.type === 'assert');
+  assert.deepEqual(
+    ev.map((e) => e.within ?? 0),
+    [3000, 0, 0],
+  );
+});
+
+test('a waiting guard with no input after it still waits', () => {
+  assert.deepEqual(plan([{ window: { process: 'notepad.exe' }, within: 500 }]), [
+    { type: 'assert', process: 'notepad.exe', title: null, within: 500 },
+  ]);
+});
+
+test('a whole sequence fits one steps file: click into the app, keys, click the panel', () => {
+  const ev = plan([
+    { window: { process: 'notepad.exe' } },
+    { click: { id: '15', control: 'Edit' } },
+    { window: { process: 'notepad.exe' }, within: 2000 },
+    { chars: 'ab', scan: true },
+    { key: 'ctrl+a', scan: true },
+    D,
+    { click: { id: 'btn-commit-step' } },
+  ]);
+  assert.deepEqual(
+    ev.map((e) => e.type),
+    ['click', 'assert', 'assert', 'char', 'char', 'assert', 'vk', 'vk', 'vk', 'vk', 'click'],
+  );
+});
+
+// A step holds one op and only the fields that op takes, so a mistyped steps
+// file stops before any input instead of running without what it meant.
+test('a step with two ops is refused', () => {
+  const N = { window: { process: 'notepad.exe' } };
+  assert.throws(
+    () => plan([{ window: { process: 'a.exe' }, click: { x: 1, y: 2 } }]),
+    /step 0: one op per step/,
+  );
+  assert.throws(() => plan([N, { click: { x: 1, y: 2 }, key: 'a' }]), /step 1: one op per step/);
+  assert.throws(
+    () => plan([N, { click: { x: 1, y: 2 }, move: { x: 1, y: 2 } }]),
+    /step 1: one op per step/,
+  );
+  assert.throws(() => plan([N, { chars: 'a', text: 'b' }]), /step 1: one op per step/);
+  assert.throws(() => plan([N, { wait: 5, key: 'a' }]), /step 1: one op per step/);
+});
+
+test('a field the op does not take is refused', () => {
+  const N = { window: { process: 'notepad.exe' } };
+  assert.throws(
+    () => plan([N, { move: { x: 1, y: 2 }, button: 'right' }]),
+    /step 1: move does not take button/,
+  );
+  assert.throws(
+    () => plan([N, { move: { x: 1, y: 2 }, count: 2 }]),
+    /step 1: move does not take count/,
+  );
+  assert.throws(() => plan([N, { key: 'a', within: 500 }]), /step 1: key does not take within/);
+  assert.throws(() => plan([N, { text: 'a', repeat: 2 }]), /step 1: text does not take repeat/);
+  assert.throws(() => plan([N, { chars: 'a', repeat: 2 }]), /step 1: chars does not take repeat/);
+  assert.throws(() => plan([N, { wait: 5, scan: true }]), /step 1: wait does not take scan/);
+  assert.throws(
+    () => plan([{ window: { process: 'a.exe' }, scan: true }]),
+    /step 0: window does not take scan/,
+  );
+  assert.throws(
+    () => plan([N, { click: { x: 1, y: 2 }, scan: true }]),
+    /step 1: click does not take scan/,
+  );
+  assert.throws(() => plan([N, { key: 'a', sacn: true }]), /step 1: key does not take sacn/);
+});
+
+test('a field a target or a guard does not take is refused', () => {
+  const N = { window: { process: 'notepad.exe' } };
+  assert.throws(() => plan([N, { click: { id: 'a', nmae: 'b' } }]), /step 1: click takes/);
+  assert.throws(() => plan([N, { click: { x: 1, y: 2, z: 3 } }]), /step 1: click takes/);
+  assert.throws(
+    () => plan([{ window: { process: 'a.exe', tilte: 'x' } }]),
+    /step 0: a window guard takes process, title or any/,
+  );
+  assert.throws(
+    () => plan([{ window: { any: true, process: 'a.exe' } }]),
+    /step 0: a window guard takes process, title or any/,
+  );
 });

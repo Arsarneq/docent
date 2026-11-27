@@ -1515,12 +1515,12 @@ jobs:
       - name: Install root dependencies
         run: npm ci
 
-      - name: Keyboard driver planner tests
+      - name: Input driver planner tests
         run: node --test --import ./packages/shared/tests/support/git-env-preload.js packages/desktop/tests/e2e/driver/plan.test.mjs
 
       # The driver's own window test, before the build: a red here means the
-      # keys do not arrive on this runner, and the job stops in minutes.
-      - name: Keyboard driver test
+      # keys and clicks do not arrive on this runner, and the job stops in minutes.
+      - name: Input driver test
         timeout-minutes: 5
         run: powershell -NoProfile -ExecutionPolicy Bypass -File packages/desktop/tests/e2e/driver/drive.test.ps1
 
