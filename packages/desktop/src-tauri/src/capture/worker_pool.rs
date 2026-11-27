@@ -4510,10 +4510,10 @@ fn write_keys_that_took_no_text(
 /// after one of these events starts the field's next `type`.
 ///
 /// Nor is the foreground event the Input_Thread dispatches ahead of a first
-/// action in a window the session had not introduced
-/// ([`SWITCH_BEFORE_ITS_ACTION`]): that window has not come to the front (a
-/// wheel turned or a drop made over it while it is inactive), and the action
-/// behind it ends the typing where it is one that does (docent#810).
+/// action in an inactive window the session had not introduced
+/// ([`switch_before_event`]): that window has not come to the front (a wheel
+/// turned or a drop made over it), and the action behind it ends the typing
+/// where it is one that does (docent#810).
 fn ends_typing(event: &RawEvent) -> bool {
     match event.event_type {
         RawEventType::Foreground => event.callback_params[3] != SWITCH_BEFORE_ITS_ACTION,
@@ -4522,6 +4522,46 @@ fn ends_typing(event: &RawEvent) -> bool {
         | RawEventType::DragStart { .. }
         | RawEventType::Drop { .. } => true,
         _ => false,
+    }
+}
+
+/// The foreground event the Input_Thread dispatches ahead of `action`, the
+/// first action in a window the session had not introduced
+/// (`ContextIntroductions::switch_before`): into `root`, whose process is
+/// `process_id` and whose title, read with it, is `window_title`. Marked
+/// [`SWITCH_BEFORE_ITS_ACTION`] where `root` is not the window in front
+/// (`foreground_root`), which has then not come to the front; a switch into
+/// the window in front counts as its activation (DCP-7) and is not marked.
+pub fn switch_before_event(
+    action: &RawEvent,
+    root: i64,
+    foreground_root: i64,
+    process_id: u32,
+    window_title: Option<String>,
+) -> RawEvent {
+    let mark = if root == foreground_root {
+        0
+    } else {
+        SWITCH_BEFORE_ITS_ACTION
+    };
+    RawEvent {
+        event_type: RawEventType::Foreground,
+        sequence_id: 0,
+        timestamp: action.timestamp,
+        screen_x: 0,
+        screen_y: 0,
+        window_handle: root,
+        process_id,
+        key_code: 0,
+        modifiers: (false, false, false, false),
+        scroll_delta: 0.0,
+        callback_params: [0, 0, 0, mark],
+        pre_captured_element: None,
+        focus_epoch: 0,
+        // A switch states no held keys: only a keystroke, a click, a
+        // right-click and a drop are stamped with them (held_keys).
+        held: Vec::new(),
+        window_title,
     }
 }
 

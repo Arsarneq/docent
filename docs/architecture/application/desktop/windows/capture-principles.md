@@ -348,11 +348,7 @@ one) ends the typing when it comes to the front, and nothing is written for
 that window itself. So text typed last in a step is in the pending list when
 the person clicks the panel to complete the step. A pointer press on a
 left-out window that does not come to the front (an on-screen keyboard, the
-emoji panel) ends nothing: the person is still typing in the field. Nor does
-the `context_switch` written before a first action in a window the session had
-not introduced (DCP-7), a wheel turned or a drop made over it while it is
-inactive: that window has not come to the front, and the action behind the
-switch ends the typing where it is one that does. A focus event ends nothing: the key that moved the focus has ended
+emoji panel) ends nothing: the person is still typing in the field. Nor does the `context_switch` written before a first action in an inactive window the session had not introduced (DCP-7), a wheel turned or a drop made over it: that window has not come to the front, and the action behind the switch ends the typing where it is one that does. A switch written that way into the window in front is its activation (DCP-7), and ends the typing. A focus event ends nothing: the key that moved the focus has ended
 the typing already, and a program that reports the focus again on the field
 being typed into leaves its text the one `type`. A change of the top-level window's title ends nothing either: a field is the same field whatever title its window shows (an editor that adds or drops its unsaved mark while the person types). The selector holds the title, so whether two descriptions read in one window are of the same element is told by the element's path under the window's root, the root itself left out, and by the selector only where that path is not known. A title held by an element under the root (a document's own window inside an application's frame) is part of that path and still tells two fields apart, so a change of such a title does end the typing; a departure (core CP-18). The panel joins the masked typing of a sensitive field by the same path, read from the `tree_path` locator, where a root title that itself holds the path separator leaves the fields apart. A pause between two keys ends nothing: how
 fast a person types is no part of what they typed, so text typed with pauses

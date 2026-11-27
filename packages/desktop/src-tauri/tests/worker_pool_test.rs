@@ -4648,6 +4648,27 @@ fn regression_810_a_wheel_over_a_window_not_yet_introduced_leaves_the_typing_one
     assert_eq!(type_values_of(&events), vec!["abc"], "got {events:?}");
 }
 
+/// The switch dispatched ahead of a first action over an inactive window is
+/// marked, so it ends no typing (docent#810); one into the window in front
+/// counts as that window's activation (DCP-7) and is not.
+#[test]
+fn a_switch_ahead_of_an_action_is_marked_only_for_a_window_not_in_front() {
+    use docent_desktop_lib::capture::worker_pool::{switch_before_event, SWITCH_BEFORE_ITS_ACTION};
+    let mut action = make_raw_event(RawEventType::Scroll, 5678);
+    action.timestamp = 4321;
+
+    let inactive = switch_before_event(&action, 5678, 1234, 42, Some("B".to_string()));
+    assert!(matches!(inactive.event_type, RawEventType::Foreground));
+    assert_eq!(inactive.window_handle, 5678);
+    assert_eq!(inactive.process_id, 42);
+    assert_eq!(inactive.timestamp, 4321);
+    assert_eq!(inactive.window_title.as_deref(), Some("B"));
+    assert_eq!(inactive.callback_params[3], SWITCH_BEFORE_ITS_ACTION);
+
+    let in_front = switch_before_event(&action, 5678, 5678, 42, None);
+    assert_eq!(in_front.callback_params[3], 0);
+}
+
 /// Regression: the last recorded value was kept per selector alone, so a value
 /// typed in one window hid the same value arriving in another window whose
 /// element has an equal selector (two documents of one application).
