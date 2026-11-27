@@ -116,9 +116,12 @@ impl OnLayout {
     }
 
     fn open_thread(&mut self, thread: u32) {
+        if self.open.contains(&thread) {
+            return;
+        }
         if thread == 0 || self.open.len() == THREADS_KEPT {
             self.all_open = true;
-        } else if !self.open.contains(&thread) {
+        } else {
             self.open.push(thread);
         }
     }
@@ -1192,6 +1195,26 @@ mod tests {
         }
         assert_eq!(waiting.press(DANISH, 2, character('e'), list), AsPressed);
         assert_eq!(waiting.press(DANISH, 1, character('e'), list), NotKnown);
+    }
+
+    /// As many threads as are kept by name are all kept: a dead key pressed
+    /// again in one of them does not count as one more thread.
+    #[test]
+    fn regression_836_a_dead_key_in_a_thread_already_kept_is_no_thread_more() {
+        let threads = 1..=(THREADS_KEPT as u32);
+        let mut waiting = WaitingAccents::new();
+        for thread in threads.clone() {
+            waiting.press(DANISH, thread, dead(ACUTE), list);
+        }
+        waiting.press(DANISH, 1, dead(ACUTE), list);
+        for thread in threads {
+            assert_eq!(
+                waiting.press(DANISH, thread, character('e'), list),
+                NotKnown
+            );
+        }
+        // Every thread a dead key was pressed in has had its key.
+        assert_eq!(waiting.press(DANISH, 999, character('e'), list), AsPressed);
     }
 
     /// A key whose window's thread was not read is in no known thread.

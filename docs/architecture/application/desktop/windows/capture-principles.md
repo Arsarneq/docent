@@ -653,8 +653,7 @@ After a typing worker gives its role up at a commit, two things hold for deliver
     - where the keys change thread behind a dead key (the session format
       states for which keys). Measured on a Windows PC: Notepad used an
       accent begun in another program's window, and Calculator neither used
-      one nor handed its own on
-      ([docent#836](https://github.com/Arsarneq/docent/issues/836));
+      one nor handed its own on;
     - after a key the system can act on itself, pressed behind an accent
       (a key with the Windows key held, Ctrl with Escape, Alt with Tab or
       Escape): the system takes it or hands it to the program, the desktop

@@ -5942,8 +5942,7 @@ mod tests {
     /// The acute accent makes `é` with `e`, `Á` with `A` and itself with a
     /// space; the grave accent makes `è` with `e`.
     const PROBE_LAYOUT: i64 = 0x0409_0409;
-    /// The thread of the window the probe keys go to (the backend makes
-    /// each window a thread of its own).
+    /// The thread the probe keys are pressed in ([`probe_key`]).
     const PROBE_THREAD: u32 = 42;
     const PROBE_DEAD_KEY: u32 = 0xDD;
     /// A key code the probe backend panics on when its layout is asked.

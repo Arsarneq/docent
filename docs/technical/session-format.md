@@ -437,8 +437,9 @@ dead key, a key the accent would rename is `Unidentified`: the first such key
 in each thread, until every thread a dead key was pressed in has had one.
 Where the thread of a dead key could not be read, or dead keys were pressed
 in more than 32 threads that have not had theirs, it is the first such key
-in every thread from then on. The desktop capture document lists this among
-its departures (DCP-13).
+in every thread from then on, and in a thread once more after 32 other
+threads have had theirs. The desktop capture document lists this among its
+departures (DCP-13).
 
 A key held down is named in `held_keys` as its own `key` was.
 
