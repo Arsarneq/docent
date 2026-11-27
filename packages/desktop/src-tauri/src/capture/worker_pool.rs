@@ -2725,6 +2725,15 @@ impl ContextIntroductions {
         self.introduced.contains(&root)
     }
 
+    /// The number the Input_Thread notes for `root` ([`ContextsIntroducedAt`])
+    /// once it has dispatched the event numbered `event`, and ahead of it the
+    /// switch numbered `switch` where [`switch_before`](Self::switch_before)
+    /// dispatched one: the switch's where there was one, the event's
+    /// otherwise; none where `root` is not introduced.
+    pub fn introduced_by(&self, root: i64, switch: Option<u64>, event: u64) -> Option<u64> {
+        self.is_introduced(root).then(|| switch.unwrap_or(event))
+    }
+
     fn introduces(&mut self, event: &RawEvent, root: i64) -> bool {
         if root == 0 {
             return false;
@@ -3558,29 +3567,39 @@ fn handle_focus<B: AccessibilityBackend>(
     if last_focus.as_ref() == Some(&key) {
         return;
     }
-    *last_focus = Some(key);
 
     // The Input_Thread introduced the window the event named, not the
     // element's (DCP-7). Where no event before this one introduced the
     // element's window, the focus is the first action in its context, and a
     // `context_switch` into it is written first, at the focus's own place in
-    // the recording (docent#817).
-    if elsewhere
+    // the recording (docent#817), named and titled as the window reads now.
+    // The window's process is read again after its title: a window that
+    // changed process since the check above (it closed, and its handle went
+    // to another process's window) is one no filter judged, and nothing is
+    // written.
+    let switch = if elsewhere
+        && !introduced_by_focus.contains(&element_window)
         && !backend.context_introduced_before(element_window, raw.sequence_id)
-        && introduced_by_focus.insert(element_window)
     {
-        // Named and titled as a switch is, with the process and title of the
-        // window read now, as the focus is described.
-        let switch = RawEvent {
+        let title = backend.window_title(element_window);
+        if backend.process_id_of(element_window) != raw.process_id {
+            return;
+        }
+        Some(RawEvent {
             event_type: RawEventType::Foreground,
             window_handle: element_window,
-            process_id: backend.process_id_of(element_window),
-            window_title: None,
+            window_title: Some(title),
             callback_params: [0; 4],
             pre_captured_element: None,
             held: Vec::new(),
             ..raw.clone()
-        };
+        })
+    } else {
+        None
+    };
+    *last_focus = Some(key);
+    if let Some(switch) = switch {
+        introduced_by_focus.insert(element_window);
         handle_foreground(
             &switch,
             backend,

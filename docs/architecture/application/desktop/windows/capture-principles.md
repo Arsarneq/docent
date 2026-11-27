@@ -222,8 +222,9 @@ to be dispatched in a top-level window outside that set has a
 timestamp, and the window joins the set. A close introduces nothing, and a
 lone Shift, Ctrl or Alt press, which the worker drops (DCP-13), counts for
 nothing, as does a key attributed to no window (DCP-14), which has no window
-to introduce. A window introduced once takes no further switch when actions return
-to it, and an action in a window introduced earlier carries that window's
+to introduce. A window introduced once takes no further switch from the
+Input_Thread when actions return to it (a focus the worker records in another
+window can write one, below), and an action in a window introduced earlier carries that window's
 `context_id` with no switch before it (after a wheel over an inactive window,
 a key in the window in front, for example). The foreground row's
 deduplication compares with the last switch into the window in front: a
@@ -257,13 +258,19 @@ description resolved it:
 | Another window of another process, or of a process that can't be read | Not at all: the scope filters (DCP-5) judged the event's process |
 
 The Input_Thread introduces the event's window, not the element's (above). It
-keeps the number of the event that introduced each context, and where no event
+also keeps the number of the event that introduced each context. Where no event
 dispatched before the focus introduced the element's window, the worker writes
-a `context_switch` into that window before the focus, at the focus's place in
-the recording, named and titled as the window reads when the focus is
-described. That switch is written once per window by the focus worker; an
-activation of the window dispatched after the focus is written as well, so a
-second switch into the same window can follow.
+a `context_switch` into that window ahead of the focus, at the focus's place in
+the recording. That switch takes the window's process and title as read when
+the focus is described, and nothing is written where the window no longer
+belongs to the event's process by then.
+
+The Input_Thread does not learn of that switch, and the focus worker keeps the
+windows it wrote one for only in its own state, which a respawned or newly
+chosen focus worker starts without. Another switch into the same window can
+therefore follow: the window's activation, a switch the Input_Thread
+dispatches before the first action it sees there, or a new focus worker's
+switch ahead of a later focus.
 
 **DCP-8.** **Window-scoping:** Value changes and selections are only
 correlated with input from the same root window — value changes against the keyboard input's

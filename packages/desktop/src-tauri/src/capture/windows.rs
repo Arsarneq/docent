@@ -1467,10 +1467,9 @@ fn input_dispatch_raw_event(event: RawEvent) {
             None
         };
     let sequence_id = input_send_raw_event(event);
-    // The switch, or else the event, introduced `root` where it is
-    // introduced now; a note of a later event leaves the earlier one.
-    if INPUT_CONTEXTS.with(|c| c.borrow().is_introduced(root)) {
-        CONTEXTS_INTRODUCED_AT.note(root, switch.unwrap_or(sequence_id));
+    // A note of a later event leaves the earlier one.
+    if let Some(by) = INPUT_CONTEXTS.with(|c| c.borrow().introduced_by(root, switch, sequence_id)) {
+        CONTEXTS_INTRODUCED_AT.note(root, by);
     }
 }
 

@@ -8096,6 +8096,11 @@ struct FocusWindowBackend {
     window_introduced_at: Option<u64>,
     /// The focused element's selector.
     selector: Arc<Mutex<String>>,
+    /// What `window`'s process reads as after its first read, where it
+    /// changes (the window closed and its handle was given to another
+    /// process's window, say).
+    window_process_later: Option<u32>,
+    window_process_reads: AtomicU64,
 }
 
 /// The process every test focus event comes from (`make_raw_event`).
@@ -8148,7 +8153,11 @@ impl AccessibilityBackend for FocusWindowBackend {
     }
     fn process_id_of(&self, window_handle: i64) -> u32 {
         if window_handle == self.window {
-            self.window_process
+            let reads = self.window_process_reads.fetch_add(1, Ordering::SeqCst);
+            match self.window_process_later {
+                Some(later) if reads > 0 => later,
+                _ => self.window_process,
+            }
         } else {
             EVENT_PROCESS
         }
@@ -8182,6 +8191,8 @@ fn focus_written_with_element_in_process(
         window_process,
         window_introduced_at: Some(0),
         selector: Arc::new(Mutex::new("Notepad > Document:Text editor".to_string())),
+        window_process_later: None,
+        window_process_reads: AtomicU64::new(0),
     });
     let mut focus = make_raw_event(RawEventType::Focus, DIALOG);
     focus.sequence_id = 1;
@@ -8255,11 +8266,26 @@ fn a_focus_whose_element_s_window_has_no_readable_process_writes_nothing() {
 fn written_for_focus_into_notepad_introduced_at(
     notepad_introduced_at: Option<u64>,
 ) -> Vec<(&'static str, Option<i64>)> {
+    written_for_focus_into_notepad(notepad_introduced_at, EVENT_PROCESS, None)
+}
+
+/// What is written, as (kind, context), for one focus event named `DIALOG`
+/// and numbered 5, with the focused element in `NOTEPAD`, whose process reads
+/// as `notepad_process` and, after its first read, as `notepad_process_later`
+/// where given, and whose context was introduced by the event numbered
+/// `notepad_introduced_at`.
+fn written_for_focus_into_notepad(
+    notepad_introduced_at: Option<u64>,
+    notepad_process: u32,
+    notepad_process_later: Option<u32>,
+) -> Vec<(&'static str, Option<i64>)> {
     let harness = WorkerTestHarness::new(FocusWindowBackend {
         window: NOTEPAD,
-        window_process: EVENT_PROCESS,
+        window_process: notepad_process,
         window_introduced_at: notepad_introduced_at,
         selector: Arc::new(Mutex::new("Notepad > Document:Text editor".to_string())),
+        window_process_later: notepad_process_later,
+        window_process_reads: AtomicU64::new(0),
     });
     let mut focus = make_raw_event(RawEventType::Focus, DIALOG);
     focus.sequence_id = 5;
@@ -8309,6 +8335,8 @@ fn a_second_focus_in_a_window_a_focus_introduced_takes_no_second_switch() {
         window_process: EVENT_PROCESS,
         window_introduced_at: None,
         selector: selector.clone(),
+        window_process_later: None,
+        window_process_reads: AtomicU64::new(0),
     });
     for (sequence_id, element) in [
         (5, "Notepad > Document:Text editor"),
@@ -8356,6 +8384,26 @@ fn a_context_is_introduced_before_an_event_by_the_earliest_event_that_introduced
     assert!(!record.introduced_before(NOTEPAD, 5));
 }
 
+/// What the Input_Thread notes after it dispatches an event (and the switch
+/// it dispatched ahead of it, where it did): the switch's number where the
+/// switch introduced the window, the event's where the event did, and
+/// nothing where the window is not introduced.
+#[test]
+fn the_number_noted_for_a_window_is_that_of_the_switch_or_event_that_introduced_it() {
+    let mut contexts = ContextIntroductions::default();
+    // The session's first action introduces its window.
+    contexts.switch_before(&key_in(NOTEPAD, 0x41), NOTEPAD, NOTEPAD);
+    assert_eq!(contexts.introduced_by(NOTEPAD, None, 1), Some(1));
+    // A switch dispatched ahead of the first key in the dialog introduced it.
+    assert!(contexts.switch_before(&key_in(DIALOG, 0x46), DIALOG, DIALOG));
+    assert_eq!(contexts.introduced_by(DIALOG, Some(2), 3), Some(2));
+    // A close introduces nothing.
+    const B: i64 = 557;
+    let close = event_in(RawEventType::WindowDestroy, B, 0, NO_MODIFIERS);
+    contexts.switch_before(&close, B, NOTEPAD);
+    assert_eq!(contexts.introduced_by(B, None, 4), None);
+}
+
 /// What the Input_Thread notes of a context it introduces: `is_introduced`
 /// tells whether `ContextIntroductions` has introduced a window, which it does
 /// with the window's first switch, open or action, and not with a close.
@@ -8371,6 +8419,33 @@ fn a_window_is_introduced_by_its_first_switch_open_or_action() {
     let open = event_in(RawEventType::WindowCreate, DIALOG, 0, NO_MODIFIERS);
     contexts.switch_before(&open, DIALOG, NOTEPAD);
     assert!(contexts.is_introduced(DIALOG));
+}
+
+/// The scope filters judged the event's process: a focus whose element is in
+/// a window of another process, or of one that cannot be read, writes
+/// nothing, not even a switch, where no event introduced that window.
+#[test]
+fn a_focus_in_another_process_s_window_no_event_introduced_writes_no_switch() {
+    const OTHER_PROCESS: u32 = 99;
+    assert_eq!(
+        written_for_focus_into_notepad(None, OTHER_PROCESS, None),
+        vec![]
+    );
+    assert_eq!(written_for_focus_into_notepad(None, 0, None), vec![]);
+}
+
+/// The switch before a focus names the window's process and title as read
+/// when the focus is described. Where the window no longer belongs to the
+/// event's process by the time its title is read (it closed, and its handle
+/// went to another process's window), nothing is written: no filter judged
+/// that process.
+#[test]
+fn a_focus_whose_window_changes_process_before_its_switch_is_written_writes_nothing() {
+    const OTHER_PROCESS: u32 = 99;
+    assert_eq!(
+        written_for_focus_into_notepad(None, EVENT_PROCESS, Some(OTHER_PROCESS)),
+        vec![]
+    );
 }
 
 /// A focus in another window of its process that an event before it
