@@ -428,14 +428,17 @@ layout, and that key takes it:
 | Gives nothing: an arrow key, a function key, Shift     | Its own                                   | Waits on             |
 
 On the desktop the key behind a dead key is named by what the two make only
-where both were pressed in windows of the same thread of a program, with no
-key that gives something pressed in a window of another thread between them.
-Programs differ in whether an accent begun in one window is used in another,
-and the desktop cannot read which a program does. So where the keys change
-thread behind a dead key, a key the accent would rename is `Unidentified`:
-the first such key in each thread, until the thread the dead key was pressed
-in has had one. The desktop capture document lists this among its departures
-(DCP-13).
+where both were pressed in the same thread of a program, with no key that
+gives something pressed in another thread between them, on any layout. The
+thread is that of the foreground window at the key-down. Programs differ in
+whether an accent begun in one window is used in another, and the desktop
+cannot read which a program does. So where the keys change thread behind a
+dead key, a key the accent would rename is `Unidentified`: the first such key
+in each thread, until every thread a dead key was pressed in has had one.
+Where the thread of a dead key could not be read, or dead keys were pressed
+in more than 32 threads that have not had theirs, it is the first such key
+in every thread from then on. The desktop capture document lists this among
+its departures (DCP-13).
 
 A key held down is named in `held_keys` as its own `key` was.
 

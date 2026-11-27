@@ -152,6 +152,12 @@ pub struct RawEvent {
     /// hook at the press; `0` where none was read, and for every event that
     /// is no keystroke.
     pub keyboard_layout: i64,
+    /// The thread of the foreground window at the keystroke, read by the
+    /// keyboard hook at the press, also for a key attributed to no window;
+    /// `0` where none was read, and for every event that is no keystroke.
+    /// The key behind a dead key is named by what the two make only within
+    /// one thread ([`super::waiting_accents`]).
+    pub keyboard_thread: u32,
     /// Whether Caps Lock was on at the keystroke, read by the keyboard hook
     /// at the press; `false` for every event that is no keystroke.
     pub caps_lock: bool,
@@ -1627,13 +1633,6 @@ pub trait AccessibilityBackend: Send + 'static {
         0
     }
 
-    /// The id of the thread that owns `window_handle`; `0` where unknown.
-    /// The key behind a dead key is named by what the two make only within
-    /// one thread ([`super::waiting_accents`]).
-    fn thread_of(&self, _window_handle: i64) -> u32 {
-        0
-    }
-
     /// Get the window title for a window handle.
     fn window_title(&self, window_handle: i64) -> String;
 
@@ -2084,7 +2083,7 @@ fn name_behind_waiting_accent<B: AccessibilityBackend>(
         return None;
     }
     let layout = raw.keyboard_layout;
-    let thread = backend.thread_of(raw.window_handle);
+    let thread = raw.keyboard_thread;
     let (ctrl, shift, alt, _meta) = raw.modifiers;
     let held = Held {
         shift,
@@ -5146,6 +5145,7 @@ pub fn switch_before_event(
         callback_params: [0, 0, 0, mark],
         key_value: 0,
         keyboard_layout: 0,
+        keyboard_thread: 0,
         caps_lock: false,
         pre_captured_element: None,
         focus_epoch: 0,
@@ -5478,6 +5478,7 @@ mod tests {
             callback_params: [0; 4],
             key_value: 0,
             keyboard_layout: 0,
+            keyboard_thread: 0,
             caps_lock: false,
             pre_captured_element: None,
             focus_epoch: 0,
@@ -5686,6 +5687,7 @@ mod tests {
             callback_params: [0; 4],
             key_value: 0,
             keyboard_layout: 0,
+            keyboard_thread: 0,
             caps_lock: false,
             pre_captured_element: None,
             focus_epoch: 0,
@@ -5949,11 +5951,6 @@ mod tests {
     const ACUTE: char = '\u{b4}';
 
     impl AccessibilityBackend for ProbeBackend {
-        /// Each window is a thread of its own.
-        fn thread_of(&self, window_handle: i64) -> u32 {
-            window_handle as u32
-        }
-
         fn key_value(
             &self,
             layout: i64,
@@ -6121,6 +6118,7 @@ mod tests {
             callback_params: [0; 4],
             key_value: 0,
             keyboard_layout: 0,
+            keyboard_thread: 0,
             caps_lock: false,
             pre_captured_element: None,
             focus_epoch: 0,
@@ -6145,6 +6143,7 @@ mod tests {
             callback_params: [0; 4],
             key_value: 0,
             keyboard_layout: 0,
+            keyboard_thread: 0,
             caps_lock: false,
             pre_captured_element: None,
             focus_epoch: 0,
@@ -6712,6 +6711,7 @@ mod tests {
     fn probe_key(vk: u32, shift: bool, sequence_id: u64) -> RawEvent {
         let mut raw = control_key_raw_event(vk, sequence_id);
         raw.keyboard_layout = PROBE_LAYOUT;
+        raw.keyboard_thread = PROBE_THREAD;
         raw.modifiers = (false, shift, false, false);
         raw
     }
@@ -6872,13 +6872,38 @@ mod tests {
             "Dead"
         );
         let mut elsewhere = probe_key(0x45, false, 2);
-        elsewhere.window_handle = i64::from(other_thread);
+        elsewhere.keyboard_thread = other_thread;
         assert_eq!(named_in(&mut state, &elsewhere), "Unidentified");
         assert_eq!(
             named_in(&mut state, &probe_key(0x45, false, 3)),
             "Unidentified"
         );
         assert_eq!(named_in(&mut state, &probe_key(0x45, false, 4)), "e");
+    }
+
+    /// The thread is the one the keyboard hook read at the key-down
+    /// ([`RawEvent::keyboard_thread`]), whichever window of it the key is
+    /// attributed to, and whether or not that window still exists.
+    #[test]
+    fn regression_836_the_thread_of_a_key_is_the_one_read_at_its_key_down() {
+        let mut state = WorkerState::new(Arc::new(NamedPresses::new()));
+        assert_eq!(
+            named_in(&mut state, &probe_key(PROBE_DEAD_KEY, false, 1)),
+            "Dead"
+        );
+        // Another window of the same thread (a dialog of the program).
+        let mut dialog = probe_key(0x45, false, 2);
+        dialog.window_handle += 1;
+        assert_eq!(named_in(&mut state, &dialog), "é");
+        // The same window handle with another thread read.
+        let mut state = WorkerState::new(Arc::new(NamedPresses::new()));
+        assert_eq!(
+            named_in(&mut state, &probe_key(PROBE_DEAD_KEY, false, 1)),
+            "Dead"
+        );
+        let mut elsewhere = probe_key(0x45, false, 2);
+        elsewhere.keyboard_thread = PROBE_THREAD + 1;
+        assert_eq!(named_in(&mut state, &elsewhere), "Unidentified");
     }
 
     #[test]

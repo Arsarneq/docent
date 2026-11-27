@@ -238,8 +238,8 @@ impl WaitingAccents {
         if gives == LayoutAnswer::Nothing {
             return Named::AsPressed;
         }
+        self.key_went_to(thread);
         let on = self.on(layout);
-        on.key_went_elsewhere(thread);
         let before = on.before(thread);
         let (named, after) = step(before, gives, composed);
         if after != before {
@@ -272,6 +272,7 @@ impl WaitingAccents {
             if layout == 0 {
                 self.forget();
             } else {
+                self.key_went_to(thread);
                 self.on(layout).not_known_in(thread);
             }
             return Named::AsPressed;
@@ -280,8 +281,8 @@ impl WaitingAccents {
         if gives == LayoutAnswer::Nothing {
             return Named::AsPressed;
         }
+        self.key_went_to(thread);
         let on = self.on(layout);
-        on.key_went_elsewhere(thread);
         let before = on.before(thread);
         let (named, after) = step(before, gives, composed);
         on.take(thread, before, after);
@@ -297,6 +298,14 @@ impl WaitingAccents {
             .find(|(of, _)| *of == layout)
             .and_then(|(_, on)| on.begun)
             .map(|(_, accent)| accent)
+    }
+
+    /// A key that may give something went to `thread`: an accent begun in
+    /// another thread is no longer known to wait, on whichever layout.
+    fn key_went_to(&mut self, thread: u32) {
+        for (_, on) in &mut self.layouts {
+            on.key_went_elsewhere(thread);
+        }
     }
 
     fn on(&mut self, layout: i64) -> &mut OnLayout {
@@ -962,6 +971,58 @@ mod tests {
                 (NOTEPAD, character('x')),
             ]),
             [AsPressed, NotKnown, NotKnown]
+        );
+    }
+
+    /// A key in another thread ends what is known of the accent whichever
+    /// layout that key was pressed on: whether Windows keeps the accents of
+    /// two layouts apart across programs is not measured.
+    #[test]
+    fn regression_836_a_key_in_another_thread_on_another_layout_ends_what_is_known() {
+        const OTHER_LAYOUT: i64 = 0x0409_0409;
+        let mut waiting = WaitingAccents::new();
+        assert_eq!(waiting.press(DANISH, NOTEPAD, dead(ACUTE), list), AsPressed);
+        assert_eq!(
+            waiting.press(OTHER_LAYOUT, CALCULATOR, character('e'), list),
+            AsPressed
+        );
+        assert_eq!(
+            waiting.press(DANISH, NOTEPAD, character('e'), list),
+            NotKnown
+        );
+        // So does a key the system may take, and a key whose layout could
+        // not be asked.
+        let mut waiting = WaitingAccents::new();
+        assert_eq!(waiting.press(DANISH, NOTEPAD, dead(ACUTE), list), AsPressed);
+        assert_eq!(
+            waiting.press_the_system_may_take(OTHER_LAYOUT, CALCULATOR, character('e'), list),
+            AsPressed
+        );
+        assert_eq!(
+            waiting.press(DANISH, NOTEPAD, character('e'), list),
+            NotKnown
+        );
+        let mut waiting = WaitingAccents::new();
+        assert_eq!(waiting.press(DANISH, NOTEPAD, dead(ACUTE), list), AsPressed);
+        assert_eq!(
+            waiting.press(OTHER_LAYOUT, CALCULATOR, None, list),
+            AsPressed
+        );
+        assert_eq!(
+            waiting.press(DANISH, NOTEPAD, character('e'), list),
+            NotKnown
+        );
+        // A key in the dead key's own thread on another layout leaves the
+        // accent waiting on its layout.
+        let mut waiting = WaitingAccents::new();
+        assert_eq!(waiting.press(DANISH, NOTEPAD, dead(ACUTE), list), AsPressed);
+        assert_eq!(
+            waiting.press(OTHER_LAYOUT, NOTEPAD, character('e'), list),
+            AsPressed
+        );
+        assert_eq!(
+            waiting.press(DANISH, NOTEPAD, character('e'), list),
+            Named::Composed('é')
         );
     }
 

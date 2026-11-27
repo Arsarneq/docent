@@ -657,22 +657,18 @@ Which worker an event reaches, and how the typing and focus workers are chosen, 
     apart, or composes by a rule of its own): the `key` states a character
     the program did not enter;
   - where the desktop does not know which accent waits, the next key an
-    accent would rename is `Unidentified`. That is so:
+    accent would rename in each thread is `Unidentified`. That is so:
     - on a layout an accent waited on when the recording started;
     - after a key that went down while its layout could not be asked (the
       bullet above);
     - after a key-down the typing worker lost (its processing failed), and
       for a worker that takes the typing over from one that stopped
       answering or ended;
-    - after a dead key, for a key pressed in a window of another thread, and
-      from then on for the first key an accent would rename in each thread,
-      until the thread the dead key was pressed in has had one. Programs
-      differ in whether an accent begun in one window is used in another:
-      on a Windows PC, Notepad used an accent begun in another program's
-      window, and Calculator neither used one nor handed its own on
-      ([docent#836](https://github.com/Arsarneq/docent/issues/836)). The
-      desktop cannot read which a program does. The thread is that of the
-      foreground window at the key-down;
+    - where the keys change thread behind a dead key (the session format
+      states for which keys). Measured on a Windows PC: Notepad used an
+      accent begun in another program's window, and Calculator neither used
+      one nor handed its own on
+      ([docent#836](https://github.com/Arsarneq/docent/issues/836));
     - after a key the system can act on itself, pressed behind an accent
       (a key with the Windows key held, Ctrl with Escape, Alt with Tab or
       Escape): the system takes it or hands it to the program, the desktop

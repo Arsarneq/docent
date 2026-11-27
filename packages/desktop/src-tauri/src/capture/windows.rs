@@ -2064,6 +2064,7 @@ unsafe fn input_win_event_handle(
                 callback_params: [id_object as i64, id_child as i64, 0, 0],
                 key_value: 0,
                 keyboard_layout: 0,
+                keyboard_thread: 0,
                 caps_lock: false,
                 pre_captured_element: None,
                 focus_epoch: 0,
@@ -2109,6 +2110,7 @@ unsafe fn input_win_event_handle(
                 callback_params: [id_object as i64, id_child as i64, 0, 0],
                 key_value: 0,
                 keyboard_layout: 0,
+                keyboard_thread: 0,
                 caps_lock: false,
                 pre_captured_element: None,
                 focus_epoch: 0,
@@ -2176,6 +2178,7 @@ unsafe fn input_win_event_handle(
                         callback_params: [id_object as i64, id_child as i64, 0, 0],
                         key_value: 0,
                         keyboard_layout: 0,
+                        keyboard_thread: 0,
                         caps_lock: false,
                         pre_captured_element: None,
                         focus_epoch: 0,
@@ -2228,6 +2231,7 @@ unsafe fn input_win_event_handle(
                 ],
                 key_value: 0,
                 keyboard_layout: 0,
+                keyboard_thread: 0,
                 caps_lock: false,
                 pre_captured_element: None,
                 focus_epoch: 0,
@@ -2286,6 +2290,7 @@ unsafe fn input_win_event_handle(
                 callback_params: [id_object as i64, id_child as i64, 0, 0],
                 key_value: 0,
                 keyboard_layout: 0,
+                keyboard_thread: 0,
                 caps_lock: false,
                 pre_captured_element: None,
                 focus_epoch: 0,
@@ -2355,6 +2360,7 @@ unsafe fn input_win_event_handle(
                 callback_params: [id_object as i64, id_child as i64, 0, 0],
                 key_value: 0,
                 keyboard_layout: 0,
+                keyboard_thread: 0,
                 caps_lock: false,
                 pre_captured_element: None,
                 focus_epoch: 0,
@@ -2440,6 +2446,7 @@ unsafe fn input_press_switch(point_hwnd: HWND, fg_hwnd: HWND, timestamp: u64) {
         callback_params: [0, 0, 0, 0],
         key_value: 0,
         keyboard_layout: 0,
+        keyboard_thread: 0,
         caps_lock: false,
         pre_captured_element: None,
         focus_epoch: 0,
@@ -2586,6 +2593,7 @@ unsafe fn input_mouse_ll_handle(n_code: i32, w_param: WPARAM, l_param: LPARAM) {
                             callback_params: [0, 0, 0, 0],
                             key_value: 0,
                             keyboard_layout: 0,
+                            keyboard_thread: 0,
                             caps_lock: false,
                             pre_captured_element: None,
                             focus_epoch: 0,
@@ -2607,6 +2615,7 @@ unsafe fn input_mouse_ll_handle(n_code: i32, w_param: WPARAM, l_param: LPARAM) {
                             callback_params: [0, 0, 0, 0],
                             key_value: 0,
                             keyboard_layout: 0,
+                            keyboard_thread: 0,
                             caps_lock: false,
                             pre_captured_element: None,
                             focus_epoch: 0,
@@ -2641,6 +2650,7 @@ unsafe fn input_mouse_ll_handle(n_code: i32, w_param: WPARAM, l_param: LPARAM) {
                             ],
                             key_value: 0,
                             keyboard_layout: 0,
+                            keyboard_thread: 0,
                             caps_lock: false,
                             pre_captured_element: pre_element,
                             focus_epoch: 0,
@@ -2672,6 +2682,7 @@ unsafe fn input_mouse_ll_handle(n_code: i32, w_param: WPARAM, l_param: LPARAM) {
                         callback_params: [0, 0, 0, 0],
                         key_value: 0,
                         keyboard_layout: 0,
+                        keyboard_thread: 0,
                         caps_lock: false,
                         pre_captured_element: None,
                         focus_epoch: 0,
@@ -2696,6 +2707,7 @@ unsafe fn input_mouse_ll_handle(n_code: i32, w_param: WPARAM, l_param: LPARAM) {
                         callback_params: [1, 0, 0, 0], // 1 = horizontal axis
                         key_value: 0,
                         keyboard_layout: 0,
+                        keyboard_thread: 0,
                         caps_lock: false,
                         pre_captured_element: None,
                         focus_epoch: 0,
@@ -2730,6 +2742,7 @@ unsafe fn input_mouse_ll_handle(n_code: i32, w_param: WPARAM, l_param: LPARAM) {
                             callback_params: [down_dispatch_click_mark(msg), 0, 0, 0],
                             key_value: 0,
                             keyboard_layout: 0,
+                            keyboard_thread: 0,
                             caps_lock: false,
                             pre_captured_element: pre_element,
                             focus_epoch: 0,
@@ -2946,6 +2959,7 @@ unsafe extern "system" fn input_keyboard_ll_proc(
                     // layout what the key gives as pressed (docent#717).
                     key_value: 0,
                     keyboard_layout,
+                    keyboard_thread: thread_id,
                     caps_lock,
                     pre_captured_element: None,
                     focus_epoch: 0,
@@ -4812,15 +4826,6 @@ impl AccessibilityBackend for WindowsAccessibilityBackend {
             GetWindowThreadProcessId(HWND(window_handle as *mut _), Some(&mut process_id));
         }
         process_id
-    }
-
-    fn thread_of(&self, window_handle: i64) -> u32 {
-        if window_handle == 0 {
-            return 0;
-        }
-        // SAFETY: a read of the window system's own state; 0 for a window
-        // that is gone.
-        unsafe { GetWindowThreadProcessId(HWND(window_handle as *mut _), None) }
     }
 
     /// A `WM_NULL` sent to the control's own window, which its thread
