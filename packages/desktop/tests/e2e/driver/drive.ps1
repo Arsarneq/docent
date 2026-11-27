@@ -72,6 +72,7 @@ public static class DriverInput {
     POINT p; p.X = x; p.Y = y;
     return GetAncestor(WindowFromPoint(p), 2);
   }
+  public static IntPtr At(int x, int y) { POINT p; p.X = x; p.Y = y; return WindowFromPoint(p); }
   public static int[] Cursor() { POINT p; GetCursorPos(out p); return new int[] { p.X, p.Y }; }
   // One mouse event. The INPUT is filled here, in C#: filled from PowerShell,
   // the inner struct is a copy and Windows gets an empty event that it
@@ -295,7 +296,8 @@ function Resolve-Target($e) {
 function Assert-Under($e, $x, $y) {
   $w = Get-Window ([DriverInput]::RootAt($x, $y))
   if (-not (Test-Guard $e $w)) {
-    Write-Log "guard MISMATCH at ($x,$y) wanted process=$($e.process) title=$($e.title) got process=$($w.process) title=$($w.title)"
+    $root = [DriverInput]::RootAt($x, $y); $hit = [DriverInput]::At($x, $y)
+    Write-Log "guard MISMATCH at ($x,$y) wanted process=$($e.process) title=$($e.title) got process=$($w.process) title=$($w.title) root=$root class=$([Win32Find]::ClassOf($root)) hit=$hit class=$([Win32Find]::ClassOf($hit))"
     Write-Host "input-driver: the window under ($x,$y) is $($w.process) '$($w.title)', not the one the steps named; stopped"
     exit 3
   }

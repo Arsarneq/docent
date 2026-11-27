@@ -218,6 +218,7 @@ $rc = Invoke-Drive @(
 $p.WaitForExit(10000) | Out-Null
 $got = if (Test-Path $out) { [IO.File]::ReadAllText($out) } else { '<no output>' }
 Say ($rc -eq 0) 'menu clicks exit 0' "(rc=$rc)"
+if ($rc -ne 0) { Get-Content (Join-Path $work 'drive.log') -Tail 8 | ForEach-Object { Write-Host "  log: $_" } }
 Say ($got -ceq 'M') 'the menu item ran once' "(got '$got', wanted 'M')"
 
 # Case 3: the planner's refusal stops the run with exit 2 and no input, and
