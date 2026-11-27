@@ -251,7 +251,7 @@ try {
 
 # Case 11: every way a run ends leaves no key down and Caps Lock as the run
 # found it. The first run turns Caps Lock on and types a, the second holds
-# Shift and types d, and both then stop on a guard for a window that is not
+# Shift and presses the d key (chars is refused under a held Shift), and both then stop on a guard for a window that is not
 # there (exit 3); the third turns Caps Lock on, types f and stops on a
 # character no layout has a key for (exit 4); the fourth turns Caps Lock on,
 # types g and runs through (exit 0); the fifth types bc. A Caps Lock left on
@@ -260,7 +260,7 @@ $out = Join-Path $work 'case11.txt'
 $p = Start-Target $out
 $gone = @{ window = @{ process = 'no-such-process.exe' } }
 $rc1 = Invoke-Drive @($guard, @{ key = 'capslock' }, @{ chars = 'a' }, $gone, @{ chars = 'x' })
-$rc2 = Invoke-Drive @($guard, @{ down = 'shift' }, @{ chars = 'd' }, $gone, @{ chars = 'x' })
+$rc2 = Invoke-Drive @($guard, @{ down = 'shift' }, @{ key = 'd' }, $gone, @{ chars = 'x' })
 $rc3 = Invoke-Drive @($guard, @{ key = 'capslock' }, @{ chars = 'f' }, @{ chars = [string][char]0x3042 }, @{ chars = 'x' })
 $rc4 = Invoke-Drive @($guard, @{ key = 'capslock' }, @{ chars = 'g' })
 $rc5 = Invoke-Drive @($guard, @{ chars = 'bc' }, $close)
