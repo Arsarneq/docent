@@ -4566,9 +4566,9 @@ pub fn switch_before_event(
 }
 
 /// The mark, in the fourth callback parameter, of a foreground event the
-/// Input_Thread dispatches ahead of a first action in a window the session
-/// had not introduced (`ContextIntroductions::switch_before`), rather than
-/// for a window that came to the front.
+/// Input_Thread dispatches ahead of a first action in an inactive window the
+/// session had not introduced ([`switch_before_event`]), rather than for a
+/// window that came to the front.
 pub const SWITCH_BEFORE_ITS_ACTION: i64 = 1;
 
 // ---------------------------------------------------------------------------
