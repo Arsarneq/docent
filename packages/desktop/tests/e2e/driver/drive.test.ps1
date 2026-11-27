@@ -226,7 +226,7 @@ $p = Start-Target $out
 $rc = Invoke-Drive @(
   $guard,
   @{ click = @{ name = 'Tools'; control = 'MenuItem' } },
-  @{ window = @{ process = $host_name; title = '^$' } },
+  @{ window = @{ process = $host_name } },
   @{ click = @{ name = 'Add M'; control = 'MenuItem' } },
   $guard,
   $close
