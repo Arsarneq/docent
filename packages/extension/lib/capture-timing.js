@@ -109,3 +109,12 @@ export const TAB_CREATED_NAVIGATION_SUPPRESSION = 100;
  * person would notice.
  */
 export const END_TYPING_BOUND = 500;
+
+/**
+ * How long an action waits for the frames asked of the keys they hold, the
+ * ask and the wait for the report a frame names as its last together. What a
+ * frame appends is held for that time, its typed entry included, and another
+ * frame's press waits END_TYPING_BOUND for that entry: half of it leaves the
+ * entry time to be stored ahead of the press's click.
+ */
+export const HELD_KEYS_ASK_BOUND = 250;

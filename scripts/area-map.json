@@ -265,6 +265,7 @@
       "code": [
         "scripts/check-{area-map,clause-registry,clause-governance,clause-preamble,clause-form,doc-reachability}.js",
         "scripts/clause-form-baseline.json",
+        "scripts/report-clause-doc-words.js",
         "scripts/area-map.json"
       ],
       "docs": ["docs/guides/docs-governance.md"]
@@ -343,6 +344,11 @@
     {
       "path": "packages/shared/tests/unit/check-*.test.js",
       "reason": "Unit tests for the CI-machinery check scripts — they exercise the check tooling itself; their contract is the behaviour of the scripts under test, and the unit-suite orientation lists them.",
+      "governed-by": ["docs/test/unit.md"]
+    },
+    {
+      "path": "packages/shared/tests/unit/report-clause-doc-words.test.js",
+      "reason": "Unit tests for the word report over the documents that hold clauses — they exercise the report script itself, and the unit-suite orientation lists them.",
       "governed-by": ["docs/test/unit.md"]
     },
     {

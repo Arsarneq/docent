@@ -137,3 +137,27 @@ export function readTextOrNull(path) {
     return null;
   }
 }
+
+/**
+ * The reader of files as the commit a change branched from holds them: the
+ * merge base of a ref and HEAD.
+ * @param {(args: string[]) => string} git runs git with the arguments and returns its output; throws when git fails
+ * @param {string} baseRef the ref the change is compared with
+ * @returns {(path: string) => string | null} a repo-relative path's text at the base, or null when the base lacks it
+ * @throws {Error} naming the ref, when git finds no merge base of it and HEAD
+ */
+export function baseFileReader(git, baseRef) {
+  let base;
+  try {
+    base = git(['merge-base', baseRef, 'HEAD']).trim();
+  } catch (e) {
+    throw new Error(`no merge base of ${baseRef} and HEAD`, { cause: e });
+  }
+  return (rel) => {
+    try {
+      return git(['show', `${base}:${rel}`]);
+    } catch {
+      return null;
+    }
+  };
+}

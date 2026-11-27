@@ -2609,6 +2609,7 @@ describe('extractCapturePayloads — the capture-path table read by column name'
       { type: 'FRAME_READY', keys: ['readyAt', 'url'] },
       { type: 'APPEND_ACTION', keys: ['action'] },
       { type: 'POINTER_PRESSED', keys: [] },
+      { type: 'HELD_KEY', keys: ['event', 'code', 'key', 'underMeta', 'recorder', 'seq'] },
     ]);
   });
 });
@@ -3063,7 +3064,7 @@ describe('real-tree lock', () => {
     const { payloads, unreadable } = extractCapturePayloads(readFile(RUNTIME_DOC_PATH));
     assert.deepEqual(unreadable, []);
     assert.deepEqual(
-      payloads.map(({ type, keys }) => [type, keys]).sort(),
+      payloads.map(({ type, keys }) => [type, [...keys].sort()]).sort(),
       [...carried].map(([type, keys]) => [type, [...keys].sort()]).sort(),
     );
   });

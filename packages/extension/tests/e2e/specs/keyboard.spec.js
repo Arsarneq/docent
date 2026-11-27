@@ -1941,6 +1941,56 @@ test.describe('Every key press that is not text', () => {
     });
   }
 
+  // The timer task after a character key's `keypress` settles the presses
+  // that waited at that keypress, and no press made after it. The browser
+  // can hand the page the next keys ahead of that task; here the task is
+  // held back in the recorder's own world, so the order is the same each run.
+  test('regression_789_a_dead_key_pressed_before_the_timer_of_the_key_before_it_is_text', async ({
+    testPage,
+    serviceWorker,
+    context,
+  }) => {
+    const session = await context.newCDPSession(testPage);
+    const worlds = [];
+    session.on('Runtime.executionContextCreated', ({ context: world }) => worlds.push(world));
+    await session.send('Runtime.enable');
+    const recorderWorld = worlds.find(
+      (world) =>
+        world.auxData?.type === 'isolated' && world.origin.startsWith('chrome-extension://'),
+    );
+    expect(recorderWorld, 'the world the recorder runs in').toBeTruthy();
+    const inRecorderWorld = (expression) =>
+      session.send('Runtime.evaluate', { contextId: recorderWorld.id, expression });
+    await inRecorderWorld(`(() => {
+      const real = globalThis.setTimeout;
+      globalThis.holdTimerTasks = false;
+      globalThis.setTimeout = (task, ms, ...rest) =>
+        real(task, globalThis.holdTimerTasks && !ms ? 300 : ms, ...rest);
+    })()`);
+
+    const dead = { key: 'Dead', code: 'Equal', windowsVirtualKeyCode: 221 };
+    const enter = { key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 };
+    await testPage.focus('#editable');
+    await inRecorderWorld('globalThis.holdTimerTasks = true');
+    await testPage.keyboard.type('c');
+    await inRecorderWorld('globalThis.holdTimerTasks = false');
+    await session.send('Input.dispatchKeyEvent', { type: 'rawKeyDown', ...dead });
+    await session.send('Input.dispatchKeyEvent', { type: 'keyUp', ...dead });
+    await session.send('Input.dispatchKeyEvent', { type: 'rawKeyDown', ...enter });
+    // The timer task of the keypress of `c` runs now, behind the two keys.
+    await testPage.waitForTimeout(450);
+    await session.send('Input.dispatchKeyEvent', { type: 'char', ...enter, text: '´' });
+    await testPage.waitForTimeout(50);
+    await session.send('Input.dispatchKeyEvent', { type: 'keyUp', ...enter });
+    await testPage.locator('#btn').click();
+    const actions = (await written(serviceWorker, testPage)).filter(([type]) => type !== 'click');
+    expect(actions).toEqual([
+      ['type', 'c'],
+      ['key', 'Enter'],
+      ['type', 'c´'],
+    ]);
+  });
+
   // The same where no accent is entered and the dead key is a `key` too:
   // the text taken at the press stands ahead of both keys, and what the
   // person changed in the element after them is written behind them, never
@@ -2756,6 +2806,215 @@ test.describe('Keyboard activation', () => {
       ['Enter', []],
       ['Escape', []],
     ]);
+  });
+
+  // Regression: #779 — a key held in one document of a tab was not named in
+  // `held_keys` of an action in another document of the same tab: each
+  // frame's recorder saw only the keys of its own document.
+  // https://github.com/Arsarneq/docent/issues/779
+  const heldAt = (actions) =>
+    actions
+      .filter((a) => a.type !== 'focus')
+      .map((a) => [a.type, a.key ?? null, a.held_keys, a.element?.selector]);
+
+  test('regression_779_a_click_in_a_frame_names_the_key_held_outside_it', async ({
+    testPage,
+    serviceWorker,
+  }) => {
+    const inner = testPage.frameLocator('#frame').locator('#inner');
+    await testPage.focus('#btn');
+    await testPage.keyboard.down('Escape');
+    await inner.click();
+    await inner.click();
+    await testPage.keyboard.up('Escape');
+    await inner.click();
+    await waitForActionsToSettle(serviceWorker, testPage);
+
+    expect(heldAt(await getPendingActions(serviceWorker))).toEqual([
+      ['key', 'Escape', [], '#btn'],
+      ['click', null, ['Escape'], '#inner'],
+      ['click', null, ['Escape'], '#inner'],
+      ['click', null, [], '#inner'],
+    ]);
+  });
+
+  test('regression_779_a_click_outside_a_frame_names_the_key_held_inside_it', async ({
+    testPage,
+    serviceWorker,
+  }) => {
+    await testPage.frameLocator('#frame').locator('#inner').focus();
+    await testPage.keyboard.down('Escape');
+    await testPage.click('#box');
+    await testPage.keyboard.up('Escape');
+    await testPage.click('#box');
+    await waitForActionsToSettle(serviceWorker, testPage);
+
+    expect(heldAt(await getPendingActions(serviceWorker))).toEqual([
+      ['key', 'Escape', [], '#inner'],
+      ['click', null, ['Escape'], '#box'],
+      ['click', null, [], '#box'],
+    ]);
+  });
+
+  test('regression_779_a_right_click_and_a_key_in_a_frame_name_the_key_held_outside_it', async ({
+    testPage,
+    serviceWorker,
+  }) => {
+    const inner = testPage.frameLocator('#frame').locator('#inner');
+    await testPage.focus('#btn');
+    await testPage.keyboard.down('Escape');
+    await inner.click({ button: 'right' });
+    await testPage.keyboard.press('ArrowDown');
+    // The held key's repeat reaches the frame, which names it itself from here.
+    await testPage.keyboard.down('Escape');
+    await testPage.keyboard.press('ArrowUp');
+    await testPage.keyboard.up('Escape');
+    await testPage.keyboard.press('ArrowLeft');
+    await waitForActionsToSettle(serviceWorker, testPage);
+
+    expect(heldAt(await getPendingActions(serviceWorker))).toEqual([
+      ['key', 'Escape', [], '#btn'],
+      ['right_click', null, ['Escape'], '#inner'],
+      ['key', 'ArrowDown', ['Escape'], '#inner'],
+      ['key', 'Escape', [], '#inner'],
+      ['key', 'ArrowUp', ['Escape'], '#inner'],
+      ['key', 'ArrowLeft', [], '#inner'],
+    ]);
+  });
+
+  test('regression_779_a_key_released_before_the_click_in_a_frame_is_not_held', async ({
+    testPage,
+    serviceWorker,
+  }) => {
+    await testPage.focus('#btn');
+    await testPage.keyboard.down('Escape');
+    await testPage.keyboard.up('Escape');
+    await testPage.frameLocator('#frame').locator('#inner').click();
+    await waitForActionsToSettle(serviceWorker, testPage);
+
+    expect(heldAt(await getPendingActions(serviceWorker))).toEqual([
+      ['key', 'Escape', [], '#btn'],
+      ['click', null, [], '#inner'],
+    ]);
+  });
+
+  test('regression_779_a_key_typed_as_text_outside_a_frame_is_not_held_in_it', async ({
+    testPage,
+    serviceWorker,
+  }) => {
+    await testPage.click('#text');
+    await testPage.keyboard.down('a');
+    await testPage.frameLocator('#frame').locator('#inner').click();
+    await testPage.keyboard.up('a');
+    await waitForActionsToSettle(serviceWorker, testPage);
+
+    const clicks = (await getPendingActions(serviceWorker)).filter((a) => a.type === 'click');
+    expect(clicks.map((a) => [a.element.selector, a.held_keys])).toEqual([
+      ['#text', []],
+      ['#inner', []],
+    ]);
+  });
+
+  test('regression_779_a_key_whose_repeat_is_text_in_the_frame_is_held_until_its_release', async ({
+    testPage,
+    serviceWorker,
+  }) => {
+    // A letter pressed on a button is a key and named as held; the click into
+    // the frame's field hands it over, and its repeat there is text. The
+    // frame then knows of no key to report released.
+    await setTestContent(
+      testPage,
+      /* html */ `<!DOCTYPE html><html><body><button id="btn">Button</button>
+        <iframe id="frame" srcdoc="<input id='field' type='text'><button id='inner'>Inner</button>"></iframe>
+      </body></html>`,
+    );
+    await testPage.waitForTimeout(300);
+    await clearPendingActions(serviceWorker);
+    const frame = testPage.frameLocator('#frame');
+    await testPage.focus('#btn');
+    await testPage.keyboard.down('a');
+    await frame.locator('#field').click();
+    await testPage.keyboard.down('a');
+    // Still down: it stays named, as it does within one document.
+    await frame.locator('#inner').click({ button: 'right' });
+    await testPage.keyboard.up('a');
+    await frame.locator('#inner').click();
+    await waitForActionsToSettle(serviceWorker, testPage);
+
+    const actions = await getPendingActions(serviceWorker);
+    expect(
+      actions
+        .filter((a) => a.type === 'key' || a.type.endsWith('click'))
+        .map((a) => [a.type, a.held_keys, a.element.selector]),
+    ).toEqual([
+      ['key', [], '#btn'],
+      ['click', ['a'], '#field'],
+      ['right_click', ['a'], '#inner'],
+      ['click', [], '#inner'],
+    ]);
+  });
+
+  test('regression_779_a_key_held_in_a_frame_the_page_removed_is_not_held', async ({
+    testPage,
+    serviceWorker,
+    context,
+  }) => {
+    // The frame that saw the key go down is taken out of the page, and the
+    // key is released in another tab: nothing reports its release.
+    const session = await context.newCDPSession(testPage);
+    await session.send('Emulation.setFocusEmulationEnabled', { enabled: false });
+    await testPage.bringToFront();
+    await testPage.waitForTimeout(200);
+    await testPage.frameLocator('#frame').locator('#inner').focus();
+    await testPage.keyboard.down('Escape');
+    await testPage.evaluate(() => document.getElementById('frame').remove());
+    await testPage.waitForTimeout(200);
+    const other = await context.newPage();
+    await other.bringToFront();
+    await other.waitForTimeout(200);
+    await other.keyboard.up('Escape');
+    await testPage.bringToFront();
+    await other.close();
+    await testPage.waitForTimeout(200);
+    // A key first: no pointer press comes before it.
+    await testPage.keyboard.press('F2');
+    await testPage.click('#btn');
+    await waitForActionsToSettle(serviceWorker, testPage);
+
+    const later = (await getPendingActions(serviceWorker)).filter(
+      (a) => a.type === 'click' || a.key === 'F2',
+    );
+    expect(later.map((a) => [a.type, a.held_keys])).toEqual([
+      ['key', []],
+      ['click', []],
+    ]);
+  });
+
+  test('regression_779_a_key_released_while_the_page_was_not_focused_is_not_held_in_a_frame', async ({
+    testPage,
+    serviceWorker,
+    context,
+  }) => {
+    // As in the #706 case above: focus emulation off, so another tab coming
+    // to the front takes the focus, and the key's release goes to it.
+    const session = await context.newCDPSession(testPage);
+    await session.send('Emulation.setFocusEmulationEnabled', { enabled: false });
+    await testPage.bringToFront();
+    await testPage.waitForTimeout(200);
+    await testPage.focus('#btn');
+    await testPage.keyboard.down('Escape');
+    const other = await context.newPage();
+    await other.bringToFront();
+    await other.waitForTimeout(200);
+    await other.keyboard.up('Escape');
+    await testPage.bringToFront();
+    await other.close();
+    await testPage.waitForTimeout(200);
+    await testPage.frameLocator('#frame').locator('#inner').click();
+    await waitForActionsToSettle(serviceWorker, testPage);
+
+    const clicks = (await getPendingActions(serviceWorker)).filter((a) => a.type === 'click');
+    expect(clicks.map((a) => [a.element.selector, a.held_keys])).toEqual([['#inner', []]]);
   });
 
   test('regression_695_space_on_a_date_field_is_a_key', async ({ testPage, serviceWorker }) => {
