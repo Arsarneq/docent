@@ -466,11 +466,7 @@ machine, including live-capture behaviour at the boundary.
 
 ## Exceptions Within the Surface
 
-**ECP-12.** This platform's exceptions within the surface (core
-[CP-15](../../../architecture/system/capture-principles.md#capture-surface)) —
-interactions that would appear to be inside the
-[capture surface](#capture-surface) above but are not captured (or are captured
-with a caveat):
+**ECP-12.** This platform's exceptions within the surface (core [CP-15](../../../architecture/system/capture-principles.md#capture-surface)):
 
 - A key press is named by the browser's key value, which follows the layout
   and the shift state, where the desktop names it from the virtual-key code:
@@ -489,13 +485,10 @@ with a caveat):
 - A key the input method takes: not written as a `key`. Its text arrives as
   a composition, which the field's `type` records, and a press whose
   composition is given up with no text leaves no record; a departure (core
-  CP-18), and one from the desktop, whose keyboard hook is handed each key
-  ahead of the input method and can read nothing that says a composition is
-  open (the desktop capture document, DCP-13, names the interfaces measured),
-  so it writes the keys pressed inside one as `key` actions, a typing
-  key among them where the field reports no value change for it; the
-  composed text is one `type` on both; a difference that comes from the
-  platforms themselves (core CP-19;
+  CP-18), and one from the desktop, which writes the keys pressed inside a
+  composition as `key` actions (the desktop capture document, DCP-13, states
+  why and which); the composed text is one `type` on both; a difference that
+  comes from the platforms themselves (core CP-19;
   [docent#744](https://github.com/Arsarneq/docent/issues/744))
 - Character keys pressed in a date or time field whose parts made no value
   (a date left half filled): written as `key` actions, though the field shows

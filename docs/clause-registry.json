@@ -721,7 +721,7 @@
       "doc": "docs/architecture/application/desktop/windows/capture-principles.md",
       "clause": "DCP-7",
       "tag": "check-exists",
-      "check-ref": "The correlation gates are exercised end-to-end by the enigo integration suites (real input, real WinEvents) and probed by the desktop corpus sessions (npm run test:desktop:rust for the integration tier; npm run corpus:check:desktop); the focus that writes nothing for its element's window is pinned by packages/desktop/src-tauri/tests/worker_pool_test.rs's a_focus_whose_element_is_in_another_process_s_window_writes_nothing and a_focus_whose_element_s_window_has_no_readable_process_writes_nothing (npm run test:desktop:rust)."
+      "check-ref": "The correlation gates are exercised end-to-end by the enigo integration suites (real input, real WinEvents) and probed by the desktop corpus sessions (npm run test:desktop:rust for the integration tier; npm run corpus:check:desktop). The windows a session introduced and which focus is written are DCP-20's and DCP-21's rows."
     },
     {
       "doc": "docs/architecture/application/desktop/windows/capture-principles.md",
@@ -806,7 +806,7 @@
       "doc": "docs/architecture/application/desktop/windows/capture-principles.md",
       "clause": "DCP-12",
       "tag": "check-exists",
-      "check-ref": "The worker-pool invariants (sacred-buffer flush, panic respawn and retry, typing-worker and sticky routing) are pinned by the worker-pool Rust tests (npm run test:desktop:rust); the double-click routing by a_click_completing_a_double_click_routes_to_the_previous_clicks_worker (packages/desktop/src-tauri/tests/worker_pool_test.rs), which drives a WorkerPool of three stub workers whose queues only grow, so a marked click reaching the previous click's worker over a shorter queue, and an unmarked click taking the shortest queue, are each observed. The dead-worker drain paths are pinned individually: the flush fan-out's channel-gone rescue branch by the pool's in-module flush_all_rescues_a_wedged_worker_in_place_and_still_emits_the_sentinel test (packages/desktop/src-tauri/src/capture/worker_pool.rs); the dispatch-time respawn drain and shutdown's joined-dead drain by respawn_drains_the_dead_workers_held_buffers and shutdown_drains_the_buffers_of_an_already_dead_worker (packages/desktop/src-tauri/tests/worker_pool_test.rs; npm run test:desktop:rust); the barrier's fallback drain by the windows-provider in-module flush_barrier_timeout_recovers_buffers_by_fallback_drain_and_reports_it test (packages/desktop/src-tauri/src/capture/windows.rs); and the fused stop's pass-through by the command-layer stop_capture tests (packages/desktop/src-tauri/src/commands.rs; npm run test:desktop:rust), which pin that the command returns the barrier report its capture layer gives — their mock layer models the barrier itself, so the real stop's fused barrier is pinned by no named case. The rescue-drain idempotence is pinned by the pool's in-module drain_into_twice_emits_each_held_action_once test (packages/desktop/src-tauri/src/capture/worker_pool.rs; npm run test:desktop:rust); an end-to-end stop-rescues-a-dead-worker pin remains intended, not built."
+      "check-ref": "The worker-pool invariants (sacred-buffer flush, panic respawn and retry) are pinned by the worker-pool Rust tests (npm run test:desktop:rust). The routing this clause relies on is the section Routing and ordering of the capture pipeline document: its typing-worker, focus-worker and sticky routes are pinned by the same tests, that a focus worker that misses the flush barrier gives the role up by the in-module case a_focus_worker_that_misses_the_flush_barrier_gives_the_role_up (packages/desktop/src-tauri/src/capture/worker_pool.rs), and the double-click routing by a_click_completing_a_double_click_routes_to_the_previous_clicks_worker (packages/desktop/src-tauri/tests/worker_pool_test.rs), which drives a WorkerPool of three stub workers whose queues only grow, so a marked click reaching the previous click's worker over a shorter queue, and an unmarked click taking the shortest queue, are each observed. The dead-worker drain paths are pinned individually: the flush fan-out's channel-gone rescue branch by the pool's in-module flush_all_rescues_a_wedged_worker_in_place_and_still_emits_the_sentinel test (packages/desktop/src-tauri/src/capture/worker_pool.rs); the dispatch-time respawn drain and shutdown's joined-dead drain by respawn_drains_the_dead_workers_held_buffers and shutdown_drains_the_buffers_of_an_already_dead_worker (packages/desktop/src-tauri/tests/worker_pool_test.rs; npm run test:desktop:rust); the barrier's fallback drain by the windows-provider in-module flush_barrier_timeout_recovers_buffers_by_fallback_drain_and_reports_it test (packages/desktop/src-tauri/src/capture/windows.rs); and the fused stop's pass-through by the command-layer stop_capture tests (packages/desktop/src-tauri/src/commands.rs; npm run test:desktop:rust), which pin that the command returns the barrier report its capture layer gives — their mock layer models the barrier itself, so the real stop's fused barrier is pinned by no named case. The rescue-drain idempotence is pinned by the pool's in-module drain_into_twice_emits_each_held_action_once test (packages/desktop/src-tauri/src/capture/worker_pool.rs; npm run test:desktop:rust); an end-to-end stop-rescues-a-dead-worker pin remains intended, not built. Checked by no case named here: that a respawn keeps a role at its index, that a replacement counts as a worker that did not miss the last barrier, and that a role goes to any worker when every one missed, in respawn_worker and responsive_shortest_queue_worker of packages/desktop/src-tauri/src/capture/worker_pool.rs. The reviewer of any pull request that changes that code or the section Routing and ordering reads the one against the other and records the outcome in that pull request's change record. The step passes when the code does what the section states; a difference is a finding of that review."
     },
     {
       "doc": "docs/architecture/application/desktop/windows/capture-principles.md",
@@ -926,6 +926,40 @@
         "regression_237_the_open_status_is_asked_first_and_kept_where_the_mode_gets_no_answer",
         "regression_237_a_key_states_the_open_status_alone_where_the_mode_was_not_read",
         "regression_237_a_key_whose_input_method_was_not_read_leaves_the_fields_out"
+      ]
+    },
+    {
+      "doc": "docs/architecture/application/desktop/windows/capture-principles.md",
+      "clause": "DCP-20",
+      "tag": "check-exists",
+      "check-ref": "The cases named here (packages/desktop/src-tauri/tests/worker_pool_test.rs; npm run test:desktop:rust) pin the record of the windows a session introduced: a key in a dialog whose activation was not recorded takes a switch before it; a window introduced by a switch or an open takes no further switch, and a close introduces nothing; a lone modifier press and a key attributed to no window introduce nothing; an action after a switch is not the session's first context; a switch into the window in front stands for its late activation, and one into an inactive window does not swallow its later activation; and a right press into an inactive window writes one switch. Checked by no case named here: that an action after a `context_open` is not the session's first context, and the five open cases, in packages/desktop/src-tauri/src/capture/worker_pool.rs (ContextIntroductions, handle_focus) and packages/desktop/src-tauri/src/capture/windows.rs. The reviewer of any pull request that changes that code or this clause reads the one against the other and records the outcome in that pull request's change record. The step passes when the code does what the clause states; a difference is a finding of that review.",
+      "test-cases": [
+        "regression_708_a_key_in_a_dialog_whose_activation_was_not_recorded_is_introduced_by_a_switch",
+        "a_window_introduced_by_a_switch_or_an_open_takes_no_further_switch",
+        "a_lone_modifier_press_introduces_no_window",
+        "a_key_attributed_to_no_window_introduces_no_context",
+        "an_action_after_a_switch_is_not_the_sessions_first_context",
+        "a_switch_into_the_window_in_front_stands_for_its_late_activation",
+        "a_switch_into_an_inactive_window_does_not_swallow_its_later_activation",
+        "a_right_press_into_an_inactive_window_writes_one_switch"
+      ]
+    },
+    {
+      "doc": "docs/architecture/application/desktop/windows/capture-principles.md",
+      "clause": "DCP-21",
+      "tag": "check-exists",
+      "check-ref": "The cases named here (packages/desktop/src-tauri/tests/worker_pool_test.rs; npm run test:desktop:rust) pin: a focus compared with the last within its window, and a focus back to an element after another focus written; a focus described after a later focus event writing nothing, and one described after a counted change with no focus event written; a focus after its dialog closed carrying the context of its element's window; and the four rows of where a focus is written (the rectangle of its element's window, the event's window where none resolved, the event's own window, and nothing for another process's window or one whose process cannot be read). The cases run against a stub backend that supplies the focus numbers itself. Checked by no case named here: where the Input_Thread takes a focus event's number (after the filters of DCP-5, DCP-14 and DCP-7, and never for a foreground change), in packages/desktop/src-tauri/src/capture/windows.rs; and what a respawned worker and a worker that takes the role over compare the first focus with, in packages/desktop/src-tauri/src/capture/worker_pool.rs. The reviewer of any pull request that changes that code or this clause reads the one against the other and records the outcome in that pull request's change record. The step passes when the code does what the clause states; a difference is a finding of that review.",
+      "test-cases": [
+        "a_focus_is_compared_with_the_last_within_its_window",
+        "a_focus_back_to_an_element_after_another_focus_is_written",
+        "regression_735_a_focus_described_after_a_later_focus_event_writes_nothing",
+        "regression_735_a_focus_described_after_a_counted_change_with_no_focus_event_is_written",
+        "regression_709_a_focus_after_its_dialog_closed_carries_the_context_of_its_elements_window",
+        "a_focus_takes_the_rectangle_of_its_elements_window",
+        "a_focus_whose_element_resolved_no_window_keeps_the_events_window",
+        "a_focus_whose_element_is_in_the_events_own_window_is_written_there",
+        "a_focus_whose_element_is_in_another_process_s_window_writes_nothing",
+        "a_focus_whose_element_s_window_has_no_readable_process_writes_nothing"
       ]
     },
     {

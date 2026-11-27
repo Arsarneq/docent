@@ -4650,7 +4650,7 @@ fn regression_810_a_wheel_over_a_window_not_yet_introduced_leaves_the_typing_one
 
 /// The switch dispatched ahead of a first action over an inactive window is
 /// marked, so it ends no typing (docent#810); one into the window in front
-/// counts as that window's activation (DCP-7) and is not.
+/// counts as that window's activation (DCP-20) and is not.
 #[test]
 fn a_switch_ahead_of_an_action_is_marked_only_for_a_window_not_in_front() {
     use docent_desktop_lib::capture::worker_pool::{switch_before_event, SWITCH_BEFORE_ITS_ACTION};
