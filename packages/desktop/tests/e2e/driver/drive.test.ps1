@@ -249,6 +249,22 @@ try {
   Say (Test-FoundBy "id '15' control Edit") 'the edit box was found, by Win32 where UI Automation has no providers' ''
 } finally { Stop-Process -Id $np.Id -Force -ErrorAction SilentlyContinue }
 
+# Case 11: a run that stops early leaves no key down and Caps Lock as it
+# found it. The first run turns Caps Lock on and types a, the second holds
+# Shift and types d, and both then stop on a guard for a window that is not
+# there; the third types bc. A Caps Lock left on or a Shift left down would
+# make the third run's letters capitals.
+$out = Join-Path $work 'case11.txt'
+$p = Start-Target $out
+$gone = @{ window = @{ process = 'no-such-process.exe' } }
+$rc1 = Invoke-Drive @($guard, @{ key = 'capslock' }, @{ chars = 'a' }, $gone, @{ chars = 'x' })
+$rc2 = Invoke-Drive @($guard, @{ down = 'shift' }, @{ chars = 'd' }, $gone, @{ chars = 'x' })
+$rc3 = Invoke-Drive @($guard, @{ chars = 'bc' }, $close)
+$p.WaitForExit(10000) | Out-Null
+$got = if (Test-Path $out) { [IO.File]::ReadAllText($out) } else { '<no output>' }
+Say (($rc1 -eq 3) -and ($rc2 -eq 3) -and ($rc3 -eq 0)) 'two runs stop early, the third runs through' "(rc=$rc1,$rc2,$rc3)"
+Say ($got -ceq 'ADbc') 'Caps Lock and a held Shift were put back when the runs stopped' "(got '$got', wanted 'ADbc')"
+
 # Case 3: the planner's refusal stops the run with exit 2 and no input, and
 # the refusal is the missing guard, not a malformed steps file.
 $log = Join-Path $work 'drive.log'

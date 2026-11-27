@@ -387,3 +387,66 @@ test('a field a target or a guard does not take is refused', () => {
     /step 0: a window guard takes process, title or any/,
   );
 });
+
+test('Caps Lock has a name and is pressed as a toggle, down then up', () => {
+  const ev = plan([W, { key: 'capslock' }]);
+  assert.deepEqual(ev.slice(1), [
+    { type: 'vk', vk: '0x14', up: false },
+    { type: 'vk', vk: '0x14', up: true },
+  ]);
+  assert.deepEqual(plan([W, { key: 'capslock', scan: true }])[1], {
+    type: 'vk',
+    vk: '0x14',
+    up: false,
+    scan: true,
+    ext: false,
+  });
+});
+
+test('down and up hold a key across other steps', () => {
+  const ev = plan([W, { down: 'shift' }, { key: 'a' }, { click: { x: 5, y: 6 } }, { up: 'shift' }]);
+  const keys = ev.filter((e) => e.type === 'vk').map((e) => `${e.vk}${e.up ? '^' : 'v'}`);
+  assert.deepEqual(keys, ['0x10v', '0x41v', '0x41^', '0x10^']);
+  assert.equal(ev[0].type, 'assert');
+  assert.equal(ev.at(-2).type, 'assert');
+  assert.equal(ev.at(-1).release, undefined);
+});
+
+test('down and up take scan, as a key step does', () => {
+  const ev = plan([W, { down: 'rctrl', scan: true }, { up: 'rctrl', scan: true }]);
+  assert.deepEqual(
+    ev.filter((e) => e.type === 'vk'),
+    [
+      { type: 'vk', vk: '0xa3', up: false, scan: true, ext: true },
+      { type: 'vk', vk: '0xa3', up: true, scan: true, ext: true },
+    ],
+  );
+});
+
+test('keys still down when the steps end are released last, newest first', () => {
+  const ev = plan([W, { down: 'ctrl' }, { down: 'shift', scan: true }, { key: 'a' }]);
+  assert.deepEqual(ev.slice(-2), [
+    { type: 'vk', vk: '0x10', up: true, scan: true, ext: false, release: true },
+    { type: 'vk', vk: '0x11', up: true, release: true },
+  ]);
+});
+
+test('a down or up that does not fit what is held is refused', () => {
+  assert.throws(() => plan([W, { up: 'shift' }]), /step 1: shift is not down/);
+  assert.throws(
+    () => plan([W, { down: 'shift' }, { down: 'shift' }]),
+    /step 2: shift is already down/,
+  );
+  assert.throws(() => plan([W, { down: 'ctrl+a' }]), /step 1: down takes one key/);
+  assert.throws(() => plan([W, { down: 'nokey' }]), /step 1: unknown key 'nokey'/);
+  assert.throws(() => plan([{ down: 'shift' }]), /step 0: no window guard before this input/);
+  assert.throws(
+    () => plan([W, { down: 'shift' }, { key: 'shift+a' }]),
+    /step 2: shift is held down/,
+  );
+  assert.throws(() => plan([W, { down: 'shift', repeat: 2 }]), /step 1: down does not take repeat/);
+  assert.throws(
+    () => plan([W, { down: 'shift', scan: true }, { up: 'shift' }]),
+    /step 2: shift went down with scan, so it goes up with scan/,
+  );
+});
