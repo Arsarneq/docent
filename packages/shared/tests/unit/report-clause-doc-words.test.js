@@ -3,18 +3,21 @@
  * (scripts/report-clause-doc-words.js): for each document that holds clauses,
  * the words it held at the base and the words it holds now. The suite drives
  * `main` over an injected registry, injected current documents and injected
- * base documents — a document that grew, one that shrank, one that is new and
- * one that did not change, the total over several, the copy written to the job
- * summary, and the exit code, which growth never changes — and a real-tree
- * case runs the report against the checked-out commit itself.
+ * base documents — a document that grew, one that shrank, one that is new, one
+ * that did not change, and one the base registered that is gone, renamed or no
+ * longer registered, the total over several, the copy written to the job
+ * summary, and the exit code, which growth never changes. Two real-tree cases
+ * run the script itself: against the checked-out commit, and against a base
+ * ref git cannot resolve. The last block pins the shared reader of files at
+ * the merge base (`baseFileReader` in scripts/governance-data.js).
  */
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { join, resolve } from 'node:path';
 import { main } from '../../../../scripts/report-clause-doc-words.js';
-import { REGISTRY_PATH } from '../../../../scripts/governance-data.js';
+import { REGISTRY_PATH, baseFileReader } from '../../../../scripts/governance-data.js';
 
 const ROOT = resolve(import.meta.dirname, '..', '..', '..', '..');
 const DOC_A = 'docs/a.md';
@@ -34,9 +37,11 @@ const registry = (rows) =>
  * @param {Record<string, string | Error>} tree.now document path → its text now, or the read's error
  * @param {Record<string, string>} tree.base document path → its text at the base; absent when the base lacks it
  * @param {string} [tree.registryText] the registry's raw text, in place of `rows`
+ * @param {Record<string, string>} [tree.baseRows] clause id → document path in the base's registry; absent when the base holds no registry
+ * @param {string} [tree.baseRegistryText] the base registry's raw text, in place of `baseRows`
  * @returns {{ code: number, out: string[], err: string[], summary: string[] }}
  */
-function run({ rows = {}, now = {}, base = {}, registryText }) {
+function run({ rows = {}, now = {}, base = {}, registryText, baseRows, baseRegistryText }) {
   const out = [];
   const err = [];
   const summary = [];
@@ -48,7 +53,10 @@ function run({ rows = {}, now = {}, base = {}, registryText }) {
       if (value instanceof Error) throw value;
       return value;
     },
-    readBaseFile: (path) => base[path] ?? null,
+    readBaseFile: (path) => {
+      if (path === REGISTRY_PATH) return baseRegistryText ?? (baseRows ? registry(baseRows) : null);
+      return base[path] ?? null;
+    },
     log: (line) => out.push(line),
     error: (line) => err.push(line),
     appendSummary: (text) => summary.push(text),
@@ -170,12 +178,102 @@ describe('report-clause-doc-words', () => {
     assert.match(r.err.join('\n'), /docs\/a\.md/);
   });
 
-  it('real tree: against its own commit the report finds no change and exits 0', () => {
+  it('shows a document the base registered and the tree no longer holds with 0 words now', () => {
+    const r = run({
+      rows: { 'AA-1': DOC_A },
+      now: { [DOC_A]: words(10) },
+      baseRows: { 'AA-1': DOC_A, 'BB-1': DOC_B },
+      base: { [DOC_A]: words(10), [DOC_B]: words(9) },
+    });
+    assert.equal(r.code, 0);
+    assert.ok(r.out.includes(`| ${DOC_B} | 9 | 0 | -9 |`), r.out.join('\n'));
+  });
+
+  it('shows a renamed document as its old path emptied and its new path filled', () => {
+    const r = run({
+      rows: { 'AA-1': DOC_B },
+      now: { [DOC_B]: words(12) },
+      baseRows: { 'AA-1': DOC_A },
+      base: { [DOC_A]: words(10) },
+    });
+    assert.ok(r.out.includes(`| ${DOC_A} | 10 | 0 | -10 |`), r.out.join('\n'));
+    assert.ok(r.out.includes(`| ${DOC_B} | 0 | 12 | +12 |`), r.out.join('\n'));
+    assert.ok(r.out.includes('| Total | 10 | 12 | +2 |'), r.out.join('\n'));
+  });
+
+  it('counts a document that left the registry and is still in the tree as it is now', () => {
+    const r = run({
+      rows: { 'AA-1': DOC_A },
+      now: { [DOC_A]: words(10), [DOC_B]: words(4) },
+      baseRows: { 'AA-1': DOC_A, 'BB-1': DOC_B },
+      base: { [DOC_A]: words(10), [DOC_B]: words(9) },
+    });
+    assert.ok(r.out.includes(`| ${DOC_B} | 9 | 4 | -5 |`), r.out.join('\n'));
+  });
+
+  it('reads a base whose registry cannot be read as a base that registered nothing', () => {
+    const r = run({
+      rows: { 'AA-1': DOC_A },
+      now: { [DOC_A]: words(12) },
+      baseRegistryText: '{ not json',
+      base: { [DOC_A]: words(10) },
+    });
+    assert.equal(r.code, 0);
+    assert.deepEqual(r.err, []);
+    assert.ok(r.out.includes(`| ${DOC_A} | 10 | 12 | +2 |`), r.out.join('\n'));
+  });
+
+  it('real tree: against its own commit the report prints its table or its one line and exits 0', () => {
+    // A working tree with an uncommitted edit to a clause document differs from
+    // its own commit, so either output is the report working.
     const out = execFileSync(
       process.execPath,
       [join(ROOT, 'scripts', 'report-clause-doc-words.js'), 'HEAD'],
       { cwd: ROOT, encoding: 'utf8', env: { PATH: process.env.PATH } },
     );
-    assert.match(out, /\| Document \| Before \| After \| Change \||No document that holds clauses/);
+    assert.match(
+      out,
+      /^(\| Document \| Before \| After \| Change \|\n|No document that holds clauses changed its word count\.\n$)/,
+    );
+  });
+
+  it('real tree: a base ref git cannot resolve exits 2 and names the ref', () => {
+    const r = spawnSync(
+      process.execPath,
+      [join(ROOT, 'scripts', 'report-clause-doc-words.js'), 'no-such-ref'],
+      { cwd: ROOT, encoding: 'utf8', env: { PATH: process.env.PATH } },
+    );
+    assert.equal(r.status, 2, r.stderr);
+    assert.match(r.stderr, /no merge base of no-such-ref and HEAD/);
+    assert.equal(r.stdout, '');
+  });
+});
+
+describe('baseFileReader', () => {
+  /** A git that knows one merge base and the files it holds. */
+  const fakeGit = (files) => (args) => {
+    if (args[0] === 'merge-base' && args[1] === 'origin/main') return 'abc123\n';
+    if (args[0] === 'show' && args[1].startsWith('abc123:')) {
+      const text = files[args[1].slice('abc123:'.length)];
+      if (text !== undefined) return text;
+    }
+    throw new Error(`git ${args.join(' ')} failed`);
+  };
+
+  it('reads a file as the merge base of the ref and HEAD holds it', () => {
+    const read = baseFileReader(fakeGit({ 'docs/a.md': 'one two' }), 'origin/main');
+    assert.equal(read('docs/a.md'), 'one two');
+  });
+
+  it('answers null for a file the base does not hold', () => {
+    const read = baseFileReader(fakeGit({}), 'origin/main');
+    assert.equal(read('docs/a.md'), null);
+  });
+
+  it('throws naming the ref when git finds no merge base', () => {
+    assert.throws(
+      () => baseFileReader(fakeGit({}), 'no-such-ref'),
+      /no merge base of no-such-ref and HEAD/,
+    );
   });
 });

@@ -2,23 +2,24 @@
  * report-clause-doc-words.js — Show, for each document that holds clauses, the
  * words it held at a base commit and the words it holds now.
  *
- * A document that holds rules is read by people, and a change that only adds
- * to it makes it slower to read. This report puts the size of that change in
- * front of the author and the reviewer: one row per document whose word count
- * changed, and a total when more than one did. It is shown and never a gate:
- * how long a document should be depends on what it has to say, so the report
- * exits 0 however much a document grew.
+ * The report prints one row per document whose word count changed, and a
+ * total when more than one did. It exits 0 however much a document grew. The
+ * docs-governance guide (docs/guides/docs-governance.md, "Words before and
+ * after") holds why the numbers are shown and who reads them.
  *
  * The documents are the ones the clause registry (docs/clause-registry.json)
- * names. Words are counted as scripts/check-clause-form.js counts them: link
- * targets and code blocks left out, and a code span counted as one word. A
- * document the base does not hold counts from zero.
+ * names now or named at the base, so a document that was removed, renamed or
+ * left the registry shows with the words it lost. Words are counted as
+ * scripts/check-clause-form.js counts them: link targets and code blocks left
+ * out, and a code span counted as one word. A document one side does not
+ * hold counts as zero words on that side.
  *
  * The base is the commit the current one branched from: the merge base of the
  * given ref and HEAD. On a pull request the workflow passes the base branch.
  *
- * A registry that cannot be read, and a registered document that cannot be
- * read now, are the machinery verdict (exit 2).
+ * A base ref with no merge base, a registry that cannot be read now, and a
+ * document the registry names now that cannot be read, are the machinery
+ * verdict (exit 2).
  *
  * Usage: node scripts/report-clause-doc-words.js [baseRef]   # default origin/main
  *        npm run report:clause-doc-words
@@ -34,7 +35,12 @@ import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { clauseWords } from './check-clause-form.js';
 import { stripFences } from './check-test-inventory.js';
-import { REGISTRY_INPUT_ERROR_NAME, REGISTRY_PATH, loadRegistry } from './governance-data.js';
+import {
+  REGISTRY_INPUT_ERROR_NAME,
+  REGISTRY_PATH,
+  baseFileReader,
+  loadRegistry,
+} from './governance-data.js';
 
 const ROOT = resolve(import.meta.dirname, '..');
 const HEADING = '### Words in the documents that hold clauses';
@@ -59,21 +65,52 @@ function signed(change) {
 }
 
 /**
- * The report's lines over the registered documents.
+ * The documents a registry names.
+ * @param {(path: string) => string} read repo-relative reader of the tree the registry is in
+ * @returns {string[]}
+ */
+function registeredDocs(read) {
+  return loadRegistry(read).clauses.map(({ doc }) => doc);
+}
+
+/**
+ * The documents the base's registry names; none when the base holds no
+ * registry or one that cannot be read.
+ * @param {(path: string) => string | null} readBaseFile the file's text at the base, or null
+ * @returns {string[]}
+ */
+function baseRegisteredDocs(readBaseFile) {
+  try {
+    return registeredDocs((path) => {
+      const text = readBaseFile(path);
+      if (text === null) throw new Error(`the base does not hold ${path}`);
+      return text;
+    });
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * The report's lines over the documents the registry names now or named at
+ * the base.
  * @param {(path: string) => string} readFile repo-relative reader of the tree now
- * @param {(path: string) => string | null} readBaseFile the document's text at the base, or null when the base lacks it
+ * @param {(path: string) => string | null} readBaseFile the file's text at the base, or null when the base lacks it
  * @returns {string[]} one line when nothing changed, otherwise a markdown table
  * @throws {Error} the registry's own input error, or one naming a document that cannot be read
  */
 function reportLines(readFile, readBaseFile) {
-  const docs = [...new Set(loadRegistry(readFile).clauses.map(({ doc }) => doc))].sort();
+  const registered = new Set(registeredDocs(readFile));
+  const docs = [...new Set([...registered, ...baseRegisteredDocs(readBaseFile)])].sort();
   const rows = [];
   for (const doc of docs) {
     let now;
     try {
       now = readFile(doc);
     } catch (e) {
-      throw new Error(`${doc} is registered but cannot be read: ${e.message}`, { cause: e });
+      // A document only the base registered may be gone: it holds no words now.
+      if (!registered.has(doc)) now = '';
+      else throw new Error(`${doc} is registered but cannot be read: ${e.message}`, { cause: e });
     }
     const before = countWords(readBaseFile(doc) ?? '');
     const after = countWords(now);
@@ -131,17 +168,18 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       maxBuffer: 64 * 1024 * 1024,
       stdio: ['ignore', 'pipe', 'ignore'],
     });
-  const base = git(['merge-base', process.argv[2] ?? 'origin/main', 'HEAD']).trim();
+  const baseRef = process.argv[2] ?? 'origin/main';
+  let readBaseFile;
+  try {
+    readBaseFile = baseFileReader(git, baseRef);
+  } catch (e) {
+    console.error(`✗ an input this report reads could not be read:\n    ${e.message}`);
+    process.exit(2);
+  }
   const summaryPath = process.env.GITHUB_STEP_SUMMARY;
   process.exitCode = main({
     readFile: (rel) => readFileSync(join(ROOT, rel), 'utf8'),
-    readBaseFile: (rel) => {
-      try {
-        return git(['show', `${base}:${rel}`]);
-      } catch {
-        return null;
-      }
-    },
+    readBaseFile,
     log: (line) => console.log(line),
     error: (line) => console.error(line),
     appendSummary: summaryPath ? (text) => appendFileSync(summaryPath, text) : undefined,
