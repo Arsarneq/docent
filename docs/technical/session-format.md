@@ -397,7 +397,7 @@ UI Events `key` values. `held_keys` names a key the same way.
 | The press                                              | `key`                                             |
 | ------------------------------------------------------ | ------------------------------------------------- |
 | A key that gives one character with the modifiers held | The character: `a`, `A`, `?`, `æ`, `€` with AltGr |
-| The space bar                                          | `Space`, so that a lone space is not lost         |
+| A space                                                | `Space`, so that a lone space is not lost         |
 | A key with a name of its own                           | The W3C name: `Enter`, `ArrowLeft`, `F5`          |
 | A dead key                                             | `Dead`                                            |
 | The key pressed after a dead key                       | That key's own character: `e`, not `é`            |
@@ -411,8 +411,8 @@ by trying, in order:
    for Ctrl with A, `A` for Ctrl and Shift with A);
 3. no modifier.
 
-The first that gives one character names the key. A key that gives two or
-more characters at once is tried the same way.
+The first that gives one character or a dead key names the key. A key that
+gives two or more characters at once is tried the same way.
 
 The numeric keypad has no rule of its own. The system sends a keypad key as
 a character key or as a navigation key, by Num Lock and Shift, and the key
@@ -425,18 +425,20 @@ The desktop names a key from what Windows gives it:
 
 - A key with a name of its own is named by its virtual-key code. A few codes
   are named by the language of the layout (the Korean and Japanese mode
-  keys).
-- Any other key is looked up in a table the desktop builds once for each
-  keyboard layout: what the layout gives each key with each combination of
-  Shift, Ctrl, Alt and Caps Lock. The table is built with no key down and no
-  accent waiting, by a read that leaves the keyboard state alone.
+  keys). The code some layouts give their AltGr key (`0xE1`) is `AltGraph`.
+- Any other key, the space bar among them, is looked up in a table the
+  desktop builds once for each keyboard layout: what the layout gives each
+  key with each combination of Shift, Ctrl, Alt and Caps Lock. The table is
+  built with no accent waiting, by a read that leaves the keyboard state
+  alone. It is built off the keyboard hook: when the first capture starts for the
+  layouts loaded then, and at a layout's first key for one loaded later.
 - The press is looked up by its virtual-key code, the modifiers and the Caps
   Lock state the keyboard hook read at the press, and the keyboard layout of
-  the foreground window's thread.
+  the foreground window's thread, read at the press too.
 - Where no layout was read for the press, where the layout's table could not
   be built yet because an accent was waiting, and on Windows before
   10.0.14393, which has no read that leaves the keyboard state alone, a key
-  with no name of its own is `Unidentified`.
+  with no name of its own is `Unidentified`, and the space bar is `Space`.
 - A keystroke injected as Unicode (`VK_PACKET`) is the character it carried,
   a space as `Space`, or `Unidentified` for a code unit that is no character
   on its own (half of a surrogate pair, or a control character).

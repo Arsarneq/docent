@@ -298,13 +298,17 @@ pub struct HeldPress {
     pub scan_code: u32,
     /// The sequence id of the dispatched key-down.
     pub press: u64,
-    /// What the keyboard layout gave the key at that key-down
-    /// (`RawEvent::key_value`), so the key is named as its own `key` action
-    /// names it; 0 for a key that carried none.
+    /// What the keyboard layout gives the key as it was pressed at that
+    /// key-down (`RawEvent::key_value`), so the key is named as its own `key`
+    /// action names it. 0 as the record lists the key: the worker that
+    /// processes the event asks the layout with `layout` and `held`.
     pub key_value: u32,
-    /// The primary language of the keyboard layout read at that key-down
-    /// ([`super::key_value::primary_language`]); 0 where none was read.
-    pub language: u16,
+    /// The keyboard layout read at that key-down
+    /// (`RawEvent::keyboard_layout`); 0 where none was read.
+    pub layout: i64,
+    /// The modifiers and the Caps Lock state of that key-down, as a layout
+    /// is asked with them ([`super::key_value::Held::index`]).
+    pub held: u8,
 }
 
 /// The keys that are down.
@@ -324,10 +328,11 @@ pub struct HeldKeys {
     dispatched: [u64; KEYS],
     /// The same for each injected character of `packets`.
     packet_dispatched: [u64; PACKET_SLOTS],
-    /// Per key code, what the layout gave the key at its dispatched key-down.
-    key_values: [u32; KEYS],
-    /// Per key code, the primary language of the layout read at that key-down.
-    languages: [u16; KEYS],
+    /// Per key code, the modifiers and the Caps Lock state of its dispatched
+    /// key-down ([`HeldPress::held`]).
+    held_at_press: [u8; KEYS],
+    /// Per key code, the keyboard layout read at that key-down.
+    layouts: [i64; KEYS],
 }
 
 /// The modifier keys: an action states them as its modifiers, never among
@@ -357,8 +362,8 @@ impl HeldKeys {
             packets: [None; PACKET_SLOTS],
             dispatched: [0; KEYS],
             packet_dispatched: [0; PACKET_SLOTS],
-            key_values: [0; KEYS],
-            languages: [0; KEYS],
+            held_at_press: [0; KEYS],
+            layouts: [0; KEYS],
         }
     }
 
@@ -471,20 +476,20 @@ impl HeldKeys {
         self.note_dispatched_with(key, scan_code, sequence_id, 0, 0);
     }
 
-    /// [`note_dispatched`](Self::note_dispatched), keeping what the layout
-    /// gave the key at the key-down, and the layout's primary language,
-    /// beside it.
+    /// [`note_dispatched`](Self::note_dispatched), keeping the modifiers and
+    /// the Caps Lock state of the key-down, and the layout read at it, beside
+    /// it.
     fn note_dispatched_with(
         &mut self,
         key: u32,
         scan_code: u32,
         sequence_id: u64,
-        key_value: u32,
-        language: u16,
+        held: u8,
+        layout: i64,
     ) {
         if tracked(key) && self.is_set(key) && self.dispatched[key as usize] == 0 {
-            self.key_values[key as usize] = key_value;
-            self.languages[key as usize] = language;
+            self.held_at_press[key as usize] = held;
+            self.layouts[key as usize] = layout;
         }
         let noted = if key == VK_PACKET {
             self.packets
@@ -513,8 +518,9 @@ impl HeldKeys {
                 key_code: key & 0xFF,
                 scan_code: 0,
                 press: self.dispatched[key as usize],
-                key_value: self.key_values[key as usize],
-                language: self.languages[key as usize],
+                key_value: 0,
+                layout: self.layouts[key as usize],
+                held: self.held_at_press[key as usize],
             });
         let packets =
             self.packets
@@ -527,7 +533,8 @@ impl HeldKeys {
                         scan_code,
                         press,
                         key_value: 0,
-                        language: 0,
+                        layout: 0,
+                        held: 0,
                     })
                 });
         // No allocation while no dispatched key is down.
@@ -540,7 +547,8 @@ impl HeldKeys {
     /// with the keys that are down ([`dispatched_down`](Self::dispatched_down)).
     ///
     /// A keystroke is stamped without its own key and is then noted as that
-    /// key's dispatched key-down, with what the layout gave the key. A click, a right-click and a drop are
+    /// key's dispatched key-down, with the modifiers, the Caps Lock state and the
+    /// layout of the press. A click, a right-click and a drop are
     /// stamped with every key. A drag start is left as it is: it is dispatched
     /// at the release, and whoever builds it states the keys that were down
     /// where the drag started ([`DragStartKeys`]). No other event states held
@@ -560,8 +568,8 @@ impl HeldKeys {
                     own.0,
                     own.1,
                     event.sequence_id,
-                    event.key_value,
-                    super::key_value::primary_language(event.keyboard_layout),
+                    super::worker_pool::held_of(event).index() as u8,
+                    event.keyboard_layout,
                 );
             }
             RawEventType::Click | RawEventType::RightClick | RawEventType::Drop { .. } => {
@@ -1058,6 +1066,7 @@ mod tests {
             callback_params: [i64::from(scan_code), 0, 0, 0],
             key_value: 0,
             keyboard_layout: 0,
+            caps_lock: false,
             pre_captured_element: None,
             focus_epoch: 0,
             held: Vec::new(),
@@ -1122,7 +1131,8 @@ mod tests {
             scan_code: 0,
             press: 9,
             key_value: 0,
-            language: 0,
+            layout: 0,
+            held: 0,
         }];
         assert_eq!(stamped(&mut held, drag), vec![(ENTER, 9)]);
         for event_type in [
@@ -1212,7 +1222,8 @@ mod tests {
             scan_code: 0,
             press,
             key_value: 0,
-            language: 0,
+            layout: 0,
+            held: 0,
         };
         ((false, shift, false, false), vec![key])
     }

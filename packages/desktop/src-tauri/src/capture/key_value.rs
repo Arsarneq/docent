@@ -143,6 +143,43 @@ pub const fn answer_of(param: u32) -> Option<LayoutAnswer> {
     }
 }
 
+/// The mark that the layout was also asked whether the key is a dead key
+/// with the modifiers as held: bit 27, set by [`pressed_param`] alone.
+const ANSWER_AS_HELD_READ: u32 = 1 << 27;
+/// The key is a dead key with the modifiers as held.
+const ANSWER_DEAD_AS_HELD: u32 = 1 << 28;
+
+/// What a layout gives a key as pressed, as a keyboard event carries it: the
+/// key's value ([`value_as_pressed`], [`answer_param`]) and beside it
+/// whether the key is a dead key with the modifiers as held, the first try
+/// alone. A later try can name a dead key the press does not make (Ctrl
+/// with a dead key is named `Dead` and composes nothing), so the two are
+/// carried apart. 0 where the layout could not be asked.
+pub fn pressed_param(held: Held, mut ask: impl FnMut(Held) -> Option<LayoutAnswer>) -> u32 {
+    let Some(as_held) = ask(held) else {
+        return 0;
+    };
+    let Some(value) = value_as_pressed(held, ask) else {
+        return 0;
+    };
+    let dead = if matches!(as_held, LayoutAnswer::Dead) {
+        ANSWER_DEAD_AS_HELD
+    } else {
+        0
+    };
+    answer_param(Some(value)) | ANSWER_AS_HELD_READ | dead
+}
+
+/// Whether the key is a dead key with the modifiers as held, as
+/// [`pressed_param`] carried it; `None` where that was not asked.
+pub const fn dead_as_held_of(param: u32) -> Option<bool> {
+    if param & ANSWER_AS_HELD_READ == 0 {
+        None
+    } else {
+        Some(param & ANSWER_DEAD_AS_HELD != 0)
+    }
+}
+
 /// The primary language of a keyboard layout handle: the low ten bits of its
 /// language identifier, the handle's low word.
 pub const fn primary_language(layout: i64) -> u16 {
@@ -231,6 +268,7 @@ pub fn named_key(key_code: u32, primary_language: u16) -> Option<&'static str> {
         0xB5 => "LaunchMediaPlayer",
         0xB6 => "LaunchApplication1",
         0xB7 => "LaunchApplication2",
+        0xE1 => "AltGraph",
         0xE5 => "Process",
         0xF6 => "Attn",
         0xF7 => "CrSel",
@@ -641,6 +679,7 @@ mod tests {
             (0xB5, "LaunchMediaPlayer"),
             (0xB6, "LaunchApplication1"),
             (0xB7, "LaunchApplication2"),
+            (0xE1, "AltGraph"),
             (0xE5, "Process"),
             (0xF6, "Attn"),
             (0xF7, "CrSel"),
@@ -666,6 +705,42 @@ mod tests {
         ] {
             assert_eq!(named_key(code, 0x06), None, "code {code:#04X}");
         }
+    }
+
+    #[test]
+    fn a_press_carries_whether_its_key_is_dead_as_held_apart_from_its_value() {
+        let ctrl = Held {
+            ctrl: true,
+            ..Held::default()
+        };
+        // A dead key pressed alone: dead as held, and named so.
+        let dead_key = |with: Held| {
+            Some(if with.ctrl {
+                LayoutAnswer::Nothing
+            } else {
+                LayoutAnswer::Dead
+            })
+        };
+        let alone = pressed_param(Held::default(), dead_key);
+        assert_eq!(answer_of(alone), Some(LayoutAnswer::Dead));
+        assert_eq!(dead_as_held_of(alone), Some(true));
+        // With Ctrl it gives nothing as held; a later try names it `Dead`,
+        // and the press makes no dead key.
+        let with_ctrl = pressed_param(ctrl, dead_key);
+        assert_eq!(answer_of(with_ctrl), Some(LayoutAnswer::Dead));
+        assert_eq!(dead_as_held_of(with_ctrl), Some(false));
+        // A character key.
+        let letter = pressed_param(Held::default(), |_| Some(LayoutAnswer::Char('e')));
+        assert_eq!(answer_of(letter), Some(LayoutAnswer::Char('e')));
+        assert_eq!(dead_as_held_of(letter), Some(false));
+        // A layout that cannot be asked carries nothing.
+        assert_eq!(pressed_param(Held::default(), |_| None), 0);
+        assert_eq!(dead_as_held_of(0), None);
+        // A value carried without that question says nothing of it.
+        assert_eq!(
+            dead_as_held_of(answer_param(Some(LayoutAnswer::Dead))),
+            None
+        );
     }
 
     #[test]

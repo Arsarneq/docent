@@ -139,16 +139,21 @@ pub struct RawEvent {
     /// arm). On other platforms: unused or platform-defined.
     pub callback_params: [i64; 4],
     /// What the keyboard layout gives the key of a keystroke as pressed, with
-    /// the modifiers and the Caps Lock state of the press, as the keyboard
-    /// hook read it ([`super::key_value::answer_param`]); `0` where the layout
-    /// was not read, and for every event that is no keystroke. A `key`
-    /// action's `key` is named from it ([`key_name`]).
+    /// the modifiers and the Caps Lock state of the press
+    /// ([`super::key_value::answer_param`]). `0`, nothing read, as the
+    /// Input_Thread dispatches the event: the worker that processes it asks
+    /// the layout ([`AccessibilityBackend::key_value`]) and fills it in
+    /// ([`with_key_values`]). A `key` action's `key` is named from it
+    /// ([`key_name`]).
     pub key_value: u32,
     /// The keyboard layout of the thread the keystroke went to, as the
     /// platform hands it (on Windows the layout handle), read by the keyboard
     /// hook at the press; `0` where none was read, and for every event that
     /// is no keystroke.
     pub keyboard_layout: i64,
+    /// Whether Caps Lock was on at the keystroke, read by the keyboard hook
+    /// at the press; `false` for every event that is no keystroke.
+    pub caps_lock: bool,
     /// Pre-captured element description, from the click pre-capture the
     /// mouse hook waited on (DCP-1). For a click, right-click or middle
     /// press, the hook asks a pre-capture describer for the element at the
@@ -1534,6 +1539,15 @@ pub trait AccessibilityBackend: Send + 'static {
         None
     }
 
+    /// What keyboard layout `layout` (the value a keystroke carries in
+    /// [`RawEvent::keyboard_layout`]) gives key `key_code` as pressed with
+    /// `held`, as a keyboard event carries it
+    /// ([`super::key_value::pressed_param`]). `0` where the layout cannot be
+    /// asked (no layout, a platform with no such read, or not now).
+    fn key_value(&self, _layout: i64, _key_code: u32, _held: super::key_value::Held) -> u32 {
+        0
+    }
+
     /// Read a file dialog path from the given window: the dialog itself or
     /// any window inside it (a click names the control under the pointer).
     /// Returns `(dialog_type, file_path)`, `file_path` being the directory the
@@ -1715,7 +1729,7 @@ const UNIDENTIFIED_KEY: &str = "Unidentified";
 ///   character);
 /// - Shift, Control and Alt by their generic codes, and the empty name for
 ///   their left and right codes, which a caller skips;
-/// - the space bar `Space`;
+/// - the space bar `Space` where no layout was read;
 /// - a key with a name of its own by that name
 ///   ([`super::key_value::named_key`]), the mode keys by the language of the
 ///   layout read at the press;
@@ -1750,7 +1764,9 @@ fn key_name_of(key_code: u32, scan_code: i64, key_value: u32, language: u16) -> 
         0x12 => "Alt".to_string(),
         // VK_LSHIFT, VK_RSHIFT, VK_LCONTROL, VK_RCONTROL, VK_LMENU, VK_RMENU.
         0xA0..=0xA5 => String::new(),
-        0x20 => SPACE_KEY.to_string(),
+        // The space bar where no layout was read. Where one was, the key is
+        // named by what the layout gives it, a space among them.
+        0x20 if answer_of(key_value).is_none() => SPACE_KEY.to_string(),
         _ => match named_key(key_code, language) {
             Some(name) => name.to_string(),
             None => key_value_name(answer_of(key_value)),
@@ -1764,6 +1780,42 @@ fn key_name_of(key_code: u32, scan_code: i64, key_value: u32, language: u16) -> 
 /// allocation, no lock.
 pub(crate) const fn is_punctuation_key(vk: u32) -> bool {
     matches!(vk, 0xBA..=0xC2 | 0xDB..=0xDF | 0xE1..=0xE4 | 0xE6)
+}
+
+/// The modifiers and the Caps Lock state of a keystroke, as a layout is asked
+/// with them.
+pub(crate) const fn held_of(raw: &RawEvent) -> super::key_value::Held {
+    let (ctrl, shift, alt, _meta) = raw.modifiers;
+    super::key_value::Held {
+        shift,
+        ctrl,
+        alt,
+        caps_lock: raw.caps_lock,
+    }
+}
+
+/// `raw` with what the layout gives its key, and each key held at it, filled
+/// in from `backend` ([`RawEvent::key_value`]): the keystroke's own key as
+/// pressed, and a held key as it was pressed at its own key-down. A value
+/// already there is kept. `None` where there is nothing to fill in.
+fn with_key_values<B: AccessibilityBackend>(raw: &RawEvent, backend: &B) -> Option<RawEvent> {
+    use super::key_value::Held;
+    let own = matches!(raw.event_type, RawEventType::Keyboard) && raw.key_value == 0;
+    if !own && raw.held.iter().all(|k| k.key_value != 0) {
+        return None;
+    }
+    let mut filled = raw.clone();
+    if own {
+        filled.key_value = backend.key_value(raw.keyboard_layout, raw.key_code, held_of(raw));
+    }
+    for key in filled.held.iter_mut().filter(|k| k.key_value == 0) {
+        key.key_value = backend.key_value(
+            key.layout,
+            key.key_code,
+            Held::from_index(usize::from(key.held)),
+        );
+    }
+    Some(filled)
 }
 
 /// The modifier keys held at a raw event, as its action states them.
@@ -1786,7 +1838,12 @@ fn held_at(raw: &RawEvent) -> HeldKeysAtAction {
         .iter()
         .map(|k| {
             (
-                key_name_of(k.key_code, i64::from(k.scan_code), k.key_value, k.language),
+                key_name_of(
+                    k.key_code,
+                    i64::from(k.scan_code),
+                    k.key_value,
+                    super::key_value::primary_language(k.layout),
+                ),
                 k.press,
             )
         })
@@ -1817,6 +1874,10 @@ fn is_printable_key(raw: &RawEvent) -> bool {
 /// Whether a keystroke is a dead key: it enters nothing by itself; its accent
 /// goes into the character the next key enters.
 ///
+/// Where the worker asked the layout's table about the press
+/// ([`RawEvent::key_value`]), the answer is the table's, Caps Lock counted.
+/// Otherwise:
+///
 /// Where the keyboard hook asked the layout about the key as pressed, with
 /// the modifiers held ([`super::held_keys::dead_as_pressed_of`]), the answer
 /// is the layout's: a key dead with Shift or AltGr is a dead key, and a key
@@ -1829,6 +1890,12 @@ fn is_printable_key(raw: &RawEvent) -> bool {
 fn is_dead_key(raw: &RawEvent) -> bool {
     if !is_printable_key(raw) {
         return false;
+    }
+    // What the layout's table says of the press with the modifiers and the
+    // Caps Lock state as held, where the worker asked it: the read the key's
+    // name comes from, so the two agree.
+    if let Some(dead) = super::key_value::dead_as_held_of(raw.key_value) {
+        return dead;
     }
     if let Some(read) = super::held_keys::dead_as_pressed_of(raw.callback_params[3]) {
         return matches!(read, super::held_keys::AsPressed::DeadKey { .. });
@@ -1979,7 +2046,9 @@ fn input_method_at(raw: &RawEvent) -> super::InputMethodAtKey {
 
 /// The key names that enter no character: Shift, Control and Alt, and every
 /// key with a name of its own ([`super::key_value::named_key`]) except
-/// `Process`, the key an input method took, which stands for a typing key.
+/// `Process`, the key an input method took, which stands for a typing key,
+/// and `AltGraph`, whose code is a punctuation code a layout can give a
+/// character.
 /// The function keys (`F1` to `F24`) join them by their form. The adapter's
 /// sensitive-field rule keeps the same list
 /// (`packages/desktop/src/adapter-tauri.js`).
@@ -3029,6 +3098,11 @@ fn process_raw_event<B: AccessibilityBackend>(
     if excl != 0 && raw.process_id == excl {
         return;
     }
+
+    // What the layout gives the event's key and the keys held at it: asked
+    // here, off the keyboard hook.
+    let with_values = with_key_values(raw, backend);
+    let raw = with_values.as_ref().unwrap_or(raw);
 
     // Resolve context_id from the root window handle.
     let context_id = if raw.window_handle != 0 {
@@ -4829,6 +4903,7 @@ mod tests {
             callback_params: [0; 4],
             key_value: 0,
             keyboard_layout: 0,
+            caps_lock: false,
             pre_captured_element: None,
             focus_epoch: 0,
             held: Vec::new(),
@@ -4983,7 +5058,36 @@ mod tests {
         block_window_title: bool,
     }
 
+    /// The layout the probe backend answers for: a letter key gives its
+    /// letter, in upper case with Shift or Caps Lock but not both; every
+    /// other key gives nothing.
+    const PROBE_LAYOUT: i64 = 0x0409_0409;
+
     impl AccessibilityBackend for ProbeBackend {
+        fn key_value(
+            &self,
+            layout: i64,
+            key_code: u32,
+            held: crate::capture::key_value::Held,
+        ) -> u32 {
+            if layout != PROBE_LAYOUT {
+                return 0;
+            }
+            let answers = |with: crate::capture::key_value::Held| {
+                Some(match key_code {
+                    0x41..=0x5A if with.ctrl || with.alt => LayoutAnswer::Nothing,
+                    0x41..=0x5A if with.shift != with.caps_lock => {
+                        LayoutAnswer::Char(char::from(key_code as u8))
+                    }
+                    0x41..=0x5A => {
+                        LayoutAnswer::Char(char::from(key_code as u8).to_ascii_lowercase())
+                    }
+                    _ => LayoutAnswer::Nothing,
+                })
+            };
+            crate::capture::key_value::pressed_param(held, answers)
+        }
+
         fn init(&mut self) -> Result<(), CaptureError> {
             Ok(())
         }
@@ -5092,6 +5196,7 @@ mod tests {
             callback_params: [0; 4],
             key_value: 0,
             keyboard_layout: 0,
+            caps_lock: false,
             pre_captured_element: None,
             focus_epoch: 0,
             held: Vec::new(),
@@ -5115,6 +5220,7 @@ mod tests {
             callback_params: [0; 4],
             key_value: 0,
             keyboard_layout: 0,
+            caps_lock: false,
             pre_captured_element: None,
             focus_epoch: 0,
             held: Vec::new(),
@@ -5412,15 +5518,82 @@ mod tests {
         assert_eq!(name_with_char(0x6E, ','), ",");
         // Every typing code is named by what the layout gave the press.
         for vk in (0..=0xFF_u32).filter(|vk| is_typing_key_code(*vk)) {
-            if vk != VK_PACKET && vk != 0x20 {
+            // The AltGr key (0xE1) has a name of its own, checked below.
+            if vk != VK_PACKET && vk != 0x20 && vk != 0xE1 {
                 assert_eq!(name_with_char(vk, '§'), "§", "vk {vk:#x}");
             }
         }
+        assert_eq!(name_with(0xE1, None), "AltGraph");
+    }
+
+    #[test]
+    fn the_modifiers_and_caps_lock_of_a_press_are_what_the_layout_is_asked_with() {
+        use crate::capture::key_value::Held;
+        let mut raw = control_key_raw_event(0x41, 1);
+        assert_eq!(held_of(&raw), Held::default());
+        // (ctrl, shift, alt, meta): each lands in its own place, and Meta in
+        // none.
+        raw.modifiers = (true, false, false, true);
+        assert_eq!(
+            held_of(&raw),
+            Held {
+                ctrl: true,
+                ..Held::default()
+            }
+        );
+        raw.modifiers = (false, true, false, false);
+        assert_eq!(
+            held_of(&raw),
+            Held {
+                shift: true,
+                ..Held::default()
+            }
+        );
+        raw.modifiers = (false, false, true, false);
+        raw.caps_lock = true;
+        assert_eq!(
+            held_of(&raw),
+            Held {
+                alt: true,
+                caps_lock: true,
+                ..Held::default()
+            }
+        );
+    }
+
+    /// A dead key is known by the read its name comes from, where the worker
+    /// asked the layout: with Caps Lock on, a key can be dead where the
+    /// hook's own reads, which leave Caps Lock out, say it is none, and the
+    /// other way round.
+    #[test]
+    fn a_dead_key_is_known_by_the_layouts_answer_for_the_press_as_held() {
+        use crate::capture::key_value::{pressed_param, Held};
+        let dead_as_held = pressed_param(Held::default(), |_| Some(LayoutAnswer::Dead));
+        let char_as_held = pressed_param(Held::default(), |_| Some(LayoutAnswer::Char('^')));
+        // The hook's reads say no dead key (no flag on the layout character).
+        let mut raw = control_key_raw_event(0xDD, 1);
+        raw.key_value = dead_as_held;
+        assert!(is_dead_key(&raw));
+        // The hook's reads say a dead key (bit 31 of the layout character).
+        raw.callback_params[3] = 0x8000_00B4;
+        raw.key_value = char_as_held;
+        assert!(!is_dead_key(&raw));
+        // Where the worker did not ask, the hook's reads decide.
+        raw.key_value = 0;
+        assert!(is_dead_key(&raw));
+        raw.key_value = answer_param(Some(LayoutAnswer::Char('^')));
+        assert!(is_dead_key(&raw));
+        // A shortcut is no dead key, whatever the layout names it.
+        raw.key_value = dead_as_held;
+        raw.modifiers = (true, false, false, false);
+        assert!(!is_dead_key(&raw));
     }
 
     #[test]
     fn a_space_is_named_space() {
         assert_eq!(name_with_char(0x20, ' '), "Space");
+        // The space bar gives what its layout gives it as pressed.
+        assert_eq!(name_with_char(0x20, '\u{a0}'), "\u{a0}");
         // The space bar is the space bar where no layout was read.
         assert_eq!(name_with(0x20, None), "Space");
         // And a key the layout gives a space.
@@ -5496,22 +5669,89 @@ mod tests {
         use crate::capture::held_keys::HeldPress;
         let mut raw = control_key_raw_event(0x0D, 9);
         let held =
-            |key_code: u32, answer: Option<LayoutAnswer>, language: u16, press: u64| HeldPress {
+            |key_code: u32, answer: Option<LayoutAnswer>, layout: i64, press: u64| HeldPress {
                 key_code,
                 scan_code: 0,
                 press,
                 key_value: answer_param(answer),
-                language,
+                layout,
+                held: 0,
             };
         raw.held = vec![
-            held(0x41, Some(LayoutAnswer::Char('A')), 0x06, 1),
-            held(0xBB, Some(LayoutAnswer::Char('?')), 0x06, 2),
-            held(0x15, None, 0x12, 3),
+            held(0x41, Some(LayoutAnswer::Char('A')), 0x0406_0406, 1),
+            held(0xBB, Some(LayoutAnswer::Char('?')), 0x0406_0406, 2),
+            held(0x15, None, 0x0412_0412, 3),
             held(0x26, None, 0, 4),
         ];
         let at = held_at(&raw);
         assert_eq!(at.held_keys, vec!["A", "?", "HangulMode", "ArrowUp"]);
         assert_eq!(at.held_presses, vec![1, 2, 3, 4]);
+    }
+
+    /// The worker asks the layout what a key gives, off the keyboard hook:
+    /// the keystroke's own key with the modifiers and the Caps Lock state of
+    /// the press, and each held key as it was pressed at its own key-down.
+    #[test]
+    fn the_worker_fills_in_what_the_layout_gives_a_key_and_the_keys_held_at_it() {
+        use crate::capture::held_keys::HeldPress;
+        use crate::capture::key_value::Held;
+        let backend = ProbeBackend {
+            block_focused: false,
+            block_window_title: false,
+        };
+        let on_layout = |vk: u32| {
+            let mut raw = control_key_raw_event(vk, 2);
+            raw.keyboard_layout = PROBE_LAYOUT;
+            raw
+        };
+        let named = |raw: &RawEvent| key_name(&with_key_values(raw, &backend).expect("filled"));
+        let mut a = on_layout(0x41);
+        assert_eq!(named(&a), "a");
+        a.modifiers = (false, true, false, false);
+        assert_eq!(named(&a), "A");
+        a.caps_lock = true;
+        assert_eq!(named(&a), "a", "Shift with Caps Lock on");
+        // Ctrl gives no character: the Shift and Caps Lock state alone.
+        a.modifiers = (true, false, false, false);
+        assert_eq!(named(&a), "A");
+        // A key the layout gives nothing, and a layout that cannot be asked.
+        assert_eq!(named(&on_layout(0xBB)), "Unidentified");
+        let mut unread = on_layout(0x41);
+        unread.keyboard_layout = 0;
+        assert_eq!(named(&unread), "Unidentified");
+
+        // A held key is asked with what was held at its own key-down, on the
+        // layout read then, whatever the event that states it carries.
+        let shift = Held {
+            shift: true,
+            ..Held::default()
+        };
+        let held = |key_code: u32, with: Held, layout: i64| HeldPress {
+            key_code,
+            scan_code: 0,
+            press: 1,
+            key_value: 0,
+            layout,
+            held: with.index() as u8,
+        };
+        let mut click = control_key_raw_event(0, 3);
+        click.event_type = RawEventType::Click;
+        click.held = vec![
+            held(0x42, shift, PROBE_LAYOUT),
+            held(0x43, Held::default(), PROBE_LAYOUT),
+            held(0x44, Held::default(), 0),
+        ];
+        let filled = with_key_values(&click, &backend).expect("filled");
+        assert_eq!(filled.key_value, 0, "a click has no key of its own");
+        assert_eq!(held_at(&filled).held_keys, vec!["B", "c", "Unidentified"]);
+
+        // A value already there is kept, and an event with nothing to fill
+        // in is left as it is.
+        let given = layout_key_raw_event(0x41, Some(LayoutAnswer::Char('q')), 4);
+        assert!(with_key_values(&given, &backend).is_none());
+        let mut scroll = control_key_raw_event(0, 5);
+        scroll.event_type = RawEventType::Scroll;
+        assert!(with_key_values(&scroll, &backend).is_none());
     }
 
     #[test]
@@ -5535,10 +5775,12 @@ mod tests {
                 };
                 let raw = control_key_raw_event(vk, 1);
                 // The key an input method took names no key of its own: what
-                // was pressed is a typing key, so it is masked as text.
+                // was pressed is a typing key, so it is masked as text. The
+                // code named `AltGraph` is a punctuation code a layout can
+                // give a character, so it is masked too.
                 assert_eq!(
                     enters_text_in_password_field(&raw, name),
-                    name == "Process",
+                    name == "Process" || name == "AltGraph",
                     "{name}"
                 );
             }

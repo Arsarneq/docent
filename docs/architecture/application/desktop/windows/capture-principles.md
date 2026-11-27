@@ -420,14 +420,18 @@ text is never recorded twice. A key is named as the
 [session format](../../../../technical/session-format.md#key-names) states
 under Key names: the hook reads the keyboard layout of the foreground
 window's thread and whether Caps Lock is on, two reads that leave the
-keyboard state alone, looks the press up in the table it built for that
-layout, and the worker names the key from what the hook found. For a
+keyboard state alone, and the worker looks the press up in the table kept
+for that layout and names the key from it. The table is never built on the
+hook, which must return at once: it is built when the first capture starts and, for
+a layout loaded later, by the worker at that layout's first key. Where the
+table answered, it also says whether the key is a dead key as pressed, Caps
+Lock counted, so a key's name and its being a dead key come from one read. For a
 punctuation key (the codes `0xBA`–`0xC2`,
 `0xDB`–`0xDF`, `0xE1`–`0xE4`, `0xE6`, whose character each layout assigns
 for itself) the hook also reads the character the key enters with no
-modifier on that layout, which tells the worker whether the key is a dead
-key and which accent it carries; a punctuation key is a typing key either
-way. Every keyboard event and every value-change
+modifier on that layout, which tells the worker which accent a dead key
+carries, and whether the key is a dead key where the table gave no answer;
+a punctuation key is a typing key either way. Every keyboard event and every value-change
 event is processed by one worker, the typing worker, in the order the input
 thread dispatched them, so a value change is processed after the keystrokes
 that caused it and supersedes each buffered one, however busy the pool is
@@ -505,11 +509,11 @@ field's masked `type` action, so typing into a password field is recorded as
 that `type` whether or not the field reports a value change. Every keystroke
 enters text there except the keys that enter no character (Shift, Control
 and Alt, the function keys, and every key with a name of its own other than
-`Process`; a closed list) and a key with Ctrl, Alt or Meta held other than
+`Process` and `AltGraph`; a closed list) and a key with Ctrl, Alt or Meta held other than
 Ctrl and Alt together; those are `key` actions there as anywhere. Every other
-key counts as text: a character, `Space`, `Dead`, `Unidentified`, and
+key counts as text: a character, `Space`, `Dead`, `Unidentified`,
 `Process`, the name of a key an input method took, which stands for a typing
-key.
+key, and `AltGraph`, which a layout can give a typing key's code.
 
 Timing constants and correlation windows live in `src/capture/timing.rs`.
 

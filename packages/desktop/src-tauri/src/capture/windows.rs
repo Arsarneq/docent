@@ -46,25 +46,25 @@ use super::win32_bindings::{
     CUIAutomation, CallNextHookEx, CloseHandle, CoCreateInstance, CoInitializeEx, CoUninitialize,
     DispatchMessageW, EnumWindows, GetAncestor, GetAsyncKeyState, GetClassNameW,
     GetCurrentThreadId, GetDoubleClickTime, GetForegroundWindow, GetGUIThreadInfo, GetKeyState,
-    GetKeyboardLayout, GetMessageW, GetParent, GetSystemMetrics, GetUserPreferredUILanguages,
-    GetWindow, GetWindowLongW, GetWindowTextW, GetWindowThreadProcessId, IUIAutomation,
-    IUIAutomationCondition, IUIAutomationElement, IUIAutomationSelectionPattern,
-    ImmGetDefaultIMEWnd, InternalGetWindowText, IsWindow, IsWindowVisible, LCIDToLocaleName,
-    MapVirtualKeyExW, PeekMessageW, PostThreadMessageW, RegGetValueW, SendMessageTimeoutW,
-    SetProcessDpiAwarenessContext, SetWinEventHook, SetWindowsHookExW, TranslateMessage,
-    TreeScope_Descendants, TreeScope_Subtree, UnhookWinEvent, UnhookWindowsHookEx, WindowFromPoint,
-    CHILDID_SELF, CLSCTX_ALL, COINIT_APARTMENTTHREADED, COINIT_MULTITHREADED,
-    DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, EVENT_OBJECT_CREATE, EVENT_OBJECT_DESTROY,
-    EVENT_OBJECT_FOCUS, EVENT_OBJECT_SELECTION, EVENT_OBJECT_VALUECHANGE, EVENT_SYSTEM_FOREGROUND,
-    GA_ROOT, GA_ROOTOWNER, GUITHREADINFO, GWL_STYLE, GW_OWNER, HANDLE, HHOOK, HKEY_CURRENT_USER,
-    HKL, HWINEVENTHOOK, HWND, INVALID_HANDLE_VALUE, KBDLLHOOKSTRUCT, LCID, LLKHF_EXTENDED,
-    LOCALE_ALLOW_NEUTRAL_NAMES, LOCALE_NAME_MAX_LENGTH, LPARAM, LRESULT, MAPVK_VK_TO_CHAR, MSG,
-    MSLLHOOKSTRUCT, MUI_LANGUAGE_NAME, OBJID_WINDOW, PM_NOREMOVE, POINT, PROPERTYID,
-    RRF_RT_REG_DWORD, RRF_RT_REG_SZ, SMTO_ABORTIFHUNG, SMTO_BLOCK, SM_CXDOUBLECLK, SM_CYDOUBLECLK,
-    UIA_HWND, VK_CONTROL, VK_LWIN, VK_MENU, VK_RWIN, VK_SHIFT, VT_EMPTY, WH_KEYBOARD_LL,
-    WH_MOUSE_LL, WINEVENT_OUTOFCONTEXT, WM_APP, WM_IME_CONTROL, WM_KEYDOWN, WM_LBUTTONDOWN,
-    WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MOUSEHWHEEL, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_NULL, WM_QUIT,
-    WM_RBUTTONDOWN, WM_SYSKEYDOWN, WM_USER, WPARAM, WS_CHILD,
+    GetKeyboardLayout, GetKeyboardLayoutList, GetMessageW, GetParent, GetSystemMetrics,
+    GetUserPreferredUILanguages, GetWindow, GetWindowLongW, GetWindowTextW,
+    GetWindowThreadProcessId, IUIAutomation, IUIAutomationCondition, IUIAutomationElement,
+    IUIAutomationSelectionPattern, ImmGetDefaultIMEWnd, InternalGetWindowText, IsWindow,
+    IsWindowVisible, LCIDToLocaleName, MapVirtualKeyExW, PeekMessageW, PostThreadMessageW,
+    RegGetValueW, SendMessageTimeoutW, SetProcessDpiAwarenessContext, SetWinEventHook,
+    SetWindowsHookExW, TranslateMessage, TreeScope_Descendants, TreeScope_Subtree, UnhookWinEvent,
+    UnhookWindowsHookEx, WindowFromPoint, CHILDID_SELF, CLSCTX_ALL, COINIT_APARTMENTTHREADED,
+    COINIT_MULTITHREADED, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, EVENT_OBJECT_CREATE,
+    EVENT_OBJECT_DESTROY, EVENT_OBJECT_FOCUS, EVENT_OBJECT_SELECTION, EVENT_OBJECT_VALUECHANGE,
+    EVENT_SYSTEM_FOREGROUND, GA_ROOT, GA_ROOTOWNER, GUITHREADINFO, GWL_STYLE, GW_OWNER, HANDLE,
+    HHOOK, HKEY_CURRENT_USER, HKL, HWINEVENTHOOK, HWND, INVALID_HANDLE_VALUE, KBDLLHOOKSTRUCT,
+    LCID, LLKHF_EXTENDED, LOCALE_ALLOW_NEUTRAL_NAMES, LOCALE_NAME_MAX_LENGTH, LPARAM, LRESULT,
+    MAPVK_VK_TO_CHAR, MSG, MSLLHOOKSTRUCT, MUI_LANGUAGE_NAME, OBJID_WINDOW, PM_NOREMOVE, POINT,
+    PROPERTYID, RRF_RT_REG_DWORD, RRF_RT_REG_SZ, SMTO_ABORTIFHUNG, SMTO_BLOCK, SM_CXDOUBLECLK,
+    SM_CYDOUBLECLK, UIA_HWND, VK_CONTROL, VK_LWIN, VK_MENU, VK_RWIN, VK_SHIFT, VT_EMPTY,
+    WH_KEYBOARD_LL, WH_MOUSE_LL, WINEVENT_OUTOFCONTEXT, WM_APP, WM_IME_CONTROL, WM_KEYDOWN,
+    WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MOUSEHWHEEL, WM_MOUSEMOVE, WM_MOUSEWHEEL,
+    WM_NULL, WM_QUIT, WM_RBUTTONDOWN, WM_SYSKEYDOWN, WM_USER, WPARAM, WS_CHILD,
 };
 use super::win32_bindings::{RtlGetVersion, ToUnicodeEx, OSVERSIONINFOW};
 use windows_core::{Error, Interface, BOOL, BSTR, PWSTR};
@@ -434,11 +434,6 @@ thread_local! {
     /// per key and modifier state ([`foreground_dead_as_pressed`]).
     static INPUT_DEAD_KEY_ANSWERS: std::cell::RefCell<super::held_keys::DeadKeyAnswers> =
         const { std::cell::RefCell::new(super::held_keys::DeadKeyAnswers::new()) };
-
-    /// What the foreground layout gives each key with each combination of
-    /// modifiers, asked once per layout ([`foreground_key_value`]).
-    static INPUT_LAYOUT_ANSWERS: std::cell::RefCell<super::key_value::LayoutAnswers> =
-        const { std::cell::RefCell::new(super::key_value::LayoutAnswers::new()) };
 
     /// PID of the current foreground window. Updated on EVENT_SYSTEM_FOREGROUND.
     /// Events from non-foreground processes are filtered out.
@@ -1463,6 +1458,7 @@ fn input_dispatch_raw_event(event: RawEvent) {
             callback_params: [0, 0, 0, 0],
             key_value: 0,
             keyboard_layout: 0,
+            caps_lock: false,
             pre_captured_element: None,
             focus_epoch: 0,
             // A switch states no held keys: only a keystroke, a click, a
@@ -1993,6 +1989,7 @@ unsafe fn input_win_event_handle(
                 callback_params: [id_object as i64, id_child as i64, 0, 0],
                 key_value: 0,
                 keyboard_layout: 0,
+                caps_lock: false,
                 pre_captured_element: None,
                 focus_epoch: 0,
                 held: Vec::new(),
@@ -2037,6 +2034,7 @@ unsafe fn input_win_event_handle(
                 callback_params: [id_object as i64, id_child as i64, 0, 0],
                 key_value: 0,
                 keyboard_layout: 0,
+                caps_lock: false,
                 pre_captured_element: None,
                 focus_epoch: 0,
                 held: Vec::new(),
@@ -2103,6 +2101,7 @@ unsafe fn input_win_event_handle(
                         callback_params: [id_object as i64, id_child as i64, 0, 0],
                         key_value: 0,
                         keyboard_layout: 0,
+                        caps_lock: false,
                         pre_captured_element: None,
                         focus_epoch: 0,
                         held: Vec::new(),
@@ -2154,6 +2153,7 @@ unsafe fn input_win_event_handle(
                 ],
                 key_value: 0,
                 keyboard_layout: 0,
+                caps_lock: false,
                 pre_captured_element: None,
                 focus_epoch: 0,
                 held: Vec::new(),
@@ -2211,6 +2211,7 @@ unsafe fn input_win_event_handle(
                 callback_params: [id_object as i64, id_child as i64, 0, 0],
                 key_value: 0,
                 keyboard_layout: 0,
+                caps_lock: false,
                 pre_captured_element: None,
                 focus_epoch: 0,
                 held: Vec::new(),
@@ -2279,6 +2280,7 @@ unsafe fn input_win_event_handle(
                 callback_params: [id_object as i64, id_child as i64, 0, 0],
                 key_value: 0,
                 keyboard_layout: 0,
+                caps_lock: false,
                 pre_captured_element: None,
                 focus_epoch: 0,
                 held: Vec::new(),
@@ -2363,6 +2365,7 @@ unsafe fn input_press_switch(point_hwnd: HWND, fg_hwnd: HWND, timestamp: u64) {
         callback_params: [0, 0, 0, 0],
         key_value: 0,
         keyboard_layout: 0,
+        caps_lock: false,
         pre_captured_element: None,
         focus_epoch: 0,
         held: Vec::new(),
@@ -2508,6 +2511,7 @@ unsafe fn input_mouse_ll_handle(n_code: i32, w_param: WPARAM, l_param: LPARAM) {
                             callback_params: [0, 0, 0, 0],
                             key_value: 0,
                             keyboard_layout: 0,
+                            caps_lock: false,
                             pre_captured_element: None,
                             focus_epoch: 0,
                             held: down_held,
@@ -2528,6 +2532,7 @@ unsafe fn input_mouse_ll_handle(n_code: i32, w_param: WPARAM, l_param: LPARAM) {
                             callback_params: [0, 0, 0, 0],
                             key_value: 0,
                             keyboard_layout: 0,
+                            caps_lock: false,
                             pre_captured_element: None,
                             focus_epoch: 0,
                             held: Vec::new(),
@@ -2561,6 +2566,7 @@ unsafe fn input_mouse_ll_handle(n_code: i32, w_param: WPARAM, l_param: LPARAM) {
                             ],
                             key_value: 0,
                             keyboard_layout: 0,
+                            caps_lock: false,
                             pre_captured_element: pre_element,
                             focus_epoch: 0,
                             held: Vec::new(),
@@ -2591,6 +2597,7 @@ unsafe fn input_mouse_ll_handle(n_code: i32, w_param: WPARAM, l_param: LPARAM) {
                         callback_params: [0, 0, 0, 0],
                         key_value: 0,
                         keyboard_layout: 0,
+                        caps_lock: false,
                         pre_captured_element: None,
                         focus_epoch: 0,
                         held: Vec::new(),
@@ -2614,6 +2621,7 @@ unsafe fn input_mouse_ll_handle(n_code: i32, w_param: WPARAM, l_param: LPARAM) {
                         callback_params: [1, 0, 0, 0], // 1 = horizontal axis
                         key_value: 0,
                         keyboard_layout: 0,
+                        caps_lock: false,
                         pre_captured_element: None,
                         focus_epoch: 0,
                         held: Vec::new(),
@@ -2647,6 +2655,7 @@ unsafe fn input_mouse_ll_handle(n_code: i32, w_param: WPARAM, l_param: LPARAM) {
                             callback_params: [down_dispatch_click_mark(msg), 0, 0, 0],
                             key_value: 0,
                             keyboard_layout: 0,
+                            caps_lock: false,
                             pre_captured_element: pre_element,
                             focus_epoch: 0,
                             held: Vec::new(),
@@ -2761,8 +2770,7 @@ unsafe extern "system" fn input_keyboard_ll_proc(
                     modifiers,
                     thread_id,
                 );
-                let (key_value, keyboard_layout) =
-                    foreground_key_value(kb_struct.vkCode, modifiers, thread_id);
+                let (keyboard_layout, caps_lock) = foreground_layout_and_caps_lock(thread_id);
                 let timestamp = current_timestamp_ms();
                 let foreground_handle = hwnd.0 as i64;
                 let (window_handle, process_id) = match attribution {
@@ -2858,11 +2866,12 @@ unsafe extern "system" fn input_keyboard_ll_proc(
                             }
                             | super::worker_pool::key_number_param(number),
                     ],
-                    // What the layout of the foreground window's thread gives
-                    // the key as pressed, and that layout, both read above
-                    // (docent#717).
-                    key_value,
+                    // The layout of the foreground window's thread and the
+                    // Caps Lock state, both read above: a worker asks the
+                    // layout what the key gives as pressed (docent#717).
+                    key_value: 0,
                     keyboard_layout,
+                    caps_lock,
                     pre_captured_element: None,
                     focus_epoch: 0,
                     held: Vec::new(),
@@ -3064,59 +3073,107 @@ unsafe fn foreground_dead_as_pressed(
 /// `ToUnicodeEx`: the keyboard state is not changed.
 const LEAVE_KEY_STATE: u32 = 4;
 
-/// What the keyboard layout of the foreground window's thread (`thread_id`)
-/// gives key `vk` as pressed, with `modifiers` (Ctrl, Shift, Alt, Meta) and
-/// the Caps Lock state of the press, as a keyboard event carries it
-/// ([`super::key_value::answer_param`]), and that layout's handle. The
-/// worker names the key from the two (`worker_pool::key_name`).
+/// The keyboard layout of the foreground window's thread (`thread_id`), as
+/// its handle, and whether Caps Lock is on: what a worker asks the layout
+/// with to name the key ([`layout_key_value`]). The layout is 0 where no
+/// thread is known. Both are read at the press, so a later switch of layout
+/// or of Caps Lock does not rename the key.
 ///
-/// The value is 0, nothing read, where no thread or layout is known, for an
-/// injected character (named by the unit it carries), on a Windows that does
-/// not honor the flag that leaves the key state
-/// ([`layout_read_leaves_key_state`]), and where the layout's answers could
-/// not be taken ([`fill_layout_answers`]). The layout is 0 where no thread or
-/// layout is known.
-///
-/// The layout is read at the press, so a later switch of layout does not
-/// rename the key. Its answers are taken once for the layout, for every key
-/// and combination of modifiers ([`INPUT_LAYOUT_ANSWERS`]), and the value of
-/// a press is looked up in them in the order a browser uses
-/// ([`super::key_value::value_as_pressed`]): a key pressed behind a dead key
-/// is named by its own character, whatever accent is pending by then.
-///
-/// Called on the keyboard hook: two user32 reads at a press whose layout has
-/// answered, no accessibility call, lock or allocation.
-unsafe fn foreground_key_value(
-    vk: u32,
-    modifiers: (bool, bool, bool, bool),
-    thread_id: u32,
-) -> (u32, i64) {
-    use super::key_value::{answer_param, value_as_pressed, Held};
+/// Called on the keyboard hook: two user32 reads, no accessibility call,
+/// lock or allocation. The layout itself is not asked here: its answers for
+/// every key take far longer than a hook may.
+unsafe fn foreground_layout_and_caps_lock(thread_id: u32) -> (i64, bool) {
     // Thread 0 would ask for this thread's own layout, not the window's.
-    if thread_id == 0 {
-        return (0, 0);
-    }
-    let hkl = GetKeyboardLayout(thread_id);
-    let layout = hkl.0 as isize;
-    if hkl.0.is_null() || vk == super::worker_pool::VK_PACKET || !layout_read_leaves_key_state() {
-        return (0, layout as i64);
-    }
-    let (ctrl, shift, alt, _meta) = modifiers;
-    let held = Held {
-        shift,
-        ctrl,
-        alt,
-        // The low bit of a toggle key's state: Caps Lock is on.
-        caps_lock: GetKeyState(VK_CAPITAL) & 1 != 0,
+    let layout = if thread_id == 0 {
+        0
+    } else {
+        GetKeyboardLayout(thread_id).0 as isize as i64
     };
-    let value = INPUT_LAYOUT_ANSWERS.with(|answers| {
-        let mut answers = answers.borrow_mut();
-        if !answers.is_of(layout) && !fill_layout_answers(hkl, &mut answers) {
-            return None;
+    // The low bit of a toggle key's state: Caps Lock is on.
+    (layout, GetKeyState(VK_CAPITAL) & 1 != 0)
+}
+
+/// How many layouts' answers are kept at once; the oldest goes first.
+const LAYOUT_TABLES_KEPT: usize = 8;
+
+/// The answers of the keyboard layouts asked so far, one table a layout
+/// ([`fill_layout_answers`]), shared by the workers.
+static LAYOUT_TABLES: Mutex<Vec<Box<super::key_value::LayoutAnswers>>> = Mutex::new(Vec::new());
+
+/// What layout `layout` (a layout handle, as a keystroke carries it) gives
+/// key `vk` as pressed with `held`, as a keyboard event carries it
+/// ([`super::key_value::pressed_param`]): looked up in the order a browser
+/// uses in the layout's table of answers.
+/// The table is taken the first time the layout is asked about, for every
+/// key and combination of modifiers, so a key pressed behind a dead key is
+/// named by its own character, whatever accent is pending by then.
+///
+/// 0, nothing read, where there is no layout, for an injected character (named by the
+/// unit it carries), on a Windows that does not honor the flag that leaves
+/// the key state ([`layout_read_leaves_key_state`]), and where the layout's
+/// answers could not be taken now ([`fill_layout_answers`]).
+///
+/// Called by a worker, never on the keyboard hook.
+fn layout_key_value(layout: i64, vk: u32, held: super::key_value::Held) -> u32 {
+    use super::key_value::{pressed_param, LayoutAnswers};
+    if layout == 0 || vk == super::worker_pool::VK_PACKET || !layout_read_leaves_key_state() {
+        return 0;
+    }
+    let id = layout as isize;
+    let look_up = |tables: &[Box<LayoutAnswers>]| {
+        tables
+            .iter()
+            .find(|table| table.is_of(id))
+            .map(|table| pressed_param(held, |with| table.get(id, vk, with)))
+    };
+    let tables = || LAYOUT_TABLES.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(value) = look_up(&tables()) {
+        return value;
+    }
+    // Taken with the lock let go: it is some thousand reads of the layout.
+    let mut table = Box::new(LayoutAnswers::new());
+    // SAFETY: reads of a layout's tables that leave the keyboard state.
+    if !unsafe { fill_layout_answers(HKL(id as *mut core::ffi::c_void), &mut table) } {
+        return 0;
+    }
+    let mut tables = tables();
+    if !tables.iter().any(|kept| kept.is_of(id)) {
+        if tables.len() >= LAYOUT_TABLES_KEPT {
+            tables.remove(0);
         }
-        value_as_pressed(held, |with| answers.get(layout, vk, with))
+        tables.push(table);
+    }
+    look_up(&tables).unwrap_or(0)
+}
+
+/// Take the answers of every keyboard layout loaded now, once for the
+/// process and on a thread of its own, so that the first key pressed on a
+/// layout finds its table there. A layout loaded later is asked at its first
+/// key ([`layout_key_value`]).
+fn warm_layout_tables() {
+    static STARTED: std::sync::Once = std::sync::Once::new();
+    STARTED.call_once(|| {
+        let _ = thread::Builder::new()
+            .name("docent-layout-tables".into())
+            .spawn(|| {
+                // SAFETY: the list is read into a buffer of the size the
+                // first call reports.
+                let layouts = unsafe {
+                    let mut loaded = vec![HKL::default(); GetKeyboardLayoutList(0, None) as usize];
+                    let n = GetKeyboardLayoutList(loaded.len() as i32, Some(loaded.as_mut_ptr()));
+                    loaded.truncate(n.max(0) as usize);
+                    loaded
+                };
+                for hkl in layouts.into_iter().take(LAYOUT_TABLES_KEPT) {
+                    // Asking about any key takes the layout's table.
+                    let _ = layout_key_value(
+                        hkl.0 as isize as i64,
+                        0x20,
+                        super::key_value::Held::default(),
+                    );
+                }
+            });
     });
-    (answer_param(value), layout as i64)
 }
 
 /// The virtual-key code of Caps Lock.
@@ -3133,6 +3190,9 @@ const VK_CAPITAL: i32 = 0x14;
 /// only while none is ([`layout_has_no_accent_pending`], checked before and
 /// after); otherwise the table is left holding nothing, to be taken at a
 /// later press.
+///
+/// It is some thousand reads of the layout (measured at 450 ms on a test
+/// machine), so it is never called on the keyboard hook.
 unsafe fn fill_layout_answers(hkl: HKL, answers: &mut super::key_value::LayoutAnswers) -> bool {
     if hkl.0.is_null() || !layout_has_no_accent_pending(hkl) {
         return false;
@@ -4250,6 +4310,7 @@ impl AccessibilityBackend for WindowsAccessibilityBackend {
                 .map_err(|e| CaptureError::ComInit(format!("IUIAutomation: {e}")))?;
             self.uia = Some(uia);
         }
+        warm_layout_tables();
         Ok(())
     }
 
@@ -4404,6 +4465,10 @@ impl AccessibilityBackend for WindowsAccessibilityBackend {
         process_exe_name(process_id)
     }
 
+    fn key_value(&self, layout: i64, key_code: u32, held: super::key_value::Held) -> u32 {
+        layout_key_value(layout, key_code, held)
+    }
+
     fn process_id_of(&self, window_handle: i64) -> u32 {
         let mut process_id = 0u32;
         unsafe {
@@ -4555,7 +4620,10 @@ mod tests {
         is_password_value, is_recognized_by_exe_name, layout_char, windows_should_keep_event,
         GetCurrentThreadId, MapVirtualKeyExW, Variant, BSTR, HKL, VT_EMPTY,
     };
-    use crate::capture::key_value::{key_value_name, value_as_pressed, Held, LayoutAnswers};
+    use crate::capture::key_value::{
+        answer_of, dead_as_held_of, key_value_name, value_as_pressed, Held, LayoutAnswer,
+        LayoutAnswers,
+    };
     use crate::capture::uia_core_api::UiaGetReservedNotSupportedValue;
     use crate::capture::win32_bindings::VARIANT;
     use crate::capture::win32_bindings::{
@@ -4727,14 +4795,7 @@ mod tests {
             return; // a Windows before 10.0.14393: the layout is not asked
         }
         let danish = LoadedLayout::load("00000406", 0x0406);
-        let started = std::time::Instant::now();
         let answers = danish.answers();
-        let took = started.elapsed();
-        // Taken on the keyboard hook, once for a layout.
-        assert!(
-            took < std::time::Duration::from_millis(100),
-            "taking a layout's answers took {took:?}"
-        );
         let key = |vk, held| value(&answers, danish.hkl, vk, held);
         // A letter in the case the press gives it; Ctrl gives no character,
         // so the key is named by its Shift and Caps Lock state alone.
@@ -4797,6 +4858,56 @@ mod tests {
         // No AltGr on this layout: Ctrl and Alt give no character, and the
         // key is named by its own.
         assert_eq!(key(0x45, ALT_GR), "e");
+    }
+
+    /// A worker's question goes through the tables kept for the process:
+    /// the layout is asked once, and its answers serve every later key.
+    #[test]
+    #[serial_test::serial(danish_layout)]
+    fn regression_717_a_worker_asks_a_layout_through_the_tables_kept() {
+        if !super::layout_read_leaves_key_state() {
+            return;
+        }
+        let danish = LoadedLayout::load("00000406", 0x0406);
+        let layout = danish.hkl.0 as isize as i64;
+        let read = |vk, held| super::layout_key_value(layout, vk, held);
+        let ask = |vk, held| answer_of(read(vk, held));
+        assert_eq!(ask(0x41, SHIFT), Some(LayoutAnswer::Char('A')));
+        assert_eq!(ask(0x41, CTRL), Some(LayoutAnswer::Char('a')));
+        assert_eq!(ask(0x07, PLAIN), Some(LayoutAnswer::Nothing));
+        // The acute key: dead alone, a character with AltGr, and with Ctrl
+        // named `Dead` by its plain state while the press makes no dead key.
+        let acute = danish.vk_at(0x0D);
+        assert_eq!(ask(acute, PLAIN), Some(LayoutAnswer::Dead));
+        assert_eq!(dead_as_held_of(read(acute, PLAIN)), Some(true));
+        assert_eq!(dead_as_held_of(read(acute, ALT_GR)), Some(false));
+        assert_eq!(ask(acute, CTRL), Some(LayoutAnswer::Dead));
+        assert_eq!(dead_as_held_of(read(acute, CTRL)), Some(false));
+        let kept = || {
+            super::LAYOUT_TABLES
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|table| table.is_of(layout as isize))
+                .count()
+        };
+        assert_eq!(kept(), 1, "one table for the layout");
+        // No layout, and an injected character, are not asked.
+        assert_eq!(super::layout_key_value(0, 0x41, PLAIN), 0);
+        assert_eq!(read(crate::capture::worker_pool::VK_PACKET, PLAIN), 0);
+    }
+
+    /// The hook's read: thread 0 names no layout.
+    #[test]
+    fn the_hook_reads_no_layout_for_thread_zero() {
+        // SAFETY: two reads of the window system's state.
+        unsafe {
+            assert_eq!(super::foreground_layout_and_caps_lock(0).0, 0);
+            assert_ne!(
+                super::foreground_layout_and_caps_lock(GetCurrentThreadId()).0,
+                0
+            );
+        }
     }
 
     #[test]

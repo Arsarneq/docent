@@ -14,7 +14,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc;
 use std::sync::Arc;
 
-use docent_desktop_lib::capture::key_value::{answer_param, LayoutAnswer};
+use docent_desktop_lib::capture::key_value::{answer_param, Held, LayoutAnswer};
 use docent_desktop_lib::capture::worker_pool::{RawEvent, RawEventType, WorkerMessage, WorkerPool};
 use docent_desktop_lib::capture::ActionEvent;
 use proptest::prelude::*;
@@ -39,6 +39,7 @@ fn make_raw_event(event_type: RawEventType, window_handle: i64) -> RawEvent {
         callback_params: [0; 4],
         key_value: 0,
         keyboard_layout: 0,
+        caps_lock: false,
         pre_captured_element: None,
         focus_epoch: 0,
         held: Vec::new(),
@@ -361,6 +362,7 @@ proptest! {
             callback_params: [0; 4],
             key_value: 0,
             keyboard_layout: 0,
+            caps_lock: false,
             pre_captured_element: None,
             focus_epoch: 0,
             held: Vec::new(),
@@ -383,6 +385,7 @@ proptest! {
             callback_params: [0; 4],
             key_value: 0,
             keyboard_layout: 0,
+            caps_lock: false,
             pre_captured_element: None,
             focus_epoch: 0,
             held: Vec::new(),
@@ -488,6 +491,15 @@ impl MockBackend {
 impl AccessibilityBackend for MockBackend {
     fn init(&mut self) -> Result<(), CaptureError> {
         Ok(())
+    }
+
+    /// A stand-in for the Danish layout: its key right of 0 gives `+`.
+    fn key_value(&self, layout: i64, key_code: u32, _held: Held) -> u32 {
+        if layout == DANISH_TEST_LAYOUT && key_code == 0xBB {
+            answer_param(Some(LayoutAnswer::Char('+')))
+        } else {
+            0
+        }
     }
 
     fn cleanup(&mut self) {}
@@ -693,6 +705,7 @@ proptest! {
             callback_params: [0; 4],
             key_value: 0,
             keyboard_layout: 0,
+            caps_lock: false,
             pre_captured_element: None,
             focus_epoch: 0,
             held: Vec::new(),
@@ -772,6 +785,7 @@ proptest! {
                 callback_params: [0; 4],
             key_value: 0,
             keyboard_layout: 0,
+            caps_lock: false,
             pre_captured_element: None,
             focus_epoch: 0,
             held: Vec::new(),
@@ -858,6 +872,7 @@ proptest! {
                 callback_params: [0; 4],
             key_value: 0,
             keyboard_layout: 0,
+            caps_lock: false,
             pre_captured_element: None,
             focus_epoch: 0,
             held: Vec::new(),
@@ -885,6 +900,7 @@ proptest! {
             callback_params: [0; 4],
             key_value: 0,
             keyboard_layout: 0,
+            caps_lock: false,
             pre_captured_element: None,
             focus_epoch: 0,
             held: Vec::new(),
@@ -1162,6 +1178,7 @@ fn worker_shutdown_flushes_pending_type_event() {
             callback_params: [0; 4],
             key_value: 0,
             keyboard_layout: 0,
+            caps_lock: false,
             pre_captured_element: None,
             focus_epoch: 0,
             held: Vec::new(),
@@ -1224,6 +1241,7 @@ fn regression_298_flush_drains_pending_and_worker_continues() {
             callback_params: [0; 4],
             key_value: 0,
             keyboard_layout: 0,
+            caps_lock: false,
             pre_captured_element: None,
             focus_epoch: 0,
             held: Vec::new(),
@@ -1269,6 +1287,7 @@ fn regression_298_flush_drains_pending_and_worker_continues() {
         callback_params: [0; 4],
         key_value: 0,
         keyboard_layout: 0,
+        caps_lock: false,
         pre_captured_element: None,
         focus_epoch: 0,
         held: Vec::new(),
@@ -1322,6 +1341,7 @@ fn regression_298_flush_all_drains_workers_and_emits_sentinel_last() {
             callback_params: [0; 4],
             key_value: 0,
             keyboard_layout: 0,
+            caps_lock: false,
             pre_captured_element: None,
             focus_epoch: 0,
             held: Vec::new(),
@@ -1466,6 +1486,7 @@ fn poison_event_does_not_kill_worker() {
         callback_params: [0; 4],
         key_value: 0,
         keyboard_layout: 0,
+        caps_lock: false,
         pre_captured_element: None,
         focus_epoch: 0,
         held: Vec::new(),
@@ -1487,6 +1508,7 @@ fn poison_event_does_not_kill_worker() {
         callback_params: [0; 4],
         key_value: 0,
         keyboard_layout: 0,
+        caps_lock: false,
         pre_captured_element: None,
         focus_epoch: 0,
         held: Vec::new(),
@@ -1508,6 +1530,7 @@ fn poison_event_does_not_kill_worker() {
         callback_params: [0; 4],
         key_value: 0,
         keyboard_layout: 0,
+        caps_lock: false,
         pre_captured_element: None,
         focus_epoch: 0,
         held: Vec::new(),
@@ -1631,6 +1654,7 @@ fn locators_and_provider_facts_pass_through_the_pipeline_verbatim() {
         callback_params: [0; 4],
         key_value: 0,
         keyboard_layout: 0,
+        caps_lock: false,
         pre_captured_element: None,
         focus_epoch: 0,
         held: Vec::new(),
@@ -1682,6 +1706,7 @@ fn pre_captured_click_exports_zero_describe_latency() {
         callback_params: [0; 4],
         key_value: 0,
         keyboard_layout: 0,
+        caps_lock: false,
         pre_captured_element: Some(locator_rich_element()),
         focus_epoch: 0,
         held: Vec::new(),
@@ -1726,6 +1751,7 @@ fn an_action_carries_the_platforms_preferred_languages() {
         callback_params: [0; 4],
         key_value: 0,
         keyboard_layout: 0,
+        caps_lock: false,
         pre_captured_element: Some(locator_rich_element()),
         focus_epoch: 0,
         held: Vec::new(),
@@ -1814,6 +1840,7 @@ fn coordinate_downgrade_strips_locators_facts_and_latency() {
         callback_params: [0; 4],
         key_value: 0,
         keyboard_layout: 0,
+        caps_lock: false,
         pre_captured_element: None,
         focus_epoch: 0,
         held: Vec::new(),
@@ -1865,6 +1892,7 @@ fn context_open_carries_process_source_and_no_fabricated_opener() {
         callback_params: [0; 4],
         key_value: 0,
         keyboard_layout: 0,
+        caps_lock: false,
         pre_captured_element: None,
         focus_epoch: 0,
         held: Vec::new(),
@@ -1967,6 +1995,7 @@ fn coordinate_fallback_emits_screen_space_verbatim_for_non_origin_window() {
         callback_params: [0; 4],
         key_value: 0,
         keyboard_layout: 0,
+        caps_lock: false,
         pre_captured_element: None,
         focus_epoch: 0,
         held: Vec::new(),
@@ -2044,6 +2073,7 @@ fn scroll_accumulator_flushes_on_timeout() {
             callback_params: [0, 0, 0, 0], // vertical scroll
             key_value: 0,
             keyboard_layout: 0,
+            caps_lock: false,
             pre_captured_element: None,
             focus_epoch: 0,
             held: Vec::new(),
@@ -2099,6 +2129,7 @@ fn scroll_accumulator_flushes_on_shutdown() {
             callback_params: [0, 0, 0, 0], // vertical scroll
             key_value: 0,
             keyboard_layout: 0,
+            caps_lock: false,
             pre_captured_element: None,
             focus_epoch: 0,
             held: Vec::new(),
@@ -2148,6 +2179,7 @@ fn focus_deduplication_suppresses_consecutive_same_element() {
             callback_params: [0; 4],
             key_value: 0,
             keyboard_layout: 0,
+            caps_lock: false,
             pre_captured_element: None,
             focus_epoch: 0,
             held: Vec::new(),
@@ -2203,6 +2235,7 @@ fn value_change_deduplication_same_value() {
             callback_params: [0; 4],
             key_value: 0,
             keyboard_layout: 0,
+            caps_lock: false,
             pre_captured_element: None,
             focus_epoch: 0,
             held: Vec::new(),
@@ -2249,6 +2282,7 @@ fn keyboard_event_produces_key_action() {
         callback_params: [0; 4],
         key_value: 0,
         keyboard_layout: 0,
+        caps_lock: false,
         pre_captured_element: None,
         focus_epoch: 0,
         held: Vec::new(),
@@ -2294,6 +2328,7 @@ fn modifier_only_key_is_skipped() {
         callback_params: [0; 4],
         key_value: 0,
         keyboard_layout: 0,
+        caps_lock: false,
         pre_captured_element: None,
         focus_epoch: 0,
         held: Vec::new(),
@@ -2338,6 +2373,7 @@ fn foreground_event_produces_context_switch() {
         callback_params: [0; 4],
         key_value: 0,
         keyboard_layout: 0,
+        caps_lock: false,
         pre_captured_element: None,
         focus_epoch: 0,
         held: Vec::new(),
@@ -2554,6 +2590,7 @@ fn right_click_event_produces_right_click_action() {
         callback_params: [0; 4],
         key_value: 0,
         keyboard_layout: 0,
+        caps_lock: false,
         pre_captured_element: None,
         focus_epoch: 0,
         held: Vec::new(),
@@ -2611,6 +2648,7 @@ fn excluded_pid_events_are_discarded() {
             callback_params: [0; 4],
             key_value: 0,
             keyboard_layout: 0,
+            caps_lock: false,
             pre_captured_element: None,
             focus_epoch: 0,
             held: Vec::new(),
@@ -2635,6 +2673,7 @@ fn excluded_pid_events_are_discarded() {
             callback_params: [0; 4],
             key_value: 0,
             keyboard_layout: 0,
+            caps_lock: false,
             pre_captured_element: None,
             focus_epoch: 0,
             held: Vec::new(),
@@ -2691,6 +2730,7 @@ fn selection_event_produces_select_action() {
         callback_params: [0, 0, 0, 0],
         key_value: 0,
         keyboard_layout: 0,
+        caps_lock: false,
         pre_captured_element: None,
         focus_epoch: 0,
         held: Vec::new(),
@@ -2740,6 +2780,7 @@ fn modifier_only_keys_produce_no_events() {
             callback_params: [0, 0, 0, 0],
             key_value: 0,
             keyboard_layout: 0,
+            caps_lock: false,
             pre_captured_element: None,
             focus_epoch: 0,
             held: Vec::new(),
@@ -2783,6 +2824,7 @@ fn win_l_key_combo_is_captured_if_received() {
         callback_params: [0, 0, 0, 0],
         key_value: 0,
         keyboard_layout: 0,
+        caps_lock: false,
         pre_captured_element: None,
         focus_epoch: 0,
         held: Vec::new(),
@@ -2844,6 +2886,7 @@ fn packet_key(seq: u64, timestamp: u64, unit: u16) -> RawEvent {
         callback_params: [i64::from(unit), 0, 0, 0],
         key_value: 0,
         keyboard_layout: 0,
+        caps_lock: false,
         pre_captured_element: None,
         focus_epoch: 0,
         held: Vec::new(),
@@ -3416,6 +3459,9 @@ fn us_key_value(key_code: u32) -> u32 {
     };
     answer_param(Some(LayoutAnswer::Char(character)))
 }
+
+/// The layout handle the mock backend answers for as the Danish layout.
+const DANISH_TEST_LAYOUT: i64 = 0x0406_0406;
 
 /// `raw`, with `character` as what the layout gave the press.
 fn gives(mut raw: RawEvent, character: char) -> RawEvent {
@@ -6701,6 +6747,7 @@ fn left_click(
         ],
         key_value: 0,
         keyboard_layout: 0,
+        caps_lock: false,
         pre_captured_element: Some(element),
         focus_epoch: 0,
         held: Vec::new(),
@@ -8755,7 +8802,8 @@ fn held_presses(keys: &[(u32, u32, u64)]) -> Vec<HeldPress> {
             scan_code,
             press,
             key_value: 0,
-            language: 0,
+            layout: 0,
+            held: 0,
         })
         .collect()
 }
@@ -8902,7 +8950,8 @@ fn regression_691_a_held_punctuation_key_is_named_by_its_layout_character() {
     assert!(!record.on_hook_message(0x0100, 0xBB, 0x0C, not_down));
     let mut plus = layout_key(1, t, 0xBB);
     plus.callback_params = [0x0C, 0, 0, '+' as i64];
-    plus.key_value = answer_param(Some(LayoutAnswer::Char('+')));
+    plus.key_value = 0;
+    plus.keyboard_layout = DANISH_TEST_LAYOUT;
     record.stamp(&mut plus);
     harness.send_event(plus);
     // Tab pressed while it is held.
