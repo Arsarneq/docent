@@ -260,7 +260,7 @@ $out = Join-Path $work 'case11.txt'
 $p = Start-Target $out
 $gone = @{ window = @{ process = 'no-such-process.exe' } }
 $rc1 = Invoke-Drive @($guard, @{ key = 'capslock' }, @{ chars = 'a' }, $gone, @{ chars = 'x' })
-$rc2 = Invoke-Drive @($guard, @{ down = 'shift' }, @{ key = 'd' }, $gone, @{ chars = 'x' })
+$rc2 = Invoke-Drive @($guard, @{ down = 'shift' }, @{ key = 'd' }, $gone, @{ key = 'x' })
 $rc3 = Invoke-Drive @($guard, @{ key = 'capslock' }, @{ chars = 'f' }, @{ chars = [string][char]0x3042 }, @{ chars = 'x' })
 $rc4 = Invoke-Drive @($guard, @{ key = 'capslock' }, @{ chars = 'g' })
 $rc5 = Invoke-Drive @($guard, @{ chars = 'bc' }, $close)
