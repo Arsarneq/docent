@@ -62,7 +62,7 @@ Every worker's queue is FIFO, and all workers share one action channel. So per-w
 
 - **Typing worker.** Every keyboard and value-change event reaches one worker. So a value change is processed after the keystrokes that caused it (DCP-9 holds what it supersedes).
 - **End of typing.** An event that ends the typing in a field (a click, a drag, a window change) is routed like any other. The dispatcher tells the typing worker behind the events already sent to it, so the `type` that worker holds is written (DCP-9). A window the scope filters drop sends no event when it comes to the front; the input thread sends the bridge a typing-ended message in its place, and the dispatcher tells the typing worker the same way.
-- **A look at the focus.** When a capture starts, and behind each window change it dispatches, the dispatcher asks the typing worker to look at the control that holds the keyboard focus, choosing the typing worker if none holds the role yet. The look writes nothing; it makes the first key typed there find its control known. DCP-16 holds when it is skipped.
+- **A look at the focus.** When a capture starts, and behind each window change it dispatches, the dispatcher asks the typing worker to look at the control that holds the keyboard focus, choosing the typing worker if none holds the role yet. The look writes nothing; it makes the first key typed there find its control known. [The look ahead of any key](#a-keystroke-settled-on-its-control) holds when it is skipped.
 - **Focus worker.** Every focus event reaches one worker, whatever window it names, so each focus is compared with the last focus that worker wrote (DCP-21).
 - **Sticky routing.** Selection events for the same window handle always reach the same worker, which processes them in order.
 - **Drag pairing.** A drop routes to the worker that took its drag start, so the pair is built from the same recorded source element.
@@ -81,7 +81,7 @@ Each drain empties the shared buffers under their lock, so whichever runs first 
 
 ## The element of a keystroke
 
-A keystroke and a value change are described by a worker after they happened. This section holds how the worker tells which element they went to. DCP-16 holds the rule, the departure, when the look ahead of a key is not taken, and the open cases.
+A keystroke and a value change are described by a worker after they happened. This section holds how the worker tells which element they went to. DCP-16 holds the rule, the departure and the open cases.
 
 ### The focus count
 
@@ -99,7 +99,7 @@ A worker looks at a control once:
 - When nothing inside it can take the keyboard focus (an edit field), the control is the element of every keystroke stamped with its handle.
 - A window that holds other focusable elements (a browser's page) says nothing about which of them a key went to. Its keystrokes are [described by focus](#a-keystroke-described-by-focus).
 
-**The look ahead of any key.** The typing worker also looks at the control that holds the keyboard focus when a capture starts and when a window comes to the front (each foreground change the input thread dispatches). So the first keystroke typed into it, and the read of its first value (DCP-18), do not wait on its description; that keystroke looks again only at what the control is, which takes no description. The look writes nothing. DCP-16 holds the two cases in which it is not taken.
+**The look ahead of any key.** The typing worker also looks at the control that holds the keyboard focus when a capture starts and when a window comes to the front (each foreground change the input thread dispatches). So the first keystroke typed into it, and the read of its first value (DCP-18), do not wait on its description; that keystroke looks again only at what the control is, which takes no description. The look writes nothing. It is not taken in two cases: for a control of Docent's own process, and for one whose window does not answer a message within 50 ms (its program is busy or hung), so that a window change into such a program does not hold up the keys typed after it. No keystroke waits on a look not taken, and the control's first keystroke looks at it itself.
 
 **Looking again.** The worker looks again at what the control is: whether it still can hold the focus only itself, and whether it is a password field (a field can become one when the person unticks a box, and a page can finish loading and focus its password field). It does so at:
 
