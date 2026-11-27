@@ -14,8 +14,27 @@
 //! Platform-agnostic. Windows keeps one waiting accent a keyboard layout,
 //! whichever window the keys go to, and so does this.
 
-use super::key_value::LayoutAnswer;
+use super::key_value::{Held, LayoutAnswer};
 use super::layout_file::Composed;
+
+/// What a key-down brings to an accent that waits: what the layout gives
+/// the key with the modifiers as held (`as_held`, `None` where the layout
+/// could not be asked), but for Ctrl and a letter key.
+///
+/// Ctrl and a letter key (A to Z by key code) with no Alt held, where the
+/// layout gives the pair no character of its own, is made a control
+/// character by Windows itself, past the accent: the accent waits on.
+pub fn met_by_an_accent(
+    as_held: Option<LayoutAnswer>,
+    key_code: u32,
+    held: Held,
+) -> Option<LayoutAnswer> {
+    let ctrl_and_a_letter = held.ctrl && !held.alt && matches!(key_code, 0x41..=0x5A);
+    match as_held {
+        Some(LayoutAnswer::Other) if ctrl_and_a_letter => Some(LayoutAnswer::Nothing),
+        as_given => as_given,
+    }
+}
 
 /// What is known of the accent that waits on one layout.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -65,9 +84,8 @@ impl WaitingAccents {
     }
 
     /// A key went down on `layout` (`0` where none was read). `as_held` is
-    /// what the layout gives the key with the modifiers as held
-    /// ([`super::key_value::as_held_of`]), `None` where the layout could not
-    /// be asked; `composed` what the layout lists for an accent and a
+    /// what the key brings to an accent ([`met_by_an_accent`]), `None`
+    /// where the layout could not be asked; `composed` what the layout lists for an accent and a
     /// character together. Says what the key is named, and takes the key
     /// into what waits.
     pub fn press(
@@ -360,6 +378,64 @@ mod tests {
             names(&[dead(ACUTE), Some(LayoutAnswer::Other), character('e')]),
             [AsPressed, AsPressed, AsPressed]
         );
+    }
+
+    #[test]
+    fn ctrl_and_a_letter_key_leave_the_accent_waiting() {
+        let ctrl = Held {
+            ctrl: true,
+            ..Held::default()
+        };
+        let other = Some(LayoutAnswer::Other);
+        for key_code in [0x41, 0x4D, 0x5A] {
+            for held in [
+                ctrl,
+                Held {
+                    shift: true,
+                    ..ctrl
+                },
+                Held {
+                    caps_lock: true,
+                    ..ctrl
+                },
+            ] {
+                assert_eq!(
+                    met_by_an_accent(other, key_code, held),
+                    Some(LayoutAnswer::Nothing),
+                    "{key_code:#04X} {held:?}"
+                );
+            }
+        }
+        let mut waiting = WaitingAccents::new();
+        waiting.press(DANISH, dead(ACUTE), list);
+        waiting.press(DANISH, met_by_an_accent(other, 0x41, ctrl), list);
+        assert_eq!(waiting.press(DANISH, character('e'), list), Made('é'));
+    }
+
+    #[test]
+    fn every_other_press_meets_the_accent_as_the_layout_gives_it() {
+        let ctrl = Held {
+            ctrl: true,
+            ..Held::default()
+        };
+        let other = Some(LayoutAnswer::Other);
+        // Alt with Ctrl is AltGr: the layout's own answer.
+        let alt_gr = Held { alt: true, ..ctrl };
+        assert_eq!(met_by_an_accent(other, 0x41, alt_gr), other);
+        // No Ctrl held.
+        assert_eq!(met_by_an_accent(other, 0x41, Held::default()), other);
+        // No letter key: Backspace, Enter, the key left of A, the key
+        // right of Z, a bracket key.
+        for key_code in [0x08, 0x0D, 0x40, 0x5B, 0xDB] {
+            assert_eq!(met_by_an_accent(other, key_code, ctrl), other);
+        }
+        // A character or an accent the layout gives Ctrl and the letter.
+        assert_eq!(met_by_an_accent(character('a'), 0x41, ctrl), character('a'));
+        assert_eq!(met_by_an_accent(dead(ACUTE), 0x41, ctrl), dead(ACUTE));
+        // Nothing, and a layout that could not be asked.
+        let nothing = Some(LayoutAnswer::Nothing);
+        assert_eq!(met_by_an_accent(nothing, 0x41, ctrl), nothing);
+        assert_eq!(met_by_an_accent(None, 0x41, ctrl), None);
     }
 
     #[test]

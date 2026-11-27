@@ -5234,11 +5234,15 @@ mod tests {
         use crate::capture::key_value::as_held_of;
         use crate::capture::key_value::pressed_param;
         use crate::capture::layout_file::Composed;
-        use crate::capture::waiting_accents::{Named, WaitingAccents};
+        use crate::capture::waiting_accents::{met_by_an_accent, Named, WaitingAccents};
         if !super::layout_read_leaves_key_state() {
             return; // a Windows before 10.0.14393: the layout is not asked
         }
+        // One round is shown for each key and combination of a layout that
+        // differs, whichever accents it differs behind.
         let mut wrong = Vec::new();
+        let mut shown: Vec<(&str, u32, usize)> = Vec::new();
+        let mut differing = 0_u32;
         let mut rounds = 0_u32;
         for (id, language) in [
             ("00000406", 0x0406),
@@ -5320,9 +5324,11 @@ mod tests {
                         // What the rule says.
                         let mut accents = WaitingAccents::new();
                         let of = |a: char, b: char| list.of(a, b);
-                        accents.press(layout, as_held(dead_vk, dead_held), of);
+                        let dead_meets =
+                            met_by_an_accent(as_held(dead_vk, dead_held), dead_vk, dead_held);
+                        accents.press(layout, dead_meets, of);
                         let key = as_held(vk, held);
-                        let named = accents.press(layout, key, of);
+                        let named = accents.press(layout, met_by_an_accent(key, vk, held), of);
                         let waits = accents.waiting_on(layout);
 
                         // The key is renamed where Windows enters one
@@ -5361,7 +5367,11 @@ mod tests {
                         let agree = dead.0 == -1
                             && renamed_by_windows == renamed_by_rule
                             && space_expected.is_none_or(|expected| expected == space_seen);
-                        if !agree && wrong.len() < 60 {
+                        if !agree {
+                            differing += 1;
+                        }
+                        if !agree && wrong.len() < 150 && !shown.contains(&(id, vk, combination)) {
+                            shown.push((id, vk, combination));
                             wrong.push(format!(
                                 "{id} accent {accent:?} key {vk:#04X} held {combination:#06b} \
                                  ({key:?}): dead key answered {}, Windows entered {answered} \
@@ -5382,8 +5392,8 @@ mod tests {
         }
         assert!(
             wrong.is_empty(),
-            "the rule and Windows differ in {} of {rounds} rounds (the first shown): {wrong:#?}",
-            wrong.len()
+            "the rule and Windows differ in {differing} of {rounds} rounds (one shown for each \
+             key and combination of a layout, 150 at most): {wrong:#?}"
         );
         assert!(
             rounds >= 5 * 4096,

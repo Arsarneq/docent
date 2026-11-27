@@ -203,6 +203,8 @@ pub fn layout_id_of(text: &str) -> Option<u16> {
 /// Whether `name` is a file name a layout's `Layout File` value may state:
 /// a name with no folder in it, of letters, digits, `_` and `-` and ending
 /// in `.dll`, so that it names a file of the system folder and nothing else.
+/// A name Windows keeps for a device (`CON`, `COM1`) is none, whatever its
+/// ending: opened, it is the device and no file.
 pub fn is_layout_file_name(name: &str) -> bool {
     const LONGEST: usize = 64;
     let Some(stem) = name
@@ -213,7 +215,13 @@ pub fn is_layout_file_name(name: &str) -> bool {
     else {
         return false;
     };
+    let upper = stem.to_ascii_uppercase();
+    let is_device = matches!(upper.as_str(), "CON" | "PRN" | "AUX" | "NUL")
+        || (upper.len() == 4
+            && (upper.starts_with("COM") || upper.starts_with("LPT"))
+            && upper.as_bytes()[3].is_ascii_digit());
     !stem.is_empty()
+        && !is_device
         && name.len() <= LONGEST
         && stem
             .bytes()
@@ -795,7 +803,15 @@ mod tests {
 
     #[test]
     fn a_layout_file_name_names_a_file_of_the_system_folder_and_nothing_else() {
-        for name in ["KBDDA.DLL", "kbdus.dll", "KBDINTL.dll", "kbd_101-a.DLL"] {
+        for name in [
+            "KBDDA.DLL",
+            "kbdus.dll",
+            "KBDINTL.dll",
+            "kbd_101-a.DLL",
+            "COM10.dll",
+            "CONS.dll",
+            "LPT.dll",
+        ] {
             assert!(is_layout_file_name(name), "{name}");
         }
         for name in [
@@ -814,6 +830,18 @@ mod tests {
             "KBDÆ.DLL",
             "KBDDA.DLL:stream",
             "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.dll",
+            // The names Windows keeps for devices, whatever their ending.
+            "CON.dll",
+            "prn.DLL",
+            "AUX.dll",
+            "NUL.dll",
+            "COM1.dll",
+            "com9.dll",
+            "COM0.dll",
+            "LPT1.dll",
+            "lpt0.dll",
+            "CONIN$.dll",
+            "CONOUT$.dll",
         ] {
             assert!(!is_layout_file_name(name), "{name:?}");
         }

@@ -2012,14 +2012,22 @@ fn name_behind_waiting_accent<B: AccessibilityBackend>(
     accents: &mut WaitingAccents,
     presses: &NamedPresses,
 ) -> Option<RawEvent> {
-    use super::key_value::{as_held_of, with_value, LayoutAnswer};
-    use super::waiting_accents::Named;
+    use super::key_value::{as_held_of, with_value, Held, LayoutAnswer};
+    use super::waiting_accents::{met_by_an_accent, Named};
     if raw.key_code == VK_PACKET || is_shift_ctrl_or_alt(raw.key_code) {
         presses.note(raw.sequence_id, None);
         return None;
     }
     let layout = raw.keyboard_layout;
-    let named = accents.press(layout, as_held_of(raw.key_value), |accent, base| {
+    let (ctrl, shift, alt, _meta) = raw.modifiers;
+    let held = Held {
+        shift,
+        ctrl,
+        alt,
+        caps_lock: raw.caps_lock,
+    };
+    let meets = met_by_an_accent(as_held_of(raw.key_value), raw.key_code, held);
+    let named = accents.press(layout, meets, |accent, base| {
         backend.composed(layout, accent, base)
     });
     let value = match named {
@@ -2051,11 +2059,14 @@ fn note_unrecorded_key<B: AccessibilityBackend>(
     accents: &mut WaitingAccents,
 ) {
     use super::key_value::{as_held_of, Held};
+    use super::waiting_accents::met_by_an_accent;
     if key_code == VK_PACKET || is_shift_ctrl_or_alt(key_code) {
         return;
     }
-    let value = backend.key_value(layout, key_code, Held::from_index(usize::from(held)));
-    let _ = accents.press(layout, as_held_of(value), |accent, base| {
+    let held = Held::from_index(usize::from(held));
+    let value = backend.key_value(layout, key_code, held);
+    let meets = met_by_an_accent(as_held_of(value), key_code, held);
+    let _ = accents.press(layout, meets, |accent, base| {
         backend.composed(layout, accent, base)
     });
 }

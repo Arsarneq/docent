@@ -417,13 +417,14 @@ gives two or more characters at once is tried the same way.
 A dead key's accent waits for the next key that gives something on the
 layout, and that key takes it:
 
-| The key behind the dead key                                  | `key`                                     | The accent |
-| ------------------------------------------------------------ | ----------------------------------------- | ---------- |
-| Gives a character the accent makes one character with        | That character: `é`, `Á`, `´` for a space | Used       |
-| Gives a character the accent makes nothing with              | Its own: `q`, `1`                         | Used       |
-| Another dead key                                             | `Dead`, or what the two accents make      | Used       |
-| Gives a control character: Enter, Escape, Ctrl with a letter | Its own: `Enter`, `Escape`, `a`           | Used       |
-| Gives nothing: an arrow key, a function key, Shift           | Its own                                   | Waits on   |
+| The key behind the dead key                           | `key`                                     | The accent |
+| ----------------------------------------------------- | ----------------------------------------- | ---------- |
+| Gives a character the accent makes one character with | That character: `é`, `Á`, `´` for a space | Used       |
+| Gives a character the accent makes nothing with       | Its own: `q`, `1`                         | Used       |
+| Another dead key                                      | `Dead`, or what the two accents make      | Used       |
+| Gives a control character: Enter, Escape              | Its own: `Enter`, `Escape`                | Used       |
+| Ctrl with a letter key, no Alt held                   | Its own: `a`                              | Waits on   |
+| Gives nothing: an arrow key, a function key, Shift    | Its own                                   | Waits on   |
 
 A key held down is named in `held_keys` as its own `key` was.
 
