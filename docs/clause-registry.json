@@ -480,7 +480,7 @@
       "doc": "docs/architecture/application/extension/capture-principles.md",
       "clause": "ECP-9",
       "tag": "check-exists",
-      "check-ref": "The corpus redaction session verifies mask + text-null + redacted end-to-end (npm run corpus:check); the shared detection util is unit-tested (npm run test:shared); scripts/sufficiency-lint.js enforces the locator masking half."
+      "check-ref": "The corpus redaction session verifies mask + text-null + redacted end-to-end (npm run corpus:check); the shared detection util is unit-tested (npm run test:shared); scripts/sufficiency-lint.js enforces the locator masking half. That the recorder's logic and the service worker hold the same lists of controls that take no typed text, and agree on every such control, is pinned by the takesNoTypedText cases (packages/extension/tests/unit/recorder-logic.test.js, which reads packages/extension/content/recorder-logic.js); that packages/extension/content/recorder.js mirrors that file is held by packages/extension/tests/unit/recorder-mirror-parity.test.js; both run via npm run test:unit. That the closed list this clause prints equals those lists (NON_TEXT_TAGS, NON_TEXT_ROLES and NON_ENTRY_INPUT_TYPES) is checked by no test: the reviewer of any pull request that changes one of the code lists or this clause compares the printed list with them and records the outcome in that pull request's change record. A test that parses this clause's list and compares it with the arrays would make it checkable."
     },
     {
       "doc": "docs/architecture/application/extension/capture-principles.md",
@@ -546,7 +546,7 @@
       "doc": "docs/architecture/application/desktop/windows/capture-principles.md",
       "clause": "DCP-1",
       "tag": "judgment-only",
-      "justification": "Whether a capture change preserves the thread-role split (the input thread makes no accessibility call; the mouse hook waits on the pre-capture describers for at most a budget below the system hook timeout; every other describe stays on workers) is a design judgment. The pre-capture bound, its budget from the hook timeout, the describers' cap and a session's retry of a pre-capture it could not start are pinned by the in-module tests of packages/desktop/src-tauri/src/capture/pre_capture.rs and packages/desktop/src-tauri/src/capture/timing.rs (npm run test:desktop:rust); that the hook asks through that bound is comment-pinned at its sites."
+      "justification": "Whether a capture change preserves the thread-role split (the input thread makes no accessibility call; the mouse hook waits on the pre-capture describers for at most a budget below the system hook timeout; every other describe stays on workers) is a design judgment. The pre-capture bound, its budget from the hook timeout, the describers' cap and a session's retry of a pre-capture it could not start (the capture pipeline's pre-capture section states the last three) are pinned by the in-module tests of packages/desktop/src-tauri/src/capture/pre_capture.rs and packages/desktop/src-tauri/src/capture/timing.rs (npm run test:desktop:rust); that the hook asks through that bound is comment-pinned at its sites."
     },
     {
       "doc": "docs/architecture/application/desktop/windows/capture-principles.md",
@@ -628,11 +628,13 @@
       "doc": "docs/architecture/application/desktop/windows/capture-principles.md",
       "clause": "DCP-11",
       "tag": "check-exists",
-      "check-ref": "The corpus redaction session verifies mask + text-null + redacted end-to-end on desktop (npm run corpus:check:desktop); the password path's map_event masking is pinned by the password Rust tests (packages/desktop/src-tauri/tests/password_test.rs) and the IsPassword read's type rule by the windows-provider in-module cases is_password_value_reads_a_bool_answer_as_itself, is_password_value_reads_no_answer_as_false and is_password_value_reads_an_answer_of_another_type_as_a_password (packages/desktop/src-tauri/src/capture/windows.rs), both via npm run test:desktop:rust; the locators-pass-untouched half is pinned by the desktop Tauri-adapter unit test masks value/text and flags redacted, but locators + facts are deep-equal untouched, which deep-equals the locators across the chokepoint (npm run test:desktop) and by the d-redaction corpus session's truth, assembled through the real ordered insertion. scripts/sufficiency-lint.js's masked-locator-honesty predicate holds the masked flag only — no desktop locator entry claims masked — and runs advisory in the corpus check.",
+      "check-ref": "The corpus redaction session verifies mask + text-null + redacted end-to-end on desktop (npm run corpus:check:desktop); the password path's map_event masking is pinned by the password Rust tests (packages/desktop/src-tauri/tests/password_test.rs) and the IsPassword read's type rule by the windows-provider in-module cases is_password_value_reads_a_bool_answer_as_itself, is_password_value_reads_no_answer_as_false and is_password_value_reads_an_answer_of_another_type_as_a_password (packages/desktop/src-tauri/src/capture/windows.rs), both via npm run test:desktop:rust; the locators-pass-untouched half is pinned by the desktop Tauri-adapter unit test masks value/text and flags redacted, but locators + facts are deep-equal untouched, which deep-equals the locators across the chokepoint (npm run test:desktop) and by the d-redaction corpus session's truth, assembled through the real ordered insertion. scripts/sufficiency-lint.js's masked-locator-honesty predicate holds the masked flag only — no desktop locator entry claims masked — and runs advisory in the corpus check. That a keystroke naming no element and entering text is a masked type on no element is pinned by a_first_text_key_described_after_the_person_moved_focus_is_masked_on_no_element and text_keys_described_after_their_window_closed_are_one_masked_type (packages/desktop/src-tauri/tests/worker_pool_test.rs; npm run test:desktop:rust).",
       "test-cases": [
         "is_password_value_reads_a_bool_answer_as_itself",
         "is_password_value_reads_no_answer_as_false",
-        "is_password_value_reads_an_answer_of_another_type_as_a_password"
+        "is_password_value_reads_an_answer_of_another_type_as_a_password",
+        "a_first_text_key_described_after_the_person_moved_focus_is_masked_on_no_element",
+        "text_keys_described_after_their_window_closed_are_one_masked_type"
       ]
     },
     {
@@ -652,6 +654,47 @@
       "clause": "DCP-14",
       "tag": "checkable",
       "check-ref": "Built for the keyboard source: its attribution is pure logic, keyboard_attribution and system_takes_key in packages/desktop/src-tauri/src/capture/scroll.rs, pinned by that module's in-crate tests (regression_687_win_key_over_docent_is_kept_with_no_window, regression_687_ctrl_esc_over_docent_is_kept_with_no_window, alt_tab_and_alt_esc_over_docent_are_kept_with_no_window, keys_the_system_does_not_take_over_docent_stay_dropped, a_key_over_docent_without_the_windows_key_is_dropped, a_system_key_with_a_target_set_is_not_the_targets_input, a_system_key_with_no_resolvable_foreground_window_is_dropped, a_kept_foreground_window_keeps_every_key_on_it), and a key attributed to no window is held to naming no element and no window by a_key_attributed_to_no_window_names_no_element_and_no_window in packages/desktop/src-tauri/src/capture/worker_pool.rs (npm run test:desktop:rust). Intended: unit pins for the mouse and WinEvent sources' attribution and the WinEvent foreground gate (not built). Interim probe: the scripted desktop corpus diff reddens when out-of-scope events enter a scripted session (npm run corpus:check:desktop), and the real-input integration suite drives capture with the gate live (npm run test:desktop:rust)."
+    },
+    {
+      "doc": "docs/architecture/application/desktop/windows/capture-principles.md",
+      "clause": "DCP-15",
+      "tag": "check-exists",
+      "check-ref": "The describe latency's absent-by-default and zero-when-stamped forms and the element's language (the reported one, null where none is reported, none on a fallback description) are pinned by the element-mapping in-module cases (packages/desktop/src-tauri/src/capture/element_mapping.rs); which locale identifiers name a language by the language in-module cases (packages/desktop/src-tauri/src/capture/language.rs); and the preferred languages an action carries by an_action_carries_the_platforms_preferred_languages (packages/desktop/src-tauri/tests/worker_pool_test.rs), all via npm run test:desktop:rust. The fields a coordinate-mode element leaves out are held by the scripted desktop corpus diff (npm run corpus:check:desktop). The real-input integration suite reads each captured element's match statistics for their form (assert_captured_element_locators_well_formed in packages/desktop/src-tauri/tests/capture_integration.rs), on the Windows leg of npm run test:desktop:rust alone. Intended, not built: an assertion there that a click element the hook described carries no match statistics (a describe latency of 0 alone does not tell it, since a worker's describe within the same millisecond also stamps 0), and a case, in the Windows backend's in-module tests, for an ancestor's culture taken only once the walk confirmed the window root. Until then both are read at review in packages/desktop/src-tauri/src/capture/windows.rs and packages/desktop/src-tauri/src/capture/element_mapping.rs. That a provider can report a culture later than the rest of a description is an observation of provider behavior, which no check decides.",
+      "test-cases": [
+        "described_after_ms_pins_absent_by_default_and_zero_when_stamped",
+        "the_reported_language_is_the_elements_language",
+        "an_element_with_no_reported_language_states_null",
+        "a_fallback_description_carries_no_language",
+        "a_specific_locale_identifier_names_a_language",
+        "the_placeholder_locale_identifiers_name_no_language",
+        "an_action_carries_the_platforms_preferred_languages"
+      ]
+    },
+    {
+      "doc": "docs/architecture/application/desktop/windows/capture-principles.md",
+      "clause": "DCP-16",
+      "tag": "check-exists",
+      "check-ref": "The procedure these cases pin is the section \"The element of a keystroke\" of the capture pipeline document (docs/architecture/application/desktop/windows/capture-pipeline.md), which this clause links. Pinned by the worker-pool cases named here (packages/desktop/src-tauri/tests/worker_pool_test.rs): a keystroke described by focus after its window closed or after the person moved the focus names no element; a value change described after the focus left is no type; a value change from elsewhere in the window is passed over; the value of a password control is not read; a key on another element is not superseded by the pending type; when a keystroke is taken on its handle and when it is described by focus instead; and the look ahead of a key, which describes the focused control before its first key and is not taken for a control of the excluded process or for one whose program answers late. What a worker reads from a control by its window handle, against real windows of the test process, is pinned by the control-look cases (packages/desktop/src-tauri/tests/control_look_test.rs). Both run via npm run test:desktop:rust. The 50 ms limit on the look ahead of a key is not pinned by a case, since the stand-in backend's answer ignores time: it is the constant PROMPT_ANSWER_MS in packages/desktop/src-tauri/src/capture/worker_pool.rs, applied by answers_promptly in packages/desktop/src-tauri/src/capture/windows.rs, and is read at review. Not checked: the eight open cases. The first six need a program or a worker to act at a moment no test controls. The last two (a first keystroke that waits on a look, and a look that stalls inside the accessibility call) need stand-in code that does not exist: a look that takes time, and a describe that stalls after its window answered.",
+      "test-cases": [
+        "regression_688_a_key_described_after_its_window_closed_names_no_element",
+        "regression_690_a_value_change_described_after_focus_left_its_window_is_no_type",
+        "regression_690_a_value_change_described_after_focus_moved_within_its_window_is_no_type",
+        "a_first_key_after_a_focus_move_reached_too_late_is_not_taken_on_its_handle",
+        "a_first_key_after_a_focus_move_whose_handle_the_present_contradicts_is_described_by_focus",
+        "a_later_key_whose_handle_the_present_contradicts_is_described_by_focus",
+        "a_field_is_a_control_of_its_own_and_is_described",
+        "a_password_field_is_seen_as_one",
+        "a_window_that_holds_fields_is_not_a_control_of_its_own",
+        "the_value_is_read_from_the_control_as_it_is_now",
+        "a_handle_of_no_window_is_gone",
+        "the_focused_control_is_read_without_asking_a_program",
+        "a_value_change_from_elsewhere_in_the_window_is_passed_over",
+        "keys_of_a_password_control_are_its_masked_type_and_its_value_is_not_read",
+        "a_key_on_another_element_is_not_superseded_by_the_pending_type",
+        "the_focused_control_is_described_ahead_of_its_first_key",
+        "a_look_at_a_control_whose_program_answers_late_describes_nothing",
+        "a_look_at_a_control_of_the_excluded_process_describes_nothing"
+      ]
     },
     {
       "doc": "docs/api/sync-protocol.md",

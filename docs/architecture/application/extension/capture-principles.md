@@ -64,38 +64,33 @@ recording, on whatever host the browser lets the extension reach.)
 
 ### Frame trust and readiness
 
-**ECP-3.** Because actions arrive at the service worker as messages, the
-service worker validates every inbound `APPEND_ACTION` against an in-memory
-**active-frame registry** (tab → frames): a message MUST be accepted only when
-it comes from this extension, during a live recording, from a (tab, frame)
-pair present in the registry. Anything else — for example an embedded ad,
-analytics, or third-party widget that can reach the message port — is dropped.
-The registry is seeded from the browser's own frame table
-(`webNavigation.getAllFrames`) at record-start, and is written one frame at a
-time by two further paths: the on-load registration that follows each
-successful injection made as a frame finishes loading while recording, and
-each injected recorder's readiness beacon. Neither is bounded by the set that
-seed targets — each writes the (tab, frame) pair its own event carries — so a
-tab that joins the recording after the seed ran is registered like any other.
-Because it is in-memory and the service worker can be suspended, it is also
-lazily reseeded from the same frame table when an append or a pointer-press
-report arrives from a tab with no registry entry at all (the missing-entry
-signature: a suspension is one cause, a clear whose seed does not re-cover
-that tab another), rather than false-rejecting a legitimate frame whose
-registration is gone; ahead of a step commit and of a stop, every tab the seed
-targets that has no registry entry is reseeded the same way, so the frames
-asked to end their typing include the tab typed into. An entry
-departs along exactly three routes, the registry's own: a subframe is dropped
-as it navigates
-away (a main frame is left in place — its registration follows on the load), a
-closed tab's frames go with the tab, and the whole registry is cleared at
-record-start, ahead of the registry seed, and again on every record-stop path
-— a clear the recording-flag watch repeats when one of those routes
-transitions the flag, and runs alone when a writer outside them transitions
-it. Whichever route runs it, that whole-registry clear is the backstop: a
-frame that reaches neither the navigate-away drop nor the tab-close drop — a
-subframe destroyed with its parent's navigation, say, or removed from the DOM
-— keeps its entry until the next clear runs.
+**ECP-3.** Because actions arrive at the service worker as messages, the service worker validates every inbound `APPEND_ACTION` against an in-memory **active-frame registry** (tab → frames). A message MUST be accepted only when all three hold:
+
+- it comes from this extension;
+- a recording is live;
+- its (tab, frame) pair is present in the registry.
+
+Anything else — for example an embedded ad, analytics, or third-party widget that can reach the message port — is dropped.
+
+The registry is seeded from the browser's own frame table (`webNavigation.getAllFrames`) at record-start, and two further paths write it one frame at a time:
+
+- the on-load registration that follows each successful injection made as a frame finishes loading while recording;
+- each injected recorder's readiness beacon.
+
+Neither of the two is bounded by the set the seed targets — each writes the (tab, frame) pair its own event carries — so a tab that joins the recording after the seed ran is registered like any other.
+
+Because the registry is in-memory and the service worker can be suspended, a tab with no registry entry is also reseeded from the same frame table, in two cases:
+
+- lazily, when an append or a pointer-press report arrives from a tab with no registry entry at all (the missing-entry signature: a suspension is one cause, a clear whose seed does not re-cover that tab another), rather than false-rejecting a legitimate frame whose registration is gone;
+- ahead of a step commit and of a stop, for every tab the seed targets that has no registry entry, so the frames asked to end their typing include the tab typed into.
+
+An entry departs along exactly three routes, the registry's own:
+
+- a subframe is dropped as it navigates away (a main frame is left in place — its registration follows on the load);
+- a closed tab's frames go with the tab;
+- the whole registry is cleared at record-start, ahead of the registry seed, and again on every record-stop path — a clear the recording-flag watch repeats when record-start or a record-stop path transitions the flag, and runs alone when a writer outside those paths transitions it.
+
+Whichever route runs it, that whole-registry clear is the backstop: a frame that reaches neither the navigate-away drop nor the tab-close drop — a subframe destroyed with its parent's navigation, say, or removed from the DOM — keeps its entry until the next clear runs.
 
 Each injected recorder reports readiness back to the service worker with a
 `FRAME_READY` message rather than setting a page-visible flag — the recorder runs
@@ -430,41 +425,24 @@ detection and the redaction shape are the cross-platform rule
 The recorder masks the value of an entry it writes for such a field as well,
 by a copy of the shared patterns that a test holds equal to them.
 
-A `key` that enters a character names that character, so a character key
-pressed on a sensitive element with no shortcut modifier (ECP-6) is never
-stored as a `key`. The recorder tests the focused element itself, followed
-into shadow roots, and every shadow host the focus passes through on the way
-(a widget named as a one-time code whose cells carry no name), and writes the
-masked `type` of the innermost sensitive one in the key's place where the
-press entered no text; it does not name the key among the held keys
-of later actions either. The chokepoint applies the same rule to every `key`
-it is sent, as a second test: a key whose name is one character, `Space` or a
-dead key, with no shortcut modifier, on a sensitive element is stored as the
-element's masked `type`. A masked `type` that follows another on the same
-element is already recorded by it and is not stored again: typing into a
-sensitive field is one masked `type`, and no key name carries a character
-typed into it. A key that enters no character, and a shortcut, stays a `key`,
-as does a key on a control that takes no typed text (a link, a button, a
-`summary`, an `input` that holds no entry, or an element with a button, link,
-checkbox, radio, switch, tab or menu-item role: a checkbox named "Remember
-password" is ticked by its Space, not typed into), the rule the desktop keeps
-by its own control types (DCP-11). Under a sensitive shadow host the exception does not apply: a key
-pressed inside the host is recorded on the host, so a character key on a
-control inside it is the host's masked `type` too. A key of the numeric
-keypad pressed with Alt alone is treated as a character key on a sensitive
-element, though Alt makes a shortcut elsewhere: a run of such keys enters the
-character with that code.
-A list is no such control on either
-platform: a character pressed on a `select`, or on an element with the option
-role, picks the entry that starts with it, and is masked.
+A `key` that enters a character names that character, so a character key pressed on a sensitive element with no shortcut modifier (ECP-6) is never stored as a `key`. The recorder tests the focused element itself, followed into shadow roots, and every shadow host the focus passes through on the way (a widget named as a one-time code whose cells carry no name), and writes the masked `type` of the innermost sensitive one in the key's place where the press entered no text; it does not name the key among the held keys of later actions either.
 
-Locator candidates pass the chokepoint with one exception: the `text` strategy
-is value-derived, so its value is masked in place (`masked: true`) on
-sensitive elements; the derived `css` value is structural by construction —
-exactly ids, test attributes, tag names and positions — and carries no rendered
-text.
-(Which strategies are value-derived is declared per strategy by the schema's
-`x-value-derived` annotation — [locator-resolution §LR-24](../../../technical/locator-resolution.md).)
+The chokepoint applies the same rule to every `key` it is sent, as a second test: a key whose name is one character, `Space` or a dead key, with no shortcut modifier, on a sensitive element is stored as the element's masked `type`. A masked `type` that follows another on the same element is already recorded by it and is not stored again: typing into a sensitive field is one masked `type`, and no key name carries a character typed into it.
+
+A key that enters no character, and a shortcut, stays a `key`. A key of the numeric keypad pressed with Alt alone is treated as a character key on a sensitive element, though Alt makes a shortcut elsewhere: a run of such keys enters the character with that code.
+
+**The control exception.** A key on a control that takes no typed text stays a `key` too: a checkbox named "Remember password" is ticked by its Space, not typed into. The desktop keeps the same rule by its own control types (DCP-11). On the extension these are the controls that take no typed text, a closed list:
+
+- a link (an `a`), a `button` or a `summary`;
+- an `input` that holds no entry: one of type `button`, `checkbox`, `file`, `image`, `radio`, `reset` or `submit`;
+- an element with the role `button`, `checkbox`, `link`, `menuitem`, `menuitemcheckbox`, `menuitemradio`, `radio`, `switch` or `tab`.
+
+The control exception has two limits:
+
+- Under a sensitive shadow host it does not apply: a key pressed inside the host is recorded on the host, so a character key on a control inside it is the host's masked `type` too.
+- A list is no such control on either platform: a character pressed on a `select`, or on an element with the option role, picks the entry that starts with it, and is masked.
+
+Locator candidates pass the chokepoint with one exception: the value of a value-derived strategy is masked in place (`masked: true`) on sensitive elements. [Locator-resolution §LR-24](../../../technical/locator-resolution.md) is the home of which strategies are value-derived, declared per strategy by the schema's `x-value-derived` annotation.
 
 **ECP-10.** Captured URLs are redacted by query-parameter name — the
 **tokened-URL redaction** the [core rules](../../../architecture/system/capture-principles.md)

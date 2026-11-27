@@ -3,7 +3,8 @@
 //
 // Windows passes input on without a low-level hook that does not return
 // within the system's hook timeout, and, it is understood though not
-// verified, can remove the hook after that (DCP-1). A click lost before the hook and a click lost after it look the
+// verified, can remove the hook after that (the capture pipeline's pre-capture
+// section, "What the budget buys"). A click lost before the hook and a click lost after it look the
 // same in a recording; these counters tell them apart: how many left presses
 // and releases the hook was handed, how many clicks it dispatched, the
 // longest single hook call, the longest click pre-capture, and whether a hook
