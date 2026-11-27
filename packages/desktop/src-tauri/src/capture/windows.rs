@@ -125,6 +125,7 @@ enum BridgeMessage {
     /// press. FIFO-ordered among the keys sent.
     UnrecordedKey {
         layout: i64,
+        thread: u32,
         key_code: u32,
         held: u8,
     },
@@ -971,9 +972,10 @@ impl CaptureLayer for WindowsCapture {
                     BridgeMessage::TypingEnded => pool.end_typing(),
                     BridgeMessage::UnrecordedKey {
                         layout,
+                        thread,
                         key_code,
                         held,
-                    } => pool.unrecorded_key(layout, key_code, held),
+                    } => pool.unrecorded_key(layout, thread, key_code, held),
                     BridgeMessage::AccentWaitedAtStart { layout } => {
                         pool.accent_not_known_on(layout);
                     }
@@ -1583,15 +1585,15 @@ fn input_dropped_window_event(event: u32) {
 
 /// Tell the pool of a key that went down in a window the recording keeps
 /// nothing of ([`BridgeMessage::UnrecordedKey`]). The key can be a dead key,
-/// or take a waiting accent away, like any other, and Windows keeps one
-/// waiting accent a layout whichever window the keys go to: the typing worker
-/// takes the key into the accents that wait, so the next key recorded is
-/// named right. Nothing is written or logged for the key, and the worker
+/// or take a waiting accent away, like any other: the typing worker takes
+/// the key into the accents that wait, with the thread of the window it went
+/// to, so the next key recorded is named right or as not known. Nothing is written or logged for the key, and the worker
 /// keeps nothing of it but what waits afterwards.
 ///
 /// Called on the keyboard hook: one send, like a key's own.
 fn input_send_unrecorded_key(
     layout: i64,
+    thread: u32,
     key_code: u32,
     held: super::key_value::Held,
     system_may_take: bool,
@@ -1605,6 +1607,7 @@ fn input_send_unrecorded_key(
         if let Some(sender) = s.borrow().as_ref() {
             let _ = sender.send(BridgeMessage::UnrecordedKey {
                 layout,
+                thread,
                 key_code,
                 held: held.index() as u8 | system_may_take,
             });
@@ -2956,6 +2959,7 @@ unsafe extern "system" fn input_keyboard_ll_proc(
                 let (ctrl, shift, alt, _meta) = modifiers;
                 input_send_unrecorded_key(
                     keyboard_layout,
+                    thread_id,
                     kb_struct.vkCode,
                     super::key_value::Held {
                         shift,
@@ -4810,6 +4814,15 @@ impl AccessibilityBackend for WindowsAccessibilityBackend {
         process_id
     }
 
+    fn thread_of(&self, window_handle: i64) -> u32 {
+        if window_handle == 0 {
+            return 0;
+        }
+        // SAFETY: a read of the window system's own state; 0 for a window
+        // that is gone.
+        unsafe { GetWindowThreadProcessId(HWND(window_handle as *mut _), None) }
+    }
+
     /// A `WM_NULL` sent to the control's own window, which its thread
     /// answers once it is back at its message loop; a thread the system
     /// already counts as hung is not waited on at all.
@@ -5463,9 +5476,9 @@ mod tests {
                         let of = |a: char, b: char| Ok(list.of(a, b));
                         let dead_meets =
                             met_by_an_accent(as_held(dead_vk, dead_held), dead_vk, dead_held);
-                        accents.press(layout, dead_meets, of);
+                        accents.press(layout, 1, dead_meets, of);
                         let key = as_held(vk, held);
-                        let named = accents.press(layout, met_by_an_accent(key, vk, held), of);
+                        let named = accents.press(layout, 1, met_by_an_accent(key, vk, held), of);
                         let waits = accents.waiting_on(layout);
 
                         // The key is renamed where Windows enters one

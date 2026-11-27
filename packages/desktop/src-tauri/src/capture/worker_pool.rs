@@ -326,6 +326,8 @@ pub enum WorkerMessage {
     /// only.
     UnrecordedKey {
         layout: i64,
+        /// The thread of the window the key went to; `0` where unknown.
+        thread: u32,
         key_code: u32,
         held: u8,
     },
@@ -1012,11 +1014,12 @@ impl WorkerPool {
     /// ([`WorkerMessage::UnrecordedKey`]). It goes to the typing worker, one
     /// chosen now where none holds the role, so it is taken in the order
     /// pressed among the keys recorded.
-    pub fn unrecorded_key(&mut self, layout: i64, key_code: u32, held: u8) {
+    pub fn unrecorded_key(&mut self, layout: i64, thread: u32, key_code: u32, held: u8) {
         let index = self.typing_worker_index();
         if let Some(worker) = self.workers.get(index) {
             let _ = worker.sender.send(WorkerMessage::UnrecordedKey {
                 layout,
+                thread,
                 key_code,
                 held,
             });
@@ -1624,6 +1627,13 @@ pub trait AccessibilityBackend: Send + 'static {
         0
     }
 
+    /// The id of the thread that owns `window_handle`; `0` where unknown.
+    /// The key behind a dead key is named by what the two make only within
+    /// one thread ([`super::waiting_accents`]).
+    fn thread_of(&self, _window_handle: i64) -> u32 {
+        0
+    }
+
     /// Get the window title for a window handle.
     fn window_title(&self, window_handle: i64) -> String;
 
@@ -2074,6 +2084,7 @@ fn name_behind_waiting_accent<B: AccessibilityBackend>(
         return None;
     }
     let layout = raw.keyboard_layout;
+    let thread = backend.thread_of(raw.window_handle);
     let (ctrl, shift, alt, _meta) = raw.modifiers;
     let held = Held {
         shift,
@@ -2084,9 +2095,9 @@ fn name_behind_waiting_accent<B: AccessibilityBackend>(
     let meets = met_by_an_accent(as_held_of(raw.key_value), raw.key_code, held);
     let composed = |accent, base| backend.composed(layout, accent, base);
     let named = if super::scroll::system_takes_key(raw.key_code, raw.modifiers) {
-        accents.press_the_system_may_take(layout, meets, composed)
+        accents.press_the_system_may_take(layout, thread, meets, composed)
     } else {
-        accents.press(layout, meets, composed)
+        accents.press(layout, thread, meets, composed)
     };
     let value = match named {
         Named::AsPressed => None,
@@ -2115,6 +2126,7 @@ const fn is_shift_ctrl_or_alt(key_code: u32) -> bool {
 /// it but what waits afterwards.
 fn note_unrecorded_key<B: AccessibilityBackend>(
     layout: i64,
+    thread: u32,
     key_code: u32,
     held: u8,
     backend: &B,
@@ -2131,9 +2143,9 @@ fn note_unrecorded_key<B: AccessibilityBackend>(
     let meets = met_by_an_accent(as_held_of(value), key_code, held);
     let composed = |accent, base| backend.composed(layout, accent, base);
     let _ = if system_may_take {
-        accents.press_the_system_may_take(layout, meets, composed)
+        accents.press_the_system_may_take(layout, thread, meets, composed)
     } else {
-        accents.press(layout, meets, composed)
+        accents.press(layout, thread, meets, composed)
     };
 }
 
@@ -2546,12 +2558,20 @@ pub fn worker_loop<B: AccessibilityBackend>(
             }
             Ok(WorkerMessage::UnrecordedKey {
                 layout,
+                thread,
                 key_code,
                 held,
             }) => {
                 // One read of the layout's table; the buffers are not touched.
                 let taken = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    note_unrecorded_key(layout, key_code, held, &backend, &mut state.accents);
+                    note_unrecorded_key(
+                        layout,
+                        thread,
+                        key_code,
+                        held,
+                        &backend,
+                        &mut state.accents,
+                    );
                 }));
                 if taken.is_err() {
                     state.accents.forget();
@@ -2612,6 +2632,7 @@ pub fn worker_loop<B: AccessibilityBackend>(
                         // A key recorded can still follow in the queue.
                         WorkerMessage::UnrecordedKey {
                             layout,
+                            thread,
                             key_code,
                             held,
                         } => {
@@ -2619,6 +2640,7 @@ pub fn worker_loop<B: AccessibilityBackend>(
                                 std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                                     note_unrecorded_key(
                                         layout,
+                                        thread,
                                         key_code,
                                         held,
                                         &backend,
@@ -5918,12 +5940,20 @@ mod tests {
     /// The acute accent makes `é` with `e`, `Á` with `A` and itself with a
     /// space; the grave accent makes `è` with `e`.
     const PROBE_LAYOUT: i64 = 0x0409_0409;
+    /// The thread of the window the probe keys go to (the backend makes
+    /// each window a thread of its own).
+    const PROBE_THREAD: u32 = 42;
     const PROBE_DEAD_KEY: u32 = 0xDD;
     /// A key code the probe backend panics on when its layout is asked.
     const PROBE_PANICS: u32 = 0x87;
     const ACUTE: char = '\u{b4}';
 
     impl AccessibilityBackend for ProbeBackend {
+        /// Each window is a thread of its own.
+        fn thread_of(&self, window_handle: i64) -> u32 {
+            window_handle as u32
+        }
+
         fn key_value(
             &self,
             layout: i64,
@@ -6794,6 +6824,7 @@ mod tests {
         let mut state = WorkerState::new(Arc::new(NamedPresses::new()));
         note_unrecorded_key(
             PROBE_LAYOUT,
+            PROBE_THREAD,
             PROBE_DEAD_KEY,
             0,
             &backend,
@@ -6801,6 +6832,7 @@ mod tests {
         );
         note_unrecorded_key(
             PROBE_LAYOUT,
+            PROBE_THREAD,
             0x45,
             SYSTEM_MAY_TAKE,
             &backend,
@@ -6812,6 +6844,43 @@ mod tests {
         );
     }
 
+    /// docent#836: programs differ in whether an accent begun in one window
+    /// is used in another, so a key behind a dead key pressed in a window of
+    /// another thread is not known, recorded or not.
+    #[test]
+    fn regression_836_a_key_behind_a_dead_key_of_another_thread_is_not_known() {
+        let backend = probe();
+        let other_thread = PROBE_THREAD + 1;
+        // The dead key outside the recording, in another thread.
+        let mut state = WorkerState::new(Arc::new(NamedPresses::new()));
+        note_unrecorded_key(
+            PROBE_LAYOUT,
+            other_thread,
+            PROBE_DEAD_KEY,
+            0,
+            &backend,
+            &mut state.accents,
+        );
+        assert_eq!(
+            named_in(&mut state, &probe_key(0x45, false, 1)),
+            "Unidentified"
+        );
+        // The dead key recorded, the key behind it in another window.
+        let mut state = WorkerState::new(Arc::new(NamedPresses::new()));
+        assert_eq!(
+            named_in(&mut state, &probe_key(PROBE_DEAD_KEY, false, 1)),
+            "Dead"
+        );
+        let mut elsewhere = probe_key(0x45, false, 2);
+        elsewhere.window_handle = i64::from(other_thread);
+        assert_eq!(named_in(&mut state, &elsewhere), "Unidentified");
+        assert_eq!(
+            named_in(&mut state, &probe_key(0x45, false, 3)),
+            "Unidentified"
+        );
+        assert_eq!(named_in(&mut state, &probe_key(0x45, false, 4)), "e");
+    }
+
     #[test]
     fn regression_717_a_key_outside_the_recording_is_taken_into_the_accents_that_wait() {
         let backend = probe();
@@ -6820,6 +6889,7 @@ mod tests {
         let mut state = WorkerState::new(Arc::new(NamedPresses::new()));
         note_unrecorded_key(
             PROBE_LAYOUT,
+            PROBE_THREAD,
             PROBE_DEAD_KEY,
             0,
             &backend,
@@ -6832,7 +6902,14 @@ mod tests {
             named_in(&mut state, &probe_key(PROBE_DEAD_KEY, false, 1)),
             "Dead"
         );
-        note_unrecorded_key(PROBE_LAYOUT, 0x51, 0, &backend, &mut state.accents);
+        note_unrecorded_key(
+            PROBE_LAYOUT,
+            PROBE_THREAD,
+            0x51,
+            0,
+            &backend,
+            &mut state.accents,
+        );
         assert_eq!(named_in(&mut state, &probe_key(0x45, false, 2)), "e");
         // With Shift held there, the dead key is the grave accent.
         let shift = crate::capture::key_value::Held {
@@ -6842,6 +6919,7 @@ mod tests {
         let mut state = WorkerState::new(Arc::new(NamedPresses::new()));
         note_unrecorded_key(
             PROBE_LAYOUT,
+            PROBE_THREAD,
             PROBE_DEAD_KEY,
             shift.index() as u8,
             &backend,
@@ -6854,8 +6932,22 @@ mod tests {
             named_in(&mut state, &probe_key(PROBE_DEAD_KEY, false, 1)),
             "Dead"
         );
-        note_unrecorded_key(PROBE_LAYOUT, 0xA0, 0, &backend, &mut state.accents);
-        note_unrecorded_key(PROBE_LAYOUT, VK_PACKET, 0, &backend, &mut state.accents);
+        note_unrecorded_key(
+            PROBE_LAYOUT,
+            PROBE_THREAD,
+            0xA0,
+            0,
+            &backend,
+            &mut state.accents,
+        );
+        note_unrecorded_key(
+            PROBE_LAYOUT,
+            PROBE_THREAD,
+            VK_PACKET,
+            0,
+            &backend,
+            &mut state.accents,
+        );
         assert_eq!(named_in(&mut state, &probe_key(0x45, false, 2)), "é");
     }
 
@@ -6966,7 +7058,7 @@ mod tests {
         let (mut pool, rx) = pool_with_probe_backend(false, false);
         pool.dispatch(probe_key(PROBE_DEAD_KEY, false, 1));
         pool.dispatch(probe_key(0x45, false, 2));
-        pool.unrecorded_key(PROBE_LAYOUT, PROBE_DEAD_KEY, 0);
+        pool.unrecorded_key(PROBE_LAYOUT, PROBE_THREAD, PROBE_DEAD_KEY, 0);
         pool.dispatch(probe_key(0x45, false, 3));
         pool.dispatch(probe_key(0x45, false, 4));
         thread::sleep(Duration::from_millis(100));
