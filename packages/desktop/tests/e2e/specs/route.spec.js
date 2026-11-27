@@ -21,7 +21,7 @@ import {
   test,
   expect,
   bringToFront,
-  typeKeys,
+  sendInput,
   readWhenWritten,
   exportProject,
 } from '../helpers/desktop.js';
@@ -37,9 +37,9 @@ test('keys typed into Notepad land in the file its save dialog writes', async ({
   expect(notepad.pid).toBeTruthy();
   const file = join(freshDir(), 'typed.txt');
   bringToFront('notepad');
-  typeKeys([{ window: { process: 'notepad.exe' } }, { chars: 'keep aa' }, { key: 'ctrl+s' }]);
+  sendInput([{ window: { process: 'notepad.exe' } }, { chars: 'keep aa' }, { key: 'ctrl+s' }]);
   bringToFront('notepad', { dialog: true });
-  typeKeys([{ window: { process: 'notepad.exe' } }, { chars: file }, { key: 'enter' }]);
+  sendInput([{ window: { process: 'notepad.exe' } }, { chars: file }, { key: 'enter' }]);
   expect((await readWhenWritten(file)).replace(/^\uFEFF/, '')).toBe('keep aa');
 });
 
