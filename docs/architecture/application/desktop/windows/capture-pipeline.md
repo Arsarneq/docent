@@ -1,6 +1,6 @@
 # Capture Pipeline — Desktop Application
 
-How a Windows input event becomes a committed action: the delivery pipeline behind the desktop capture layer, its ordering and no-loss guarantees, and the shutdown doctrine. The binding contracts are the clauses in [capture principles](capture-principles.md): the thread roles (DCP-1), ordered insertion and the commit flush barrier (DCP-2), the worker delivery guarantees (DCP-12), the element of a keystroke (DCP-16) and typing (DCP-9, DCP-17, DCP-18, DCP-19). This document orients, and it holds the procedures those clauses cite: how the pre-capture budget is computed (DCP-1), how a worker tells the element of a keystroke (DCP-16), and what the keyboard hook reads at a key press and how a value read in time is told (DCP-17, DCP-18, DCP-19). [The capture seam](../capture-seam.md) documents the cross-platform boundary the pipeline sits behind.
+How a Windows input event becomes a committed action: the delivery pipeline behind the desktop capture layer, its ordering and no-loss guarantees, and the shutdown doctrine. The binding contracts are the clauses in [capture principles](capture-principles.md): the thread roles (DCP-1), ordered insertion and the commit flush barrier (DCP-2), the worker delivery guarantees (DCP-12), the element of a keystroke (DCP-16) and typing (DCP-9, DCP-17, DCP-18, DCP-19). This document orients, and it holds the procedures those clauses cite: how the pre-capture budget is computed (DCP-1), which worker an event reaches (DCP-12, DCP-21), how a worker tells the element of a keystroke (DCP-16), and what the keyboard hook reads at a key press and how a value read in time is told (DCP-17, DCP-18, DCP-19). [The capture seam](../capture-seam.md) documents the cross-platform boundary the pipeline sits behind.
 
 ---
 
@@ -58,18 +58,18 @@ budget = hook timeout − HOOK_WORK_MARGIN_MS
 
 ## Routing and ordering
 
-Every worker's queue is FIFO, and all workers share one action channel. So per-worker order is preserved end to end, and only cross-worker interleaving is unordered (the frontend's ordered insertion restores it). Dispatch places events so the per-worker state that judges them stays coherent (DCP-12):
+Every worker's queue is FIFO, and all workers share one action channel. So per-worker order is preserved end to end, and only cross-worker interleaving is unordered (the frontend's ordered insertion restores it). Dispatch places events so the per-worker state that judges them stays coherent (DCP-9, DCP-21):
 
-- **Typing worker.** Every keyboard and value-change event reaches one worker. So a value change is processed after the keystrokes that caused it, (DCP-9 holds what it supersedes).
+- **Typing worker.** Every keyboard and value-change event reaches one worker. So a value change is processed after the keystrokes that caused it (DCP-9 holds what it supersedes).
 - **End of typing.** An event that ends the typing in a field (a click, a drag, a window change) is routed like any other. The dispatcher tells the typing worker behind the events already sent to it, so the `type` that worker holds is written (DCP-9). A window the scope filters drop sends no event when it comes to the front; the input thread sends the bridge a typing-ended message in its place, and the dispatcher tells the typing worker the same way.
 - **A look at the focus.** When a capture starts, and behind each window change it dispatches, the dispatcher asks the typing worker to look at the control that holds the keyboard focus, choosing the typing worker if none holds the role yet. The look writes nothing; it makes the first key typed there find its control known. DCP-16 holds when it is skipped.
-- **Focus worker.** Every focus event reaches one worker, whatever window it names, so each focus is compared with the focus before it (DCP-12, DCP-13).
+- **Focus worker.** Every focus event reaches one worker, whatever window it names, so each focus is compared with the last focus that worker wrote (DCP-21).
 - **Sticky routing.** Selection events for the same window handle always reach the same worker, which processes them in order.
 - **Drag pairing.** A drop routes to the worker that took its drag start, so the pair is built from the same recorded source element.
 - **Double-click pairing.** A click that completes a double-click routes to the worker that took the click before it, so the file-dialog proxy reads the pair in order on one worker (DCP-6, DCP-10).
 - **Shortest queue.** Everything else goes to the least-loaded worker (ties to the lowest index).
 
-A worker found dead at dispatch (its channel disconnected) is respawned in place at the same index, and the event is retried on the fresh worker. Sticky affinities pointing at the dead index are cleared so later events re-route. The typing and focus workers stay that index. Each gives its role up only when it fails to answer a commit's flush barrier in time (DCP-12).
+A worker found dead at dispatch (its channel disconnected) is respawned in place at the same index, and the event is retried on the fresh worker. Sticky affinities pointing at the dead index are cleared so later events re-route. The typing and focus workers stay that index, so each role's events still go to one worker. Each gives its role up only when it fails to answer a commit's flush barrier in time. A role nobody holds goes, at the next event or look at the focus that needs it, to the worker with the shortest queue among those that did not miss the last barrier (a replacement counts as one that did not), or among all when every one missed (DCP-12 holds what that leaves of delivery).
 
 A respawned worker starts fresh: empty queue, empty dedup state, empty held buffers. The held buffers the dead worker leaves behind are **drained into the action stream before the replacement is installed**, so its completed actions survive the respawn. Per-event processing, where held actions are built, is panic-contained (the worker survives a poison event), so a worker death is rare to begin with. When one happens anyway, every path that encounters the body drains what it held:
 

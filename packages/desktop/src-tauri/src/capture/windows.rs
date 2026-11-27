@@ -444,7 +444,7 @@ thread_local! {
     static INPUT_PART_FOCUS: std::cell::RefCell<super::worker_pool::PartFocusNote> =
         std::cell::RefCell::new(super::worker_pool::PartFocusNote::default());
 
-    /// The contexts this capture session has introduced (DCP-7): an event in
+    /// The contexts this capture session has introduced (DCP-20): an event in
     /// a window not introduced yet has a foreground event dispatched before
     /// it. With them the root window of the last switch into the window in
     /// front, which deduplicates foreground events (click-based and
@@ -1445,7 +1445,7 @@ fn focus_epoch_advance_by_person() {
 
 /// Dispatch a `RawEvent` to the bridge thread, after the foreground event
 /// that introduces its window's context where the session has not introduced
-/// it (DCP-7, `ContextIntroductions`). Called from hook callbacks on the
+/// it (DCP-20, `ContextIntroductions`). Called from hook callbacks on the
 /// Input_Thread.
 fn input_dispatch_raw_event(event: RawEvent) {
     let root = input_root_of(event.window_handle);
