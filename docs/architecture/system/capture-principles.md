@@ -76,7 +76,7 @@ The classes are closed: a held fact left unwritten outside them is a defect.
 
 A key press that activates a control is a `key` on both platforms, and text typed into a field is that field's `type` on both.
 
-The desktop departs from the second half where it read the field's value after later keys were pressed. It does so in two ways, both departures the desktop capture document lists (DCP-9, DCP-13; [docent#762](https://github.com/Arsarneq/docent/issues/762)):
+The desktop departs from the second half where it read the field's value after later keys were pressed. It does so in two ways, both departures the desktop capture document lists (DCP-18; [docent#762](https://github.com/Arsarneq/docent/issues/762)):
 
 - the keys typed since the last value the desktop read in time are written as `key` actions after the field's `type`, or alone where it read none in time;
 - a key the value it took lacks, or text no key carries (a paste), can be in no action.

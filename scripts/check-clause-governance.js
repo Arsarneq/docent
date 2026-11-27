@@ -248,6 +248,18 @@ export const ALLOWLIST = new Map([
     'DCP-16\tdocs/architecture/application/desktop/windows/capture-pipeline.md',
     'the pipeline document is cited as the home of the procedure the clause links (how a worker tells the element of a keystroke); the worker-pool and control-look cases the same row names verify it, and an edit to the pipeline document takes its own disposition line, not the principles doc’s',
   ],
+  [
+    'DCP-17\tdocs/architecture/application/desktop/windows/capture-pipeline.md',
+    'the pipeline document is cited as the home of the procedure the clause links (how the layout is asked whether a key is a dead key); the worker-pool cases and the Windows backend’s in-module cases the same row names verify it, and an edit to the pipeline document takes its own disposition line, not the principles doc’s',
+  ],
+  [
+    'DCP-18\tdocs/architecture/application/desktop/windows/capture-pipeline.md',
+    'the pipeline document is cited as the home of the procedure the clause links (how key presses are numbered to tell a value read in time); the worker-pool cases and the pool’s in-module cases the same row names verify it, and an edit to the pipeline document takes its own disposition line, not the principles doc’s',
+  ],
+  [
+    'DCP-19\tdocs/architecture/application/desktop/windows/capture-pipeline.md',
+    'the pipeline document is cited as the home of the procedure the clause links (what the keyboard hook reads at a key press); the held-keys and worker-pool cases the same row names verify it, and an edit to the pipeline document takes its own disposition line, not the principles doc’s',
+  ],
   // Class 3 — format-authority echo surfaces. Each echoes the session-format
   // ordering clause and is held by the schema-echo check; what stays open is
   // only the governance edge, for the reason each entry states.
