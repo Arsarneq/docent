@@ -204,9 +204,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          # Full history so the release-output guard can diff against the PR
-          # base via merge-base (three-dot). Other steps don't need it but it's
-          # harmless.
+          # Full history: the release-output guard diffs against the PR base
+          # via merge-base (three-dot), and the clause-form step, the words
+          # report and the test-inventories step read files at the merge base.
           fetch-depth: 0
 
       - uses: ./.github/actions/debug-env
@@ -319,9 +319,19 @@ jobs:
       # header is the home of the closures it holds. It runs here, in the
       # always-on job, because the diff that stales one of them is often
       # docs-only, and a PR that sets none of the workflow's change flags —
-      # usually a docs-only one — skips every path-filtered test job.
+      # usually a docs-only one — skips every path-filtered test job. On a pull
+      # request the check is given the base branch the clause-form step
+      # fetched, and also lists each Covers cell that grew in place since it,
+      # in the log and in the job summary. That list does not fail the step:
+      # the pull request's reviewer answers it (docs/guides/docs-governance.md,
+      # Writing docs). A base branch the check cannot read does fail it.
       - name: Validate test-suite inventories, registration and kill sets
-        run: npm run lint:test-inventory
+        run: |
+          if [ -n "$GITHUB_BASE_REF" ]; then
+            npm run lint:test-inventory -- "origin/$GITHUB_BASE_REF"
+          else
+            npm run lint:test-inventory
+          fi
 
       # The verification documents state inventories of things that live
       # elsewhere, each held to the code constant, the manifest, the
