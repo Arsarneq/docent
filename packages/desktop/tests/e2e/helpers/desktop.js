@@ -17,7 +17,7 @@
  * with no Docent keys stored.
  */
 
-import { test as base, chromium } from '@playwright/test';
+import { test as base, chromium, expect } from '@playwright/test';
 import { spawn, spawnSync } from 'node:child_process';
 import {
   closeSync,
@@ -113,6 +113,7 @@ export async function launchApp({ logPath } = {}) {
     const panel = await waitForPanel(browser, 30_000);
     return {
       panel,
+      logPath,
       async close() {
         await browser.close().catch(() => {});
         killTree(child.pid);
@@ -124,6 +125,36 @@ export async function launchApp({ logPath } = {}) {
     rmSync(appData, { recursive: true, force: true, maxRetries: 5 });
     throw e;
   }
+}
+
+/** The capture timings lines in a log: those that start `capture-timings `. */
+function timingLines(logPath) {
+  if (!logPath || !existsSync(logPath)) return [];
+  return readFileSync(logPath, 'utf8')
+    .split(/\r?\n/)
+    .filter((line) => line.startsWith('capture-timings '));
+}
+
+/**
+ * Pauses the capture if it records, and returns the lines of the capture
+ * timings block the app writes to its log as the capture stops
+ * (docs/test/e2e/desktop.md, Running the suite). Throws when no new block
+ * comes within `timeoutMs`. A capture that does not record is left alone and
+ * gives no lines.
+ */
+export async function pauseCapture(app, { timeoutMs = 15_000 } = {}) {
+  const toggle = app.panel.locator('#btn-toggle-recording');
+  if (!((await toggle.textContent({ timeout: 2_000 })) ?? '').includes('Pause')) return [];
+  const before = timingLines(app.logPath).length;
+  await toggle.click();
+  await expect(toggle).toContainText('Resume');
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const lines = timingLines(app.logPath);
+    if (lines.length > before) return lines.slice(before);
+    await new Promise((r) => setTimeout(r, 200));
+  }
+  throw new Error(`no capture timings block in ${app.logPath} within ${timeoutMs} ms of Pause`);
 }
 
 /**

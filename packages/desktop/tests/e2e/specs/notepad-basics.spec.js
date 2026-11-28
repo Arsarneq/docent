@@ -23,7 +23,14 @@ import { copyFileSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { lintFile } from '../../../../../scripts/sufficiency-lint.js';
-import { test, expect, bringToFront, sendInput, exportProject } from '../helpers/desktop.js';
+import {
+  test,
+  expect,
+  bringToFront,
+  sendInput,
+  exportProject,
+  pauseCapture,
+} from '../helpers/desktop.js';
 
 const NOTEPAD = { window: { process: 'notepad.exe' } };
 
@@ -84,15 +91,18 @@ async function startRecording(panel, notepad, projectName) {
 }
 
 /**
- * Pauses (which drains every held action into the step, DCP-12), commits the
+ * Pauses (which drains every held action into the step, DCP-12, and writes
+ * the capture timings block, which must show the keys measured), commits the
  * step, exports the project and returns the export and the step's actions.
  * The export goes with the test's results, so a red run carries the file.
  */
 async function commitAndExport(app, narration, testInfo) {
   const { panel } = app;
   const file = join(mkdtempSync(join(tmpdir(), 'docent-e2e-')), 'smoke.docent.json');
-  await panel.click('#btn-toggle-recording');
-  await expect(panel.locator('#btn-toggle-recording')).toContainText('Resume');
+  // The fixture turns the capture timings on: the stop writes their block,
+  // and the keys typed were measured.
+  const timings = await pauseCapture(app);
+  expect(timings).toContainEqual(expect.stringMatching(/^capture-timings key total \d/));
   await panel.fill('#narration-input', narration);
   await expect(panel.locator('#btn-commit-step')).toBeEnabled();
   await panel.click('#btn-commit-step');
