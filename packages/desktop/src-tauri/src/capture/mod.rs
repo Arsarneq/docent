@@ -12,11 +12,15 @@ pub mod coordinate;
 pub mod element_mapping;
 pub mod held_keys;
 pub mod hook_diagnostics;
+pub mod key_value;
 pub mod language;
+pub mod layout_file;
 pub mod physical_key;
 pub mod pre_capture;
 pub mod scroll;
 pub mod timing;
+pub mod timing_lines;
+pub mod waiting_accents;
 pub mod worker_pool;
 
 #[cfg(target_os = "windows")]
@@ -96,6 +100,13 @@ pub trait CaptureLayer: Send + 'static {
     /// barrier that could not run marker-ordered recovers the held buffers by
     /// fallback drain and says so ([`BarrierCompletion`]).
     fn stop(&mut self) -> Result<BarrierReport, CaptureError>;
+
+    /// Measure the capture timings or not: not while a re-record is open.
+    /// Holds for the running capture and for every capture started after,
+    /// until told otherwise. A capture that measured at no time while it ran
+    /// writes no block. The default does nothing, for a backend that keeps
+    /// no timings.
+    fn set_timings_measuring(&mut self, _measuring: bool) {}
 
     /// Check if capture is currently active.
     fn is_active(&self) -> bool;
@@ -339,13 +350,17 @@ pub struct ElementDescription {
 // Keyboard modifiers
 // ---------------------------------------------------------------------------
 
-/// Modifier key state at the time of a keyboard action.
+/// The modifier keys held at an action, as its `modifiers` states them: AltGr
+/// as `alt_graph`, and `ctrl` and `alt` only for a Ctrl key and an Alt key
+/// the person held, never for the Ctrl and Alt Windows hands programs AltGr
+/// as.
 #[derive(Debug, Serialize, Clone, PartialEq, Eq)]
 pub struct Modifiers {
     pub ctrl: bool,
     pub shift: bool,
     pub alt: bool,
     pub meta: bool,
+    pub alt_graph: bool,
 }
 
 // ---------------------------------------------------------------------------
@@ -369,7 +384,8 @@ pub struct HeldKeysAtAction {
 
 /// What was read of the input method at a key press (see
 /// [`held_keys::InputMethodState`]), as a `key` action states it: two fields
-/// of the action itself, each left out of the file where it was not read.
+/// of the action itself, each left out of the file where it was not read,
+/// and one mark internal to the stream to the frontend (the last field).
 /// The conversion mode is never there without the open status.
 #[derive(Debug, Serialize, Clone, Copy, Default, PartialEq, Eq)]
 pub struct InputMethodAtKey {
@@ -380,6 +396,13 @@ pub struct InputMethodAtKey {
     /// The input method's conversion mode, the value the system gave.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub input_method_conversion_mode: Option<u32>,
+    /// Set where the key is written `Unidentified` for the input method and
+    /// is a key that enters no character. Like `sequence_id`, internal to
+    /// Rust↔frontend communication: the frontend's sensitive-field rule goes
+    /// by a key's name, which this action no longer states, and it drops the
+    /// field. It has no schema counterpart.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub key_enters_no_text: bool,
 }
 
 impl From<Option<held_keys::InputMethodState>> for InputMethodAtKey {
@@ -387,6 +410,7 @@ impl From<Option<held_keys::InputMethodState>> for InputMethodAtKey {
         Self {
             input_method_open: state.map(|s| s.open),
             input_method_conversion_mode: state.and_then(|s| s.conversion_mode),
+            key_enters_no_text: false,
         }
     }
 }

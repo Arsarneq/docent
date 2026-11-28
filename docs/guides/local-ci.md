@@ -86,6 +86,21 @@ What the answer means depends on the file:
 - **A file that is not itself a governing doc:** the docs the mode names are the ones your `## Docs disposition` lines are held to ([CONTRIBUTING § Docs Disposition and Change Record](../../.github/CONTRIBUTING.md#docs-disposition-and-change-record)).
 - **A governing doc** (one in an area's doc set, or a repo-wide doc): an edit to it owes that doc's own line alone, as the mode's output says. The docs the mode names for it are what code of its areas owes.
 
+### The base-branch modes
+
+The `lint` gates below read the pull request's base branch in CI and take it locally as an argument. Each also runs without it, and then holds its tabled checks only.
+
+```bash
+git fetch --no-tags origin main
+
+# also reds on a baseline entry the base branch's list does not hold, and
+# lists, without failing, each unit of a clause that grew
+npm run lint:clause-form -- origin/main
+
+# also lists, without failing, each Covers cell that grew in place
+npm run lint:test-inventory -- origin/main
+```
+
 ### PR title
 
 [`pr-title.yml`](../../.github/workflows/pr-title.yml) runs [`check-pr-title.js`](../../scripts/check-pr-title.js) with the title in `PR_TITLE`. Locally the script also accepts the title as an argument:
@@ -134,7 +149,7 @@ The Rust job, `cargo-mutants-desktop`, runs on `windows-latest`, so run it nativ
    cargo mutants --in-place
    ```
 
-`--in-place` is needed because the Tauri build reads `../dist`, which sits outside the cargo tree. The mutation scope comes from [`mutants.toml`](../../packages/desktop/src-tauri/.cargo/mutants.toml).
+`--in-place` is needed because the Tauri build reads `../dist`, which sits outside the cargo tree. CI splits this run into shards, one per runner; the command above runs every mutant in one go, and adding `--shard k/n` with the two numbers a shard's run summary heading states runs that shard alone. The mutation scope comes from [`mutants.toml`](../../packages/desktop/src-tauri/.cargo/mutants.toml).
 
 A gate reads the version above. The Job bounds and caches gate takes the first backticked version token after `cargo-mutants` in this subsection as that tool's Doc mention cell ([CI gates § What the caches key on](ci.md#what-the-caches-key-on)) and holds it to the pin the workflow states. Changing the version here alone, or removing its backticks, turns that gate red.
 
@@ -188,7 +203,7 @@ Three jobs, `desktop-rust-tests`, `desktop-vectors-produce` and `desktop-e2e-tes
 
 - **`desktop-rust-tests`:** `npm run test:desktop:rust`. The CI job adds clippy and the coverage split; the test suites are the content. The run also writes the corpus event dumps that `desktop-corpus-diff` consumes. For that job's verdict, follow with `npm run corpus:assemble:desktop` and `npm run corpus:check:desktop`.
 - **`desktop-vectors-produce` and `desktop-vectors-diff`:** `npm run vectors:check:desktop` runs the whole produce, assemble and diff sequence on one machine. CI splits it across a Windows producer and an ubuntu differ. The committed vector is baselined on the pinned `windows-2022` image, so a diff on another Windows version can be an OS difference and not a regression.
-- **`desktop-e2e-tests`:** on a Windows machine nobody is using (the suite takes over the keyboard), as a user with no Docent API keys stored and any installed Docent closed, build the app as the job does (`npm run sync-shared` and `npm run build:desktop-dist`, then `cargo build --release --features tauri/custom-protocol` in `packages/desktop/src-tauri`), run `npm ci` in `packages/desktop/tests/e2e`, then `npm run test:e2e:desktop`. [Its page](../test/e2e/desktop.md) says more.
+- **`desktop-e2e-tests`:** on a Windows machine nobody is using (the suite takes over the keyboard and the mouse), as a user with no Docent API keys stored and any installed Docent closed, build the app as the job does (`npm run sync-shared` and `npm run build:desktop-dist`, then `cargo build --release --features tauri/custom-protocol` in `packages/desktop/src-tauri`), run `npm ci` in `packages/desktop/tests/e2e`, then `npm run test:e2e:desktop`. [Its page](../test/e2e/desktop.md) says more.
 - **`desktop-cross-compile` (Windows leg):** from `packages/desktop/src-tauri`, run `cargo check --all-targets`, then `cargo clippy --all-targets -- -D warnings`.
 
 The Rust runs need the frontend dist directory to exist. Run `npm run build:desktop-dist`, or create an empty `packages/desktop/dist` (CI creates it empty).

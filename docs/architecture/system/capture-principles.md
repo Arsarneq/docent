@@ -50,52 +50,43 @@ outside the actions that functions as an action entry violates this rule.
 
 ## Recorded Facts
 
-**CP-18.** A recording carries the facts the capture layer observed, as it
-observed them. For every field the format has, the layer writes the fact it
-holds and makes no choice on behalf of whoever reads the recording or of the
-user whose work it records: it does not prune, rank or prefer among the facts
-it holds, save as the admission test below admits. Where a kind of fact has an unbounded solution space — a CSS
-selector, an accessibility tree path — one candidate is unavoidable; the layer
-then records the technically most stable candidate within that type, and the
-field's documentation discloses the selection. The field's documentation is
-the field's row in the session-format document, or the platform capture
-document that states a bound of its own. The admission test: a fact the layer
-observed about an action it records, for which the format has a field, MUST
-be written, save in exactly these classes — a fact a scope clause of this
-document leaves outside the recording (what a user action is and is not:
-CP-5, CP-6, the scroll floor of CP-16, and each platform's surface
-enumeration with its exceptions under CP-14 and CP-15, less an exception
-the list marks as a departure; what a proxy stands
-in for and records, at most one and never its cascades: CP-7 through CP-10;
-which contexts take an establishment entry: CP-17; the ambient context the
-format records: CP-3); a fact a masking clause masks, a marker keeping its place (CP-11,
-CP-12); a fact a limit the field's documentation discloses trims; one slot
-filled from several observed candidates by a rule the field's documentation
-discloses, where the format has no field for the unchosen candidates; and a
-field set a platform's capture document conditions on a capture mode. The
-classes are closed: a held fact left unwritten outside them is a defect.
+**CP-18.** A recording carries the facts the capture layer observed, as it observed them. For every field the format has, the layer writes the fact it holds and makes no choice on behalf of whoever reads the recording or of the user whose work it records: it does not prune, rank or prefer among the facts it holds, save as the admission test below admits. Where a kind of fact has an unbounded solution space — a CSS selector, an accessibility tree path — one candidate is unavoidable; the layer then records the technically most stable candidate within that type, and the field's documentation discloses the selection.
+
+The field's documentation is the field's row in the session-format document, or the platform capture document that states a bound of its own.
+
+The admission test: a fact the layer observed about an action it records, for which the format has a field, MUST be written, save in exactly these classes:
+
+- a fact a scope clause of this document leaves outside the recording. The scope clauses are these four groups:
+  - what a user action is and is not: CP-5, CP-6, the scroll floor of CP-16, and each platform's surface enumeration with its exceptions under CP-14 and CP-15, less an exception the list marks as a departure;
+  - what a proxy stands in for and records, at most one and never its cascades: CP-7 through CP-10;
+  - which contexts take an establishment entry: CP-17;
+  - the ambient context the format records: CP-3;
+- a fact a masking clause masks, a marker keeping its place (CP-11, CP-12);
+- a fact a limit the field's documentation discloses trims;
+- one slot filled from several observed candidates by a rule the field's documentation discloses, where the format has no field for the unchosen candidates;
+- a field set a platform's capture document conditions on a capture mode.
+
+The classes are closed: a held fact left unwritten outside them is a defect.
 
 ---
 
 ## One Recording Across Platforms
 
-**CP-19.** The same input is recorded the same way on every platform: the
-same action type, the same fields, the same values. A key press that activates
-a control is a `key` on both platforms; text typed into a field is that
-field's `type` on both, save where the desktop read the field's value after
-later keys were pressed: there the keys typed since the last value it read in
-time are written as `key` actions after the field's `type`, or alone where it
-read none in time, and a key the value it took lacks, or text no key carries
-(a paste), can be in no action, departures the desktop capture document
-lists (DCP-9, DCP-13;
-[docent#762](https://github.com/Arsarneq/docent/issues/762)). A difference between platforms is one of two kinds.
-One comes from the platforms themselves and is part of the format; the
-field's documentation states it. It is one of three, a closed list:
+**CP-19.** The same input is recorded the same way on every platform: the same action type, the same fields, the same values.
+
+A key press that activates a control is a `key` on both platforms, and text typed into a field is that field's `type` on both.
+
+The desktop departs from the second half where it read the field's value after later keys were pressed. It does so in two ways, both departures the desktop capture document lists (DCP-18; [docent#762](https://github.com/Arsarneq/docent/issues/762)):
+
+- the keys typed since the last value the desktop read in time are written as `key` actions after the field's `type`, or alone where it read none in time;
+- a key the value it took lacks, or text no key carries (a paste), can be in no action.
+
+A difference between platforms is one of two kinds. One comes from the platforms themselves and is part of the format; the field's documentation states it. It is one of three, a closed list:
 
 - an input the platform's own events never deliver to its capture layer,
   whatever the layer listens for;
 - a fact about an input that the platform's events do not carry and that no
-  interface of the platform lets the capture layer read at any moment from
+  interface open to the capture layer under CP-20 lets it read at any moment from
   the input until its action is written; the field's documentation also
   names the interface that is missing and what the layer tried. A fact the
   layer could have read at an earlier moment than the one it reads at is not
@@ -109,6 +100,16 @@ departure in the field's documentation or on the platform's exception list
 (CP-15), beside the issue that tracks its removal. A change MUST NOT add a
 departure: a change to what one platform records for an input the other
 platform's events also deliver MUST change the other with it.
+
+---
+
+## Observing From Outside
+
+**CP-20.** The capture layer observes a program and takes no part in it. What it does to a program it records is a closed list: it reads the events the platform delivers to a program that watches from outside, and it asks the questions the platform defines for such a watcher (the accessibility interface, a window message that reads a state). It MUST NOT do anything else to another program: loading code into one, starting a thread in one, writing into its memory, sending it input and sending it a message that changes it are all outside the list. On the desktop it therefore runs in Docent's own process alone. On the extension it runs where the browser places an extension's scripts, and there it MUST NOT change what the page does. Where a platform does more than the list today, that is a defect, stated on the platform's exception list with its tracking issue. A change MUST NOT add another.
+
+A fact that only code inside the program is told is therefore not read. The recording says it is not known, in the value the format has for that (a key whose meaning is not known is `Unidentified`), and the field's documentation states both what is not read and this clause as the reason.
+
+Two reasons hold the rule. What a program tells code inside it differs with how the program is built, so reading there is work that grows with every kind of program. And a tool that puts its code into other programs can break them and is what security software is set to stop, which costs the trust of the people and organizations that would install it.
 
 ---
 
@@ -175,28 +176,19 @@ of its fields: a classification derived from the browser's transition type.
 
 ## Context Establishment
 
-**CP-17.** A context's establishment is a context opened, or an existing
-context switched into, as the first change of context in a user action's causal
-chain (a close counting as a change of context, CP-8), or as a later change in
-that chain into a context first appearing there (session-format SF-10); any
-other later change in that chain,
-into a context the recording already introduced, such as the tab the browser
-activates after a close, is a cascade. Its entries are the establishment's
-`context_open` or `context_switch` and, for a context opened at a destination
-the opening action names (a link's target, for example), the navigation that
-loads it; for the first change in the chain, together they are the action's
-immediate effect (CP-8). They enter
-beside the action when it is captured directly, and as its one proxy (CP-9)
-otherwise; the entries of a context first appearing later in the chain enter in
-the same role beside them, never as a further proxy (CP-8). Whether the
-platform or the application's code opened the context does not change the
-entries: they record the context's existence for the actions that follow, never
-a second record of the action, and they are entries of the action stream in
-their own role under CP-2, not the recorded context CP-3 and CP-4 govern. A
-context that materializes with no user action behind it (a notification
-window, or one a page's own interval opens, for example) is an effect under
-CP-6 until a user action is taken in it, and that action establishes it
-(SF-10); a timer a user action armed does not cut the chain (CP-8).
+**CP-17.** A context opened, or an existing context switched into, in a user action's causal chain is either the context's establishment or a cascade. Its place among the chain's changes of context decides which (a close counts as a change of context, CP-8):
+
+| The change of context                                                                                                      | What it is    |
+| -------------------------------------------------------------------------------------------------------------------------- | ------------- |
+| The first in the chain                                                                                                     | Establishment |
+| A later one, into a context first appearing in the chain (session-format SF-10)                                            | Establishment |
+| Any other later one, into a context the recording already introduced (such as the tab the browser activates after a close) | Cascade       |
+
+An establishment's entries are its `context_open` or `context_switch` and, for a context opened at a destination the opening action names (a link's target, for example), the navigation that loads it; for the first change in the chain, together they are the action's immediate effect (CP-8). They enter beside the action when it is captured directly, and as its one proxy (CP-9) otherwise; the entries of a context first appearing later in the chain enter in the same role beside them, never as a further proxy (CP-8).
+
+Whether the platform or the application's code opened the context does not change the entries: they record the context's existence for the actions that follow, never a second record of the action, and they are entries of the action stream in their own role under CP-2, not the recorded context CP-3 and CP-4 govern.
+
+A context that materializes with no user action behind it (a notification window, or one a page's own interval opens, for example) is an effect under CP-6 until a user action is taken in it, and that action establishes it (SF-10); a timer a user action armed does not cut the chain (CP-8).
 
 ---
 

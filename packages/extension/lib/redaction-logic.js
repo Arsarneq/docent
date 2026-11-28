@@ -83,8 +83,10 @@ const ALT_ENTERS_CHARACTERS = /mac/i.test(globalThis.navigator?.platform ?? '');
  * `Space` or a dead key, and no shortcut modifier is held. Meta, Ctrl without
  * Alt, and Alt without Ctrl make a shortcut (Alt alone only where it enters no
  * characters); Ctrl and Alt together is AltGr, which enters characters of the
- * layout. The recorder's `keyPressKind` and `isShortcut` state the same rule
- * on the event, and the recorder applies it first: this is the second test.
+ * layout. `alt_graph` is not read: a key pressed with AltGr is judged by the
+ * Ctrl, Alt and Meta held with it (#825). The recorder's `keyPressKind` and
+ * `isShortcut` state the same rule on the event, and the recorder applies it
+ * first: this is the second test.
  *
  * The test reads the name the `key` action carries, so a change to how a key
  * is named (docent#717) has to keep it true for every key that enters a

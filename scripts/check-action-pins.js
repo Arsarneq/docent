@@ -14,11 +14,17 @@
  * read, which is what makes the pass sayable: the green line states how many
  * `uses:` references were found and across how many files, so a scan that
  * stopped matching cannot report "nothing unpinned" while having seen nothing.
- * Two shapes of that are refused outright, on this check's own exit code
+ * Three shapes of that are refused outright, on this check's own exit code
  * (exit 2), never as a pass and never as an unpinned action (exit 1): a file
- * list that names no file at all, and a file set carrying no `uses:` reference
- * between them. A single file without one is ordinary — many workflows have
- * none — so only the zero TOTAL is refused.
+ * list that names no file at all, a file set carrying no `uses:` reference
+ * between them, and a file set carrying no `codecov/codecov-action` step. A
+ * single file without one is ordinary — many workflows have none — so only the
+ * zero TOTAL is refused.
+ *
+ * The same read carries a second property: every `codecov/codecov-action` step
+ * states `fail_ci_if_error: true` in its `with:` mapping, so an upload that
+ * errors fails its job rather than leaving it green. Both properties are
+ * reported in one run; the check needs at least one such step to exist.
  *
  * Usage: node scripts/check-action-pins.js   # or: npm run check:action-pins
  */
@@ -72,6 +78,52 @@ export function isPinned(ref) {
   return SHA_RE.test(at === -1 ? '' : ref.slice(at + 1));
 }
 
+/** The action whose steps must state {@link FAIL_KEY}. */
+export const CODECOV_ACTION = 'codecov/codecov-action';
+/** The input that turns an upload error into a failed job. */
+export const FAIL_KEY = 'fail_ci_if_error';
+
+/**
+ * Every `codecov/codecov-action` step a file states, with the 1-based line of
+ * its `uses:` and whether its `with:` mapping states `fail_ci_if_error: true`. A step
+ * runs from the list dash that opens it to the next dash at that indent, or to
+ * the first non-blank line indented less.
+ * @param {string} text the file's text
+ * @returns {Array<{line: number, strict: boolean}>} the steps, in file order
+ */
+export function readCodecovSteps(text) {
+  const lines = text.split(/\r?\n/);
+  const indent = (l) => l.length - l.trimStart().length;
+  const strictRe = new RegExp(`^\\s*${FAIL_KEY}:\\s*(['"]?)true\\1\\s*(#.*)?$`);
+  const out = [];
+  for (const { line, ref } of readUses(text)) {
+    if (!ref.startsWith(`${CODECOV_ACTION}@`)) continue;
+    let start = line - 1;
+    while (start > 0 && !/^\s*-\s/.test(lines[start])) start--;
+    const dash = indent(lines[start]);
+    let end = start + 1;
+    while (
+      end < lines.length &&
+      (lines[end].trim() === '' ||
+        indent(lines[end]) > dash ||
+        (indent(lines[end]) === dash && !/^\s*-\s/.test(lines[end])))
+    ) {
+      end++;
+    }
+    const block = lines.slice(start, end);
+    const w = block.findIndex((l) => /^\s*with:\s*(#.*)?$/.test(l));
+    let strict = false;
+    if (w !== -1) {
+      for (let k = w + 1; k < block.length; k++) {
+        if (block[k].trim() !== '' && indent(block[k]) <= indent(block[w])) break;
+        if (strictRe.test(block[k])) strict = true;
+      }
+    }
+    out.push({ line, strict });
+  }
+  return out;
+}
+
 /**
  * Find `uses:` references in a workflow/action file that are NOT SHA-pinned.
  * Local refs (`./…`, `../…`) are exempt.
@@ -122,10 +174,11 @@ export function actionFiles() {
  * @param {object} seams the reads this audit is taken through
  * @param {(path: string) => string} seams.readFile repo-relative reader
  * @param {() => string[]} seams.listFiles returns the repo-relative files to scan
- * @returns {{ fileCount: number, useCount: number,
- *             unpinned: Array<{ file: string, line: number, ref: string }> }}
+ * @returns {{ fileCount: number, useCount: number, codecovCount: number,
+ *             unpinned: Array<{ file: string, line: number, ref: string }>,
+ *             lax: Array<{ file: string, line: number }> }}
  * @throws {InputError} when the listing names no file, or the files state no
- *   `uses:` reference between them
+ *   `uses:` reference or no codecov step between them
  */
 export function auditActions({ readFile, listFiles }) {
   const files = listFiles();
@@ -136,11 +189,17 @@ export function auditActions({ readFile, listFiles }) {
     );
   }
   const unpinned = [];
+  const lax = [];
   let useCount = 0;
+  let codecovCount = 0;
   for (const file of files) {
-    const uses = readUses(readFile(file));
+    const text = readFile(file);
+    const uses = readUses(text);
     useCount += uses.length;
     for (const use of uses) if (!isPinned(use.ref)) unpinned.push({ file, ...use });
+    const steps = readCodecovSteps(text);
+    codecovCount += steps.length;
+    for (const step of steps) if (!step.strict) lax.push({ file, line: step.line });
   }
   if (useCount === 0) {
     throw new InputError(
@@ -149,13 +208,21 @@ export function auditActions({ readFile, listFiles }) {
         `set carrying none is a read that found nothing rather than a tree with nothing to pin`,
     );
   }
-  return { fileCount: files.length, useCount, unpinned };
+  if (codecovCount === 0) {
+    throw new InputError(
+      `${files.length} file(s) under ${WORKFLOWS_ROOT}/ and ${ACTIONS_ROOT}/*/ state no ` +
+        `\`${CODECOV_ACTION}\` step — this check holds each such step to \`${FAIL_KEY}: true\`, ` +
+        `and a set carrying none is a read that found nothing`,
+    );
+  }
+  return { fileCount: files.length, useCount, unpinned, codecovCount, lax };
 }
 
 /* c8 ignore start -- CLI wrapper: the pure pieces above are unit-tested, and
- * each of the wrapper's three exit codes is pinned at the process boundary by a
+ * each of the wrapper's verdicts is pinned at the process boundary by a
  * spawned-CLI case in packages/shared/tests/unit — the committed tree's green,
- * the refusal, and an unpinned reference; this glue reads a tree and prints. */
+ * the refusals, an unpinned reference and a codecov step without the flag;
+ * this glue reads a tree and prints. */
 function run() {
   let audit;
   try {
@@ -174,19 +241,30 @@ function run() {
     );
     process.exit(2);
   }
-  if (audit.unpinned.length > 0) {
+  if (audit.unpinned.length > 0 || audit.lax.length > 0) {
     for (const { file, line, ref } of audit.unpinned) {
       console.error(`✗ ${file}:${line} — not SHA-pinned: ${ref}`);
     }
+    for (const { file, line } of audit.lax) {
+      console.error(`✗ ${file}:${line} — ${CODECOV_ACTION} step without ${FAIL_KEY}: true`);
+    }
     const n = audit.unpinned.length;
-    console.error(
-      `\n${n} unpinned action${n === 1 ? '' : 's'}. Pin each to a full 40-char ` +
-        `commit SHA with a trailing \`# version\` comment, e.g.\n` +
-        `  actions/checkout@<sha> # v6\n` +
-        `Resolve a tag's SHA with: git ls-remote https://github.com/<owner>/<repo> <tag>`,
-    );
+    if (n > 0) {
+      console.error(
+        `\n${n} unpinned action${n === 1 ? '' : 's'}. Pin each to a full 40-char ` +
+          `commit SHA with a trailing \`# version\` comment, e.g.\n` +
+          `  actions/checkout@<sha> # v6\n` +
+          `Resolve a tag's SHA with: git ls-remote https://github.com/<owner>/<repo> <tag>`,
+      );
+    }
+    if (audit.lax.length > 0) {
+      console.error(
+        `\nAn upload error must fail its job: add \`${FAIL_KEY}: true\` under the step's \`with:\`.`,
+      );
+    }
     process.exit(1);
   }
+  console.log(`✓ All ${audit.codecovCount} ${CODECOV_ACTION} step(s) state ${FAIL_KEY}: true.`);
   console.log(
     `✓ All ${audit.useCount} GitHub Actions \`uses:\` reference(s), read across ` +
       `${audit.fileCount} workflow and composite-action file(s), are pinned to a commit SHA.`,

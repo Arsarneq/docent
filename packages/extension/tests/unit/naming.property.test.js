@@ -45,6 +45,7 @@ const modifiersArb = fc.record({
   shift: fc.boolean(),
   alt: fc.boolean(),
   meta: fc.boolean(),
+  alt_graph: fc.boolean(),
 });
 
 /** Generates a content-script action (click, right_click, type, select, key, focus, drag_start, drop, scroll, file_upload, navigate). */

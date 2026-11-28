@@ -47,6 +47,7 @@ Windows.Win32.GetDlgItem
 Windows.Win32.GetDoubleClickTime
 Windows.Win32.GetForegroundWindow
 Windows.Win32.GetGUIThreadInfo
+Windows.Win32.GetKeyState
 Windows.Win32.GetKeyboardLayout
 Windows.Win32.GetKeyboardLayoutList
 Windows.Win32.GetMessageW
@@ -54,6 +55,7 @@ Windows.Win32.GetModuleFileNameExW
 Windows.Win32.GetOpenFileNameW
 Windows.Win32.GetParent
 Windows.Win32.GetSaveFileNameW
+Windows.Win32.GetSystemDirectoryW
 Windows.Win32.GetSystemMetrics
 Windows.Win32.GetUserPreferredUILanguages
 Windows.Win32.GetWindow
@@ -63,10 +65,13 @@ Windows.Win32.GetWindowTextW
 Windows.Win32.GetWindowThreadProcessId
 Windows.Win32.HHOOK
 Windows.Win32.HKEY_CURRENT_USER
+Windows.Win32.HKEY_LOCAL_MACHINE
 Windows.Win32.HKL
 Windows.Win32.HMENU
 Windows.Win32.HWINEVENTHOOK
 Windows.Win32.HWND
+Windows.Win32.INPUT
+Windows.Win32.INPUT_KEYBOARD
 Windows.Win32.INVALID_HANDLE_VALUE
 Windows.Win32.IRawElementProviderFragment
 Windows.Win32.IRawElementProviderFragmentRoot
@@ -79,13 +84,18 @@ Windows.Win32.IUIAutomationElementArray
 Windows.Win32.IUIAutomationSelectionPattern
 Windows.Win32.IUIAutomationTreeWalker
 Windows.Win32.ImmGetDefaultIMEWnd
+Windows.Win32.InternalGetWindowText
 Windows.Win32.IsWindow
 Windows.Win32.IsWindowVisible
 Windows.Win32.KBDLLHOOKSTRUCT
+Windows.Win32.KEYBDINPUT
+Windows.Win32.KEYEVENTF_KEYUP
+Windows.Win32.KEY_READ
 Windows.Win32.KLF_NOTELLSHELL
 Windows.Win32.LBS_NOTIFY
 Windows.Win32.LCIDToLocaleName
 Windows.Win32.LLKHF_EXTENDED
+Windows.Win32.LLKHF_INJECTED
 Windows.Win32.LOCALE_ALLOW_NEUTRAL_NAMES
 Windows.Win32.LOCALE_NAME_MAX_LENGTH
 Windows.Win32.LPARAM
@@ -124,7 +134,10 @@ Windows.Win32.ProviderOptions_UseComThreading
 Windows.Win32.RECT
 Windows.Win32.RRF_RT_REG_DWORD
 Windows.Win32.RRF_RT_REG_SZ
+Windows.Win32.RegCloseKey
+Windows.Win32.RegEnumKeyExW
 Windows.Win32.RegGetValueW
+Windows.Win32.RegOpenKeyExW
 Windows.Win32.RegisterClassW
 Windows.Win32.RtlGetVersion
 Windows.Win32.SAFEARRAY
@@ -145,6 +158,7 @@ Windows.Win32.SW_RESTORE
 Windows.Win32.SW_SHOW
 Windows.Win32.S_OK
 Windows.Win32.ScrollWindow
+Windows.Win32.SendInput
 Windows.Win32.SendMessageTimeoutW
 Windows.Win32.SendMessageW
 Windows.Win32.SetForegroundWindow

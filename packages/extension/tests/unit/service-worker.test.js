@@ -854,6 +854,36 @@ describe('SERVICE WORKER: a key that enters a character on a sensitive field is 
     );
   });
 
+  // docent#825: a character entered with AltGr is masked as before, and the
+  // masked `type` carries no `modifiers`, `alt_graph` among them.
+  it('regression_825_a_character_key_pressed_with_altgr_is_the_masked_type', () => {
+    for (const held of [
+      { ...none, alt_graph: true },
+      { ...none, ctrl: true, alt: true, alt_graph: true },
+      { ...none, shift: true, alt_graph: true },
+    ]) {
+      const out = redactSensitive(key('€', card(), held, 'KeyE'));
+      assert.equal(out.type, 'type', JSON.stringify(held));
+      assert.equal(out.value, MASK, JSON.stringify(held));
+      assert.equal('modifiers' in out, false, JSON.stringify(held));
+      assert.equal('code' in out, false, JSON.stringify(held));
+    }
+    // The verdict on each combination is the one without AltGr.
+    const either = [false, true];
+    for (const ctrl of either) {
+      for (const alt of either) {
+        for (const meta of either) {
+          const without = { ...none, ctrl, alt, meta };
+          assert.equal(
+            redactSensitive(key('€', card(), { ...without, alt_graph: true }, 'KeyE')).type,
+            redactSensitive(key('€', card(), without, 'KeyE')).type,
+            JSON.stringify(without),
+          );
+        }
+      }
+    }
+  });
+
   it('regression_702_a_key_on_a_control_that_takes_no_text_stays_a_key_whatever_it_is_named', () => {
     const controls = [
       { tag: 'BUTTON', name: 'show-password' },

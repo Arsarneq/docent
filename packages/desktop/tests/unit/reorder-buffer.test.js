@@ -285,10 +285,12 @@ describe('_insertOrdered redacts sensitive field values', () => {
   it('regression_noissue_text_keys_on_a_sensitive_field_are_one_masked_type', () => {
     // Keys typed into a card-number field that reports no value change were
     // stored as `key` actions; they are the field's one masked `type`.
-    ['4', '1', '1', 'Space', 'Numpad5', 'Add', 'Unidentified', 'VK_0x6C', 'VK_0xE2'].forEach(
-      (key, i) => insertOrdered(keyOn(cardField(), key, i + 1)),
+    // A character in either case, a space, a dead key, a key with no name
+    // and the key an input method took.
+    ['4', '1', 'a', 'A', 'Space', '+', '?', 'Dead', 'Unidentified', 'Process'].forEach((key, i) =>
+      insertOrdered(keyOn(cardField(), key, i + 1)),
     );
-    insertOrdered(keyOn(cardField(), '2', 10, { ctrl: true, alt: true })); // AltGr
+    insertOrdered(keyOn(cardField(), '€', 11, { ctrl: true, alt: true })); // AltGr
 
     assert.deepEqual(shape(), [`type ${SENSITIVE_MASK}`]);
     const actions = adapter.getPendingActions();
@@ -348,6 +350,37 @@ describe('_insertOrdered redacts sensitive field values', () => {
 
     assert.deepEqual(shape(), [`type ${SENSITIVE_MASK}`]);
     assert.equal('code' in adapter.getPendingActions()[0], false);
+  });
+
+  it('regression_237_a_key_unnamed_for_the_input_method_stays_a_key_where_it_enters_no_text', () => {
+    // A key pressed with an input method on is written `Unidentified`
+    // (docent#237). The native layer knows the key and says where it enters
+    // no character (`key_enters_no_text`, internal to this stream): that key
+    // stays a key on a sensitive field, and the mark is not stored. One
+    // without the mark counts as text, as every `Unidentified` does.
+    const unnamed = (seq, mark) => ({
+      ...keyOn(cardField(), 'Unidentified', seq),
+      input_method_open: true,
+      ...mark,
+    });
+    insertOrdered(unnamed(1, {}));
+    insertOrdered({ ...unnamed(2, { key_enters_no_text: true }), code: 'Enter' });
+
+    assert.deepEqual(shape(), [`type ${SENSITIVE_MASK}`, 'key Unidentified']);
+    const enter = adapter.getPendingActions()[1];
+    assert.equal(enter.code, 'Enter');
+    assert.equal(enter.input_method_open, true);
+    assert.equal('key_enters_no_text' in enter, false);
+    // Off a sensitive field the mark is dropped all the same.
+    adapter.clearPendingActions();
+    resetReorderState();
+    insertOrdered({
+      ...keyOn({ tag: 'Edit', name: 'Notes', selector: 'notes', text: null }, 'Unidentified', 1),
+      input_method_open: true,
+      key_enters_no_text: true,
+    });
+    stripSeqFields();
+    assert.equal('key_enters_no_text' in adapter.getPendingActions()[0], false);
   });
 
   it('regression_237_a_key_recorded_as_the_masked_type_carries_no_input_method_fields', () => {
@@ -520,15 +553,52 @@ describe('_insertOrdered redacts sensitive field values', () => {
     assert.deepEqual(shape(), [`type ${SENSITIVE_MASK}`, 'key Enter', `type ${SENSITIVE_MASK}`]);
   });
 
+  // Regression: #825 — AltGr is written as `alt_graph`, and `ctrl` and `alt`
+  // state only a Ctrl or an Alt held beside it. A character entered with AltGr
+  // and a held Ctrl or Alt is no shortcut: on a sensitive field it is the
+  // field's masked `type`, never a `key` naming the character.
+  // https://github.com/Arsarneq/docent/issues/825
+  it('regression_825_a_character_entered_with_altgr_on_a_sensitive_field_is_masked', () => {
+    insertOrdered(keyOn(cardField(), '\u20ac', 1, { alt_graph: true })); // AltGr
+    insertOrdered(keyOn(cardField(), '\u20ac', 2, { ctrl: true, alt_graph: true })); // Ctrl and AltGr
+    insertOrdered(keyOn(cardField(), '\u20ac', 3, { alt: true, alt_graph: true })); // Alt and AltGr
+    insertOrdered(keyOn(cardField(), '\u20ac', 4, { ctrl: true, alt: true })); // Ctrl and Alt
+    assert.deepEqual(shape(), [`type ${SENSITIVE_MASK}`]);
+  });
+
+  // Regression: #825 — the right Alt on a layout with no AltGr is a plain
+  // Alt, and Ctrl or Alt alone is a shortcut whatever `alt_graph` says.
+  // https://github.com/Arsarneq/docent/issues/825
+  it('regression_825_ctrl_or_alt_without_altgr_stays_a_shortcut_key', () => {
+    insertOrdered(keyOn(cardField(), 'v', 1, { ctrl: true, alt_graph: false }));
+    insertOrdered(keyOn(cardField(), 'f', 2, { alt: true, alt_graph: false }));
+    insertOrdered(keyOn(cardField(), 'd', 3, { meta: true, alt_graph: true }));
+    assert.deepEqual(shape(), ['key v', 'key f', 'key d']);
+  });
+
   it('keeps control keys and shortcuts on a sensitive field as keys', () => {
     insertOrdered(keyOn(cardField(), 'Enter', 1));
     insertOrdered(keyOn(cardField(), 'Backspace', 2));
-    insertOrdered(keyOn(cardField(), 'V', 3, { ctrl: true }));
-    insertOrdered(keyOn(cardField(), 'F', 4, { alt: true }));
-    insertOrdered(keyOn(cardField(), 'D', 5, { meta: true }));
+    insertOrdered(keyOn(cardField(), 'v', 3, { ctrl: true }));
+    insertOrdered(keyOn(cardField(), 'f', 4, { alt: true }));
+    insertOrdered(keyOn(cardField(), 'd', 5, { meta: true }));
     insertOrdered(keyOn(cardField(), 'F5', 6));
+    // A key with a name of its own enters no character.
+    insertOrdered(keyOn(cardField(), 'ContextMenu', 7));
+    insertOrdered(keyOn(cardField(), 'AudioVolumeUp', 8));
+    insertOrdered(keyOn(cardField(), 'Clear', 9));
 
-    assert.deepEqual(shape(), ['key Enter', 'key Backspace', 'key V', 'key F', 'key D', 'key F5']);
+    assert.deepEqual(shape(), [
+      'key Enter',
+      'key Backspace',
+      'key v',
+      'key f',
+      'key d',
+      'key F5',
+      'key ContextMenu',
+      'key AudioVolumeUp',
+      'key Clear',
+    ]);
   });
 
   it('keeps a second typing run when the click between the runs arrives late', () => {

@@ -656,6 +656,26 @@
   }
 
   /**
+   * The modifiers held at a trusted key, mouse or drag event (#239), each as the
+   * event reports it; `alt_graph` is the browser's AltGraph state (#825).
+   * Whether a key is a shortcut is read from Ctrl, Alt and Meta alone
+   * (`isShortcut`).
+   *
+   * @param {{ctrlKey: boolean, shiftKey: boolean, altKey: boolean, metaKey: boolean,
+   *   getModifierState(key: string): boolean}} e — the event
+   * @returns {{ctrl: boolean, shift: boolean, alt: boolean, meta: boolean, alt_graph: boolean}}
+   */
+  function modifiersOf(e) {
+    return {
+      ctrl: e.ctrlKey,
+      shift: e.shiftKey,
+      alt: e.altKey,
+      meta: e.metaKey,
+      alt_graph: e.getModifierState('AltGraph'),
+    };
+  }
+
+  /**
    * The `autocomplete` tokens and the name pattern of a sensitive element: a
    * copy of the shared rule's (`shared/lib/field-sensitivity.js`), which a
    * content script cannot import. A test holds the two equal.
@@ -944,7 +964,8 @@
   //   Made the `key` it was (written with the time of the press) by whichever
   //   of these comes first:
   //     - the timer task after the press's `keypress` (the browser enters a
-  //       key's text while it handles that event);
+  //       key's text while it handles that event), for the presses that
+  //       waited at that `keypress`;
   //     - the key's release, or the release of any key;
   //     - the next key press;
   //     - a pointer action, or any other action written in a later task;
@@ -1417,13 +1438,6 @@
     noteEntryMadeAgain(field);
   }
 
-  /** The modifiers held at a trusted key, mouse or drag event (#239). */
-  const modifiersOf = (e) => ({
-    ctrl: e.ctrlKey,
-    shift: e.shiftKey,
-    alt: e.altKey,
-    meta: e.metaKey,
-  });
   let lastTabKeyTimestamp = 0;
   let lastSelectTimestamp = 0;
   let lastFileInputClickEl = null;
@@ -1826,10 +1840,18 @@
       if (pressedKeysDown.has(e.code)) markKeyEvent();
       // The browser enters a key's text while it handles this event. A press
       // still waiting once that is over entered none: the next timer task
-      // comes after it, whether or not the key is released.
+      // comes after it, whether or not the key is released. The browser can
+      // hand over the next key presses ahead of that task, so it settles the
+      // presses that wait now and leaves a later one waiting (#789).
       if (pendingKeys.some((press) => !press.byParts)) {
+        const waitingNow = new Set(pendingKeys);
         setTimeout(() => {
-          if (active) resolvePendingKeys(waitsForMore);
+          if (!active) return;
+          resolvePendingKeys((press, at, all) => {
+            if (!waitingNow.has(press)) return true;
+            const waitedThen = all.filter((other) => waitingNow.has(other));
+            return waitsForMore(press, waitedThen.indexOf(press), waitedThen);
+          });
         }, 0);
       }
     },

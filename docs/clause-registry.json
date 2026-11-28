@@ -160,7 +160,13 @@
       "doc": "docs/architecture/system/capture-principles.md",
       "clause": "CP-19",
       "tag": "judgment-only",
-      "justification": "Judgment at review: whether a change to what one platform records leaves the other platform recording the same input differently reads both platforms' capture paths side by side, and whether a remaining difference comes from the platforms themselves (an input one platform's events never deliver, a fact no interface of the platform lets the layer read at any moment from the input until its action is written, with the missing interface and what was tried named, a quantity that is each platform's own) or is a departure is a reading no check decides. The platforms' capture documents and the session-format rows state the departures, each beside its issue, and the review reads a change against them: a difference they do not state is a new departure."
+      "justification": "Judgment at review: whether a change to what one platform records leaves the other platform recording the same input differently reads both platforms' capture paths side by side, and whether a remaining difference comes from the platforms themselves (an input one platform's events never deliver, a fact no interface open to the layer under CP-20 lets it read at any moment from the input until its action is written, with the missing interface and what was tried named, a quantity that is each platform's own) or is a departure is a reading no check decides. The platforms' capture documents and the session-format rows state the departures, each beside its issue, and the review reads a change against them: a difference they do not state is a new departure."
+    },
+    {
+      "doc": "docs/architecture/system/capture-principles.md",
+      "clause": "CP-20",
+      "tag": "check-exists",
+      "check-ref": "The desktop half is pinned by packages/desktop/src-tauri/tests/passive_observer_test.rs, which reads the Rust source of the desktop application for the calls it lists and fails on any of three things: a listed call that loads code into another process, starts a thread in one, writes into its memory, or ends, suspends or attaches a debugger to it, anywhere in the source, or one that sends input or changes a window, in the application's own code (the generated bindings and the test modules hold those for the tests); a Windows hook set with any kind but the two low-level ones, which run in Docent's own process; and an event hook asked to run in the watched program's process. The extension half is pinned by packages/extension/tests/unit/passive-observer.test.js, which holds that the recorder is the only script placed in a page and fails on a listed call or assignment in it that cancels or stops a page's event or writes to the page, outside the one defect ECP-12 lists. Both tests look for the names on their lists: an act the lists do not name, and whether a message the desktop sends another program only reads a state, are judged at review."
     },
     {
       "doc": "docs/technical/locator-resolution.md",
@@ -480,7 +486,7 @@
       "doc": "docs/architecture/application/extension/capture-principles.md",
       "clause": "ECP-9",
       "tag": "check-exists",
-      "check-ref": "The corpus redaction session verifies mask + text-null + redacted end-to-end (npm run corpus:check); the shared detection util is unit-tested (npm run test:shared); scripts/sufficiency-lint.js enforces the locator masking half."
+      "check-ref": "The corpus redaction session verifies mask + text-null + redacted end-to-end (npm run corpus:check); the shared detection util is unit-tested (npm run test:shared); scripts/sufficiency-lint.js enforces the locator masking half. That the recorder's logic and the service worker hold the same lists of controls that take no typed text, and agree on every such control, is pinned by the takesNoTypedText cases (packages/extension/tests/unit/recorder-logic.test.js, which reads packages/extension/content/recorder-logic.js); that packages/extension/content/recorder.js mirrors that file is held by packages/extension/tests/unit/recorder-mirror-parity.test.js; both run via npm run test:unit. That the closed list this clause prints equals those lists (NON_TEXT_TAGS, NON_TEXT_ROLES and NON_ENTRY_INPUT_TYPES) is checked by no test: the reviewer of any pull request that changes one of the code lists or this clause compares the printed list with them and records the outcome in that pull request's change record. The step passes when the printed list and the three code lists name the same members; a difference is a finding of that review. A test that parses this clause's list and compares it with the arrays would make it checkable."
     },
     {
       "doc": "docs/architecture/application/extension/capture-principles.md",
@@ -498,7 +504,147 @@
       "doc": "docs/architecture/application/extension/capture-principles.md",
       "clause": "ECP-12",
       "tag": "judgment-only",
-      "justification": "Whether a proposed entry meets the exceptions admission test hoisted to core CP-15 — the surface description alone would mislead without it — is judgment at review. On the close side of a listed entry, packages/extension/tests/e2e/specs/registry-departures.spec.js exercises both of that entry's conjuncts: with the close held inside the timing window it varies the membership — the proxy suppressed with the set membership present, appended with it lost — and with the membership held planted it varies the window, a close landing past the recent-action window appending the proxy that same membership suppresses inside it; the tab-creation side is exercised by the service-worker message-protocol suite the end-to-end suite document lists. That is evidence about the listed entries, not about admitting a new one, so the admission judgment above stands as stated."
+      "justification": "Whether a proposed entry meets the exceptions admission test hoisted to core CP-15 — the surface description alone would mislead without it — is judgment at review. The reviewer of a pull request that adds or changes an entry makes it and records the outcome in that pull request's change record; the step passes when no finding on the entry is open. On the close side of a listed entry, packages/extension/tests/e2e/specs/registry-departures.spec.js exercises both of that entry's conjuncts: with the close held inside the timing window it varies the membership — the proxy suppressed with the set membership present, appended with it lost — and with the membership held planted it varies the window, a close landing past the recent-action window appending the proxy that same membership suppresses inside it; the tab-creation side is exercised by the service-worker message-protocol suite the end-to-end suite document lists. That is evidence about the listed entries, not about admitting a new one, so the admission judgment above stands as stated."
+    },
+    {
+      "doc": "docs/architecture/application/extension/capture-principles.md",
+      "clause": "ECP-13",
+      "tag": "check-exists",
+      "check-ref": "The cases named here (packages/extension/tests/e2e/specs/keyboard.spec.js and packages/extension/tests/e2e/specs/end-of-typing.spec.js; npm run test:e2e) pin the rows of the clause's table in a real browser: nothing for a press of Shift, Ctrl or Alt with no other key held, for a key the input method takes and for a key pressed while a composition is open; the key for a letter on a button, a shortcut in a field and a letter in a field that takes no text; the text and no key where the browser enters it, where the page enters it and in the field the page moved the focus to; the key where no text follows, written ahead of the action after it; the digits of a date field as text, as keys at a press of another kind, and as keys when the window loses the focus, when the page is left, at a stop and at a step commit; a space in a date field; a character key in a password field; and each repeated press with its mark. Which presses are which kind is pinned by the keyPressKind, isShortcut, mayTakeText and takesTextByParts cases of packages/extension/tests/unit/recorder-logic.test.js (npm run test:unit), which reads packages/extension/content/recorder-logic.js; that packages/extension/content/recorder.js mirrors that file is held by packages/extension/tests/unit/recorder-mirror-parity.test.js. Checked by no case named here, both in packages/extension/content/recorder.js: that a press of AltGr writes nothing, and that a press of Shift, Ctrl or Alt writes nothing while another key is held; and that a key of the table's last row is written when the window loses the focus, when the page is left, at a stop and at a step commit (the cases for those ends type into a date field); and the keys of a date field ended by a pointer press or by another action written. The reviewer of any pull request that changes that code or this clause reads the one against the other and records the outcome in that pull request's change record. The step passes when the code does what the clause states; a difference is a finding of that review.",
+      "test-cases": [
+        "regression_702_a_modifier_pressed_alone_writes_nothing",
+        "regression_702_a_key_the_input_method_takes_writes_no_key",
+        "regression_702_a_key_pressed_while_a_composition_is_open_writes_no_key",
+        "regression_702_a_letter_on_a_button_is_a_key",
+        "regression_702_ctrl_a_in_a_text_field_is_a_key_with_its_modifier",
+        "regression_702_a_letter_in_a_field_that_takes_no_text_is_a_key",
+        "regression_702_a_letter_typed_into_a_field_is_text_and_no_key",
+        "regression_702_text_typed_into_a_textarea_and_into_editable_content_is_no_key",
+        "regression_702_digits_a_page_cancels_and_enters_itself_are_the_field_s_text",
+        "regression_702_text_that_lands_in_the_field_the_page_moved_the_focus_to_is_no_key",
+        "regression_702_a_key_that_took_no_text_is_written_while_it_is_still_down",
+        "regression_702_a_key_that_took_no_text_is_written_ahead_of_the_action_after_it",
+        "regression_702_keys_that_wait_are_written_when_the_window_loses_the_focus",
+        "regression_702_a_key_still_waiting_is_written_when_the_page_is_left",
+        "keys_still_waiting_to_be_known_as_text_are_written_at_the_stop",
+        "keys_still_waiting_to_be_known_as_text_are_written_into_the_step_committed",
+        "regression_702_digits_typed_into_a_date_field_are_its_text_and_no_key",
+        "regression_702_digits_that_gave_a_date_field_no_value_are_keys",
+        "regression_695_space_on_a_date_field_is_a_key",
+        "regression_702_a_key_typed_into_a_password_field_is_never_a_key",
+        "regression_695_held_space_writes_each_press_with_its_repeat_flag"
+      ]
+    },
+    {
+      "doc": "docs/architecture/application/extension/capture-principles.md",
+      "clause": "ECP-14",
+      "tag": "check-exists",
+      "check-ref": "The cases named here (packages/extension/tests/e2e/specs/keyboard.spec.js; npm run test:e2e) pin the first two rows of the clause's table in a real browser: a dead key as text when a character follows it into the field and as a key otherwise; a dead key as a key where the key behind it changes the field or enters text in another field; and a dead key and a key that enters nothing written as keys in the order pressed. Three more groups of cases in that file have titles built per kind of field, which this row cannot name one by one: the titles that begin regression_769_a_dead_key_whose_accent_is_entered_with_the_next_key_is_text_in, regression_769_text_in_editable_content_is_read_at_the_press_of_the_key_behind_a_dead_key_on and regression_769_text_in_editable_content_stands_ahead_of_a_dead_key_and_the_key_behind_it_on. They pin the bare accent entered with a key that enters no character, and the text of editable content standing ahead of the dead key and the key behind it. Checked by no case named here, both in packages/extension/content/recorder.js: the table's third row, that a press of Shift, Ctrl, Alt or AltGr, with another key held or not, and a key the input method takes leave the dead key to the press after them; and its fourth row, a dead key with no key behind it written as a key at a pointer press, at any other action written, at the window losing the focus, at the page being left, at a step commit and at a stop. The reviewer of any pull request that changes that code or this clause reads the one against the other and records the outcome in that pull request's change record. The step passes when the code does what the clause states; a difference is a finding of that review.",
+      "test-cases": [
+        "regression_702_a_dead_key_is_a_key_unless_a_character_follows_it_into_the_field",
+        "regression_789_a_dead_key_pressed_before_the_timer_of_the_key_before_it_is_text",
+        "a_dead_key_is_a_key_where_the_key_behind_it_changes_the_field_or_enters_text_elsewhere",
+        "a_dead_key_and_a_key_that_enters_nothing_are_keys_in_the_order_pressed"
+      ]
+    },
+    {
+      "doc": "docs/architecture/application/extension/capture-principles.md",
+      "clause": "ECP-15",
+      "tag": "check-exists",
+      "check-ref": "The cases named here (packages/extension/tests/e2e/specs/keyboard.spec.js, packages/extension/tests/e2e/specs/end-of-typing.spec.js and packages/extension/tests/e2e/specs/recorder-coverage.spec.js; npm run test:e2e) pin in a real browser: one type for text typed again over itself or after an undo, pasted over itself, and entered by a key the input method took (composed text is pinned by the cases the ECP-16 row names); no type for a key that entered no text and for a value the page sets; the type written ahead of Enter and of Tab, once; the type written when the field loses the focus; a pointer press that ends the typing in the element, in the field being typed into, where it leaves the focus in the host, and from the parent page for a frame's host and field; and the type written into the step committed and at a stop, and not again when the field then loses the focus. That the worker waits no longer than its bound for a frame that never answers, at a step commit and at a press, is pinned by the two cases named here from packages/extension/tests/unit/service-worker.test.js (npm run test:unit); that the bound (END_TYPING_BOUND in packages/extension/lib/capture-timing.js) is the 500 ms ECP-12 states is checked by no case, and is read at the review step below. Checked by no case named here: that typing beginning in another host ends the typing in the one before, in packages/extension/content/recorder.js. The reviewer of any pull request that changes that code, END_TYPING_BOUND, this clause or the ECP-12 item that states the 500 ms reads the one against the other and records the outcome in that pull request's change record. The step passes when the code does what the clause states; a difference is a finding of that review.",
+      "test-cases": [
+        "regression_736_the_same_text_typed_over_itself_is_written_again",
+        "regression_736_a_value_typed_undone_and_typed_again_is_written_again",
+        "regression_751_the_same_text_pasted_over_itself_is_written_again",
+        "regression_744_text_a_taken_key_enters_with_no_composition_is_an_entry",
+        "regression_744_a_taken_key_counts_until_the_next_key_press_in_the_field",
+        "regression_736_a_key_that_entered_no_text_makes_no_new_entry",
+        "regression_703_a_value_the_page_sets_is_not_written_as_an_entry",
+        "regression_703_text_typed_before_Enter_is_written_before_the_Enter",
+        "regression_703_text_typed_before_Tab_is_written_before_the_Tab",
+        "regression_703_an_entry_is_written_once_when_the_field_is_left_afterwards",
+        "regression_703_a_key_pressed_with_no_entry_before_it_writes_no_type",
+        "regression_736_text_typed_again_is_written_when_the_field_loses_the_focus",
+        "a_pointer_press_in_the_element_ends_the_entry",
+        "a_pointer_press_in_the_field_being_typed_into_ends_its_entry",
+        "a_pointer_press_that_leaves_the_focus_in_the_host_ends_its_entry",
+        "a_press_in_the_parent_page_ends_the_typing_in_an_iframe_host",
+        "a_press_in_the_parent_page_ends_the_typing_in_an_iframe_field",
+        "a_field_entry_still_in_focus_is_written_into_the_step_committed",
+        "an_editable_entry_still_in_focus_is_written_into_the_step_committed",
+        "the_entry_written_at_the_commit_is_not_written_again_when_the_field_loses_the_focus",
+        "an_entry_still_in_focus_is_written_at_the_stop",
+        "a step commit does not wait past the bound for a frame that never answers",
+        "what the pressing frame writes next waits no longer than the bound for a frame that never answers"
+      ]
+    },
+    {
+      "doc": "docs/architecture/application/extension/capture-principles.md",
+      "clause": "ECP-16",
+      "tag": "check-exists",
+      "check-ref": "The cases named here (packages/extension/tests/e2e/specs/keyboard.spec.js; npm run test:e2e) pin the rows of the clause's table in a real browser, with composition events the test sends through the browser's own input interface: a composition that enters text and writes no key; a composition given up; composing text a page removes, written as the field's type ahead of the next key; text still being composed at a pointer press, written once; text written while composed and then confirmed as it was, composed further, composed on and back, and given up; and composed text equal to the type written before. The case of a composition end a page sends, taken back, pins the row of text the person removes. Outside the table they pin the clause's last paragraph (a composition that ends while the recording is off, and a recording that begins inside one) and that composition events a page sends make no type. Checked by no case named here: that a real input method's events arrive as the test sends them. The author of a pull request that changes the composition handling in packages/extension/content/recorder.js runs one composition by hand with an input method of the system and records the run in that pull request's change record. The run passes when the composed text is one type and no key of the composition is written.",
+      "test-cases": [
+        "regression_702_text_a_composition_enters_writes_no_key",
+        "regression_736_a_composition_given_up_makes_no_entry",
+        "regression_736_text_still_being_composed_at_a_pointer_press_is_written_once",
+        "regression_736_text_written_while_being_composed_is_no_new_entry_when_confirmed_as_it_was",
+        "regression_736_text_written_while_being_composed_and_composed_further_is_a_new_entry",
+        "regression_744_composed_text_equal_to_the_entry_written_before_is_written_again",
+        "regression_744_a_composition_that_ends_while_the_recording_is_off_is_forgotten",
+        "regression_744_a_recording_that_begins_inside_a_composition_takes_its_text",
+        "regression_744_composition_events_a_page_sends_make_no_entry",
+        "regression_744_a_composition_end_a_page_sends_is_taken_back_when_the_text_is_then_removed",
+        "regression_744_text_written_while_composed_then_composed_on_and_back_is_a_new_entry",
+        "regression_744_text_written_while_composed_then_given_up_leaves_a_new_entry",
+        "regression_744_composing_text_a_page_removes_is_an_entry_ahead_of_the_next_key"
+      ]
+    },
+    {
+      "doc": "docs/architecture/application/extension/capture-principles.md",
+      "clause": "ECP-17",
+      "tag": "check-exists",
+      "check-ref": "The clause states no rule of its own: the cases named here (packages/extension/tests/e2e/specs/interactions.spec.js and packages/extension/tests/e2e/specs/keyboard.spec.js; npm run test:e2e) pin the extension's side of the session format's click and right_click rows, and of the ECP-12 items on clicks and right-clicks, in a real browser: the right-click written at the press of the button, once when the menu request follows, and no second one when another button is pressed meanwhile; no click for Space on a button, for an arrow key in a radio group and where the page's handler is slow; a pointer click right after a key activation, written; no click when a native select closes with Enter, and the pointer click on a select written; and a context menu asked for with a key, recorded as the key alone. Checked by no case named here, all in packages/extension/content/recorder.js: the menu request with no right button and no key (a long press on a touch screen); the click with no click count not written within 50 ms after a select's choice, with the recorder's own copy of that window being the 50 ms ECP-12 states; the click or right-click on the body or the document element, not written; the click on a label in a closed shadow root, written twice; and the click that carries no pointer outside a key's events, written with its event's coordinates. The reviewer of any pull request that changes that code, the session format's click or right_click row or the ECP-12 items on clicks and right-clicks reads the one against the other and records the outcome in that pull request's change record. The step passes when the code does what those rows and items state; a difference is a finding of that review. A case that sends a touch long press through the browser's input interface would make the first checkable.",
+      "test-cases": [
+        "regression_715_a_right_click_is_written_at_the_press_of_the_button",
+        "regression_715_a_right_click_is_written_once_when_the_menu_request_follows",
+        "regression_715_another_button_pressed_while_the_right_one_is_down_adds_no_right_click",
+        "regression_695_space_on_a_button_is_one_key_and_no_click",
+        "regression_695_arrow_key_in_a_radio_group_is_the_key_alone",
+        "regression_695_enter_and_space_stay_one_key_when_the_page_handler_is_slow",
+        "regression_695_pointer_click_right_after_a_key_activation_is_written",
+        "regression_704_closing_the_list_with_Enter_writes_no_click",
+        "regression_704_a_pointer_click_on_the_select_is_still_written",
+        "regression_702_a_context_menu_asked_for_with_a_key_is_the_key_alone"
+      ]
+    },
+    {
+      "doc": "docs/architecture/application/extension/capture-principles.md",
+      "clause": "ECP-18",
+      "tag": "check-exists",
+      "check-ref": "In one document, the cases named here from packages/extension/tests/e2e/specs/keyboard.spec.js and packages/extension/tests/e2e/specs/interactions.spec.js (npm run test:e2e) pin the first two rows of the clause's table: a held key named at a key press and at a click; a key released while the page was not focused or while the recording was off; a key pressed while the Meta key was held; and a drag, which names the key held at its start and none from then on. Across the frames of a tab, the last two rows are pinned by the regression_779 cases named here from packages/extension/tests/unit/service-worker-held-keys.test.js and by the cases of packages/extension/tests/unit/held-keys-relay.test.js, which reads packages/extension/lib/held-keys-relay.js (npm run test:unit): a key named ahead of the action's own, a key handed to the frame a press gave the focus and ended by the release that frame reports, and the keys no longer named for a frame that does not answer, is gone or navigates, at another tab or window taking the focus, at a blur with no press and at a stop. In a real browser the regression_779 cases named here from packages/extension/tests/e2e/specs/keyboard.spec.js pin a click, a right-click and a key in one frame naming the key held in another, and a key whose repeat is text in the frame staying held until its release. That the time ECP-12 gives a frame to answer at an action with no press before it is at most half the time at a press is held by packages/extension/tests/unit/capture-timing.test.js. Checked by no case named here, both in packages/extension/content/recorder.js: that a key still held is named again from its next repeat, and that the modifiers of an action are those its own event states. The reviewer of any pull request that changes that code or this clause reads the one against the other and records the outcome in that pull request's change record. The step passes when the code does what the clause states; a difference is a finding of that review.",
+      "test-cases": [
+        "regression_706_a_key_pressed_while_another_is_held_names_the_held_key",
+        "regression_706_a_click_while_a_key_is_held_names_the_held_key",
+        "regression_706_a_key_released_while_the_page_was_not_focused_is_not_held",
+        "regression_706_a_key_released_while_recording_was_off_is_not_held",
+        "regression_702_a_key_pressed_while_the_meta_key_was_held_is_not_held_after_its_release",
+        "regression_706_a_drag_names_the_key_held_at_its_start_and_none_is_known_down_from_then_on",
+        "regression_779_an_action_names_the_key_held_in_another_frame_ahead_of_its_own",
+        "regression_779_a_press_hands_the_key_to_the_frame_it_gave_the_focus",
+        "regression_779_an_action_with_no_press_before_it_asks_the_frame_that_holds_the_key",
+        "regression_779_the_press_waits_for_the_report_a_frame_names_as_its_last",
+        "regression_779_the_keys_of_a_frame_that_does_not_answer_the_press_are_forgotten",
+        "regression_779_the_keys_of_a_frame_that_is_gone_at_the_press_are_forgotten",
+        "regression_779_a_frame_that_navigates_takes_its_keys_with_it",
+        "regression_779_another_tab_or_window_taking_the_focus_forgets_the_keys",
+        "regression_779_a_blur_with_no_press_forgets_the_key",
+        "regression_779_a_stop_of_the_recording_forgets_the_keys",
+        "regression_779_a_click_in_a_frame_names_the_key_held_outside_it",
+        "regression_779_a_right_click_and_a_key_in_a_frame_name_the_key_held_outside_it",
+        "regression_779_a_key_whose_repeat_is_text_in_the_frame_is_held_until_its_release",
+        "regression_706_a_repeat_keeps_the_held_key_in_its_place",
+        "regression_779_a_frame_whose_last_report_does_not_arrive_has_its_keys_forgotten"
+      ]
     },
     {
       "doc": "docs/architecture/application/extension/runtime.md",
@@ -546,7 +692,7 @@
       "doc": "docs/architecture/application/desktop/windows/capture-principles.md",
       "clause": "DCP-1",
       "tag": "judgment-only",
-      "justification": "Whether a capture change preserves the thread-role split (the input thread makes no accessibility call; the mouse hook waits on the pre-capture describers for at most a budget below the system hook timeout; every other describe stays on workers) is a design judgment. The pre-capture bound, its budget from the hook timeout, the describers' cap and a session's retry of a pre-capture it could not start are pinned by the in-module tests of packages/desktop/src-tauri/src/capture/pre_capture.rs and packages/desktop/src-tauri/src/capture/timing.rs (npm run test:desktop:rust); that the hook asks through that bound is comment-pinned at its sites."
+      "justification": "Whether a capture change preserves the thread-role split (the input thread makes no accessibility call; the mouse hook waits on the pre-capture describers for at most a budget below the system hook timeout; every other describe stays on workers) is a design judgment. The pre-capture bound, its budget from the hook timeout, the describers' cap and a session's retry of a pre-capture it could not start (the capture pipeline's pre-capture section states the budget and the cap, DCP-13 the retry) are pinned by the in-module tests of packages/desktop/src-tauri/src/capture/pre_capture.rs and packages/desktop/src-tauri/src/capture/timing.rs (npm run test:desktop:rust); that the hook asks through that bound is comment-pinned at its sites."
     },
     {
       "doc": "docs/architecture/application/desktop/windows/capture-principles.md",
@@ -583,7 +729,7 @@
       "doc": "docs/architecture/application/desktop/windows/capture-principles.md",
       "clause": "DCP-7",
       "tag": "check-exists",
-      "check-ref": "The correlation gates are exercised end-to-end by the enigo integration suites (real input, real WinEvents) and probed by the desktop corpus sessions (npm run test:desktop:rust for the integration tier; npm run corpus:check:desktop); the focus that writes nothing for its element's window is pinned by packages/desktop/src-tauri/tests/worker_pool_test.rs's a_focus_whose_element_is_in_another_process_s_window_writes_nothing and a_focus_whose_element_s_window_has_no_readable_process_writes_nothing (npm run test:desktop:rust)."
+      "check-ref": "The correlation gates are exercised end-to-end by the enigo integration suites (real input, real WinEvents) and probed by the desktop corpus sessions (npm run test:desktop:rust for the integration tier; npm run corpus:check:desktop). The windows a session introduced and which focus is written are DCP-20's and DCP-21's rows."
     },
     {
       "doc": "docs/architecture/application/desktop/windows/capture-principles.md",
@@ -599,7 +745,35 @@
       "doc": "docs/architecture/application/desktop/windows/capture-principles.md",
       "clause": "DCP-9",
       "tag": "check-exists",
-      "check-ref": "The buffering supersession is probed by the corpus type-edit session via npm run corpus:check:desktop; the session's known-diff entry is empty, and no supersession defect is tracked there."
+      "check-ref": "The supersession of buffered keys by a value change is probed by the corpus type-edit session via npm run corpus:check:desktop; the session's known-diff entry is empty, and no supersession defect is tracked there. The worker-pool cases named here (packages/desktop/src-tauri/tests/worker_pool_test.rs, via npm run test:desktop:rust) pin: which keys are buffered (a space, AltGr and layout keys, keypad keys, and a shortcut written in its place); a typing key on a button written without waiting, and a value change behind it being no type; keys buffered on one element surviving typing into another; the masked type of a password field, also where it reports no value change; the empty type of an emptied field and the keys kept where the element has no value; what ends the typing (the ending event, a window that is not recorded) and what does not (a pause, a focus event, a scroll, a change of the window's title); and a value change that arrives after the click starting the next type. That a press of Shift, Ctrl or Alt with no other key held writes nothing is pinned by modifier_only_keys_produce_no_events. The 500 ms wait and the one second within which a click's own value change starts the next type are pinned as numbers by key_text_wait_boundary and correlated_handles_value_change_window, in-module cases of packages/desktop/src-tauri/src/capture/timing.rs. Checked by no test: that a press of Shift, Ctrl or Alt writes nothing while another key is held, that the clause's first table is closed and its rows decide in the order given, that the tables of the buffered keys when the typing ends and of one field or two are closed, that the 500 ms runs from the last typing key pressed in the element that the three lists are closed (the typing key codes in is_typing_key_code, the control types takes_no_typed_text reads, the keys that enter no character), that the list of what ends the typing is complete, that a pointer press on a left-out window that does not come to the front ends nothing, that a title held by an element under the window's root ends the typing, and that a root title holding the path separator leaves the panel's fields apart. The code for these is packages/desktop/src-tauri/src/capture/worker_pool.rs, packages/desktop/src-tauri/src/capture/windows.rs and packages/desktop/src/adapter-tauri.js. The reviewer of any pull request that changes that code or this clause reads the one against the other and records the outcome in that pull request's change record. The step passes when the code does what the clause states; a difference is a finding of that review. What would make the last three checkable: an in-module case of packages/desktop/src-tauri/src/capture/windows.rs for the pointer press, a worker-pool case for the title under the root, and a unit case of the desktop adapter for the path separator.",
+      "test-cases": [
+        "modifier_only_keys_produce_no_events",
+        "regression_696_a_space_typed_into_an_edit_field_stays_in_the_one_type",
+        "regression_696_a_space_with_no_value_change_is_the_key_space",
+        "regression_696_altgr_and_unnamed_layout_keys_stay_in_the_one_type",
+        "regression_696_altgr_and_unnamed_layout_keys_with_no_value_change_are_keys",
+        "regression_696_keypad_keys_typed_into_an_edit_field_stay_in_the_one_type",
+        "regression_696_keypad_keys_with_no_value_change_are_keys_in_order",
+        "a_shortcut_behind_typed_keys_is_a_key_in_its_place",
+        "a_typing_key_on_a_button_is_written_without_waiting",
+        "a_value_change_behind_enter_on_a_button_is_no_type_on_the_button",
+        "regression_696_a_space_on_a_button_survives_a_value_change_in_its_window",
+        "regression_696_keys_buffered_on_one_element_survive_typing_into_another",
+        "regression_noissue_typing_in_a_password_field_that_reports_no_value_change_is_one_masked_type",
+        "regression_noissue_every_text_entering_key_in_a_password_field_joins_the_masked_type",
+        "regression_720_a_field_emptied_by_a_key_is_the_empty_type_not_its_name",
+        "a_value_change_on_an_element_with_no_value_keeps_the_keys",
+        "repeated_keystrokes_with_no_value_change_are_each_recorded_in_order",
+        "regression_719_the_event_that_ends_the_typing_writes_the_type",
+        "regression_768_leaving_for_a_window_not_recorded_writes_the_type",
+        "regression_719_text_typed_with_pauses_between_the_keys_is_one_type",
+        "a_focus_event_between_the_keys_leaves_the_typing_one_type",
+        "a_scroll_between_the_keys_leaves_the_typing_one_type",
+        "regression_734_typing_across_a_change_of_the_window_title_is_one_type",
+        "a_value_change_arriving_after_the_click_starts_the_next_type",
+        "key_text_wait_boundary",
+        "correlated_handles_value_change_window"
+      ]
     },
     {
       "doc": "docs/architecture/application/desktop/windows/capture-principles.md",
@@ -628,30 +802,207 @@
       "doc": "docs/architecture/application/desktop/windows/capture-principles.md",
       "clause": "DCP-11",
       "tag": "check-exists",
-      "check-ref": "The corpus redaction session verifies mask + text-null + redacted end-to-end on desktop (npm run corpus:check:desktop); the password path's map_event masking is pinned by the password Rust tests (packages/desktop/src-tauri/tests/password_test.rs) and the IsPassword read's type rule by the windows-provider in-module cases is_password_value_reads_a_bool_answer_as_itself, is_password_value_reads_no_answer_as_false and is_password_value_reads_an_answer_of_another_type_as_a_password (packages/desktop/src-tauri/src/capture/windows.rs), both via npm run test:desktop:rust; the locators-pass-untouched half is pinned by the desktop Tauri-adapter unit test masks value/text and flags redacted, but locators + facts are deep-equal untouched, which deep-equals the locators across the chokepoint (npm run test:desktop) and by the d-redaction corpus session's truth, assembled through the real ordered insertion. scripts/sufficiency-lint.js's masked-locator-honesty predicate holds the masked flag only — no desktop locator entry claims masked — and runs advisory in the corpus check.",
+      "check-ref": "The corpus redaction session verifies mask + text-null + redacted end-to-end on desktop (npm run corpus:check:desktop); the password path's map_event masking is pinned by the password Rust tests (packages/desktop/src-tauri/tests/password_test.rs) and the IsPassword read's type rule by the windows-provider in-module cases is_password_value_reads_a_bool_answer_as_itself, is_password_value_reads_no_answer_as_false and is_password_value_reads_an_answer_of_another_type_as_a_password (packages/desktop/src-tauri/src/capture/windows.rs), both via npm run test:desktop:rust; the locators-pass-untouched half is pinned by the desktop Tauri-adapter unit test masks value/text and flags redacted, but locators + facts are deep-equal untouched, which deep-equals the locators across the chokepoint (npm run test:desktop) and by the d-redaction corpus session's truth, assembled through the real ordered insertion. scripts/sufficiency-lint.js's masked-locator-honesty predicate holds the masked flag only — no desktop locator entry claims masked — and runs advisory in the corpus check. That a keystroke naming no element and entering text is a masked type on no element is pinned by a_first_text_key_described_after_the_person_moved_focus_is_masked_on_no_element and text_keys_described_after_their_window_closed_are_one_masked_type (packages/desktop/src-tauri/tests/worker_pool_test.rs; npm run test:desktop:rust).",
       "test-cases": [
         "is_password_value_reads_a_bool_answer_as_itself",
         "is_password_value_reads_no_answer_as_false",
-        "is_password_value_reads_an_answer_of_another_type_as_a_password"
+        "is_password_value_reads_an_answer_of_another_type_as_a_password",
+        "a_first_text_key_described_after_the_person_moved_focus_is_masked_on_no_element",
+        "text_keys_described_after_their_window_closed_are_one_masked_type"
       ]
     },
     {
       "doc": "docs/architecture/application/desktop/windows/capture-principles.md",
       "clause": "DCP-12",
       "tag": "check-exists",
-      "check-ref": "The worker-pool invariants (sacred-buffer flush, panic respawn and retry, typing-worker and sticky routing) are pinned by the worker-pool Rust tests (npm run test:desktop:rust); the double-click routing by a_click_completing_a_double_click_routes_to_the_previous_clicks_worker (packages/desktop/src-tauri/tests/worker_pool_test.rs), which drives a WorkerPool of three stub workers whose queues only grow, so a marked click reaching the previous click's worker over a shorter queue, and an unmarked click taking the shortest queue, are each observed. The dead-worker drain paths are pinned individually: the flush fan-out's channel-gone rescue branch by the pool's in-module flush_all_rescues_a_wedged_worker_in_place_and_still_emits_the_sentinel test (packages/desktop/src-tauri/src/capture/worker_pool.rs); the dispatch-time respawn drain and shutdown's joined-dead drain by respawn_drains_the_dead_workers_held_buffers and shutdown_drains_the_buffers_of_an_already_dead_worker (packages/desktop/src-tauri/tests/worker_pool_test.rs; npm run test:desktop:rust); the barrier's fallback drain by the windows-provider in-module flush_barrier_timeout_recovers_buffers_by_fallback_drain_and_reports_it test (packages/desktop/src-tauri/src/capture/windows.rs); and the fused stop's pass-through by the command-layer stop_capture tests (packages/desktop/src-tauri/src/commands.rs; npm run test:desktop:rust), which pin that the command returns the barrier report its capture layer gives — their mock layer models the barrier itself, so the real stop's fused barrier is pinned by no named case. The rescue-drain idempotence is pinned by the pool's in-module drain_into_twice_emits_each_held_action_once test (packages/desktop/src-tauri/src/capture/worker_pool.rs; npm run test:desktop:rust); an end-to-end stop-rescues-a-dead-worker pin remains intended, not built."
+      "check-ref": "The worker-pool invariants (the held-buffer flush, panic respawn and retry) are pinned by the worker-pool Rust tests (npm run test:desktop:rust). That every keyboard and value-change event reaches the typing worker and every focus event the focus worker is pinned by the same tests, that a typing worker and a focus worker that miss the flush barrier give the role up by the in-module cases a_typing_worker_that_misses_the_flush_barrier_gives_the_role_up and a_focus_worker_that_misses_the_flush_barrier_gives_the_role_up (packages/desktop/src-tauri/src/capture/worker_pool.rs), and that a click completing a double-click reaches the worker that took the click before it, which DCP-6's file-dialog proxy relies on, by a_click_completing_a_double_click_routes_to_the_previous_clicks_worker (packages/desktop/src-tauri/tests/worker_pool_test.rs), which drives a WorkerPool of three stub workers whose queues only grow, so a marked click reaching the previous click's worker over a shorter queue, and an unmarked click taking the shortest queue, are each observed. The table's rows for a worker that does not answer or has died are pinned per path the code takes: a worker that does not answer at a commit by the pool's in-module flush_all_rescues_a_wedged_worker_in_place_and_still_emits_the_sentinel test (packages/desktop/src-tauri/src/capture/worker_pool.rs); the dispatch-time respawn drain and shutdown's joined-dead drain by respawn_drains_the_dead_workers_held_buffers and shutdown_drains_the_buffers_of_an_already_dead_worker (packages/desktop/src-tauri/tests/worker_pool_test.rs; npm run test:desktop:rust); the barrier's fallback drain by the windows-provider in-module flush_barrier_timeout_recovers_buffers_by_fallback_drain_and_reports_it test (packages/desktop/src-tauri/src/capture/windows.rs); and the fused stop's pass-through by the command-layer stop_capture tests (packages/desktop/src-tauri/src/commands.rs; npm run test:desktop:rust), which pin that the command returns the barrier report its capture layer gives — their mock layer models the barrier itself, so the real stop's fused barrier is pinned by no named case. The rescue-drain idempotence is pinned by the pool's in-module drain_into_twice_emits_each_held_action_once test (packages/desktop/src-tauri/src/capture/worker_pool.rs; npm run test:desktop:rust); an end-to-end stop-rescues-a-dead-worker pin remains intended, not built. Of the three rules for who holds a role, in-module cases of the same file pin: a replacement takes the role by a_respawned_typing_worker_keeps_the_role_at_its_index and a_respawned_focus_worker_keeps_the_role_at_its_index, a replacement counts as a worker that answered the most recent barrier by a_respawned_worker_counts_as_one_that_answered_the_last_flush_barrier, and a role goes to any worker where none answered (the one with the shortest queue, which the clause does not state) by a_role_nobody_holds_goes_to_the_shortest_queue_when_every_worker_missed_the_barrier. Checked by no case: what a dead worker held being written at a commit (the flush fan-out's branch for a worker whose channel is gone), a key held behind buffered dead keys being written at a commit or a stop, that the list of four things a worker holds and the list of four losses are closed, that nothing but a missed flush barrier gives a role up, and that a replacement starts with none of its predecessor's compare state beyond the focus (DCP-21's row). The code is packages/desktop/src-tauri/src/capture/worker_pool.rs. The reviewer of any pull request that changes that code or this clause reads the one against the other and records the outcome in that pull request's change record. The step passes when the code does what the clause states; a difference is a finding of that review."
     },
     {
       "doc": "docs/architecture/application/desktop/windows/capture-principles.md",
       "clause": "DCP-13",
       "tag": "judgment-only",
-      "justification": "Judgment at review under core CP-15's admission test; whether this surface description misleads is a reading no check decides."
+      "justification": "Judgment at review under core CP-15's admission test; whether this surface description misleads is a reading no check decides. The reviewer of a pull request that adds or changes an entry makes it and records the outcome in that pull request's change record; the step passes when no finding on the entry is open. Of the entry on a layout whose list could not be read, the in-module cases of packages/desktop/src-tauri/src/capture/layout_file.rs (npm run test:desktop:rust) pin that a file not in the x64 form gives no list (a_file_that_is_no_x64_image_gives_no_list) and that a file in another form than the one read gives none (a_file_without_the_descriptor_gives_no_list, a_descriptor_in_another_form_is_not_read, a_place_outside_the_file_gives_no_list). Checked by no case: that a file over 8 MiB gives no list (MOST_LAYOUT_FILE_BYTES), and the session format's statement that the layout's file is never loaded or run, both in read_layout_list of packages/desktop/src-tauri/src/capture/windows.rs. The reviewer of any pull request that changes read_layout_list, MOST_LAYOUT_FILE_BYTES or packages/desktop/src-tauri/src/capture/layout_file.rs reads it against the entry and that statement and records the outcome in that pull request's change record. The step passes when the code does what they state; a difference is a finding of that review."
     },
     {
       "doc": "docs/architecture/application/desktop/windows/capture-principles.md",
       "clause": "DCP-14",
       "tag": "checkable",
-      "check-ref": "Built for the keyboard source: its attribution is pure logic, keyboard_attribution and system_takes_key in packages/desktop/src-tauri/src/capture/scroll.rs, pinned by that module's in-crate tests (regression_687_win_key_over_docent_is_kept_with_no_window, regression_687_ctrl_esc_over_docent_is_kept_with_no_window, alt_tab_and_alt_esc_over_docent_are_kept_with_no_window, keys_the_system_does_not_take_over_docent_stay_dropped, a_key_over_docent_without_the_windows_key_is_dropped, a_system_key_with_a_target_set_is_not_the_targets_input, a_system_key_with_no_resolvable_foreground_window_is_dropped, a_kept_foreground_window_keeps_every_key_on_it), and a key attributed to no window is held to naming no element and no window by a_key_attributed_to_no_window_names_no_element_and_no_window in packages/desktop/src-tauri/src/capture/worker_pool.rs (npm run test:desktop:rust). Intended: unit pins for the mouse and WinEvent sources' attribution and the WinEvent foreground gate (not built). Interim probe: the scripted desktop corpus diff reddens when out-of-scope events enter a scripted session (npm run corpus:check:desktop), and the real-input integration suite drives capture with the gate live (npm run test:desktop:rust)."
+      "check-ref": "Built for the keyboard source: its attribution is pure logic, keyboard_attribution and system_takes_key in packages/desktop/src-tauri/src/capture/scroll.rs, pinned by that module's in-crate tests (regression_687_win_key_over_docent_is_kept_with_no_window, regression_687_ctrl_esc_over_docent_is_kept_with_no_window, alt_tab_and_alt_esc_over_docent_are_kept_with_no_window, keys_the_system_does_not_take_over_docent_stay_dropped, a_key_over_docent_without_the_windows_key_is_dropped, a_system_key_with_a_target_set_is_not_the_targets_input, a_system_key_with_no_resolvable_foreground_window_is_dropped, a_kept_foreground_window_keeps_every_key_on_it), and a key attributed to no window is held to naming no element and no window by a_key_attributed_to_no_window_names_no_element_and_no_window in packages/desktop/src-tauri/src/capture/worker_pool.rs (npm run test:desktop:rust). The session format's statement on a key-down in a window the recording leaves out (Key names) is pinned for the accent it takes or sets by regression_717_a_key_outside_the_recording_is_taken_into_the_accents_that_wait in that file. Checked by no case: that nothing else of such a key is written or logged, on its way through packages/desktop/src-tauri/src/capture/windows.rs (the keyboard hook, input_send_unrecorded_key and the bridge's dispatch of an unrecorded key) and the worker-pool file (WorkerPool::unrecorded_key, the worker's arms for that message and note_unrecorded_key) and what it asks of the layout with the key (layout_key_value and layout_composed in packages/desktop/src-tauri/src/capture/windows.rs); the reviewer of any pull request that changes any of these reads it against that statement and records the outcome in that pull request's change record, and the step passes when the code does what the statement says. Intended: unit pins for the mouse and WinEvent sources' attribution and the WinEvent foreground gate (not built). Interim probe: the scripted desktop corpus diff reddens when out-of-scope events enter a scripted session (npm run corpus:check:desktop), and the real-input integration suite drives capture with the gate live (npm run test:desktop:rust).",
+      "test-cases": [
+        "regression_717_a_key_outside_the_recording_is_taken_into_the_accents_that_wait"
+      ]
+    },
+    {
+      "doc": "docs/architecture/application/desktop/windows/capture-principles.md",
+      "clause": "DCP-15",
+      "tag": "check-exists",
+      "check-ref": "The describe latency's absent-by-default and zero-when-stamped forms and the element's language (the reported one, null where none is reported, none on a fallback description) are pinned by the element-mapping in-module cases (packages/desktop/src-tauri/src/capture/element_mapping.rs); which locale identifiers name a language by the language in-module cases (packages/desktop/src-tauri/src/capture/language.rs); and the preferred languages an action carries by an_action_carries_the_platforms_preferred_languages (packages/desktop/src-tauri/tests/worker_pool_test.rs), all via npm run test:desktop:rust. The fields a coordinate-mode element leaves out are held by the scripted desktop corpus diff (npm run corpus:check:desktop). The real-input integration suite reads each captured element's match statistics for their form (assert_captured_element_locators_well_formed in packages/desktop/src-tauri/tests/capture_integration.rs), on the Windows leg of npm run test:desktop:rust alone. Intended, not built: an assertion there that a click element the hook described carries no match statistics (a describe latency of 0 alone does not tell it, since a worker's describe within the same millisecond also stamps 0), and a case, in the Windows backend's in-module tests, for an ancestor's culture taken only once the walk confirmed the window root. Until then both are read at review in packages/desktop/src-tauri/src/capture/windows.rs and packages/desktop/src-tauri/src/capture/element_mapping.rs. That a provider can report a culture later than the rest of a description is an observation of provider behavior, which no check decides.",
+      "test-cases": [
+        "described_after_ms_pins_absent_by_default_and_zero_when_stamped",
+        "the_reported_language_is_the_elements_language",
+        "an_element_with_no_reported_language_states_null",
+        "a_fallback_description_carries_no_language",
+        "a_specific_locale_identifier_names_a_language",
+        "the_placeholder_locale_identifiers_name_no_language",
+        "an_action_carries_the_platforms_preferred_languages"
+      ]
+    },
+    {
+      "doc": "docs/architecture/application/desktop/windows/capture-principles.md",
+      "clause": "DCP-16",
+      "tag": "check-exists",
+      "check-ref": "Pinned by the worker-pool cases named here (packages/desktop/src-tauri/tests/worker_pool_test.rs): the rows of the two tables, which are a keystroke on a known control after its dialog closed, a known control another control took the focus from, a control gone for a keystroke that enters no text and for one that enters text, a control not known that the person left or that lost the focus, a window that holds other focusable elements, a late keystroke on the element described for the keystrokes before it, a program that moved the focus without reporting it, a first keystroke behind a focus change a program reported, a keystroke described after its window closed, after the person moved the focus or where the window gives no focused element, and a key that moves the focus not counted against itself; which keys move the focus, and which focus change names a part of a control; what a control is being read again after a focus change that names a part of it and not after another, a field that became a password field, a control that came to hold focusable elements, and the description taken again when the window title changed; a value change described after the focus left being no type; a value change of the keystroke's control being its type whatever has the focus, one from elsewhere in the window passed over, and one of a control that is gone keeping its keys; the value of a password control not read; a key on another element not superseded by the pending type; and the description ahead of any key, which is asked for when a window comes to the front, describes the focused control before its first key and is not taken for a control described before, for a control of the excluded process or for one whose program answers late. What is read from a control by its window handle, against real windows of the test process, is pinned by the control-look cases (packages/desktop/src-tauri/tests/control_look_test.rs). Both run via npm run test:desktop:rust. Checked by no case: the 50 ms limit on the description ahead of any key, since the stand-in backend's answer ignores time (the constant PROMPT_ANSWER_MS in packages/desktop/src-tauri/src/capture/worker_pool.rs, applied by answers_promptly in packages/desktop/src-tauri/src/capture/windows.rs); that a capture start asks for that description (start in packages/desktop/src-tauri/src/capture/windows.rs); that the list of what is not described ahead is closed (look_at_focused_control in packages/desktop/src-tauri/src/capture/worker_pool.rs); and that a press of any mouse button and of a key key_may_move_focus names counts as the person moving the focus, and each focus or foreground change a program reports as a focus change (input_mouse_ll_handle, input_keyboard_ll_proc and input_win_event_handle in packages/desktop/src-tauri/src/capture/windows.rs); and that a key carries the control that holds the keyboard focus at its press, none for a key attributed to no window, and whether a focus change that names a part of that control was reported since (input_keyboard_ll_proc, focused_control_of_thread and input_win_event_handle in that file). The reviewer of any pull request that changes that constant, one of those functions or this clause reads the one against the other and records the outcome in that pull request's change record. The step passes when the code does what the clause states; a difference is a finding of that review. Not checked: the seven open cases. The first five need a program or a worker to act at a moment no test controls. The last two (a first keystroke that waits on its control's description, and a description ahead of any key that stalls inside the accessibility call) need stand-in code that does not exist: a description that takes time, and one that stalls after its window answered.",
+      "test-cases": [
+        "regression_688_a_key_described_after_its_window_closed_names_no_element",
+        "regression_690_a_value_change_described_after_focus_left_its_window_is_no_type",
+        "regression_690_a_value_change_described_after_focus_moved_within_its_window_is_no_type",
+        "a_first_key_after_a_focus_move_reached_too_late_is_not_taken_on_its_handle",
+        "a_first_key_after_a_focus_move_whose_handle_the_present_contradicts_is_described_by_focus",
+        "a_later_key_whose_handle_the_present_contradicts_is_described_by_focus",
+        "a_field_is_a_control_of_its_own_and_is_described",
+        "a_password_field_is_seen_as_one",
+        "a_window_that_holds_fields_is_not_a_control_of_its_own",
+        "the_value_is_read_from_the_control_as_it_is_now",
+        "a_handle_of_no_window_is_gone",
+        "the_focused_control_is_read_without_asking_a_program",
+        "a_value_change_from_elsewhere_in_the_window_is_passed_over",
+        "keys_of_a_password_control_are_its_masked_type_and_its_value_is_not_read",
+        "a_key_on_another_element_is_not_superseded_by_the_pending_type",
+        "the_focused_control_is_described_ahead_of_its_first_key",
+        "a_look_at_a_control_whose_program_answers_late_describes_nothing",
+        "a_look_at_a_control_of_the_excluded_process_describes_nothing",
+        "keys_reached_after_their_dialog_closed_are_recorded_on_the_control_they_were_pressed_in",
+        "a_key_that_enters_no_text_keeps_its_control_when_the_control_closed_before_the_second_look",
+        "a_text_key_whose_control_closed_before_the_second_look_is_masked_on_no_element",
+        "a_window_that_holds_other_focusable_elements_is_described_by_focus",
+        "regression_688_a_late_key_is_recorded_on_the_element_its_focus_was_described_as",
+        "a_focus_move_the_program_did_not_report_is_noticed_at_the_next_key",
+        "a_first_text_key_behind_a_program_reported_focus_change_keeps_its_character",
+        "a_text_key_whose_window_gives_no_focused_element_is_masked",
+        "a_focus_moving_key_is_not_made_unknowable_by_its_own_count",
+        "only_plain_typing_keys_keep_the_focus_epoch",
+        "a_focus_change_names_a_part_unless_it_names_the_window_or_its_client_area",
+        "a_control_is_looked_at_again_after_a_focus_change_the_program_made",
+        "a_focus_change_that_names_no_part_of_the_control_asks_for_no_second_look",
+        "a_control_that_became_a_password_field_is_masked_from_the_next_key_on",
+        "a_control_that_came_to_hold_focusable_elements_is_described_by_focus",
+        "a_control_is_described_again_only_when_its_windows_title_changed",
+        "a_value_change_of_the_keys_control_is_its_type_whatever_has_focus_by_then",
+        "a_value_change_of_a_control_that_is_gone_keeps_its_keys",
+        "a_window_that_comes_to_the_front_has_the_typing_worker_look_at_its_focus",
+        "a_look_with_nothing_new_in_focus_describes_nothing"
+      ]
+    },
+    {
+      "doc": "docs/architecture/application/desktop/windows/capture-principles.md",
+      "clause": "DCP-17",
+      "tag": "check-exists",
+      "check-ref": "The worker-pool cases named here (packages/desktop/src-tauri/tests/worker_pool_test.rs) pin: a dead key being text when the next key enters text and a key when no character follows; the bare accent a program enters, counted in the value, for one dead key, two, a shifted one and a third behind the first two, and a dead key staying a key where the field did not gain its accent; a dead key and the key held behind it written in the order pressed, ahead of a click, and when the worker is told the typing ended; a dead key still waiting when the typing ends; and a key dead only as pressed with Shift or AltGr. Which keys a layout says are dead as pressed, and that the layout is asked only where Windows leaves the key state alone, are pinned by the in-module cases of packages/desktop/src-tauri/src/capture/windows.rs, on the Windows leg alone. All run via npm run test:desktop:rust. Checked by no test: the first table's second row, that a press of Shift, Ctrl or Alt leaves the dead key to the press after it; the four cases where the layout was not asked (a Windows before version 10.0.14393 is on no test leg, and no case presses a key with an accent pending before the layout was asked, or with no foreground thread or layout), in foreground_dead_as_pressed of packages/desktop/src-tauri/src/capture/windows.rs; and that the table of a key held behind buffered dead keys is closed, its third row, and that its 500 ms runs from the held key, in handle_keyboard and write_keys_that_took_no_text of packages/desktop/src-tauri/src/capture/worker_pool.rs. The reviewer of any pull request that changes that code or this clause reads the one against the other and records the outcome in that pull request's change record. The step passes when the code does what the clause states; a difference is a finding of that review. That a program enters the bare accent on a second press or with Enter is an observation of program behavior: the author of a pull request that changes the bare-accent rule runs it by hand in a text editor on a layout with dead keys and records the run in that pull request's change record. The run passes when the editor enters the bare accent on a second press and with Enter, and the field's type holds it with no key beside it.",
+      "test-cases": [
+        "regression_744_a_dead_key_is_text_when_the_next_key_enters_text",
+        "regression_744_a_dead_key_is_a_key_when_no_character_follows",
+        "regression_769_a_dead_key_whose_accent_the_program_enters_is_text",
+        "regression_769_a_dead_key_pressed_twice_is_the_text_the_program_enters",
+        "regression_769_a_dead_key_and_a_shifted_dead_key_are_the_text_the_program_enters",
+        "a_dead_key_pressed_a_third_time_waits_behind_the_text_of_the_first_two",
+        "a_dead_key_whose_accent_the_program_does_not_enter_is_a_key",
+        "a_dead_key_is_text_only_where_the_field_gained_its_accent",
+        "a_dead_key_and_a_key_that_enters_nothing_are_keys_in_the_order_pressed",
+        "a_dead_key_and_the_key_behind_it_are_written_ahead_of_a_click",
+        "the_key_held_behind_a_dead_key_is_written_when_the_worker_is_told",
+        "regression_744_a_dead_key_waiting_is_written_when_the_typing_ends",
+        "regression_744_a_dead_key_behind_typed_text_is_written_behind_the_type",
+        "a_key_that_is_dead_only_unshifted_is_no_dead_key_when_pressed_with_shift",
+        "regression_769_a_key_dead_with_shift_or_altgr_is_text_when_the_next_key_enters_text",
+        "regression_769_a_key_not_dead_as_pressed_is_an_ordinary_key",
+        "regression_769_the_danish_layout_says_which_keys_are_dead_as_pressed",
+        "regression_769_the_layout_is_asked_only_where_windows_leaves_the_key_state"
+      ]
+    },
+    {
+      "doc": "docs/architecture/application/desktop/windows/capture-principles.md",
+      "clause": "DCP-18",
+      "tag": "check-exists",
+      "check-ref": "The worker-pool cases named here (packages/desktop/src-tauri/tests/worker_pool_test.rs) pin: a value read or described after a later key not being the type; a typing with no value read in time being its keys; a key in another window leaving a read in time; a late read followed by a read in time leaving one type; the keys kept after the type waiting through a pause and written by a drain, a commit and a stop; and the two open cases as they stand. That a key in another window makes no read late, that a window no longer among the 16 gives no value, and which window the record of 16 lets go, are pinned by the in-module cases of packages/desktop/src-tauri/src/capture/worker_pool.rs. All run via npm run test:desktop:rust. That a Shift, Control or Alt press is no later key is pinned by a_shift_control_or_alt_key_moves_no_windows_count, an in-module case of that file. The two open cases are pinned as defects that stand, not as closed. Checked by no case: the count of 16 windows (KeyNumbers::WINDOWS in that file). The reviewer of any pull request that changes that file or this clause reads the one against the other and records the outcome in that pull request's change record. The step passes when the code does what the clause states; a difference is a finding of that review.",
+      "test-cases": [
+        "regression_761_a_value_read_after_a_later_key_is_not_the_type",
+        "regression_761_a_value_described_after_a_later_key_is_not_the_type",
+        "regression_761_a_run_with_no_value_read_in_time_is_its_keys",
+        "a_key_in_another_window_leaves_a_read_in_time",
+        "a_late_read_followed_by_a_read_in_time_leaves_one_type",
+        "keys_kept_after_the_type_wait_through_a_pause",
+        "keys_kept_after_the_type_are_written_by_a_drain",
+        "a_key_with_no_value_change_behind_a_kept_key_is_written_after_the_wait",
+        "a_commit_writes_every_buffered_key_behind_the_type",
+        "a_stop_writes_every_buffered_key_behind_the_type",
+        "open_case_762_a_value_read_in_time_can_lack_the_last_key_before_it",
+        "open_case_762_a_pasted_value_read_late_is_recorded_nowhere",
+        "keys_are_numbered_per_window_from_one_count",
+        "a_window_let_go_answers_no_keys_number",
+        "the_window_let_go_is_the_one_with_the_oldest_key",
+        "a_shift_control_or_alt_key_moves_no_windows_count"
+      ]
+    },
+    {
+      "doc": "docs/architecture/application/desktop/windows/capture-principles.md",
+      "clause": "DCP-19",
+      "tag": "check-exists",
+      "check-ref": "The session format's section on the key action holds what the fields state; this row covers the five rules the clause adds, and the time limit of an input-method ask that section states, pinned by regression_237_the_input_method_read_waits_within_a_quarter_of_the_hook_timeout, an in-module case of packages/desktop/src-tauri/src/capture/timing.rs. Injected keys superseded by the type and named by their character, and a punctuation key that repeats: the worker-pool cases named here (packages/desktop/src-tauri/tests/worker_pool_test.rs). A key released and pressed again, a key the keyboard says is up, the two keys of one code, and the key of a code that speaks first when the record starts: the in-module cases of packages/desktop/src-tauri/src/capture/held_keys.rs. The order of the two asks, and the open status kept alone: the held-keys in-module case and the worker-pool cases for the input-method read. All run via npm run test:desktop:rust. That the panel names a held key only where its key-down is a key action of the step: regression_706_held_keys_names_only_keys_whose_key_down_is_a_key_action in packages/desktop/tests/unit/reorder-buffer.test.js, via npm run test:unit. Checked by no test: that the foreground window is asked where no control held the focus, and that a key pressed in an excluded window or outside a capture counts as down, in packages/desktop/src-tauri/src/capture/windows.rs. The reviewer of any pull request that changes that code or this clause reads the one against the other and records the outcome in that pull request's change record. The step passes when the code does what the clause states; a difference is a finding of that review.",
+      "test-cases": [
+        "regression_237_the_input_method_read_waits_within_a_quarter_of_the_hook_timeout",
+        "regression_260_injected_keys_are_superseded_by_the_type",
+        "regression_260_injected_keys_without_a_type_are_named_by_their_character",
+        "regression_691_a_repeated_punctuation_key_is_named_by_its_layout_and_marked_repeat",
+        "a_key_released_and_pressed_again_is_a_press_again",
+        "a_key_the_keyboard_says_is_up_is_no_repeat_whatever_the_record_holds",
+        "two_keys_that_share_a_code_and_differ_in_the_extended_mark_are_told_apart",
+        "a_key_down_when_the_record_starts_is_the_key_of_its_code_that_speaks_first",
+        "regression_237_the_open_status_is_asked_first_and_kept_where_the_mode_gets_no_answer",
+        "regression_237_a_key_states_the_open_status_alone_where_the_mode_was_not_read",
+        "regression_237_a_key_whose_input_method_was_not_read_leaves_the_fields_out"
+      ]
+    },
+    {
+      "doc": "docs/architecture/application/desktop/windows/capture-principles.md",
+      "clause": "DCP-20",
+      "tag": "check-exists",
+      "check-ref": "The cases named here (packages/desktop/src-tauri/tests/worker_pool_test.rs; npm run test:desktop:rust) pin the record of the windows a session introduced: a key in a dialog whose activation was not recorded takes a switch before it; a window introduced by a switch or an open takes no further switch, and a close introduces nothing; a press of Shift, Ctrl or Alt with no other key held and a key attributed to no window introduce nothing; an action after a switch is not the session's first context; a switch into the window in front stands for its late activation, and one into an inactive window does not swallow its later activation; a right press into an inactive window writes one switch; the switch the focus worker writes ahead of a focus in a window no earlier event introduced, and where it writes none; and the Input_Thread's note of the event that introduced each window. Checked by no case named here: that a press of Shift, Ctrl or Alt made while another key is held introduces nothing; and that the Windows hook thread calls that dispatch and clears the record when it starts and stops (a Windows integration case in which capture starts in a program's dialog, the dialog closes and the focus returns to its owner would check it); that an action after a `context_open` is not the session's first context; and the four open cases, in packages/desktop/src-tauri/src/capture/worker_pool.rs (ContextIntroductions, handle_focus) and packages/desktop/src-tauri/src/capture/windows.rs. The reviewer of any pull request that changes that code or this clause reads the one against the other and records the outcome in that pull request's change record. The step passes when the code does what the clause states; a difference is a finding of that review.",
+      "test-cases": [
+        "regression_708_a_key_in_a_dialog_whose_activation_was_not_recorded_is_introduced_by_a_switch",
+        "a_window_introduced_by_a_switch_or_an_open_takes_no_further_switch",
+        "a_lone_modifier_press_introduces_no_window",
+        "a_key_attributed_to_no_window_introduces_no_context",
+        "an_action_after_a_switch_is_not_the_sessions_first_context",
+        "a_switch_into_the_window_in_front_stands_for_its_late_activation",
+        "a_switch_into_an_inactive_window_does_not_swallow_its_later_activation",
+        "a_right_press_into_an_inactive_window_writes_one_switch",
+        "regression_817_a_focus_in_a_window_no_event_before_it_introduced_is_preceded_by_a_switch",
+        "a_focus_in_a_window_introduced_before_it_takes_no_switch",
+        "a_second_focus_in_a_window_a_focus_introduced_takes_no_second_switch",
+        "a_focus_in_another_process_s_window_no_event_introduced_writes_no_switch",
+        "a_focus_whose_window_changes_process_before_its_switch_is_written_writes_nothing",
+        "a_focus_whose_window_changes_process_as_its_title_is_read_writes_nothing",
+        "the_switch_ahead_of_a_focus_reads_its_window_s_title_once",
+        "a_dispatched_event_notes_the_number_of_what_introduced_its_window"
+      ]
+    },
+    {
+      "doc": "docs/architecture/application/desktop/windows/capture-principles.md",
+      "clause": "DCP-21",
+      "tag": "check-exists",
+      "check-ref": "The cases named here (packages/desktop/src-tauri/tests/worker_pool_test.rs; npm run test:desktop:rust) pin: a focus compared with the last within its window, and a focus back to an element after another focus written; a focus described after a later focus event writing nothing, and one described after a counted change with no focus event written; a focus after its dialog closed carrying the context of its element's window; and the four rows of where a focus is written (the rectangle of its element's window, the event's window where none resolved, the event's own window, and nothing for another process's window or one whose process cannot be read). The cases run against a stub backend that supplies the focus numbers itself. Checked by no case named here: where the Input_Thread takes a focus event's number (after the filters of DCP-5, DCP-14 and DCP-7, and never for a foreground change), in packages/desktop/src-tauri/src/capture/windows.rs; and that a respawned worker's first focus is written even on the element written last, and that a worker the role returns to writes no focus on the element it wrote when it last held the role, in packages/desktop/src-tauri/src/capture/worker_pool.rs. The reviewer of any pull request that changes that code or this clause reads the one against the other and records the outcome in that pull request's change record. The step passes when the code does what the clause states; a difference is a finding of that review.",
+      "test-cases": [
+        "a_focus_is_compared_with_the_last_within_its_window",
+        "a_focus_back_to_an_element_after_another_focus_is_written",
+        "regression_735_a_focus_described_after_a_later_focus_event_writes_nothing",
+        "regression_735_a_focus_described_after_a_counted_change_with_no_focus_event_is_written",
+        "regression_709_a_focus_after_its_dialog_closed_carries_the_context_of_its_elements_window",
+        "a_focus_takes_the_rectangle_of_its_elements_window",
+        "a_focus_whose_element_resolved_no_window_keeps_the_events_window",
+        "a_focus_whose_element_is_in_the_events_own_window_is_written_there",
+        "a_focus_whose_element_is_in_another_process_s_window_writes_nothing",
+        "a_focus_whose_element_s_window_has_no_readable_process_writes_nothing"
+      ]
     },
     {
       "doc": "docs/api/sync-protocol.md",

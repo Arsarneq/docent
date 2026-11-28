@@ -35,12 +35,12 @@ inventoried, with its local command, in
 [the lint table](ci.md#the-lint-and-freshness-gates), which
 is the one home of that list. In short:
 
-| When you                 | You                                                                                                                                    | Held by                                                                  |
-| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| Add or move a doc        | Link it from the documentation map and give it a home in the area map                                                                  | `lint:links`, `lint:reachability`, `lint:area-map`                       |
-| Add a code file          | Make it resolve to an area of the area map, in the same PR                                                                             | `lint:area-map`                                                          |
-| Mint a clause            | Mark it with a stable id, give it a registry row, state the preamble, and keep the paths its row cites governed by its doc             | `lint:clause-registry`, `lint:clause-preamble`, `lint:clause-governance` |
-| Write or change a clause | State a rule in one clause and cite that clause from any other, and keep each paragraph, list item and table row within the word limit | `lint:clause-form`                                                       |
+| When you                 | You                                                                                                                        | Held by                                                                  |
+| ------------------------ | -------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| Add or move a doc        | Link it from the documentation map and give it a home in the area map                                                      | `lint:links`, `lint:reachability`, `lint:area-map`                       |
+| Add a code file          | Make it resolve to an area of the area map, in the same PR                                                                 | `lint:area-map`                                                          |
+| Mint a clause            | Mark it with a stable id, give it a registry row, state the preamble, and keep the paths its row cites governed by its doc | `lint:clause-registry`, `lint:clause-preamble`, `lint:clause-governance` |
+| Write or change a clause | State a rule in one clause and cite that clause from any other                                                             | `lint:clause-form`                                                       |
 
 The detail for each:
 
@@ -111,7 +111,7 @@ The detail for each:
     - A rule is stated in one clause. Another clause that needs it cites that clause by its id.
     - Within a document, a departure or an open case is linked to its issue from one clause. A case that holds on two platforms is linked once in each platform's document, on that platform's exception list.
     - A sentence two platform documents both need is stated in the cross-platform clause, and each platform clause cites that clause.
-    - A paragraph, a list item or a table row holds at most 150 words. A longer one is split into paragraphs or a list. The limit is on one unit, never on how much a clause or a document says.
+    - A paragraph, a list item or a table row that grows is answered in review ([Writing docs](#writing-docs-pick-the-form-before-the-sentence)).
     - A red is fixed in the clause. No entry is added to the list of admitted cases.
   - **Words before and after.** A pull request shows, for each document that holds clauses, the words it held at the base and the words it holds now ([`scripts/report-clause-doc-words.js`](../../scripts/report-clause-doc-words.js), in the `lint` job's log and summary). The numbers are shown and never a gate: how long a document should be depends on what it has to say. The pull request's reviewer reads the table and asks of each row that grew whether the added words state the change's rule or restate, explain or record something else. Growth the reviewer does not accept is a review finding, recorded with the review's other findings in the pull request's change record, and the row passes when no such finding is open.
   - **Lists.** A list inside a clause's scope — bulleted, numbered, a table's
@@ -160,3 +160,16 @@ A sentence that carries three or more parallel facts is a table or a list
 waiting to be written. Clause text keeps its identifier and its RFC 2119
 wording whatever form surrounds it, and a table or list inside a clause's scope
 still states whether it is closed (Minting clauses, above).
+
+Shorter is better, as long as the reader still gets what they need and gets it without effort. Before a passage is done, cut:
+
+- what another home already states: link the home;
+- what the document's reader does not need in order to act on the passage. In [`ci.md`](ci.md), [`local-ci.md`](local-ci.md), [`unit.md`](../test/unit.md) and [`e2e.md`](../test/e2e.md) the reader is the one the opening sentence names, where it names one, and cell prose that repeats a workflow or a test file goes; the file itself holds it. A table a check reads keeps every row, column and cell the check reads, each Covers cell keeps its summary of what the file covers, a row of [`unit.md`](../test/unit.md) keeps the shape `unit.md` states for it, and the Clause form row keeps what One home and unit length (above) has it state. Clause text in those documents is outside this bullet;
+- words that carry nothing;
+- how the code reaches an outcome, in a capture clause, a row of the session format and the [capture pipeline](../architecture/application/desktop/windows/capture-pipeline.md) document: these state what the person does and what the file then holds, with the reason for the outcome, the values and measurements it depends on and the departures. An entry of an exception list, and a departure or an open case wherever stated, is one sentence per outcome so stated. A departure or an open case also links the open issue that tracks it (One home and unit length, above); one with no open issue gets one filed in the pull request that cuts it, and a closed link goes. One that no longer holds is no departure. The steps, and the reason for each, live in the code, its comments and its tests, whichever pull request writes the text. The history of a departure lives in its issue; what core [CP-18 and CP-19](../architecture/system/capture-principles.md) have the field's documentation state never lives only there.
+
+This list is open. A cut that takes away something the reader needs is a meaning change, not a cut. A form from the table above often says the same in fewer words than prose does.
+
+Cutting the steps is a cut only where every outcome they produced is still stated as what the person does and what the file holds. A registry row then names as checked by no case only an outcome a clause states.
+
+The pull request's reviewer names each touched passage that fails this, with its line, as a review finding recorded in the pull request's change record, and the rule passes when no such finding is open. For a document that holds clauses, Words before and after (above) shows the count. A Covers cell of a test guide and a paragraph, list item or table row of a clause have no length limit. On a pull request two checks of the [lint table](ci.md#the-lint-and-freshness-gates) list, without failing, what grew since the base branch: Test inventories lists each Covers cell of a registered suite inventory that grew in place (a new, moved or renamed row, or a row under a renamed section or guide, is not listed), and Clause form lists each paragraph, list item or table row of a clause that grew or was added (its row states what it does not see). The reviewer answers each listed passage in the change record: a finding as above, or "needed by the reader" with the reason.

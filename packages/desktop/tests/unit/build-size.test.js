@@ -86,6 +86,19 @@
  *     and `adapter-tauri.js` by 1,402 B with naming the held keys of a step;
  *     the rest is earlier growth that stayed under the last budget; no new
  *     dependency.
+ *   - Raised to 610KB: measured 606,192 B (`node_modules` inside the
+ *     checkout); margin 18,448 B; growth since 586,862 B at 6fc63c5 (rebuilt
+ *     with the current lockfile, `node_modules` inside the checkout; that
+ *     rebuild measures 84 B over the 586,778 B the entry above records, all
+ *     in `tauri-bridge.js`): `shared/generated/validate-desktop-windows.js`
+ *     +11,902 B, `persistence.js` +3,998 B, `adapter-tauri.js` +2,566 B,
+ *     `panel.js` +619 B, `shared/lib/field-sensitivity.js` +329 B,
+ *     `tauri-bridge.js` −84 B. Deliberate: the generated validator grew by
+ *     1,350 B with this raise's own change, the optional `alt_graph` field of
+ *     `modifiers`, validated on each of the five actions that carry it, and
+ *     `adapter-tauri.js` by 535 B with reading AltGr in the shortcut test of
+ *     a key on a sensitive field; the rest is earlier growth that stayed
+ *     under the last budget; no new dependency.
  *
  * Requires `npm run build:desktop-dist` to have been run first.
  */
@@ -99,7 +112,7 @@ import { fileURLToPath } from 'node:url';
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const desktopDistDir = resolve(__dirname, '../../dist');
 
-const JS_BUDGET_KB = 591;
+const JS_BUDGET_KB = 610;
 
 /** The headroom rule's figures for a measured size: the next budget and its margin. */
 function nextBudget(bytes) {

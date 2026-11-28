@@ -1,21 +1,16 @@
-// plan.mjs: turns a keyboard driver steps file into the low-level events the
+// plan.mjs: turns an input driver steps file into the low-level events the
 // Windows executor (drive.ps1) sends with SendInput. Pure, so it is tested
 // anywhere (plan.test.mjs); the executor does only input and the guard.
 //
-// Steps (a JSON array):
-//   { "window": { "process": "notepad.exe", "title": "<regex>" } }  guard
-//   { "window": { "any": true } }       guard that accepts any foreground window
-//   { "key": "ctrl+shift+s", "repeat": 2 }   real virtual-key presses
-//   { "chars": "keep" }   real key presses, mapped on the machine's own layout
-//   { "text": "hello" }   Unicode injection (VK_PACKET)
-//   "scan": true on a key or chars step sends each key with its scan code
-//   (and the extended mark where a keyboard sets it), so the app sees a
-//   physical key; without it keys go by virtual key only.
-//   { "wait": 500 }       milliseconds
-// Every input op needs a guard before it, and the executor re-checks the guard
-// before each op. The check is per op: the keys of one op follow one check.
+// The steps file and its guards are described in README.md (section Steps
+// file), next to this file, and the exit codes in its section Running it;
+// this planner refuses anything the Steps file section does not give.
 //
 // CLI: node plan.mjs <steps.json>  -> prints the event list as JSON.
+
+// chars presses and lets go of these itself for each character, which would
+// let go of one the steps hold down: Shift, Ctrl (either), Alt, AltGr.
+const CHAR_MODIFIERS = [0x10, 0x11, 0x12, 0xa5, 0xa3];
 
 const VK = {
   ctrl: 0x11,
@@ -58,6 +53,7 @@ const VK = {
   oem_102: 0xe2,
   rctrl: 0xa3,
   numlock: 0x90,
+  capslock: 0x14,
   numpad_enter: 0x0d,
   numpad_divide: 0x6f,
   numpad_multiply: 0x6a,
@@ -91,6 +87,10 @@ const EXTENDED = new Set([
   'numlock',
 ]);
 for (let i = 1; i <= 12; i++) VK[`f${i}`] = 0x6f + i;
+// Two names are the same key when they give the same virtual key and the
+// same extended mark: ctrl and control are one key, enter and numpad_enter
+// two.
+const sameKey = (a, b) => VK[a] === VK[b] && EXTENDED.has(a) === EXTENDED.has(b);
 for (let c = 0x41; c <= 0x5a; c++) VK[String.fromCharCode(c + 32)] = c;
 for (let d = 0; d <= 9; d++) {
   VK[String(d)] = 0x30 + d;
@@ -98,20 +98,89 @@ for (let d = 0; d <= 9; d++) {
 }
 
 const hex = (n) => `0x${n.toString(16)}`;
+const vkEvent = (p, up, scan) =>
+  scan
+    ? { type: 'vk', vk: hex(VK[p]), up, scan: true, ext: EXTENDED.has(p) }
+    : { type: 'vk', vk: hex(VK[p]), up };
+
+// The fields each op takes besides its own. A step holds exactly one op.
+const FIELDS = {
+  window: ['within'],
+  wait: [],
+  click: ['button', 'count'],
+  move: [],
+  key: ['repeat', 'scan'],
+  down: ['scan'],
+  up: ['scan'],
+  chars: ['scan'],
+  text: [],
+};
+
+// A mouse target, as README.md section Steps file gives it.
+function mouseTarget(t, kind, at) {
+  const bad = () =>
+    new Error(`${at}: ${kind} takes { x, y } in whole screen pixels, { id } or { name, control }`);
+  if (!t || typeof t !== 'object' || Array.isArray(t)) throw bad();
+  const point = 'x' in t || 'y' in t;
+  const element = 'id' in t || 'name' in t || 'control' in t || 'index' in t;
+  if (point === element) throw bad();
+  const takes = point ? ['x', 'y'] : ['id', 'name', 'control', 'index'];
+  if (Object.keys(t).some((k) => !takes.includes(k))) throw bad();
+  if (point) {
+    if (!Number.isInteger(t.x) || !Number.isInteger(t.y)) throw bad();
+    return { x: t.x, y: t.y };
+  }
+  for (const k of ['id', 'name'])
+    if (k in t && typeof t[k] !== 'string')
+      throw new Error(`${at}: id and name are strings, so a control id is "15", not 15`);
+  const has = (k) => typeof t[k] === 'string' && t[k] !== '';
+  if (has('id') === has('name')) throw bad();
+  if ('control' in t && !has('control')) throw bad();
+  if ('index' in t && (!Number.isInteger(t.index) || t.index < 0))
+    throw new Error(`${at}: index counts the matches from 0`);
+  const out = has('id') ? { id: t.id } : { name: t.name };
+  if (has('control')) out.control = t.control;
+  if ('index' in t) out.index = t.index;
+  return out;
+}
 
 export function plan(steps) {
   if (!Array.isArray(steps)) throw new Error('steps must be a JSON array');
   const events = [];
   let guard = null;
+  // Keys a down step pressed and no up step has let go yet, oldest first,
+  // with whether each went down by scan code.
+  const held = [];
   steps.forEach((step, i) => {
     const at = `step ${i}`;
     const needGuard = () => {
       if (!guard) throw new Error(`${at}: no window guard before this input`);
       events.push({ ...guard });
     };
+    if (!step || typeof step !== 'object' || Array.isArray(step))
+      throw new Error(`${at}: a step is an object`);
+    const ops = Object.keys(step).filter((k) => k in FIELDS);
+    if (ops.length > 1) throw new Error(`${at}: one op per step, not ${ops.join(' and ')}`);
+    if (ops.length === 1) {
+      const op = ops[0];
+      for (const k of Object.keys(step)) {
+        if (k === op || FIELDS[op].includes(k)) continue;
+        if (op === 'text' && k === 'scan')
+          throw new Error(`${at}: text is Unicode injection and has no scan code`);
+        throw new Error(`${at}: ${op} does not take ${k}`);
+      }
+    }
     if (step.window) {
       const w = step.window;
+      if (
+        typeof w !== 'object' ||
+        Object.keys(w).some((k) => !['process', 'title', 'any'].includes(k)) ||
+        ('any' in w && Object.keys(w).length > 1)
+      )
+        throw new Error(`${at}: a window guard takes process, title or any`);
       if (w.any === true) {
+        if ('within' in step)
+          throw new Error(`${at}: within needs a guard that names a process or a title`);
         guard = { type: 'assert', any: true };
         return;
       }
@@ -129,6 +198,11 @@ export function plan(steps) {
         process: w.process ? String(w.process).toLowerCase() : null,
         title: w.title ?? null,
       };
+      if ('within' in step) {
+        if (!Number.isInteger(step.within) || step.within < 0 || step.within > 60000)
+          throw new Error(`${at}: within takes 0 to 60000 ms`);
+        events.push({ ...guard, within: step.within });
+      }
       return;
     }
     if ('wait' in step) {
@@ -137,21 +211,56 @@ export function plan(steps) {
       events.push({ type: 'sleep', ms: step.wait });
       return;
     }
+    if ('click' in step || 'move' in step) {
+      const kind = 'click' in step ? 'click' : 'move';
+      const target = mouseTarget(step[kind], kind, at);
+      if (!guard) throw new Error(`${at}: no window guard before this input`);
+      if (guard.any)
+        throw new Error(`${at}: a mouse step needs a guard that names a process or a title`);
+      const where = { process: guard.process, title: guard.title };
+      if (kind === 'move') {
+        events.push({ type: 'move', target, ...where });
+        return;
+      }
+      const button = step.button ?? 'left';
+      if (!['left', 'right', 'middle'].includes(button))
+        throw new Error(`${at}: button is left, right or middle`);
+      const count = step.count ?? 1;
+      if (count !== 1 && count !== 2) throw new Error(`${at}: count is 1 or 2`);
+      events.push({ type: 'click', target, button, count, ...where });
+      return;
+    }
     if ('scan' in step && typeof step.scan !== 'boolean')
       throw new Error(`${at}: scan is true or false`);
     if (step.scan && 'text' in step)
       throw new Error(`${at}: text is Unicode injection and has no scan code`);
     const scan = step.scan === true;
+    const ev = (p, up) => vkEvent(p, up, scan);
+    if ('down' in step || 'up' in step) {
+      const down = 'down' in step;
+      const p = String(step[down ? 'down' : 'up']).toLowerCase();
+      if (p.includes('+')) throw new Error(`${at}: ${down ? 'down' : 'up'} takes one key`);
+      if (!(p in VK)) throw new Error(`${at}: unknown key '${p}'`);
+      const i = held.findIndex((h) => sameKey(h.key, p));
+      if (down && i >= 0) throw new Error(`${at}: ${p} is already down`);
+      if (!down && i < 0) throw new Error(`${at}: ${p} is not down`);
+      if (!down && held[i].scan !== scan)
+        throw new Error(
+          `${at}: ${p} went down ${held[i].scan ? 'with' : 'without'} scan, so it goes up ${held[i].scan ? 'with' : 'without'} scan`,
+        );
+      needGuard();
+      events.push(ev(p, !down));
+      if (down) held.push({ key: p, scan });
+      else held.splice(i, 1);
+      return;
+    }
     if ('key' in step) {
       const parts = String(step.key).toLowerCase().split('+');
       const keys = parts.map((p) => {
         if (!(p in VK)) throw new Error(`${at}: unknown key '${p}'`);
+        if (held.some((h) => sameKey(h.key, p))) throw new Error(`${at}: ${p} is held down`);
         return p;
       });
-      const ev = (p, up) =>
-        scan
-          ? { type: 'vk', vk: hex(VK[p]), up, scan: true, ext: EXTENDED.has(p) }
-          : { type: 'vk', vk: hex(VK[p]), up };
       const repeat = step.repeat ?? 1;
       if (!Number.isInteger(repeat) || repeat < 1 || repeat > 100)
         throw new Error(`${at}: repeat takes 1 to 100`);
@@ -166,6 +275,11 @@ export function plan(steps) {
       const kind = 'chars' in step ? 'char' : 'unicode';
       const s = String(step.chars ?? step.text);
       if (!s) throw new Error(`${at}: empty text`);
+      const mod = kind === 'char' && held.find((h) => CHAR_MODIFIERS.includes(VK[h.key]));
+      if (mod)
+        throw new Error(
+          `${at}: chars presses Shift, Ctrl, Alt and AltGr itself, so it cannot run while ${mod.key} is held`,
+        );
       needGuard();
       for (const ch of s)
         events.push(scan ? { type: kind, char: ch, scan: true } : { type: kind, char: ch });
@@ -173,6 +287,11 @@ export function plan(steps) {
     }
     throw new Error(`${at}: unknown op ${JSON.stringify(Object.keys(step))}`);
   });
+  // A key the steps leave down is let go at the end, newest first, with no
+  // guard before it: a release never types, and a guard that stopped it would
+  // leave the key down.
+  for (const h of [...held].reverse())
+    events.push({ ...vkEvent(h.key, true, h.scan), release: true });
   return events;
 }
 
@@ -193,7 +312,7 @@ if (import.meta.url === `file://${process.argv[1]}` || process.argv[1]?.endsWith
     );
     console.log(ascii);
   } catch (e) {
-    console.error(`keyboard-driver plan: ${e.message}`);
+    console.error(`input-driver plan: ${e.message}`);
     process.exit(2);
   }
 }

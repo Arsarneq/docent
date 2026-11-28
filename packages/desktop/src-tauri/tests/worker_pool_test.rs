@@ -14,6 +14,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc;
 use std::sync::Arc;
 
+use docent_desktop_lib::capture::key_value::{answer_param, Held, LayoutAnswer};
 use docent_desktop_lib::capture::worker_pool::{RawEvent, RawEventType, WorkerMessage, WorkerPool};
 use docent_desktop_lib::capture::ActionEvent;
 use proptest::prelude::*;
@@ -34,11 +35,17 @@ fn make_raw_event(event_type: RawEventType, window_handle: i64) -> RawEvent {
         process_id: 1,
         key_code: 0,
         modifiers: (false, false, false, false),
+        ctrl_alt_read: None,
         scroll_delta: 0.0,
         callback_params: [0; 4],
+        key_value: 0,
+        keyboard_layout: 0,
+        keyboard_thread: 0,
+        caps_lock: false,
         pre_captured_element: None,
         focus_epoch: 0,
         held: Vec::new(),
+        window_title: None,
     }
 }
 
@@ -143,6 +150,7 @@ proptest! {
                         Ok(WorkerMessage::EndTyping)
                         | Ok(WorkerMessage::MenuCommand)
                     | Ok(WorkerMessage::WriteHeldKey)
+                            | Ok(WorkerMessage::UnrecordedKey { .. } | WorkerMessage::AccentsNotKnown)
                             | Ok(WorkerMessage::LookAtFocus) => {}
                         Ok(WorkerMessage::Shutdown) => break,
                         Err(_) => break,
@@ -244,6 +252,7 @@ proptest! {
                         Ok(WorkerMessage::EndTyping)
                         | Ok(WorkerMessage::MenuCommand)
                     | Ok(WorkerMessage::WriteHeldKey)
+                            | Ok(WorkerMessage::UnrecordedKey { .. } | WorkerMessage::AccentsNotKnown)
                             | Ok(WorkerMessage::LookAtFocus) => {}
                         Ok(WorkerMessage::Shutdown) => break,
                         Err(_) => break,
@@ -332,6 +341,7 @@ proptest! {
                         Ok(WorkerMessage::EndTyping)
                         | Ok(WorkerMessage::MenuCommand)
                     | Ok(WorkerMessage::WriteHeldKey)
+                            | Ok(WorkerMessage::UnrecordedKey { .. } | WorkerMessage::AccentsNotKnown)
                             | Ok(WorkerMessage::LookAtFocus) => {}
                         Ok(WorkerMessage::Shutdown) => break,
                         Err(_) => break,
@@ -353,11 +363,17 @@ proptest! {
             process_id: 1,
             key_code: 0,
             modifiers: (false, false, false, false),
+            ctrl_alt_read: None,
             scroll_delta: 0.0,
             callback_params: [0; 4],
+            key_value: 0,
+            keyboard_layout: 0,
+            keyboard_thread: 0,
+            caps_lock: false,
             pre_captured_element: None,
             focus_epoch: 0,
             held: Vec::new(),
+            window_title: None,
         };
 
         let drop_event = RawEvent {
@@ -372,11 +388,17 @@ proptest! {
             process_id: 1,
             key_code: 0,
             modifiers: (false, false, false, false),
+            ctrl_alt_read: None,
             scroll_delta: 0.0,
             callback_params: [0; 4],
+            key_value: 0,
+            keyboard_layout: 0,
+            keyboard_thread: 0,
+            caps_lock: false,
             pre_captured_element: None,
             focus_epoch: 0,
             held: Vec::new(),
+            window_title: None,
         };
 
         pool.dispatch(drag_start);
@@ -434,7 +456,8 @@ use std::thread;
 use std::time::Duration;
 
 use docent_desktop_lib::capture::worker_pool::{
-    focus_names_a_part, key_number_param, worker_loop, AccessibilityBackend, ContextIntroductions,
+    dispatch_introducing, focus_names_a_part, key_number_param, worker_loop,
+    worker_loop_with_timings, AccessibilityBackend, ContextIntroductions, ContextsIntroducedAt,
     ControlLook, ControlNature, PartFocusNote, PendingBuffers, FOCUS_EPOCH_PERSON_STEP,
 };
 use docent_desktop_lib::capture::{
@@ -454,6 +477,9 @@ struct MockBackend {
     default_text: String,
     /// Fixed element selector returned by all element queries.
     selector: String,
+    /// The focused-element and layout questions put to the backend, in the
+    /// order they came.
+    asked: Arc<Mutex<Vec<&'static str>>>,
 }
 
 impl MockBackend {
@@ -462,6 +488,7 @@ impl MockBackend {
             focused_values: Arc::new(Mutex::new(VecDeque::new())),
             default_text: "hello".to_string(),
             selector: "Edit#input1".to_string(),
+            asked: Arc::new(Mutex::new(Vec::new())),
         }
     }
 
@@ -471,6 +498,7 @@ impl MockBackend {
             focused_values: Arc::new(Mutex::new(VecDeque::from(values))),
             default_text: "default".to_string(),
             selector: "Edit#input1".to_string(),
+            asked: Arc::new(Mutex::new(Vec::new())),
         }
     }
 }
@@ -478,6 +506,20 @@ impl MockBackend {
 impl AccessibilityBackend for MockBackend {
     fn init(&mut self) -> Result<(), CaptureError> {
         Ok(())
+    }
+
+    /// A stand-in for the Danish layout: its key right of 0 gives `+`.
+    fn key_value(&self, layout: i64, key_code: u32, _held: Held) -> u32 {
+        self.asked.lock().unwrap().push("layout");
+        if layout == DANISH_TEST_LAYOUT && key_code == 0xBB {
+            answer_param(Some(LayoutAnswer::Char('+')))
+        } else if layout == AX_KEY_TEST_LAYOUT && key_code == 0xE1 {
+            answer_param(Some(LayoutAnswer::Char('x')))
+        } else if layout == DANISH_TEST_LAYOUT {
+            answer_param(Some(LayoutAnswer::Nothing))
+        } else {
+            0
+        }
     }
 
     fn cleanup(&mut self) {}
@@ -496,6 +538,7 @@ impl AccessibilityBackend for MockBackend {
     }
 
     fn focused_element(&self) -> Option<ElementDescription> {
+        self.asked.lock().unwrap().push("focused element");
         let text = {
             let mut vals = self.focused_values.lock().unwrap();
             if let Some(v) = vals.pop_front() {
@@ -563,6 +606,27 @@ struct WorkerTestHarness {
 
 impl WorkerTestHarness {
     fn new(backend: impl AccessibilityBackend) -> Self {
+        Self::timed(
+            backend,
+            docent_desktop_lib::capture::timing_lines::Timings::off(),
+        )
+    }
+
+    /// A worker whose timings are kept in `timings`.
+    fn timed(
+        backend: impl AccessibilityBackend,
+        timings: docent_desktop_lib::capture::timing_lines::Timings,
+    ) -> Self {
+        Self::timed_after(backend, timings, |_| {})
+    }
+
+    /// A worker whose timings are kept in `timings`, started once `before`
+    /// has sent it what waits in its queue as it starts.
+    fn timed_after(
+        backend: impl AccessibilityBackend,
+        timings: docent_desktop_lib::capture::timing_lines::Timings,
+        before: impl FnOnce(&Self),
+    ) -> Self {
         let (event_tx, event_rx) = mpsc::channel::<WorkerMessage>();
         let (action_tx, action_rx) = mpsc::channel::<ActionEvent>();
         let queue_len = Arc::new(AtomicU64::new(0));
@@ -573,8 +637,17 @@ impl WorkerTestHarness {
 
         let pending = Arc::new(Mutex::new(PendingBuffers::default()));
         let worker_pending = Arc::clone(&pending);
-        let thread = thread::spawn(move || {
-            worker_loop(
+        let mut harness = Self {
+            pending: Arc::clone(&pending),
+            event_tx,
+            action_rx,
+            _queue_len: Arc::clone(&queue_len),
+            _excluded_pid: excluded_pid,
+            thread: None,
+        };
+        before(&harness);
+        harness.thread = Some(thread::spawn(move || {
+            worker_loop_with_timings(
                 0,
                 backend,
                 event_rx,
@@ -583,17 +656,10 @@ impl WorkerTestHarness {
                 ep,
                 worker_pending,
                 None,
+                timings,
             );
-        });
-
-        Self {
-            pending,
-            event_tx,
-            action_rx,
-            _queue_len: queue_len,
-            _excluded_pid: excluded_pid,
-            thread: Some(thread),
-        }
+        }));
+        harness
     }
 
     /// Send a raw event to the worker.
@@ -679,11 +745,17 @@ proptest! {
             process_id: 1,
             key_code: 0,
             modifiers: (false, false, false, false),
+            ctrl_alt_read: None,
             scroll_delta: 0.0,
             callback_params: [0; 4],
+            key_value: 0,
+            keyboard_layout: 0,
+            keyboard_thread: 0,
+            caps_lock: false,
             pre_captured_element: None,
             focus_epoch: 0,
             held: Vec::new(),
+            window_title: None,
         };
 
         let harness = WorkerTestHarness::new(MockBackend::new());
@@ -755,11 +827,17 @@ proptest! {
                 process_id: 1,
                 key_code: 0,
                 modifiers: (false, false, false, false),
+                ctrl_alt_read: None,
                 scroll_delta: 0.0,
                 callback_params: [0; 4],
+            key_value: 0,
+            keyboard_layout: 0,
+            keyboard_thread: 0,
+            caps_lock: false,
             pre_captured_element: None,
             focus_epoch: 0,
             held: Vec::new(),
+                window_title: None,
             };
             harness.send_event(raw);
         }
@@ -838,11 +916,17 @@ proptest! {
                 process_id: 1,
                 key_code: 0,
                 modifiers: (false, false, false, false),
+                ctrl_alt_read: None,
                 scroll_delta: 0.0,
                 callback_params: [0; 4],
+            key_value: 0,
+            keyboard_layout: 0,
+            keyboard_thread: 0,
+            caps_lock: false,
             pre_captured_element: None,
             focus_epoch: 0,
             held: Vec::new(),
+                window_title: None,
             };
             harness.send_event(raw);
         }
@@ -862,11 +946,17 @@ proptest! {
             process_id: 1,
             key_code: 0,
             modifiers: (false, false, false, false),
+            ctrl_alt_read: None,
             scroll_delta: 0.0,
             callback_params: [0; 4],
+            key_value: 0,
+            keyboard_layout: 0,
+            keyboard_thread: 0,
+            caps_lock: false,
             pre_captured_element: None,
             focus_epoch: 0,
             held: Vec::new(),
+            window_title: None,
         };
         harness.send_event(context_event);
 
@@ -971,6 +1061,9 @@ fn worker_panic_respawns_and_redistributes() {
                         Ok(WorkerMessage::EndTyping)
                         | Ok(WorkerMessage::MenuCommand)
                         | Ok(WorkerMessage::WriteHeldKey)
+                        | Ok(
+                            WorkerMessage::UnrecordedKey { .. } | WorkerMessage::AccentsNotKnown,
+                        )
                         | Ok(WorkerMessage::LookAtFocus) => {}
                         Ok(WorkerMessage::Shutdown) => break,
                         Err(_) => break,
@@ -1048,6 +1141,7 @@ fn repeatedly_failing_workers_get_respawned_and_shutdown_completes() {
                     Ok(WorkerMessage::EndTyping)
                     | Ok(WorkerMessage::MenuCommand)
                     | Ok(WorkerMessage::WriteHeldKey)
+                    | Ok(WorkerMessage::UnrecordedKey { .. } | WorkerMessage::AccentsNotKnown)
                     | Ok(WorkerMessage::LookAtFocus) => {}
                     Ok(WorkerMessage::Shutdown) => {}
                     Err(_) => {}
@@ -1136,11 +1230,17 @@ fn worker_shutdown_flushes_pending_type_event() {
             process_id: 1,
             key_code: 0,
             modifiers: (false, false, false, false),
+            ctrl_alt_read: None,
             scroll_delta: 0.0,
             callback_params: [0; 4],
+            key_value: 0,
+            keyboard_layout: 0,
+            keyboard_thread: 0,
+            caps_lock: false,
             pre_captured_element: None,
             focus_epoch: 0,
             held: Vec::new(),
+            window_title: None,
         };
         harness.send_event(raw);
     }
@@ -1195,11 +1295,17 @@ fn regression_298_flush_drains_pending_and_worker_continues() {
             process_id: 1,
             key_code: 0,
             modifiers: (false, false, false, false),
+            ctrl_alt_read: None,
             scroll_delta: 0.0,
             callback_params: [0; 4],
+            key_value: 0,
+            keyboard_layout: 0,
+            keyboard_thread: 0,
+            caps_lock: false,
             pre_captured_element: None,
             focus_epoch: 0,
             held: Vec::new(),
+            window_title: None,
         });
     }
     thread::sleep(Duration::from_millis(50)); // processed, the type held
@@ -1237,11 +1343,17 @@ fn regression_298_flush_drains_pending_and_worker_continues() {
         process_id: 1,
         key_code: 0,
         modifiers: (false, false, false, false),
+        ctrl_alt_read: None,
         scroll_delta: 0.0,
         callback_params: [0; 4],
+        key_value: 0,
+        keyboard_layout: 0,
+        keyboard_thread: 0,
+        caps_lock: false,
         pre_captured_element: None,
         focus_epoch: 0,
         held: Vec::new(),
+        window_title: None,
     });
     let after_click = harness.drain_actions();
     assert!(
@@ -1287,11 +1399,17 @@ fn regression_298_flush_all_drains_workers_and_emits_sentinel_last() {
             process_id: 1,
             key_code: 0,
             modifiers: (false, false, false, false),
+            ctrl_alt_read: None,
             scroll_delta: 0.0,
             callback_params: [0; 4],
+            key_value: 0,
+            keyboard_layout: 0,
+            keyboard_thread: 0,
+            caps_lock: false,
             pre_captured_element: None,
             focus_epoch: 0,
             held: Vec::new(),
+            window_title: None,
         });
     }
     thread::sleep(Duration::from_millis(80)); // processed, the type held
@@ -1428,11 +1546,17 @@ fn poison_event_does_not_kill_worker() {
         process_id: 1,
         key_code: 0,
         modifiers: (false, false, false, false),
+        ctrl_alt_read: None,
         scroll_delta: 0.0,
         callback_params: [0; 4],
+        key_value: 0,
+        keyboard_layout: 0,
+        keyboard_thread: 0,
+        caps_lock: false,
         pre_captured_element: None,
         focus_epoch: 0,
         held: Vec::new(),
+        window_title: None,
     });
 
     // Send the poison event (will panic inside element_at_point).
@@ -1446,11 +1570,17 @@ fn poison_event_does_not_kill_worker() {
         process_id: 1,
         key_code: 0,
         modifiers: (false, false, false, false),
+        ctrl_alt_read: None,
         scroll_delta: 0.0,
         callback_params: [0; 4],
+        key_value: 0,
+        keyboard_layout: 0,
+        keyboard_thread: 0,
+        caps_lock: false,
         pre_captured_element: None,
         focus_epoch: 0,
         held: Vec::new(),
+        window_title: None,
     });
 
     // Send another normal click event after the poison.
@@ -1464,11 +1594,17 @@ fn poison_event_does_not_kill_worker() {
         process_id: 1,
         key_code: 0,
         modifiers: (false, false, false, false),
+        ctrl_alt_read: None,
         scroll_delta: 0.0,
         callback_params: [0; 4],
+        key_value: 0,
+        keyboard_layout: 0,
+        keyboard_thread: 0,
+        caps_lock: false,
         pre_captured_element: None,
         focus_epoch: 0,
         held: Vec::new(),
+        window_title: None,
     });
 
     // Give the worker time to process all three events.
@@ -1584,11 +1720,17 @@ fn locators_and_provider_facts_pass_through_the_pipeline_verbatim() {
         process_id: 1,
         key_code: 0,
         modifiers: (false, false, false, false),
+        ctrl_alt_read: None,
         scroll_delta: 0.0,
         callback_params: [0; 4],
+        key_value: 0,
+        keyboard_layout: 0,
+        keyboard_thread: 0,
+        caps_lock: false,
         pre_captured_element: None,
         focus_epoch: 0,
         held: Vec::new(),
+        window_title: None,
     });
 
     thread::sleep(Duration::from_millis(100));
@@ -1632,11 +1774,17 @@ fn pre_captured_click_exports_zero_describe_latency() {
         process_id: 1,
         key_code: 0,
         modifiers: (false, false, false, false),
+        ctrl_alt_read: None,
         scroll_delta: 0.0,
         callback_params: [0; 4],
+        key_value: 0,
+        keyboard_layout: 0,
+        keyboard_thread: 0,
+        caps_lock: false,
         pre_captured_element: Some(locator_rich_element()),
         focus_epoch: 0,
         held: Vec::new(),
+        window_title: None,
     });
 
     thread::sleep(Duration::from_millis(100));
@@ -1673,11 +1821,17 @@ fn an_action_carries_the_platforms_preferred_languages() {
         process_id: 1,
         key_code: 0,
         modifiers: (false, false, false, false),
+        ctrl_alt_read: None,
         scroll_delta: 0.0,
         callback_params: [0; 4],
+        key_value: 0,
+        keyboard_layout: 0,
+        keyboard_thread: 0,
+        caps_lock: false,
         pre_captured_element: Some(locator_rich_element()),
         focus_epoch: 0,
         held: Vec::new(),
+        window_title: None,
     });
 
     thread::sleep(Duration::from_millis(100));
@@ -1758,11 +1912,17 @@ fn coordinate_downgrade_strips_locators_facts_and_latency() {
         process_id: 1,
         key_code: 0,
         modifiers: (false, false, false, false),
+        ctrl_alt_read: None,
         scroll_delta: 0.0,
         callback_params: [0; 4],
+        key_value: 0,
+        keyboard_layout: 0,
+        keyboard_thread: 0,
+        caps_lock: false,
         pre_captured_element: None,
         focus_epoch: 0,
         held: Vec::new(),
+        window_title: None,
     });
 
     thread::sleep(Duration::from_millis(100));
@@ -1806,11 +1966,17 @@ fn context_open_carries_process_source_and_no_fabricated_opener() {
         process_id: 7,
         key_code: 0,
         modifiers: (false, false, false, false),
+        ctrl_alt_read: None,
         scroll_delta: 0.0,
         callback_params: [0; 4],
+        key_value: 0,
+        keyboard_layout: 0,
+        keyboard_thread: 0,
+        caps_lock: false,
         pre_captured_element: None,
         focus_epoch: 0,
         held: Vec::new(),
+        window_title: None,
     });
 
     thread::sleep(Duration::from_millis(100));
@@ -1905,11 +2071,17 @@ fn coordinate_fallback_emits_screen_space_verbatim_for_non_origin_window() {
         process_id: 1,
         key_code: 0,
         modifiers: (false, false, false, false),
+        ctrl_alt_read: None,
         scroll_delta: 0.0,
         callback_params: [0; 4],
+        key_value: 0,
+        keyboard_layout: 0,
+        keyboard_thread: 0,
+        caps_lock: false,
         pre_captured_element: None,
         focus_epoch: 0,
         held: Vec::new(),
+        window_title: None,
     });
 
     thread::sleep(Duration::from_millis(100));
@@ -1979,11 +2151,17 @@ fn scroll_accumulator_flushes_on_timeout() {
             process_id: 1,
             key_code: 0,
             modifiers: (false, false, false, false),
+            ctrl_alt_read: None,
             scroll_delta: 100.0, // Each scroll event has delta 100 (total 500 > 200 threshold)
             callback_params: [0, 0, 0, 0], // vertical scroll
+            key_value: 0,
+            keyboard_layout: 0,
+            keyboard_thread: 0,
+            caps_lock: false,
             pre_captured_element: None,
             focus_epoch: 0,
             held: Vec::new(),
+            window_title: None,
         };
         harness.send_event(raw);
     }
@@ -2031,11 +2209,17 @@ fn scroll_accumulator_flushes_on_shutdown() {
             process_id: 1,
             key_code: 0,
             modifiers: (false, false, false, false),
+            ctrl_alt_read: None,
             scroll_delta: 150.0,           // total 450 > 200 threshold
             callback_params: [0, 0, 0, 0], // vertical scroll
+            key_value: 0,
+            keyboard_layout: 0,
+            keyboard_thread: 0,
+            caps_lock: false,
             pre_captured_element: None,
             focus_epoch: 0,
             held: Vec::new(),
+            window_title: None,
         };
         harness.send_event(raw);
     }
@@ -2077,11 +2261,17 @@ fn focus_deduplication_suppresses_consecutive_same_element() {
             process_id: 1,
             key_code: 0,
             modifiers: (false, false, false, false),
+            ctrl_alt_read: None,
             scroll_delta: 0.0,
             callback_params: [0; 4],
+            key_value: 0,
+            keyboard_layout: 0,
+            keyboard_thread: 0,
+            caps_lock: false,
             pre_captured_element: None,
             focus_epoch: 0,
             held: Vec::new(),
+            window_title: None,
         };
         harness.send_event(raw);
     }
@@ -2129,11 +2319,17 @@ fn value_change_deduplication_same_value() {
             process_id: 1,
             key_code: 0,
             modifiers: (false, false, false, false),
+            ctrl_alt_read: None,
             scroll_delta: 0.0,
             callback_params: [0; 4],
+            key_value: 0,
+            keyboard_layout: 0,
+            keyboard_thread: 0,
+            caps_lock: false,
             pre_captured_element: None,
             focus_epoch: 0,
             held: Vec::new(),
+            window_title: None,
         };
         harness.send_event(raw);
     }
@@ -2172,11 +2368,17 @@ fn keyboard_event_produces_key_action() {
         process_id: 1,
         key_code: 0x0D, // Enter
         modifiers: (false, false, false, false),
+        ctrl_alt_read: None,
         scroll_delta: 0.0,
         callback_params: [0; 4],
+        key_value: 0,
+        keyboard_layout: 0,
+        keyboard_thread: 0,
+        caps_lock: false,
         pre_captured_element: None,
         focus_epoch: 0,
         held: Vec::new(),
+        window_title: None,
     };
     harness.send_event(raw);
 
@@ -2214,11 +2416,17 @@ fn modifier_only_key_is_skipped() {
         process_id: 1,
         key_code: 0xA0, // VK_LSHIFT
         modifiers: (false, true, false, false),
+        ctrl_alt_read: None,
         scroll_delta: 0.0,
         callback_params: [0; 4],
+        key_value: 0,
+        keyboard_layout: 0,
+        keyboard_thread: 0,
+        caps_lock: false,
         pre_captured_element: None,
         focus_epoch: 0,
         held: Vec::new(),
+        window_title: None,
     };
     harness.send_event(raw);
 
@@ -2255,11 +2463,17 @@ fn foreground_event_produces_context_switch() {
         process_id: 1,
         key_code: 0,
         modifiers: (false, false, false, false),
+        ctrl_alt_read: None,
         scroll_delta: 0.0,
         callback_params: [0; 4],
+        key_value: 0,
+        keyboard_layout: 0,
+        keyboard_thread: 0,
+        caps_lock: false,
         pre_captured_element: None,
         focus_epoch: 0,
         held: Vec::new(),
+        window_title: None,
     };
     harness.send_event(raw);
 
@@ -2347,6 +2561,88 @@ fn regression_761_context_switch_names_its_source_by_the_event_process() {
     );
 }
 
+// Regression: #801 — a context_switch into a window that closed, of a process
+// that had exited, before the worker described it named its source "pid:0"
+// https://github.com/Arsarneq/docent/issues/801
+#[test]
+fn regression_801_context_switch_of_an_exited_process_names_the_event_process_id() {
+    let harness = WorkerTestHarness::new(ClosedWindowBackend(MockBackend::new()));
+    let mut raw = make_raw_event(RawEventType::Foreground, 66168);
+    raw.sequence_id = 1;
+    // Not 4242: ClosedWindowBackend names no other process by its id, as the
+    // Windows backend names none that has exited.
+    raw.process_id = 4243;
+    harness.send_event(raw);
+
+    thread::sleep(Duration::from_millis(200));
+    let events = harness.shutdown();
+
+    let sources: Vec<&str> = events
+        .iter()
+        .filter_map(|e| match &e.payload {
+            ActionPayload::ContextSwitch { source, .. } => Some(source.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        sources,
+        vec!["pid:4243"],
+        "a process that cannot be read is named by the id read at the event"
+    );
+}
+
+// Regression: #801 — a context_switch into a window that closed before the
+// worker described it was written with no title
+// https://github.com/Arsarneq/docent/issues/801
+#[test]
+fn regression_801_context_switch_into_a_closed_window_states_the_title_read_at_the_event() {
+    let harness = WorkerTestHarness::new(ClosedWindowBackend(MockBackend::new()));
+    let mut raw = make_raw_event(RawEventType::Foreground, 66168);
+    raw.sequence_id = 1;
+    raw.process_id = 4242;
+    raw.window_title = Some("Untitled - Notepad".to_string());
+    harness.send_event(raw);
+
+    thread::sleep(Duration::from_millis(200));
+    let events = harness.shutdown();
+
+    let titles: Vec<Option<&str>> = events
+        .iter()
+        .filter_map(|e| match &e.payload {
+            ActionPayload::ContextSwitch { title, .. } => Some(title.as_deref()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        titles,
+        vec![Some("Untitled - Notepad")],
+        "the switch states the title read at the event, not the closed window's"
+    );
+}
+
+/// The title read with the event is written even where the window's title
+/// has changed by the time the switch is described (docent#801).
+#[test]
+fn a_context_switch_states_the_title_read_at_the_event_over_the_window_s_later_title() {
+    let harness = WorkerTestHarness::new(MockBackend::new());
+    let mut raw = make_raw_event(RawEventType::Foreground, 200);
+    raw.sequence_id = 1;
+    raw.window_title = Some("*Untitled - Notepad".to_string());
+    harness.send_event(raw);
+
+    thread::sleep(Duration::from_millis(200));
+    let events = harness.shutdown();
+
+    let titles: Vec<Option<&str>> = events
+        .iter()
+        .filter_map(|e| match &e.payload {
+            ActionPayload::ContextSwitch { title, .. } => Some(title.as_deref()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(titles, vec![Some("*Untitled - Notepad")]);
+}
+
 /// A process the backend cannot name by its id leaves the switch named by
 /// its window, as before.
 #[test]
@@ -2386,11 +2682,17 @@ fn right_click_event_produces_right_click_action() {
         process_id: 1,
         key_code: 0,
         modifiers: (false, false, false, false),
+        ctrl_alt_read: None,
         scroll_delta: 0.0,
         callback_params: [0; 4],
+        key_value: 0,
+        keyboard_layout: 0,
+        keyboard_thread: 0,
+        caps_lock: false,
         pre_captured_element: None,
         focus_epoch: 0,
         held: Vec::new(),
+        window_title: None,
     };
     harness.send_event(raw);
 
@@ -2440,11 +2742,17 @@ fn excluded_pid_events_are_discarded() {
             process_id: 42, // Excluded PID
             key_code: 0,
             modifiers: (false, false, false, false),
+            ctrl_alt_read: None,
             scroll_delta: 0.0,
             callback_params: [0; 4],
+            key_value: 0,
+            keyboard_layout: 0,
+            keyboard_thread: 0,
+            caps_lock: false,
             pre_captured_element: None,
             focus_epoch: 0,
             held: Vec::new(),
+            window_title: None,
         })))
         .unwrap();
 
@@ -2461,11 +2769,17 @@ fn excluded_pid_events_are_discarded() {
             process_id: 99, // Not excluded
             key_code: 0,
             modifiers: (false, false, false, false),
+            ctrl_alt_read: None,
             scroll_delta: 0.0,
             callback_params: [0; 4],
+            key_value: 0,
+            keyboard_layout: 0,
+            keyboard_thread: 0,
+            caps_lock: false,
             pre_captured_element: None,
             focus_epoch: 0,
             held: Vec::new(),
+            window_title: None,
         })))
         .unwrap();
 
@@ -2514,11 +2828,17 @@ fn selection_event_produces_select_action() {
         process_id: 1,
         key_code: 0,
         modifiers: (false, false, false, false),
+        ctrl_alt_read: None,
         scroll_delta: 0.0,
         callback_params: [0, 0, 0, 0],
+        key_value: 0,
+        keyboard_layout: 0,
+        keyboard_thread: 0,
+        caps_lock: false,
         pre_captured_element: None,
         focus_epoch: 0,
         held: Vec::new(),
+        window_title: None,
     });
 
     thread::sleep(Duration::from_millis(200));
@@ -2548,7 +2868,7 @@ fn modifier_only_keys_produce_no_events() {
 
     // VK_LSHIFT = 0xA0, VK_RSHIFT = 0xA1, VK_LCONTROL = 0xA2,
     // VK_RCONTROL = 0xA3, VK_LMENU = 0xA4, VK_RMENU = 0xA5
-    // These all return empty string from vk_to_key_name → skipped.
+    // These are all given the empty name, and skipped.
     for vk in [0xA0u32, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5] {
         harness.send_event(RawEvent {
             event_type: RawEventType::Keyboard,
@@ -2560,11 +2880,17 @@ fn modifier_only_keys_produce_no_events() {
             process_id: 1,
             key_code: vk,
             modifiers: (false, false, false, false),
+            ctrl_alt_read: None,
             scroll_delta: 0.0,
             callback_params: [0, 0, 0, 0],
+            key_value: 0,
+            keyboard_layout: 0,
+            keyboard_thread: 0,
+            caps_lock: false,
             pre_captured_element: None,
             focus_epoch: 0,
             held: Vec::new(),
+            window_title: None,
         });
     }
 
@@ -2577,6 +2903,61 @@ fn modifier_only_keys_produce_no_events() {
         "modifier-only keys should produce no events, got {}",
         events.len()
     );
+}
+
+/// Regression: a Shift, Ctrl or Alt press the hook was handed by its generic
+/// code (`VK_SHIFT`, `VK_CONTROL`, `VK_MENU`), as a program sending input by
+/// virtual-key code alone may send it, was written as a `key` named `Shift`,
+/// `Control` or `Alt`, and ended the typing in the field; a press of Shift,
+/// Ctrl or Alt is no `key` by whichever code it comes (DCP-9, DCP-13), in an
+/// edit field and in a password field alike.
+#[test]
+fn regression_noissue_a_shift_ctrl_or_alt_press_by_its_generic_code_is_no_key() {
+    let presses = [
+        (0x10, (false, true, false, false)),
+        (0x11, (true, false, false, false)),
+        (0x12, (false, false, true, false)),
+    ];
+    for (vk, modifiers) in presses {
+        let press = |seq: u64, timestamp: u64| {
+            let mut raw = layout_key(seq, timestamp, vk);
+            raw.modifiers = modifiers;
+            raw
+        };
+
+        // An edit field: A, the press, B, and the value they made.
+        let gate = closed_gate();
+        open_gate(&gate);
+        let harness = WorkerTestHarness::new(TypingBackend::edit(&gate, "ab"));
+        let t = now_ms();
+        harness.send_event(layout_key(1, t, 0x41));
+        harness.send_event(press(2, t + 1));
+        harness.send_event(layout_key(3, t + 2, 0x42));
+        harness.send_event(value_change(4, t + 6, 1234));
+        thread::sleep(Duration::from_millis(900));
+        let events = harness.shutdown();
+        assert_eq!(
+            types_and_keys(&events),
+            vec!["type ab"],
+            "vk {vk:#x} in an edit field: one `type` and no `key`, got {events:?}"
+        );
+
+        // A password field: P, the press, W.
+        let gate = closed_gate();
+        open_gate(&gate);
+        let harness = WorkerTestHarness::new(TypingBackend::password(&gate));
+        let t = now_ms();
+        harness.send_event(layout_key(1, t, 0x50));
+        harness.send_event(press(2, t + 1));
+        harness.send_event(layout_key(3, t + 2, 0x57));
+        thread::sleep(Duration::from_millis(900));
+        let events = harness.shutdown();
+        assert_eq!(
+            types_and_keys(&events),
+            vec!["type ••••••••"],
+            "vk {vk:#x} in a password field: one masked `type` and no `key`, got {events:?}"
+        );
+    }
 }
 
 /// Test: Win+L key combo — the L key with meta modifier IS captured as a key
@@ -2601,10 +2982,16 @@ fn win_l_key_combo_is_captured_if_received() {
         key_code: 0x4C,                         // VK_L
         modifiers: (false, false, false, true), // meta = true
         scroll_delta: 0.0,
+        ctrl_alt_read: None,
         callback_params: [0, 0, 0, 0],
+        key_value: 0,
+        keyboard_layout: 0,
+        keyboard_thread: 0,
+        caps_lock: false,
         pre_captured_element: None,
         focus_epoch: 0,
         held: Vec::new(),
+        window_title: None,
     });
 
     thread::sleep(Duration::from_millis(200));
@@ -2658,11 +3045,17 @@ fn packet_key(seq: u64, timestamp: u64, unit: u16) -> RawEvent {
         process_id: 1,
         key_code: VK_PACKET,
         modifiers: (false, false, false, false),
+        ctrl_alt_read: None,
         scroll_delta: 0.0,
         callback_params: [i64::from(unit), 0, 0, 0],
+        key_value: 0,
+        keyboard_layout: 0,
+        keyboard_thread: 0,
+        caps_lock: false,
         pre_captured_element: None,
         focus_epoch: 0,
         held: Vec::new(),
+        window_title: None,
     }
 }
 
@@ -2813,6 +3206,7 @@ fn held_key(key: &str) -> ActionEvent {
                 shift: false,
                 alt: false,
                 meta: false,
+                alt_graph: false,
             },
             repeat: false,
             code: None,
@@ -3177,47 +3571,123 @@ fn regression_237_a_key_whose_input_method_was_not_read_leaves_the_fields_out() 
     );
 }
 
-/// The input method read rides beside the layout character and the repeat
-/// mark, and changes neither: a repeated punctuation key keeps its name and
-/// its repeat.
+/// The name, repeat mark and `code` of each key action written, as the file
+/// states them.
+fn keys_as_written(events: &[ActionEvent]) -> Vec<(String, bool, Option<String>)> {
+    events
+        .iter()
+        .map(|e| serde_json::to_value(e).unwrap())
+        .filter(|v| v["type"] == "key")
+        .map(|v| {
+            (
+                v["key"].as_str().unwrap().to_string(),
+                v["repeat"].as_bool().unwrap(),
+                v.get("code").and_then(|c| c.as_str()).map(str::to_string),
+            )
+        })
+        .collect()
+}
+
+/// A repeated press of the Enter key (scan code 0x1C) at which `state` was
+/// read of the input method.
+fn enter_with_input_method(state: Option<InputMethodState>) -> RawEvent {
+    let mut enter = layout_key(1, now_ms(), 0x0D);
+    enter.callback_params[0] = 0x1C | input_method_param(state);
+    enter.callback_params[3] = KEY_REPEAT_PARAM;
+    enter
+}
+
+/// A key pressed where an input method was read as on is `Unidentified`:
+/// whether the input method took it cannot be read. Its physical key and its
+/// repeat mark are facts of the press and stay.
 #[test]
-fn regression_237_the_input_method_read_leaves_the_key_name_and_the_repeat_mark() {
+fn regression_237_a_key_pressed_with_an_input_method_on_is_unidentified() {
     let harness = WorkerTestHarness::new(MockBackend::new());
-    let mut plus = layout_key(1, now_ms(), 0xBB);
-    plus.modifiers = (true, false, false, false);
-    plus.callback_params[3] = i64::from(u32::from('+')) | KEY_REPEAT_PARAM;
-    plus.callback_params[0] |= input_method_param(Some(InputMethodState {
+    harness.send_event(enter_with_input_method(Some(InputMethodState {
         open: true,
-        conversion_mode: Some(0x07FF_FFFF),
-    }));
-    harness.send_event(plus);
+        conversion_mode: Some(9),
+    })));
     thread::sleep(Duration::from_millis(100));
     let events = harness.shutdown();
 
-    let named: Vec<(String, bool)> = events
-        .iter()
-        .filter_map(|e| match &e.payload {
-            ActionPayload::Key { key, repeat, .. } => Some((key.clone(), *repeat)),
-            _ => None,
-        })
-        .collect();
-    assert_eq!(named, vec![("+".to_string(), true)], "got {events:?}");
+    assert_eq!(
+        keys_as_written(&events),
+        vec![("Unidentified".to_string(), true, Some("Enter".to_string()))],
+        "got {events:?}"
+    );
     assert_eq!(
         input_method_fields_of(&events),
-        (
-            Some(serde_json::json!(true)),
-            Some(serde_json::json!(0x07FF_FFFF))
-        ),
+        (Some(serde_json::json!(true)), Some(serde_json::json!(9))),
         "got {events:?}"
     );
 }
 
-/// A keydown of a layout key (`key_code` is its virtual-key code).
+/// A key keeps its name where the input method was read as off, and where
+/// nothing was read of it.
+#[test]
+fn regression_237_a_key_keeps_its_name_where_no_input_method_was_read_as_on() {
+    for (name, state) in [
+        (
+            "read as off",
+            Some(InputMethodState {
+                open: false,
+                conversion_mode: Some(0x19),
+            }),
+        ),
+        ("not read", None),
+    ] {
+        let harness = WorkerTestHarness::new(MockBackend::new());
+        harness.send_event(enter_with_input_method(state));
+        thread::sleep(Duration::from_millis(100));
+        let events = harness.shutdown();
+
+        assert_eq!(
+            keys_as_written(&events),
+            vec![("Enter".to_string(), true, Some("Enter".to_string()))],
+            "{name}: got {events:?}"
+        );
+    }
+}
+
+/// What the keyboard hook reads from a US layout for a key pressed with no
+/// modifier (`RawEvent::key_value`), for the letters, the digits, the space
+/// bar and the numeric keypad; nothing read for every other code, which a
+/// test states for itself ([`gives`]).
+fn us_key_value(key_code: u32) -> u32 {
+    let character = match key_code {
+        0x20 => ' ',
+        0x30..=0x39 => char::from(key_code as u8),
+        0x41..=0x5A => char::from(key_code as u8).to_ascii_lowercase(),
+        0x60..=0x69 => char::from(b'0' + (key_code - 0x60) as u8),
+        0x6A => '*',
+        0x6B => '+',
+        0x6D => '-',
+        0x6E => '.',
+        0x6F => '/',
+        _ => return 0,
+    };
+    answer_param(Some(LayoutAnswer::Char(character)))
+}
+
+/// The layout handle the mock backend answers for as the Danish layout.
+const DANISH_TEST_LAYOUT: i64 = 0x0406_0406;
+/// A layout the mock backend answers for with a character on code `0xE1`.
+const AX_KEY_TEST_LAYOUT: i64 = 0x0411_0411;
+
+/// `raw`, with `character` as what the layout gave the press.
+fn gives(mut raw: RawEvent, character: char) -> RawEvent {
+    raw.key_value = answer_param(Some(LayoutAnswer::Char(character)));
+    raw
+}
+
+/// A keydown of a layout key (`key_code` is its virtual-key code), named as
+/// a US layout names it with no modifier ([`us_key_value`]).
 fn layout_key(seq: u64, timestamp: u64, key_code: u32) -> RawEvent {
     let mut raw = make_raw_event(RawEventType::Keyboard, 1234);
     raw.sequence_id = seq;
     raw.timestamp = timestamp;
     raw.key_code = key_code;
+    raw.key_value = us_key_value(key_code);
     raw
 }
 
@@ -3347,6 +3817,7 @@ proptest! {
                         Ok(WorkerMessage::EndTyping)
                         | Ok(WorkerMessage::MenuCommand)
                     | Ok(WorkerMessage::WriteHeldKey)
+                            | Ok(WorkerMessage::UnrecordedKey { .. } | WorkerMessage::AccentsNotKnown)
                             | Ok(WorkerMessage::LookAtFocus) => {}
                         Ok(WorkerMessage::Shutdown) => break,
                         Err(_) => break,
@@ -3427,18 +3898,113 @@ fn regression_noissue_enter_right_behind_typing_in_a_password_field_writes_no_ch
 
     // The typing, then the control key, and nothing after it: the value change
     // finds the masked type already recorded for the field.
-    let kinds: Vec<String> = events
-        .iter()
-        .filter_map(|e| match &e.payload {
-            ActionPayload::Type { value, .. } => Some(format!("type {value}")),
-            ActionPayload::Key { key, .. } => Some(format!("key {key}")),
-            _ => None,
-        })
-        .collect();
     assert_eq!(
-        kinds,
+        types_and_keys(&events),
         vec!["type ••••••••", "key Enter"],
         "the typing is one masked type ahead of the control key, got {events:?}"
+    );
+}
+
+/// In a password field with an input method read as on, which presses are
+/// text is decided by the key's own name: a letter joins the masked `type`,
+/// and Enter stays a `key`, written `Unidentified`.
+#[test]
+fn regression_237_in_a_password_field_with_an_input_method_on_enter_stays_a_key() {
+    let gate = closed_gate();
+    open_gate(&gate);
+    let harness = WorkerTestHarness::new(TypingBackend::password(&gate));
+    let on = input_method_param(Some(InputMethodState {
+        open: true,
+        conversion_mode: Some(9),
+    }));
+
+    let t = now_ms();
+    let mut letter = layout_key(1, t, 0x50); // P
+    letter.callback_params[0] |= on;
+    harness.send_event(letter);
+    let mut enter = layout_key(2, t + 1, 0x0D);
+    enter.callback_params[0] |= on;
+    harness.send_event(enter);
+
+    thread::sleep(Duration::from_millis(900));
+    let events = harness.shutdown();
+
+    assert_eq!(
+        types_and_keys(&events),
+        vec!["type ••••••••", "key Unidentified"],
+        "got {events:?}"
+    );
+}
+
+/// The `key_enters_no_text` mark of each `key` action in `events`, as the
+/// action is written for the frontend: `None` where the action carries none.
+fn no_text_marks(events: &[ActionEvent]) -> Vec<Option<serde_json::Value>> {
+    events
+        .iter()
+        .filter(|e| matches!(e.payload, ActionPayload::Key { .. }))
+        .map(|e| {
+            serde_json::to_value(e)
+                .unwrap()
+                .get("key_enters_no_text")
+                .cloned()
+        })
+        .collect()
+}
+
+/// A key written `Unidentified` for the input method no longer says by its
+/// name whether it enters text, which the frontend's sensitive-field rule
+/// goes by. The worker, which knows the key, marks the one that enters no
+/// character (docent#237); a typing key, and a key that kept its name, carry
+/// no mark.
+#[test]
+fn regression_237_a_key_unnamed_for_the_input_method_says_where_it_enters_no_text() {
+    let on = input_method_param(Some(InputMethodState {
+        open: true,
+        conversion_mode: Some(9),
+    }));
+    let off = input_method_param(Some(InputMethodState {
+        open: false,
+        conversion_mode: Some(0),
+    }));
+
+    for (code, param, expected) in [
+        (0x0D, on, Some(serde_json::json!(true))), // Enter, unnamed
+        (0x70, on, Some(serde_json::json!(true))), // F1, unnamed
+        (0x4E, on, None),                          // N, unnamed, a typing key
+        (0x0D, off, None),                         // Enter, named
+    ] {
+        let harness = WorkerTestHarness::new(MockBackend::new());
+        let mut key = layout_key(1, now_ms(), code);
+        key.callback_params[0] |= param;
+        harness.send_event(key);
+        thread::sleep(Duration::from_millis(900));
+        let events = harness.shutdown();
+        assert_eq!(
+            no_text_marks(&events),
+            vec![expected],
+            "key code {code:#x}, got {events:?}"
+        );
+    }
+}
+
+/// A typing key pressed with an input method read as on, into a control that
+/// reports no value change for it, is written as a key and is `Unidentified`.
+#[test]
+fn regression_237_a_typing_key_with_an_input_method_on_and_no_value_change_is_unidentified() {
+    let harness = WorkerTestHarness::new(MockBackend::new());
+    let mut letter = layout_key(1, now_ms(), 0x4E); // N
+    letter.callback_params[0] |= input_method_param(Some(InputMethodState {
+        open: true,
+        conversion_mode: Some(9),
+    }));
+    harness.send_event(letter);
+    thread::sleep(Duration::from_millis(900));
+    let events = harness.shutdown();
+
+    assert_eq!(
+        types_and_keys(&events),
+        vec!["key Unidentified"],
+        "got {events:?}"
     );
 }
 
@@ -3467,7 +4033,7 @@ fn regression_noissue_every_text_entering_key_in_a_password_field_joins_the_mask
     thread::sleep(Duration::from_millis(900));
     let events = harness.shutdown();
 
-    assert_eq!(key_names_of(&events), vec!["V"], "got {events:?}");
+    assert_eq!(key_names_of(&events), vec!["v"], "got {events:?}");
     assert_eq!(type_values_of(&events), vec!["••••••••"], "got {events:?}");
 }
 
@@ -3532,10 +4098,9 @@ fn burst_through_busy_pool(text: &str, value_changes: usize) -> Vec<ActionEvent>
     action_rx.try_iter().collect()
 }
 
-fn upper_letters(text: &str) -> Vec<String> {
-    text.chars()
-        .map(|c| c.to_ascii_uppercase().to_string())
-        .collect()
+/// The `key` of each letter of `text` typed with no modifier.
+fn letter_keys(text: &str) -> Vec<String> {
+    text.chars().map(|c| c.to_string()).collect()
 }
 
 fn focus_event(seq: u64, timestamp: u64, window_handle: i64) -> RawEvent {
@@ -3975,7 +4540,7 @@ fn repeated_keystrokes_with_no_value_change_are_each_recorded_in_order() {
         let events = burst_through_busy_pool(text, 0);
         assert_eq!(
             key_names_of(&events),
-            upper_letters(text),
+            letter_keys(text),
             "every press of {text:?} is its own key, in typing order"
         );
         assert_eq!(type_values_of(&events), Vec::<String>::new());
@@ -4067,7 +4632,7 @@ fn a_value_change_on_an_element_with_no_value_keeps_the_keys() {
         Vec::<String>::new(),
         "got {events:?}"
     );
-    assert_eq!(key_names_of(&events), vec!["A"], "got {events:?}");
+    assert_eq!(key_names_of(&events), vec!["a"], "got {events:?}");
 }
 
 /// The events that end the typing in a field, each with the name it is
@@ -4248,6 +4813,9 @@ fn messages_sent_for(events: Vec<RawEvent>) -> Vec<Vec<&'static str>> {
                     Ok(WorkerMessage::MenuCommand) => sent.lock().unwrap().push("menu command"),
                     Ok(WorkerMessage::WriteHeldKey) => sent.lock().unwrap().push("write held key"),
                     Ok(WorkerMessage::LookAtFocus) => sent.lock().unwrap().push("look at focus"),
+                    Ok(WorkerMessage::UnrecordedKey { .. } | WorkerMessage::AccentsNotKnown) => {
+                        sent.lock().unwrap().push("unrecorded key")
+                    }
                     Ok(WorkerMessage::Flush(_)) => {}
                     Ok(WorkerMessage::Shutdown) | Err(_) => break,
                 }
@@ -4495,6 +5063,62 @@ fn a_scroll_between_the_keys_leaves_the_typing_one_type() {
     let events = harness.shutdown();
 
     assert_eq!(type_values_of(&events), vec!["ab"], "got {events:?}");
+}
+
+// Regression: #810 — a wheel turn over a window the session had not
+// introduced has a foreground event dispatched ahead of it, which ended the
+// typing in the field, so one text was written as two type actions
+// https://github.com/Arsarneq/docent/issues/810
+#[test]
+fn regression_810_a_wheel_over_a_window_not_yet_introduced_leaves_the_typing_one_type() {
+    let gate = closed_gate();
+    open_gate(&gate);
+    let live = Arc::new(Mutex::new(String::new()));
+    let harness = WorkerTestHarness::new(TypingBackend::edit_live(&gate, &live));
+
+    let mut seq = 0;
+    for character in "ab".chars() {
+        type_character(&live, character, &mut seq, |raw| harness.send_event(raw));
+    }
+    // The wheel over the second window, as the Input_Thread dispatches it:
+    // the switch that introduces that window, then the scroll.
+    seq += 1;
+    let mut switch = make_raw_event(RawEventType::Foreground, 5678);
+    switch.sequence_id = seq;
+    switch.timestamp = now_ms();
+    switch.callback_params[3] = docent_desktop_lib::capture::worker_pool::SWITCH_BEFORE_ITS_ACTION;
+    harness.send_event(switch);
+    seq += 1;
+    let mut scroll = make_raw_event(RawEventType::Scroll, 5678);
+    scroll.sequence_id = seq;
+    scroll.timestamp = now_ms();
+    scroll.scroll_delta = 10.0;
+    harness.send_event(scroll);
+    type_character(&live, 'c', &mut seq, |raw| harness.send_event(raw));
+    let events = harness.shutdown();
+
+    assert_eq!(type_values_of(&events), vec!["abc"], "got {events:?}");
+}
+
+/// The switch dispatched ahead of a first action over an inactive window is
+/// marked, so it ends no typing (docent#810); one into the window in front
+/// counts as that window's activation (DCP-20) and is not.
+#[test]
+fn a_switch_ahead_of_an_action_is_marked_only_for_a_window_not_in_front() {
+    use docent_desktop_lib::capture::worker_pool::{switch_before_event, SWITCH_BEFORE_ITS_ACTION};
+    let mut action = make_raw_event(RawEventType::Scroll, 5678);
+    action.timestamp = 4321;
+
+    let inactive = switch_before_event(&action, 5678, 1234, 42, Some("B".to_string()));
+    assert!(matches!(inactive.event_type, RawEventType::Foreground));
+    assert_eq!(inactive.window_handle, 5678);
+    assert_eq!(inactive.process_id, 42);
+    assert_eq!(inactive.timestamp, 4321);
+    assert_eq!(inactive.window_title.as_deref(), Some("B"));
+    assert_eq!(inactive.callback_params[3], SWITCH_BEFORE_ITS_ACTION);
+
+    let in_front = switch_before_event(&action, 5678, 5678, 42, None);
+    assert_eq!(in_front.callback_params[3], 0);
 }
 
 /// Regression: the last recorded value was kept per selector alone, so a value
@@ -5352,7 +5976,7 @@ fn regression_736_a_value_typed_undone_and_typed_again_is_recorded() {
         typed_actions_of(&events),
         vec![
             "type h on Window:*doc - Editor > Edit:Text",
-            "key Z on Window:*doc - Editor > Edit:Text",
+            "key z on Window:*doc - Editor > Edit:Text",
             "type h on Window:doc - Editor > Edit:Text"
         ],
         "got {events:?}"
@@ -5394,7 +6018,7 @@ fn regression_736_the_same_text_typed_over_itself_is_recorded() {
         typed_actions_of(&events),
         vec![
             "type h on Dialog > Edit:File name",
-            "key A on Dialog > Edit:File name",
+            "key a on Dialog > Edit:File name",
             "type h on Dialog > Edit:File name"
         ],
         "got {events:?}"
@@ -5591,6 +6215,7 @@ fn regression_751_a_value_change_reported_twice_after_a_paste_is_one_type() {
 fn dead_key(seq: u64) -> RawEvent {
     let mut key = layout_key(seq, now_ms(), 0xDD);
     key.callback_params = [0x0D, 0, 0, 0x8000_0000 | i64::from(u32::from('\u{b4}'))];
+    key.key_value = answer_param(Some(LayoutAnswer::Dead('\u{b4}')));
     in_dialog(key)
 }
 
@@ -5639,7 +6264,7 @@ fn regression_744_a_dead_key_is_a_key_when_no_character_follows() {
 
     assert_eq!(
         key_names_of(&events),
-        vec!["\u{b4}", "Backspace"],
+        vec!["Dead", "Backspace"],
         "got {events:?}"
     );
 }
@@ -5727,7 +6352,7 @@ fn regression_744_a_dead_key_waiting_is_written_when_the_typing_ends() {
     let written = harness.drain_actions();
     let _ = harness.shutdown();
 
-    assert_eq!(key_names_of(&written), vec!["\u{b4}"], "got {written:?}");
+    assert_eq!(key_names_of(&written), vec!["Dead"], "got {written:?}");
 }
 
 /// Text is typed, then a dead key: the field's `type` is still held when the
@@ -5764,17 +6389,9 @@ fn regression_744_a_dead_key_behind_typed_text_is_written_behind_the_type() {
         }
         events.extend(harness.shutdown());
 
-        let written: Vec<String> = events
-            .iter()
-            .filter_map(|e| match &e.payload {
-                ActionPayload::Type { value, .. } => Some(format!("type {value}")),
-                ActionPayload::Key { key, .. } => Some(format!("key {key}")),
-                _ => None,
-            })
-            .collect();
         assert_eq!(
-            written,
-            vec!["type c", "key \u{b4}"],
+            types_and_keys(&events),
+            vec!["type c", "key Dead"],
             "{ender}: got {events:?}"
         );
     }
@@ -5794,11 +6411,7 @@ fn regression_744_a_dead_key_and_its_character_are_keys_where_no_text_was_taken(
     let written = harness.drain_actions();
     let _ = harness.shutdown();
 
-    assert_eq!(
-        key_names_of(&written),
-        vec!["\u{b4}", "E"],
-        "got {written:?}"
-    );
+    assert_eq!(key_names_of(&written), vec!["Dead", "e"], "got {written:?}");
 }
 
 /// Paste "h" into the dialog's field with the paste key, so the field's last
@@ -6479,6 +7092,7 @@ fn left_click(
         process_id: 7,
         key_code: 0,
         modifiers: (false, false, false, false),
+        ctrl_alt_read: None,
         scroll_delta: 0.0,
         callback_params: [
             if completes_double_click {
@@ -6490,9 +7104,14 @@ fn left_click(
             0,
             0,
         ],
+        key_value: 0,
+        keyboard_layout: 0,
+        keyboard_thread: 0,
+        caps_lock: false,
         pre_captured_element: Some(element),
         focus_epoch: 0,
         held: Vec::new(),
+        window_title: None,
     }
 }
 
@@ -6897,6 +7516,7 @@ fn a_click_completing_a_double_click_routes_to_the_previous_clicks_worker() {
                     | Ok(WorkerMessage::EndTyping)
                     | Ok(WorkerMessage::MenuCommand)
                     | Ok(WorkerMessage::WriteHeldKey)
+                    | Ok(WorkerMessage::UnrecordedKey { .. } | WorkerMessage::AccentsNotKnown)
                     | Ok(WorkerMessage::LookAtFocus) => {}
                     Ok(WorkerMessage::Shutdown) | Err(_) => break,
                 }
@@ -7913,10 +8533,45 @@ fn an_action_after_a_switch_is_not_the_sessions_first_context() {
 /// A backend whose focused element is in `window` (0: the description
 /// resolved none), with a rectangle of its own for every window handle. Every
 /// window belongs to process 1, the process the test focus events come from,
-/// except `window` itself, which belongs to `window_process`.
+/// except `window` itself, which belongs to `window_process`. `window`'s
+/// context was introduced by the event numbered `window_introduced_at`, none
+/// where `None`; every other window's before any test event.
 struct FocusWindowBackend {
     window: i64,
     window_process: u32,
+    window_introduced_at: Option<u64>,
+    /// The focused element's selector.
+    selector: Arc<Mutex<String>>,
+    /// What `window`'s process reads as after its first read, where it
+    /// changes (the window closed and its handle was given to another
+    /// process's window, say).
+    window_process_later: Option<u32>,
+    window_process_reads: AtomicU64,
+    /// What `window`'s title reads as after its first read, which reads
+    /// empty, where given (a window of another process that took the
+    /// closed window's handle, say).
+    window_title_later: Option<String>,
+    window_title_reads: AtomicU64,
+    /// What `window`'s process reads as once its title has been read, where
+    /// given.
+    window_process_after_title: Option<u32>,
+}
+
+/// A [`FocusWindowBackend`] whose focused element is in `window` of
+/// `window_process`, introduced before every test event, and whose reads of
+/// `window` do not change.
+fn focus_backend(window: i64, window_process: u32) -> FocusWindowBackend {
+    FocusWindowBackend {
+        window,
+        window_process,
+        window_introduced_at: Some(0),
+        selector: Arc::new(Mutex::new("Notepad > Document:Text editor".to_string())),
+        window_process_later: None,
+        window_process_reads: AtomicU64::new(0),
+        window_title_later: None,
+        window_title_reads: AtomicU64::new(0),
+        window_process_after_title: None,
+    }
 }
 
 /// The process every test focus event comes from (`make_raw_event`).
@@ -7942,15 +8597,23 @@ impl AccessibilityBackend for FocusWindowBackend {
     fn focused_element(&self) -> Option<ElementDescription> {
         Some(scene_element(
             "Document",
-            "Notepad > Document:Text editor",
+            &self.selector.lock().unwrap(),
             None,
         ))
     }
     fn focused_element_in_window(&self) -> Option<(ElementDescription, i64)> {
         Some((self.focused_element()?, self.window))
     }
-    fn window_title(&self, _window_handle: i64) -> String {
-        String::new()
+    fn window_title(&self, window_handle: i64) -> String {
+        let reads = if window_handle == self.window {
+            self.window_title_reads.fetch_add(1, Ordering::SeqCst)
+        } else {
+            0
+        };
+        match &self.window_title_later {
+            Some(later) if window_handle == self.window && reads > 0 => later.clone(),
+            _ => String::new(),
+        }
     }
     fn process_name(&self, _window_handle: i64) -> String {
         "test.exe".to_string()
@@ -7969,9 +8632,22 @@ impl AccessibilityBackend for FocusWindowBackend {
     }
     fn process_id_of(&self, window_handle: i64) -> u32 {
         if window_handle == self.window {
-            self.window_process
+            let reads = self.window_process_reads.fetch_add(1, Ordering::SeqCst);
+            let title_read = self.window_title_reads.load(Ordering::SeqCst) > 0;
+            match (self.window_process_after_title, self.window_process_later) {
+                (Some(after_title), _) if title_read => after_title,
+                (_, Some(later)) if reads > 0 => later,
+                _ => self.window_process,
+            }
         } else {
             EVENT_PROCESS
+        }
+    }
+    fn context_introduced_before(&self, window_handle: i64, sequence_id: u64) -> bool {
+        if window_handle == self.window {
+            self.window_introduced_at.is_some_and(|at| at < sequence_id)
+        } else {
+            true
         }
     }
 }
@@ -7991,10 +8667,7 @@ fn focus_written_with_element_in_process(
     window: i64,
     window_process: u32,
 ) -> Vec<(Option<i64>, Option<docent_desktop_lib::capture::WindowRect>)> {
-    let harness = WorkerTestHarness::new(FocusWindowBackend {
-        window,
-        window_process,
-    });
+    let harness = WorkerTestHarness::new(focus_backend(window, window_process));
     let mut focus = make_raw_event(RawEventType::Focus, DIALOG);
     focus.sequence_id = 1;
     harness.send_event(focus);
@@ -8058,6 +8731,313 @@ fn a_focus_whose_element_is_in_another_process_s_window_writes_nothing() {
 #[test]
 fn a_focus_whose_element_s_window_has_no_readable_process_writes_nothing() {
     assert_eq!(focus_written_with_element_in_process(NOTEPAD, 0), vec![]);
+}
+
+/// What is written, as (kind, context), for one focus event named `DIALOG`
+/// and numbered 5, with the focused element in `NOTEPAD` of the event's own
+/// process, whose context was introduced by the event numbered
+/// `notepad_introduced_at` (`None`: by no event).
+fn written_for_focus_into_notepad_introduced_at(
+    notepad_introduced_at: Option<u64>,
+) -> Vec<(&'static str, Option<i64>)> {
+    written_for_focus_into_notepad(notepad_introduced_at, EVENT_PROCESS, None)
+}
+
+/// What is written, as (kind, context), for one focus event named `DIALOG`
+/// and numbered 5, with the focused element in `NOTEPAD`, whose process reads
+/// as `notepad_process` and, after its first read, as `notepad_process_later`
+/// where given, and whose context was introduced by the event numbered
+/// `notepad_introduced_at`.
+fn written_for_focus_into_notepad(
+    notepad_introduced_at: Option<u64>,
+    notepad_process: u32,
+    notepad_process_later: Option<u32>,
+) -> Vec<(&'static str, Option<i64>)> {
+    let harness = WorkerTestHarness::new(FocusWindowBackend {
+        window_introduced_at: notepad_introduced_at,
+        window_process_later: notepad_process_later,
+        ..focus_backend(NOTEPAD, notepad_process)
+    });
+    let mut focus = make_raw_event(RawEventType::Focus, DIALOG);
+    focus.sequence_id = 5;
+    harness.send_event(focus);
+    thread::sleep(Duration::from_millis(100));
+    harness
+        .shutdown()
+        .into_iter()
+        .filter_map(|e| match e.payload {
+            ActionPayload::Focus { .. } => Some(("focus", e.context_id)),
+            ActionPayload::ContextSwitch { .. } => Some(("context_switch", e.context_id)),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Regression for docent#817: a focus is recorded in the window its element
+/// is in (docent#709), and the Input_Thread introduces the window the focus
+/// event named, not that one. Where no switch or open dispatched before the
+/// focus introduced the element's window, the focus is the first action in
+/// its context, and a `context_switch` into it is written before it (core
+/// CP-17, session-format SF-10).
+/// https://github.com/Arsarneq/docent/issues/817
+#[test]
+fn regression_817_a_focus_in_a_window_no_event_before_it_introduced_is_preceded_by_a_switch() {
+    let switch_then_focus = vec![("context_switch", Some(NOTEPAD)), ("focus", Some(NOTEPAD))];
+    // Introduced by no event.
+    assert_eq!(
+        written_for_focus_into_notepad_introduced_at(None),
+        switch_then_focus
+    );
+    // Introduced only by an event dispatched after the focus (the activation
+    // the dialog's closing caused, say), which the recording holds after it.
+    assert_eq!(
+        written_for_focus_into_notepad_introduced_at(Some(6)),
+        switch_then_focus
+    );
+}
+
+/// A second focus in a window no event introduced, on another element, takes
+/// no second switch: the first focus's switch introduced the window.
+#[test]
+fn a_second_focus_in_a_window_a_focus_introduced_takes_no_second_switch() {
+    let selector = Arc::new(Mutex::new(String::new()));
+    let harness = WorkerTestHarness::new(FocusWindowBackend {
+        window_introduced_at: None,
+        selector: selector.clone(),
+        ..focus_backend(NOTEPAD, EVENT_PROCESS)
+    });
+    for (sequence_id, element) in [
+        (5, "Notepad > Document:Text editor"),
+        (7, "Notepad > Edit:Find"),
+    ] {
+        *selector.lock().unwrap() = element.to_string();
+        let mut focus = make_raw_event(RawEventType::Focus, DIALOG);
+        focus.sequence_id = sequence_id;
+        harness.send_event(focus);
+        thread::sleep(Duration::from_millis(100));
+    }
+    let written: Vec<(&str, Option<i64>)> = harness
+        .shutdown()
+        .into_iter()
+        .filter_map(|e| match e.payload {
+            ActionPayload::Focus { .. } => Some(("focus", e.context_id)),
+            ActionPayload::ContextSwitch { .. } => Some(("context_switch", e.context_id)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        written,
+        vec![
+            ("context_switch", Some(NOTEPAD)),
+            ("focus", Some(NOTEPAD)),
+            ("focus", Some(NOTEPAD)),
+        ]
+    );
+}
+
+/// The Input_Thread's record of when each context was introduced keeps the
+/// earliest event that introduced it, and a context counts as introduced
+/// before an event only by an event dispatched earlier.
+#[test]
+fn a_context_is_introduced_before_an_event_by_the_earliest_event_that_introduced_it() {
+    let record = ContextsIntroducedAt::default();
+    assert!(!record.introduced_before(NOTEPAD, 10));
+    record.note(NOTEPAD, 4);
+    record.note(NOTEPAD, 9);
+    assert!(!record.introduced_before(NOTEPAD, 4));
+    assert!(record.introduced_before(NOTEPAD, 5));
+    assert!(!record.introduced_before(DIALOG, 5));
+    // A new capture session starts with none introduced.
+    record.clear();
+    assert!(!record.introduced_before(NOTEPAD, 5));
+}
+
+/// What the Input_Thread notes after it dispatches an event (and the switch
+/// it dispatched ahead of it, where it did): the switch's number where the
+/// switch introduced the window, the event's where the event did, and
+/// nothing where the window is not introduced.
+#[test]
+fn the_number_noted_for_a_window_is_that_of_the_switch_or_event_that_introduced_it() {
+    let mut contexts = ContextIntroductions::default();
+    // The session's first action introduces its window.
+    contexts.switch_before(&key_in(NOTEPAD, 0x41), NOTEPAD, NOTEPAD);
+    assert_eq!(contexts.introduced_by(NOTEPAD, None, 1), Some(1));
+    // A switch dispatched ahead of the first key in the dialog introduced it.
+    assert!(contexts.switch_before(&key_in(DIALOG, 0x46), DIALOG, DIALOG));
+    assert_eq!(contexts.introduced_by(DIALOG, Some(2), 3), Some(2));
+    // A close introduces nothing.
+    const B: i64 = 557;
+    let close = event_in(RawEventType::WindowDestroy, B, 0, NO_MODIFIERS);
+    contexts.switch_before(&close, B, NOTEPAD);
+    assert_eq!(contexts.introduced_by(B, None, 4), None);
+}
+
+/// The Input_Thread's dispatch of one event: the switch ahead of it where
+/// the window needs one, then the event, each numbered as it is sent, and
+/// the window noted with the number of the one that introduced it.
+#[test]
+fn a_dispatched_event_notes_the_number_of_what_introduced_its_window() {
+    let mut contexts = ContextIntroductions::default();
+    let record = ContextsIntroducedAt::new();
+    let mut sent: Vec<(String, i64)> = Vec::new();
+    let mut dispatch = |contexts: &mut ContextIntroductions, event: RawEvent, root: i64| {
+        dispatch_introducing(
+            contexts,
+            &record,
+            event,
+            root,
+            NOTEPAD,
+            |action| {
+                event_in(
+                    RawEventType::Foreground,
+                    action.window_handle,
+                    0,
+                    NO_MODIFIERS,
+                )
+            },
+            |event| {
+                sent.push((format!("{:?}", event.event_type), event.window_handle));
+                sent.len() as u64
+            },
+        )
+    };
+    // 1: the session's first key, in Notepad, introduces it.
+    dispatch(&mut contexts, key_in(NOTEPAD, 0x41), NOTEPAD);
+    // 2, 3: a key in the dialog takes a switch ahead of it, which introduces it.
+    dispatch(&mut contexts, key_in(DIALOG, 0x46), DIALOG);
+    // 4: a close introduces nothing.
+    const B: i64 = 558;
+    dispatch(
+        &mut contexts,
+        event_in(RawEventType::WindowDestroy, B, 0, NO_MODIFIERS),
+        B,
+    );
+    assert_eq!(
+        sent,
+        vec![
+            ("Keyboard".to_string(), NOTEPAD),
+            ("Foreground".to_string(), DIALOG),
+            ("Keyboard".to_string(), DIALOG),
+            ("WindowDestroy".to_string(), B),
+        ]
+    );
+    assert!(record.introduced_before(NOTEPAD, 2) && !record.introduced_before(NOTEPAD, 1));
+    assert!(record.introduced_before(DIALOG, 3) && !record.introduced_before(DIALOG, 2));
+    assert!(!record.introduced_before(B, 5));
+}
+
+/// What the Input_Thread notes of a context it introduces: `is_introduced`
+/// tells whether `ContextIntroductions` has introduced a window, which it does
+/// with the window's first switch, open or action, and not with a close.
+#[test]
+fn a_window_is_introduced_by_its_first_switch_open_or_action() {
+    let mut contexts = ContextIntroductions::default();
+    assert!(!contexts.is_introduced(NOTEPAD));
+    contexts.switch_before(&key_in(NOTEPAD, 0x41), NOTEPAD, NOTEPAD);
+    assert!(contexts.is_introduced(NOTEPAD));
+    let close = event_in(RawEventType::WindowDestroy, DIALOG, 0, NO_MODIFIERS);
+    contexts.switch_before(&close, DIALOG, NOTEPAD);
+    assert!(!contexts.is_introduced(DIALOG));
+    let open = event_in(RawEventType::WindowCreate, DIALOG, 0, NO_MODIFIERS);
+    contexts.switch_before(&open, DIALOG, NOTEPAD);
+    assert!(contexts.is_introduced(DIALOG));
+}
+
+/// The scope filters judged the event's process: a focus whose element is in
+/// a window of another process, or of one that cannot be read, writes
+/// nothing, not even a switch, where no event introduced that window.
+#[test]
+fn a_focus_in_another_process_s_window_no_event_introduced_writes_no_switch() {
+    const OTHER_PROCESS: u32 = 99;
+    assert_eq!(
+        written_for_focus_into_notepad(None, OTHER_PROCESS, None),
+        vec![]
+    );
+    assert_eq!(written_for_focus_into_notepad(None, 0, None), vec![]);
+}
+
+/// The switch before a focus names the window's process and title as read
+/// when the focus is described. Where the window no longer belongs to the
+/// event's process by the time its title is read (it closed, and its handle
+/// went to another process's window), nothing is written: no filter judged
+/// that process.
+#[test]
+fn a_focus_whose_window_changes_process_before_its_switch_is_written_writes_nothing() {
+    const OTHER_PROCESS: u32 = 99;
+    assert_eq!(
+        written_for_focus_into_notepad(None, EVENT_PROCESS, Some(OTHER_PROCESS)),
+        vec![]
+    );
+}
+
+/// The switch ahead of a focus and the focus, as (kind, context, title),
+/// written for one focus event named `DIALOG` and numbered 5, with `backend`
+/// describing the focused element.
+fn written_for_focus_with(
+    backend: FocusWindowBackend,
+) -> Vec<(&'static str, Option<i64>, Option<String>)> {
+    let harness = WorkerTestHarness::new(backend);
+    let mut focus = make_raw_event(RawEventType::Focus, DIALOG);
+    focus.sequence_id = 5;
+    harness.send_event(focus);
+    thread::sleep(Duration::from_millis(100));
+    harness
+        .shutdown()
+        .into_iter()
+        .filter_map(|e| match e.payload {
+            ActionPayload::Focus { .. } => Some(("focus", e.context_id, None)),
+            ActionPayload::ContextSwitch { title, .. } => {
+                Some(("context_switch", e.context_id, title))
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+/// The switch ahead of a focus takes the window's title as read once: where
+/// it read empty, the switch has none, and the window is not read again
+/// (by then its handle may name another process's window).
+#[test]
+fn the_switch_ahead_of_a_focus_reads_its_window_s_title_once() {
+    assert_eq!(
+        written_for_focus_with(FocusWindowBackend {
+            window_introduced_at: None,
+            window_title_later: Some("Another program's window".to_string()),
+            ..focus_backend(NOTEPAD, EVENT_PROCESS)
+        }),
+        vec![
+            ("context_switch", Some(NOTEPAD), None),
+            ("focus", Some(NOTEPAD), None)
+        ]
+    );
+}
+
+/// The window's process is read again after its title: where the window
+/// belongs to another process by the time its title is read (it closed, and
+/// its handle went to another process's window), nothing is written, and the
+/// title, which no filter judged, is not either.
+#[test]
+fn a_focus_whose_window_changes_process_as_its_title_is_read_writes_nothing() {
+    const OTHER_PROCESS: u32 = 99;
+    assert_eq!(
+        written_for_focus_with(FocusWindowBackend {
+            window_introduced_at: None,
+            window_title_later: Some("Another program's window".to_string()),
+            window_process_after_title: Some(OTHER_PROCESS),
+            ..focus_backend(NOTEPAD, EVENT_PROCESS)
+        }),
+        vec![]
+    );
+}
+
+/// A focus in another window of its process that an event before it
+/// introduced takes no switch.
+#[test]
+fn a_focus_in_a_window_introduced_before_it_takes_no_switch() {
+    assert_eq!(
+        written_for_focus_into_notepad_introduced_at(Some(4)),
+        vec![("focus", Some(NOTEPAD))]
+    );
 }
 
 /// A right or middle press into an inactive window not introduced yet writes
@@ -8154,7 +9134,7 @@ fn regression_696_a_space_typed_into_an_edit_field_stays_in_the_one_type() {
 #[test]
 fn regression_696_a_space_with_no_value_change_is_the_key_space() {
     let events = burst_through_busy_pool("a b", 0);
-    assert_eq!(key_names_of(&events), vec!["A", "Space", "B"]);
+    assert_eq!(key_names_of(&events), vec!["a", "Space", "b"]);
     assert_eq!(type_values_of(&events), Vec::<String>::new());
 }
 
@@ -8230,7 +9210,7 @@ fn regression_696_altgr_and_unnamed_layout_keys_stay_in_the_one_type() {
 fn regression_696_altgr_and_unnamed_layout_keys_with_no_value_change_are_keys() {
     let keys = [(0x41, PLAIN), (0x32, ALT_GR), (0xE2, PLAIN)];
     let events = layout_burst(&keys, "", 0);
-    assert_eq!(key_names_of(&events), vec!["A", "2", "VK_0xE2"]);
+    assert_eq!(key_names_of(&events), vec!["a", "2", "Unidentified"]);
 }
 
 /// A shortcut is no typing: Ctrl+S right behind typed keys is written at
@@ -8239,7 +9219,7 @@ fn regression_696_altgr_and_unnamed_layout_keys_with_no_value_change_are_keys() 
 fn a_shortcut_behind_typed_keys_is_a_key_in_its_place() {
     let ctrl = (true, false, false, false);
     let events = layout_burst(&[(0x41, PLAIN), (0x53, ctrl), (0x42, PLAIN)], "", 0);
-    assert_eq!(key_names_of(&events), vec!["A", "S", "B"]);
+    assert_eq!(key_names_of(&events), vec!["a", "s", "b"]);
 }
 
 /// Regression: a numeric-keypad key typed into an edit field was written as a
@@ -8258,10 +9238,7 @@ fn regression_696_keypad_keys_typed_into_an_edit_field_stay_in_the_one_type() {
 #[test]
 fn regression_696_keypad_keys_with_no_value_change_are_keys_in_order() {
     let events = keypad_burst("", 0);
-    assert_eq!(
-        key_names_of(&events),
-        vec!["Numpad1", "Numpad2", "Decimal", "Numpad5"]
-    );
+    assert_eq!(key_names_of(&events), vec!["1", "2", ".", "5"]);
 }
 
 fn key_repeats_of(events: &[ActionEvent]) -> Vec<(String, bool)> {
@@ -8301,8 +9278,8 @@ fn regression_696_a_held_key_writes_every_press_and_marks_the_repeats() {
             ("Enter".to_string(), false),
             ("Enter".to_string(), true),
             ("Enter".to_string(), true),
-            ("A".to_string(), false),
-            ("A".to_string(), true),
+            ("a".to_string(), false),
+            ("a".to_string(), true),
         ]
     );
 }
@@ -8462,7 +9439,7 @@ fn a_typing_key_on_a_button_is_written_without_waiting() {
     assert_eq!(
         typed_actions_of(&early),
         vec![
-            "key Numpad7 on Dialog > Button:Seven",
+            "key 7 on Dialog > Button:Seven",
             "key Space on Dialog > Button:Seven"
         ],
         "got {early:?}"
@@ -8521,7 +9498,7 @@ fn regression_696_keys_buffered_on_one_element_survive_typing_into_another() {
     assert_eq!(
         typed_actions_of(&events),
         vec![
-            "key X on Dialog > Pane:Board",
+            "key x on Dialog > Pane:Board",
             "type a on Dialog > Edit:Name"
         ],
         "got {events:?}"
@@ -8545,9 +9522,33 @@ fn held_presses(keys: &[(u32, u32, u64)]) -> Vec<HeldPress> {
             key_code,
             scan_code,
             press,
-            layout_char: 0,
+            key_value: 0,
+            layout: 0,
+            held: 0,
+            input_method_on: false,
         })
         .collect()
+}
+
+/// A key that is held, pressed where an input method was read as on, is
+/// named `Unidentified` among the held keys, as its own `key` action names it.
+#[test]
+fn regression_237_a_held_key_pressed_with_an_input_method_on_is_unidentified() {
+    let harness = WorkerTestHarness::new(MockBackend::new());
+    let mut click = make_raw_event(RawEventType::Click, 100);
+    click.sequence_id = 3;
+    click.timestamp = now_ms();
+    click.held = held_presses(&[(0x0D, 0x1C, 1), (0x20, 0x39, 2)]);
+    click.held[0].input_method_on = true;
+    harness.send_event(click);
+    thread::sleep(Duration::from_millis(300));
+    let events = harness.shutdown();
+
+    let held: Vec<HeldKeysAtAction> = held_statements_of(&events)
+        .into_iter()
+        .map(|(_, _, held)| held)
+        .collect();
+    assert_eq!(held, vec![stated(&["Unidentified", "Space"], &[1, 2])]);
 }
 
 /// What an action states about held keys: `(names, key-downs)`.
@@ -8663,10 +9664,10 @@ fn regression_691_a_repeated_punctuation_key_is_named_by_its_layout_and_marked_r
     let harness = WorkerTestHarness::new(MockBackend::new());
     let t = now_ms();
     // Danish layout: VK_OEM_PLUS (0xBB) enters '+'.
-    let mut press = layout_key(1, t, 0xBB);
+    let mut press = gives(layout_key(1, t, 0xBB), '+');
     press.callback_params[3] = '+' as i64;
     harness.send_event(press);
-    let mut repeat = layout_key(2, t, 0xBB);
+    let mut repeat = gives(layout_key(2, t, 0xBB), '+');
     repeat.callback_params[3] = '+' as i64 | KEY_REPEAT_PARAM;
     harness.send_event(repeat);
     thread::sleep(Duration::from_millis(900));
@@ -8692,6 +9693,8 @@ fn regression_691_a_held_punctuation_key_is_named_by_its_layout_character() {
     assert!(!record.on_hook_message(0x0100, 0xBB, 0x0C, not_down));
     let mut plus = layout_key(1, t, 0xBB);
     plus.callback_params = [0x0C, 0, 0, '+' as i64];
+    plus.key_value = 0;
+    plus.keyboard_layout = DANISH_TEST_LAYOUT;
     record.stamp(&mut plus);
     harness.send_event(plus);
     // Tab pressed while it is held.
@@ -8743,6 +9746,62 @@ fn regression_691_a_held_punctuation_key_is_named_by_its_layout_character() {
     );
 }
 
+/// The layout is asked what a key gives only after the key's element is
+/// settled: asking can take long at a layout's first key (its table is built
+/// then), and the element must be the one that had the focus at the press,
+/// not the one that has it after that wait.
+#[test]
+fn a_keys_element_is_settled_before_the_layout_is_asked_for_its_name() {
+    let backend = MockBackend::new();
+    let asked = Arc::clone(&backend.asked);
+    let harness = WorkerTestHarness::new(backend);
+    let mut plus = layout_key(1, now_ms(), 0xBB);
+    plus.key_value = 0;
+    plus.keyboard_layout = DANISH_TEST_LAYOUT;
+    harness.send_event(plus);
+    thread::sleep(Duration::from_millis(900));
+    let events = harness.shutdown();
+    let keys: Vec<String> = events
+        .iter()
+        .map(|e| serde_json::to_value(e).unwrap())
+        .filter(|v| v["type"] == "key")
+        .map(|v| v["key"].as_str().unwrap().to_string())
+        .collect();
+    assert_eq!(keys, vec!["+"]);
+    let asked = asked.lock().unwrap();
+    let first = |what: &str| asked.iter().position(|a| *a == what);
+    assert!(
+        first("focused element") < first("layout"),
+        "asked in this order: {asked:?}"
+    );
+    assert!(first("focused element").is_some());
+}
+
+/// Code 0xE1 is a typing key like the other punctuation codes: named by
+/// what its layout gives it, with no rule of its own, so its input always
+/// has a record.
+#[test]
+fn code_0xe1_is_named_from_its_layout_like_any_typing_key() {
+    let keys_written = |layout: i64| {
+        let harness = WorkerTestHarness::new(MockBackend::new());
+        let mut key = layout_key(1, now_ms(), 0xE1);
+        key.key_value = 0;
+        key.keyboard_layout = layout;
+        harness.send_event(key);
+        thread::sleep(Duration::from_millis(900));
+        harness
+            .shutdown()
+            .iter()
+            .map(|e| serde_json::to_value(e).unwrap())
+            .filter(|v| v["type"] == "key")
+            .map(|v| v["key"].as_str().unwrap().to_string())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(keys_written(DANISH_TEST_LAYOUT), vec!["Unidentified"]);
+    assert_eq!(keys_written(0), vec!["Unidentified"]);
+    assert_eq!(keys_written(AX_KEY_TEST_LAYOUT), vec!["x"]);
+}
+
 /// An action with no key down states so: `held_keys` is written, empty, and
 /// the key-downs (internal to the frontend's filter) are not.
 #[test]
@@ -8767,7 +9826,7 @@ fn an_action_with_no_key_down_writes_an_empty_held_keys() {
     assert!(written[0].get("held_presses").is_none(), "{:?}", written[0]);
     assert_eq!(
         written[0]["modifiers"],
-        serde_json::json!({"ctrl": false, "shift": false, "alt": false, "meta": false})
+        serde_json::json!({"ctrl": false, "shift": false, "alt": false, "meta": false, "alt_graph": false})
     );
     assert_eq!(written[1]["held_keys"], serde_json::json!(["Space"]));
     assert_eq!(written[1]["held_presses"], serde_json::json!([1]));
@@ -9241,7 +10300,7 @@ fn open_case_762_a_pasted_value_read_late_is_recorded_nowhere() {
     thread::sleep(Duration::from_millis(300));
     assert_eq!(
         typed_actions_of(&harness.shutdown()),
-        on_field(&["key V", "key Enter"]),
+        on_field(&["key v", "key Enter"]),
         "the open case: the pasted text is recorded nowhere"
     );
 }
@@ -9278,7 +10337,7 @@ fn a_key_ahead_of_a_waiting_dead_key_is_written_once_when_its_value_comes_after_
     thread::sleep(Duration::from_millis(900));
     assert_eq!(
         types_and_keys(&harness.shutdown()),
-        vec!["key \u{b4}", "type x"]
+        vec!["key Dead", "type x"]
     );
 }
 
@@ -9300,7 +10359,7 @@ fn a_value_change_of_an_earlier_key_leaves_a_waiting_dead_key_to_be_written() {
     harness.event_tx.send(WorkerMessage::EndTyping).unwrap();
     assert_eq!(
         types_and_keys(&harness.shutdown()),
-        vec!["type c", "key \u{b4}"]
+        vec!["type c", "key Dead"]
     );
 }
 
@@ -9324,7 +10383,7 @@ fn a_value_reported_again_behind_a_waiting_dead_key_leaves_it_to_be_written() {
     harness.event_tx.send(WorkerMessage::EndTyping).unwrap();
     assert_eq!(
         types_and_keys(&harness.shutdown()),
-        vec!["type c", "key \u{b4}"]
+        vec!["type c", "key Dead"]
     );
 }
 
@@ -9340,6 +10399,11 @@ fn key_as_pressed(seq: u64, modifiers: (bool, bool, bool, bool), accent: Option<
     use docent_desktop_lib::capture::held_keys::{dead_as_pressed_param, AsPressed};
     let mut key = dead_key(seq);
     key.modifiers = modifiers;
+    // The Danish acute key: a dead key with no modifier and with Shift, and
+    // `|` with AltGr.
+    if accent.is_none() {
+        key.key_value = answer_param(Some(LayoutAnswer::Char('|')));
+    }
     key.callback_params[3] |= dead_as_pressed_param(Some(match accent {
         Some(accent) => AsPressed::DeadKey {
             accent: accent as u16,
@@ -9418,7 +10482,7 @@ fn a_dead_key_pressed_a_third_time_waits_behind_the_text_of_the_first_two() {
     harness.event_tx.send(WorkerMessage::EndTyping).unwrap();
     assert_eq!(
         types_and_keys(&harness.shutdown()),
-        vec!["type \u{b4}\u{b4}", "key \u{b4}"]
+        vec!["type \u{b4}\u{b4}", "key Dead"]
     );
 }
 
@@ -9438,7 +10502,7 @@ fn a_dead_key_and_a_key_that_enters_nothing_are_keys_in_the_order_pressed() {
     }
     assert_eq!(
         types_and_keys(&written),
-        vec!["key \u{b4}", "key Tab"],
+        vec!["key Dead", "key Tab"],
         "written at the wait, before the recording stops"
     );
     assert!(types_and_keys(&harness.shutdown()).is_empty());
@@ -9462,7 +10526,7 @@ fn a_dead_key_and_the_key_behind_it_are_written_ahead_of_a_click() {
             _ => None,
         })
         .collect();
-    assert_eq!(order, vec!["key \u{b4}", "key Tab", "click"]);
+    assert_eq!(order, vec!["key Dead", "key Tab", "click"]);
 }
 
 /// The typing worker, told to write the key it holds behind a dead key (a
@@ -9484,10 +10548,7 @@ fn the_key_held_behind_a_dead_key_is_written_when_the_worker_is_told() {
     while let Ok(event) = harness.action_rx.try_recv() {
         written.push(event);
     }
-    assert_eq!(
-        types_and_keys(&written),
-        vec!["key \u{b4}", "key ArrowLeft"]
-    );
+    assert_eq!(types_and_keys(&written), vec!["key Dead", "key ArrowLeft"]);
     assert!(types_and_keys(&harness.shutdown()).is_empty());
 }
 
@@ -9510,7 +10571,7 @@ fn a_dead_key_whose_accent_the_program_does_not_enter_is_a_key() {
     thread::sleep(Duration::from_millis(900));
     assert_eq!(
         types_and_keys(&harness.shutdown()),
-        vec!["type c", "key \u{b4}", "key Tab", "type c\t"]
+        vec!["type c", "key Dead", "key Tab", "type c\t"]
     );
 }
 
@@ -9521,7 +10582,7 @@ fn a_dead_key_whose_accent_the_program_does_not_enter_is_a_key() {
 fn a_dead_key_is_text_only_where_the_field_gained_its_accent() {
     for (after, expected) in [
         ("\u{b4}\u{b4}\t", vec!["key Tab", "type \u{b4}\u{b4}\t"]),
-        ("\u{b4}\t", vec!["key \u{b4}", "key Tab", "type \u{b4}\t"]),
+        ("\u{b4}\t", vec!["key Dead", "key Tab", "type \u{b4}\t"]),
     ] {
         let (backend, scene, _) = MovingFocusBackend::new(file_name_field("\u{b4}"));
         field_holds(&scene, "\u{b4}");
@@ -9615,7 +10676,7 @@ fn regression_769_a_key_not_dead_as_pressed_is_an_ordinary_key() {
     harness.send_event(dead_key_as_pressed(1, (true, false, true, false), false));
     thread::sleep(Duration::from_millis(900));
     let written_at_the_wait = types_and_keys(&harness.shutdown());
-    assert_eq!(written_at_the_wait, vec!["key \u{b4}"]);
+    assert_eq!(written_at_the_wait, vec!["key |"]);
 }
 
 #[test]
@@ -9633,7 +10694,7 @@ fn a_key_that_took_no_text_is_written_ahead_of_the_dead_key_behind_it_when_the_t
     thread::sleep(Duration::from_millis(30));
     assert_eq!(
         types_and_keys(&harness.drain_actions()),
-        vec!["key X", "key \u{b4}"]
+        vec!["key x", "key Dead"]
     );
     harness.shutdown();
 }
@@ -9665,6 +10726,732 @@ fn a_value_reported_again_while_only_a_dead_key_waits_is_no_second_type() {
     harness.event_tx.send(WorkerMessage::EndTyping).unwrap();
     assert_eq!(
         types_and_keys(&harness.shutdown()),
-        vec!["type c", "key \u{b4}"]
+        vec!["type c", "key Dead"]
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Capture timings (the switch that keeps the longest durations)
+// ---------------------------------------------------------------------------
+
+/// The words a block of capture timings may hold beside numbers and the
+/// placeholder, written out here as the oracle the block is held to.
+const TIMING_WORDS: &[&str] = &[
+    "capture-timings",
+    "key",
+    "value-change",
+    "look-ahead",
+    "window",
+    "settle",
+    "describe",
+    "name",
+    "modifiers",
+    "held",
+    "languages",
+    "buffers",
+    "value",
+    "focus-count",
+    "focused-control",
+    "root",
+    "process",
+    "answer",
+    "title",
+    "total",
+    "described",
+    "skipped",
+    "no-focus-count",
+    "no-focused-control",
+    "known",
+    "own-process",
+    "no-answer",
+    "gone",
+];
+
+/// Whether a token is a duration or a count: digits, and at most one dot
+/// between digits.
+fn is_number_token(token: &str) -> bool {
+    let mut parts = token.split('.');
+    let whole = parts.next().unwrap_or("");
+    let tenths = parts.next();
+    parts.next().is_none()
+        && !whole.is_empty()
+        && whole.chars().all(|c| c.is_ascii_digit())
+        && tenths.is_none_or(|t| !t.is_empty() && t.chars().all(|c| c.is_ascii_digit()))
+}
+
+/// The words naming a subject, a step and a look's ending in a block of
+/// capture timings.
+const TIMING_SUBJECTS: &[&str] = &["key", "value-change", "look-ahead"];
+const TIMING_SKIP_REASONS: &[&str] = &[
+    "no-focus-count",
+    "no-focused-control",
+    "known",
+    "own-process",
+    "no-answer",
+    "gone",
+];
+
+/// Holds `block` to its line format: a step line is
+/// `capture-timings <subject> <step> <ms or ->`, a look line is
+/// `capture-timings look-ahead described <count>` or
+/// `capture-timings look-ahead skipped <reason> <count>`, and nothing else.
+fn assert_block_closed(block: &str) {
+    let is_count = |t: &str| !t.is_empty() && t.chars().all(|c| c.is_ascii_digit());
+    for line in block.lines() {
+        let tokens: Vec<&str> = line.split(' ').collect();
+        let well_formed = match tokens.as_slice() {
+            ["capture-timings", "look-ahead", "described", count] => is_count(count),
+            ["capture-timings", "look-ahead", "skipped", reason, count] => {
+                TIMING_SKIP_REASONS.contains(reason) && is_count(count)
+            }
+            ["capture-timings", subject, step, value] => {
+                TIMING_SUBJECTS.contains(subject)
+                    && TIMING_WORDS.contains(step)
+                    && !TIMING_SUBJECTS.contains(step)
+                    && !["capture-timings", "described", "skipped"].contains(step)
+                    && !TIMING_SKIP_REASONS.contains(step)
+                    && (is_number_token(value) || *value == "-")
+            }
+            _ => false,
+        };
+        assert!(well_formed, "{line:?} is no line of the block's format");
+    }
+}
+
+/// `block`, held to its line format, with every number made `0`: what is
+/// left is its shape.
+fn shape_of(block: &str) -> String {
+    assert_block_closed(block);
+    block
+        .lines()
+        .map(|line| {
+            line.split(' ')
+                .map(|t| if is_number_token(t) { "0" } else { t })
+                .collect::<Vec<_>>()
+                .join(" ")
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// `block` with every number and placeholder left out: its labels.
+fn labels_of(block: &str) -> String {
+    block
+        .lines()
+        .map(|line| {
+            line.split(' ')
+                .filter(|t| !is_number_token(t) && *t != "-")
+                .collect::<Vec<_>>()
+                .join(" ")
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// Runs a typing worker on `backend` with timings kept as `on` says and
+/// written to a channel, has `drive` send it messages, and stops it. Returns
+/// what was written while the worker ran, and what was written when the
+/// capture stopped.
+fn timed_capture(
+    on: bool,
+    backend: impl AccessibilityBackend,
+    drive: impl FnOnce(&WorkerTestHarness),
+) -> (Vec<String>, Vec<String>, Vec<ActionEvent>) {
+    use docent_desktop_lib::capture::timing_lines::Timings;
+    let (tx, rx) = mpsc::channel();
+    let timings = Timings::sending_to(on, tx);
+    let harness = WorkerTestHarness::timed(backend, timings.clone());
+    drive(&harness);
+    thread::sleep(Duration::from_millis(300));
+    let actions = harness.shutdown();
+    let while_running = rx.try_iter().collect();
+    timings.write_block();
+    (while_running, rx.try_iter().collect(), actions)
+}
+
+/// The one block written when a capture on `backend` of `drive` stopped.
+fn block_of(backend: impl AccessibilityBackend, drive: impl FnOnce(&WorkerTestHarness)) -> String {
+    let (_, mut at_stop, _) = timed_capture(true, backend, drive);
+    assert_eq!(at_stop.len(), 1, "one block at the stop, got {at_stop:?}");
+    at_stop.remove(0)
+}
+
+/// The kind of field typed into.
+#[derive(Clone, Copy, Debug)]
+enum TypedField {
+    /// A normal edit field.
+    Edit,
+    /// A field the recording masks.
+    Masked,
+    /// A field that cannot be described.
+    Undescribed,
+}
+
+/// How the worker finds the field's element.
+#[derive(Clone, Copy, Debug)]
+enum TypedPath {
+    /// By asking for the focused element.
+    Focus,
+    /// By the control the key was pressed in.
+    Control,
+}
+
+/// The dialog's file-name field as `field` makes it.
+fn typed_field_element(field: TypedField) -> ElementDescription {
+    let mut element = scene_element("Edit", "Dialog > Edit:File name", Some(""));
+    if matches!(field, TypedField::Masked) {
+        element.element_type = Some("password".to_string());
+    }
+    element
+}
+
+/// What is typed: how many characters, each behind a Shift press where
+/// `shifted`, after a dead key where `dead`, then Enter where `enter`.
+#[derive(Clone, Copy, Debug)]
+struct Typed {
+    characters: u64,
+    shifted: bool,
+    dead: bool,
+    enter: bool,
+}
+
+/// The one block written when `typed` was typed into `field`, found by
+/// `path`, each key followed by the value change it caused.
+fn typing_block(field: TypedField, path: TypedPath, typed: Typed) -> String {
+    let undescribed = matches!(field, TypedField::Undescribed);
+    let mut backend = match path {
+        TypedPath::Focus => {
+            MovingFocusBackend::new(FocusScene {
+                epoch: 1,
+                foreground: DIALOG,
+                element: typed_field_element(field),
+            })
+            .0
+        }
+        TypedPath::Control => {
+            let own = if undescribed {
+                HashMap::new()
+            } else {
+                HashMap::from([(FIELD, typed_field_element(field))])
+            };
+            MovingFocusBackend::with_controls(
+                save_button_focused(),
+                Controls {
+                    focused: FIELD,
+                    own,
+                    ..Default::default()
+                },
+            )
+            .0
+        }
+    };
+    backend.fails = undescribed;
+    let in_place = move |raw: RawEvent| match path {
+        TypedPath::Focus => in_dialog(raw),
+        TypedPath::Control => in_field(raw),
+    };
+    let change = move |seq: u64, t: u64| match path {
+        TypedPath::Focus => in_dialog(value_change(seq, t, DIALOG)),
+        TypedPath::Control => control_value_change(seq, t, FIELD),
+    };
+    block_of(backend, |harness| {
+        let t = now_ms();
+        let mut seq = 0;
+        if typed.dead {
+            seq += 1;
+            let mut dead = dead_key(seq);
+            if matches!(path, TypedPath::Control) {
+                dead.callback_params[1] = FIELD;
+            }
+            harness.send_event(dead);
+        }
+        for i in 0..typed.characters {
+            if typed.shifted {
+                seq += 1;
+                harness.send_event(in_place(layout_key(seq, t + seq, 0x10))); // Shift
+            }
+            seq += 1;
+            let mut key = layout_key(seq, t + seq, 0x41 + i as u32);
+            if typed.shifted {
+                key.modifiers = (false, true, false, false);
+            }
+            harness.send_event(in_place(key));
+            seq += 1;
+            harness.send_event(change(seq, t + seq));
+        }
+        if typed.enter {
+            seq += 1;
+            harness.send_event(in_place(layout_key(seq, t + seq, 0x0D))); // Enter
+        }
+    })
+}
+
+/// With the switch on nothing is written while the capture runs, and one
+/// block is written when it stops.
+#[test]
+fn with_the_timing_switch_on_one_block_is_written_when_the_capture_stops() {
+    let gate = closed_gate();
+    open_gate(&gate);
+    let (while_running, at_stop, _) =
+        timed_capture(true, TypingBackend::edit(&gate, "ab"), |harness| {
+            harness.event_tx.send(WorkerMessage::LookAtFocus).unwrap();
+            let t = now_ms();
+            harness.send_event(layout_key(1, t, 0x41));
+            harness.send_event(layout_key(2, t + 1, 0x42));
+            harness.send_event(value_change(3, t + 5, 1234));
+            harness.send_event(layout_key(4, t + 6, 0x0D)); // Enter
+        });
+    assert_eq!(
+        while_running,
+        Vec::<String>::new(),
+        "nothing is written while the capture runs"
+    );
+    assert_eq!(at_stop.len(), 1, "one block at the stop, got {at_stop:?}");
+}
+
+/// A line with a token more than its format, a count among them, fails the
+/// format check and so every shape.
+#[test]
+fn a_timing_line_with_a_count_fails_the_block_checks() {
+    let lines = [
+        "capture-timings key settle 0.0 3",
+        "capture-timings key settle 3 0.0",
+        "capture-timings look-ahead described 1 2",
+        "capture-timings look-ahead skipped gone 1 2",
+        "capture-timings key described 1",
+        "capture-timings key settle",
+    ];
+    for line in lines {
+        let closed = std::panic::catch_unwind(|| assert_block_closed(line));
+        assert!(closed.is_err(), "{line:?} passes the format check");
+        let shaped = std::panic::catch_unwind(|| shape_of(line));
+        assert!(shaped.is_err(), "{line:?} has a shape");
+    }
+    assert_block_closed(
+        "capture-timings key settle 0.0\ncapture-timings look-ahead skipped gone 1",
+    );
+}
+
+/// Typing one character or four, with or without Shift and a dead key, gives
+/// the same block for each field and each path: a normal edit field, a
+/// masked field and a field that cannot be described, each found by its
+/// control and by the focus. A step shows only whether it was taken at all,
+/// never how many times or for what.
+#[test]
+fn the_timing_block_has_one_shape_whatever_was_typed_into_any_field() {
+    let typings = [
+        Typed {
+            characters: 1,
+            shifted: false,
+            dead: false,
+            enter: true,
+        },
+        Typed {
+            characters: 4,
+            shifted: false,
+            dead: false,
+            enter: true,
+        },
+        Typed {
+            characters: 1,
+            shifted: true,
+            dead: false,
+            enter: true,
+        },
+        Typed {
+            characters: 4,
+            shifted: true,
+            dead: false,
+            enter: true,
+        },
+        Typed {
+            characters: 1,
+            shifted: false,
+            dead: true,
+            enter: true,
+        },
+        Typed {
+            characters: 4,
+            shifted: true,
+            dead: true,
+            enter: true,
+        },
+    ];
+    for field in [
+        TypedField::Edit,
+        TypedField::Masked,
+        TypedField::Undescribed,
+    ] {
+        for path in [TypedPath::Focus, TypedPath::Control] {
+            let first = shape_of(&typing_block(field, path, typings[0]));
+            for typed in &typings[1..] {
+                assert_eq!(
+                    shape_of(&typing_block(field, path, *typed)),
+                    first,
+                    "{field:?} by {path:?}, {typed:?}"
+                );
+            }
+        }
+    }
+}
+
+/// Every key and value change typed is measured, in a masked field as in
+/// any other.
+#[test]
+fn keys_and_value_changes_typed_into_a_masked_field_are_measured() {
+    for path in [TypedPath::Focus, TypedPath::Control] {
+        let typed = Typed {
+            characters: 2,
+            shifted: false,
+            dead: false,
+            enter: false,
+        };
+        let block = typing_block(TypedField::Masked, path, typed);
+        for subject in ["key", "value-change"] {
+            let label = format!("capture-timings {subject} total ");
+            let total = block.lines().find(|l| l.starts_with(&label));
+            assert!(
+                total.is_some_and(|l| !l.ends_with(" -")),
+                "{subject} by {path:?}: {block:?}"
+            );
+        }
+    }
+}
+
+/// A press of Shift, Ctrl or Alt alone is not measured: the recording writes
+/// nothing for it.
+#[test]
+fn a_press_of_shift_ctrl_or_alt_alone_is_not_measured() {
+    let (backend, _scene, _) = MovingFocusBackend::new(file_name_field(""));
+    let block = block_of(backend, |harness| {
+        let t = now_ms();
+        for (i, code) in [0x10, 0x11, 0x12, 0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5]
+            .into_iter()
+            .enumerate()
+        {
+            harness.send_event(in_dialog(layout_key(i as u64 + 1, t + i as u64, code)));
+        }
+    });
+    for line in block
+        .lines()
+        .filter(|l| l.starts_with("capture-timings key "))
+    {
+        assert!(line.ends_with(" -"), "{line:?} of {block:?}");
+    }
+}
+
+/// A value read after a later key of its window was dispatched is not taken,
+/// and its value change is measured all the same: a slow read shows.
+#[test]
+fn a_value_change_read_too_late_in_an_edit_field_is_measured() {
+    let (backend, _scene, _queries, _controls) =
+        MovingFocusBackend::with_controls(save_button_focused(), field_with_reads(&[("a", 2)]));
+    let block = block_of(backend, |harness| {
+        let t = now_ms();
+        harness.send_event(numbered_in_field(packet_key(1, t, u16::from(b'a')), 1));
+        harness.send_event(control_value_change(2, t + 1, FIELD));
+    });
+    for step in ["value", "total"] {
+        let label = format!("capture-timings value-change {step} ");
+        let line = block.lines().find(|l| l.starts_with(&label));
+        assert!(
+            line.is_some_and(|l| !l.ends_with(" -")),
+            "{step} measured: {block:?}"
+        );
+    }
+}
+
+/// A capture whose value reads were all overtaken by a later key gives the
+/// block of one whose reads all came in time: a late read shows nowhere.
+#[test]
+fn late_reads_and_reads_in_time_give_one_shape() {
+    let block = |latest_key: u64| {
+        let (backend, _scene, _queries, _controls) = MovingFocusBackend::with_controls(
+            save_button_focused(),
+            field_with_reads(&[("a", latest_key)]),
+        );
+        block_of(backend, |harness| {
+            let t = now_ms();
+            harness.send_event(numbered_in_field(packet_key(1, t, u16::from(b'a')), 1));
+            harness.send_event(control_value_change(2, t + 1, FIELD));
+        })
+    };
+    assert_eq!(shape_of(&block(2)), shape_of(&block(1)));
+}
+
+/// The lines of the block for the steps of keys, or of value changes,
+/// filled where one was measured.
+fn steps_filled(block: &str, subject: &str) -> Vec<bool> {
+    let prefix = format!("capture-timings {subject} ");
+    block
+        .lines()
+        .filter(|l| l.starts_with(&prefix))
+        .map(|l| !l.ends_with(" -"))
+        .collect()
+}
+
+/// Whether a key and a value change were each measured, in the one block
+/// a capture wrote at its stop; `None` where it wrote none.
+fn measured_in(blocks: &[String]) -> Option<(bool, bool)> {
+    assert!(
+        blocks.len() <= 1,
+        "at most one block at a stop, got {blocks:?}"
+    );
+    blocks.first().map(|block| {
+        (
+            steps_filled(block, "key").contains(&true),
+            steps_filled(block, "value-change").contains(&true),
+        )
+    })
+}
+
+/// Runs a typing worker with timings on, held from the start where
+/// `held_at_start` says, has `drive` type into the dialog with the
+/// timings at hand, and stops it. Returns the blocks written at the stop.
+fn held_capture(
+    held_at_start: bool,
+    drive: impl FnOnce(&WorkerTestHarness, &docent_desktop_lib::capture::timing_lines::Timings),
+) -> Vec<String> {
+    use docent_desktop_lib::capture::timing_lines::Timings;
+    let (tx, rx) = mpsc::channel();
+    let timings = Timings::sending_to(true, tx).with_measuring(!held_at_start);
+    let (backend, _scene, _) = MovingFocusBackend::new(file_name_field(""));
+    let harness = WorkerTestHarness::timed(backend, timings.clone());
+    drive(&harness, &timings);
+    thread::sleep(Duration::from_millis(300));
+    harness.shutdown();
+    timings.write_block();
+    rx.try_iter().collect()
+}
+
+/// Types a key and waits for the worker to handle it.
+fn typed_key(harness: &WorkerTestHarness, seq: u64) {
+    harness.send_event(in_dialog(layout_key(seq, now_ms(), 0x41)));
+    thread::sleep(Duration::from_millis(300));
+}
+
+/// Reports a value change and waits for the worker to handle it.
+fn changed_value(harness: &WorkerTestHarness, seq: u64) {
+    harness.send_event(in_dialog(value_change(seq, now_ms(), DIALOG)));
+    thread::sleep(Duration::from_millis(300));
+}
+
+/// A capture held from its start to its stop, as a re-record's take is
+/// (a pause during it, a commit of it), measures nothing and writes no
+/// block.
+#[test]
+fn a_capture_held_throughout_writes_no_block() {
+    let blocks = held_capture(true, |harness, _| {
+        typed_key(harness, 1);
+        changed_value(harness, 2);
+    });
+    assert_eq!(measured_in(&blocks), None, "got {blocks:?}");
+}
+
+/// Held while it runs, a capture keeps what it measured before and
+/// measures nothing after: the block at its stop holds only what came
+/// before.
+#[test]
+fn a_capture_held_while_it_runs_keeps_what_came_before() {
+    let blocks = held_capture(false, |harness, timings| {
+        typed_key(harness, 1);
+        timings.set_measuring(false);
+        changed_value(harness, 2);
+    });
+    assert_eq!(measured_in(&blocks), Some((true, false)), "got {blocks:?}");
+}
+
+/// Measuring again while it runs, as a re-record cancelled while
+/// recording leaves its capture running, a capture measures what comes
+/// after and nothing before.
+#[test]
+fn a_capture_measuring_again_while_it_runs_measures_what_comes_after() {
+    let blocks = held_capture(true, |harness, timings| {
+        typed_key(harness, 1);
+        timings.set_measuring(true);
+        changed_value(harness, 2);
+    });
+    assert_eq!(measured_in(&blocks), Some((false, true)), "got {blocks:?}");
+}
+
+/// An event that waits in the worker's queue while the capture is held,
+/// and is handled once it measures again, is measured: a key of a
+/// re-record's take handled after the re-record ended is in the block.
+#[test]
+fn an_event_handled_after_measuring_again_is_measured() {
+    use docent_desktop_lib::capture::timing_lines::Timings;
+    let (tx, rx) = mpsc::channel();
+    let timings = Timings::sending_to(true, tx).with_measuring(false);
+    let (backend, _scene, _) = MovingFocusBackend::new(file_name_field(""));
+    let harness = WorkerTestHarness::timed_after(backend, timings.clone(), |queued| {
+        queued.send_event(in_dialog(layout_key(1, now_ms(), 0x41)));
+        timings.set_measuring(true);
+    });
+    thread::sleep(Duration::from_millis(300));
+    harness.shutdown();
+    timings.write_block();
+    let blocks: Vec<String> = rx.try_iter().collect();
+    assert_eq!(measured_in(&blocks), Some((true, false)), "got {blocks:?}");
+}
+
+/// With the timings off, holding them or measuring again changes
+/// nothing: no block either way.
+#[test]
+fn timings_off_stay_off_held_or_not() {
+    use docent_desktop_lib::capture::timing_lines::Timings;
+    for measuring in [false, true] {
+        let (tx, rx) = mpsc::channel();
+        let timings = Timings::sending_to(false, tx).with_measuring(!measuring);
+        let (backend, _scene, _) = MovingFocusBackend::new(file_name_field(""));
+        let harness = WorkerTestHarness::timed(backend, timings.clone());
+        typed_key(&harness, 1);
+        timings.set_measuring(measuring);
+        changed_value(&harness, 2);
+        harness.shutdown();
+        timings.write_block();
+        assert_eq!(rx.try_iter().count(), 0, "no block with the timings off");
+    }
+}
+
+/// A value change whose description gives no element (its window was left
+/// before the worker got to it) is measured: a description that fails slowly
+/// shows under `describe`.
+#[test]
+fn a_value_change_whose_description_gives_no_element_is_measured() {
+    let (backend, scene, _) = MovingFocusBackend::new(file_name_field(""));
+    let block = block_of(backend, |harness| {
+        harness.send_event(in_dialog(layout_key(1, now_ms(), 0x41)));
+        thread::sleep(Duration::from_millis(100));
+        scene.lock().unwrap().foreground = OTHER_WINDOW;
+        harness.send_event(in_dialog(value_change(2, now_ms(), DIALOG)));
+    });
+    for step in ["describe", "total"] {
+        let label = format!("capture-timings value-change {step} ");
+        let line = block.lines().find(|l| l.starts_with(&label));
+        assert!(
+            line.is_some_and(|l| !l.ends_with(" -")),
+            "{step} measured: {block:?}"
+        );
+    }
+}
+
+/// The block holds only fixed words, numbers and the placeholder, whatever
+/// was typed and wherever, and its labels are the same with nothing typed: no
+/// key, no character, no value, no element reaches it.
+#[test]
+fn a_timing_block_holds_only_fixed_words_numbers_and_the_placeholder() {
+    const SECRET: &str = "Hunter2Secret";
+    let mut blocks = Vec::new();
+    for backend in ["masked", "edit", "none"] {
+        let gate = closed_gate();
+        open_gate(&gate);
+        let typing = match backend {
+            "masked" => TypingBackend::password(&gate),
+            _ => TypingBackend::edit(&gate, SECRET),
+        };
+        let (_, at_stop, _) = timed_capture(true, typing, |harness| {
+            if backend == "none" {
+                return;
+            }
+            harness.event_tx.send(WorkerMessage::LookAtFocus).unwrap();
+            let t = now_ms();
+            for (i, c) in "HUNTER".chars().enumerate() {
+                harness.send_event(layout_key(i as u64 + 1, t + i as u64, c as u32));
+            }
+            harness.send_event(value_change(20, t + 10, 1234));
+            harness.send_event(layout_key(21, t + 11, 0x0D)); // Enter
+        });
+        assert_eq!(at_stop.len(), 1, "one block at the stop, got {at_stop:?}");
+        blocks.push(at_stop[0].clone());
+    }
+    for block in &blocks {
+        assert_block_closed(block);
+        for text in [
+            SECRET, "HUNTER", "Hunter", "Field", "Edit", "Enter", "\u{2022}",
+        ] {
+            assert!(!block.contains(text), "{block:?} holds {text:?}");
+        }
+        assert_eq!(labels_of(block), labels_of(&blocks[2]), "{block:?}");
+    }
+    assert!(
+        blocks[1]
+            .lines()
+            .any(|l| l.starts_with("capture-timings key total ") && !l.ends_with(" -")),
+        "the keys typed are timed: {:?}",
+        blocks[1]
+    );
+}
+
+/// With the switch off nothing is written, and the actions are the same as
+/// with it on: the timings read the worker's steps and change none of them.
+/// `described_after_ms` is measured afresh in each run, so it is left out of
+/// the comparison.
+#[test]
+fn with_the_timing_switch_off_nothing_is_written_and_the_actions_are_the_same() {
+    let run = |on: bool| {
+        let gate = closed_gate();
+        open_gate(&gate);
+        let (while_running, at_stop, actions) =
+            timed_capture(on, TypingBackend::edit(&gate, "ab"), |harness| {
+                harness.event_tx.send(WorkerMessage::LookAtFocus).unwrap();
+                let t = 1_000_000;
+                harness.send_event(layout_key(1, t, 0x41));
+                harness.send_event(layout_key(2, t + 1, 0x42));
+                harness.send_event(value_change(3, t + 5, 1234));
+                harness.send_event(layout_key(4, t + 6, 0x0D)); // Enter
+            });
+        let actions = actions
+            .iter()
+            .map(|a| {
+                let mut written = serde_json::to_value(a).unwrap();
+                if let Some(element) = written.get_mut("element") {
+                    element["described_after_ms"] = serde_json::Value::Null;
+                }
+                written
+            })
+            .collect::<Vec<_>>();
+        let written: Vec<String> = while_running.into_iter().chain(at_stop).collect();
+        (written, actions)
+    };
+    let (off_written, off_actions) = run(false);
+    let (on_written, on_actions) = run(true);
+    assert_eq!(
+        off_written,
+        Vec::<String>::new(),
+        "with the switch off nothing is written"
+    );
+    assert!(
+        !on_written.is_empty(),
+        "with the switch on a block is written"
+    );
+    assert_eq!(
+        on_actions, off_actions,
+        "the actions do not depend on the switch"
+    );
+}
+
+/// A look ahead at a control that is gone by the time it is described counts
+/// under `gone`, not as a control described.
+#[test]
+fn a_look_ahead_at_a_gone_control_counts_under_gone() {
+    let (backend, _scene, _queries, _controls) = MovingFocusBackend::with_controls(
+        save_button_focused(),
+        Controls {
+            focused: 999,
+            ..field_controls("c")
+        },
+    );
+    let (_, at_stop, _) = timed_capture(true, backend, |harness| {
+        harness.event_tx.send(WorkerMessage::LookAtFocus).unwrap();
+    });
+    assert_eq!(at_stop.len(), 1, "one block at the stop, got {at_stop:?}");
+    let lines: Vec<&str> = at_stop[0].lines().collect();
+    assert!(
+        lines.contains(&"capture-timings look-ahead skipped gone 1"),
+        "{lines:?}"
+    );
+    assert!(
+        lines.contains(&"capture-timings look-ahead described 0"),
+        "{lines:?}"
     );
 }
