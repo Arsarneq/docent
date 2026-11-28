@@ -702,16 +702,19 @@ impl Default for CtrlAltRead {
 impl CtrlAltRead {
     /// The Ctrl, Alt and AltGr the person held, where `layout_alt_gr` says
     /// whether the layout read makes the right Alt AltGr, as its file states
-    /// (`None` where that could not be read: then Windows' own Ctrl in front
-    /// of the right Alt says it, and its absence says nothing).
+    /// (`None` where that could not be read).
     ///
-    /// AltGr is held while the right Alt is down on a layout that makes it
-    /// AltGr. Then `alt` is the left Alt, and `ctrl` the right Ctrl or the
-    /// left Ctrl where the person holds it (and the keyboard's state holds it
-    /// down). Otherwise `ctrl` and `alt` are the keyboard's state as it is.
+    /// AltGr is held exactly while Windows holds the right Alt as AltGr: the
+    /// right Alt and the left Ctrl are down in the keyboard's state, and the
+    /// layout makes the right Alt AltGr or Windows put its own Ctrl in front
+    /// of this right Alt's key-down. Then `alt` is the left Alt, and `ctrl`
+    /// the right Ctrl or the left Ctrl where the person holds it. Otherwise
+    /// `ctrl` and `alt` are the keyboard's state as it is: where the record
+    /// and that state differ, the state wins, and the record says only whose
+    /// a left Ctrl held down is.
     pub fn held(&self, layout_alt_gr: Option<bool>) -> CtrlAltHeld {
-        let alt_gr_layout = layout_alt_gr.unwrap_or(self.windows_ctrl_for_right_alt);
-        if !(self.right_alt && alt_gr_layout) {
+        let alt_gr = layout_alt_gr == Some(true) || self.windows_ctrl_for_right_alt;
+        if !(self.right_alt && self.left_ctrl && alt_gr) {
             return CtrlAltHeld {
                 ctrl: self.left_ctrl || self.right_ctrl,
                 alt: self.left_alt || self.right_alt,
@@ -719,8 +722,8 @@ impl CtrlAltRead {
             };
         }
         let person_left_ctrl = match self.person_left_ctrl {
-            PersonLeftCtrl::Known(held) => held && self.left_ctrl,
-            PersonLeftCtrl::NotKnown => SEEDED_LEFT_CTRL_WITH_ALT_GR && self.left_ctrl,
+            PersonLeftCtrl::Known(held) => held,
+            PersonLeftCtrl::NotKnown => SEEDED_LEFT_CTRL_WITH_ALT_GR,
         };
         CtrlAltHeld {
             ctrl: person_left_ctrl || self.right_ctrl,
