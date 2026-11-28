@@ -8,7 +8,7 @@ The Tauri shell the desktop application's capture and UI surfaces run on:
 - the native HTTP transport chokepoint;
 - the installer's declared file association.
 
-Its companions are [Capture Principles — Desktop Application](capture-principles.md), which governs what may enter a recording, and [the capture pipeline](capture-pipeline.md), which owns how the `capture:action` stream is produced. This document governs the shell those surfaces are wired through. Other documents own the cross-platform seams it implements, cited in place: [Shared Core](../../../../architecture/system/shared-core.md) (the adapter seam), [Persistence](../../../../architecture/system/persistence.md) (where each platform keeps its data), and the [Dispatch Protocol](../../../../api/dispatch.md) (the transport policy).
+Its companions are [Capture Principles — Desktop Application](capture-principles.md), which governs what may enter a recording, and [the capture pipeline](capture-pipeline.md), which orients on the stages behind the `capture:action` stream. This document governs the shell those surfaces are wired through. Other documents own the cross-platform seams it implements, cited in place: [Shared Core](../../../../architecture/system/shared-core.md) (the adapter seam), [Persistence](../../../../architecture/system/persistence.md) (where each platform keeps its data), and the [Dispatch Protocol](../../../../api/dispatch.md) (the transport policy).
 
 Each rule carries a stable identifier (**DSH-n**) so other documents, reviews,
 and checks can cite it precisely. Identifiers are never renumbered; a retired
