@@ -20,6 +20,12 @@
  * between them. A single file without one is ordinary — many workflows have
  * none — so only the zero TOTAL is refused.
  *
+ * The same files carry a second property, held on the same exit codes: every
+ * `codecov/codecov-action` step states `fail_ci_if_error: true`, so an upload
+ * that errors fails its job rather than leaving it green. A file set carrying
+ * no such step is refused (exit 2), since a read that stopped matching would
+ * otherwise pass for a tree that holds the property.
+ *
  * Usage: node scripts/check-action-pins.js   # or: npm run check:action-pins
  */
 
@@ -70,6 +76,72 @@ export function isPinned(ref) {
   if (ref.startsWith('./') || ref.startsWith('../')) return true;
   const at = ref.lastIndexOf('@');
   return SHA_RE.test(at === -1 ? '' : ref.slice(at + 1));
+}
+
+/** The action whose steps must state {@link FAIL_KEY}. */
+export const CODECOV_ACTION = 'codecov/codecov-action';
+/** The input that turns an upload error into a failed job. */
+export const FAIL_KEY = 'fail_ci_if_error';
+
+/**
+ * Every `codecov/codecov-action` step a file states, with the 1-based line of
+ * its `uses:` and whether its own lines state `fail_ci_if_error: true`. A step
+ * runs from the list dash that opens it to the next dash at that indent, or to
+ * the first non-blank line indented less.
+ * @param {string} text the file's text
+ * @returns {Array<{line: number, strict: boolean}>} the steps, in file order
+ */
+export function readCodecovSteps(text) {
+  const lines = text.split(/\r?\n/);
+  const indent = (l) => l.length - l.trimStart().length;
+  const strictRe = new RegExp(`^\\s*${FAIL_KEY}:\\s*(['"]?)true\\1\\s*(#.*)?$`);
+  const out = [];
+  for (const { line, ref } of readUses(text)) {
+    if (!ref.startsWith(`${CODECOV_ACTION}@`)) continue;
+    let start = line - 1;
+    while (start > 0 && !/^\s*-\s/.test(lines[start])) start--;
+    const dash = indent(lines[start]);
+    let end = start + 1;
+    while (
+      end < lines.length &&
+      (lines[end].trim() === '' ||
+        indent(lines[end]) > dash ||
+        (indent(lines[end]) === dash && !/^\s*-\s/.test(lines[end])))
+    ) {
+      end++;
+    }
+    out.push({ line, strict: lines.slice(start, end).some((l) => strictRe.test(l)) });
+  }
+  return out;
+}
+
+/**
+ * Pure core of the second property: the codecov steps over a file set that
+ * do not state `fail_ci_if_error: true`, and how many were read.
+ * @param {object} seams as {@link auditActions}
+ * @returns {{ stepCount: number, lax: Array<{ file: string, line: number }> }}
+ * @throws {InputError} when the listing names no file or the files hold no step
+ */
+export function auditCodecov({ readFile, listFiles }) {
+  const files = listFiles();
+  if (files.length === 0) {
+    throw new InputError(`the scan of ${WORKFLOWS_ROOT}/ and ${ACTIONS_ROOT}/*/ yielded no file`);
+  }
+  const lax = [];
+  let stepCount = 0;
+  for (const file of files) {
+    const steps = readCodecovSteps(readFile(file));
+    stepCount += steps.length;
+    for (const s of steps) if (!s.strict) lax.push({ file, line: s.line });
+  }
+  if (stepCount === 0) {
+    throw new InputError(
+      `${files.length} file(s) under ${WORKFLOWS_ROOT}/ and ${ACTIONS_ROOT}/*/ state no ` +
+        `\`${CODECOV_ACTION}\` step — this check holds each such step to \`${FAIL_KEY}: true\`, ` +
+        `and a set carrying none is a read that found nothing`,
+    );
+  }
+  return { stepCount, lax };
 }
 
 /**
@@ -187,6 +259,30 @@ function run() {
     );
     process.exit(1);
   }
+  const reads = {
+    readFile: (rel) => readFileSync(join(ROOT, rel), 'utf8'),
+    listFiles: actionFiles,
+  };
+  let codecov;
+  try {
+    codecov = auditCodecov(reads);
+  } catch (error) {
+    if (!(error instanceof InputError)) throw error;
+    console.error(
+      `✗ an input this check reads answered with something other than what it reads there:\n    ${error.message}\n`,
+    );
+    process.exit(2);
+  }
+  if (codecov.lax.length > 0) {
+    for (const { file, line } of codecov.lax) {
+      console.error(`✗ ${file}:${line} — ${CODECOV_ACTION} step without ${FAIL_KEY}: true`);
+    }
+    console.error(
+      `\nAn upload error must fail its job: add \`${FAIL_KEY}: true\` under the step's \`with:\`.`,
+    );
+    process.exit(1);
+  }
+  console.log(`✓ All ${codecov.stepCount} ${CODECOV_ACTION} step(s) state ${FAIL_KEY}: true.`);
   console.log(
     `✓ All ${audit.useCount} GitHub Actions \`uses:\` reference(s), read across ` +
       `${audit.fileCount} workflow and composite-action file(s), are pinned to a commit SHA.`,

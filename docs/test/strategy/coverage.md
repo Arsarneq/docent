@@ -23,7 +23,9 @@ comment from sitting on a stale intermediate value while jobs finish minutes
 apart — the comment only converges once it has seen every upload, so bunching
 them makes it correct sooner. If a job is skipped by a path filter, its artifact
 is absent and that upload is silently skipped; Codecov `carryforward` keeps the
-flag's last-known coverage.
+flag's last-known coverage. An upload that errors fails the `coverage-upload` job
+(`fail_ci_if_error: true` on every upload step), so a Codecov outage turns that job,
+and through it `ci-gate`, red until a re-run.
 
 ## Flags and components
 

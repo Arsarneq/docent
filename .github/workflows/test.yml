@@ -1798,6 +1798,7 @@ jobs:
           disable_search: true
           flags: unit,javascript
           token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: true
           verbose: ${{ runner.debug == '1' }}
 
       - name: Upload extension E2E coverage to Codecov
@@ -1808,6 +1809,7 @@ jobs:
           disable_search: true
           flags: e2e,javascript
           token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: true
           verbose: ${{ runner.debug == '1' }}
 
       - name: Upload Rust unit coverage to Codecov
@@ -1818,6 +1820,7 @@ jobs:
           disable_search: true
           flags: unit,rust
           token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: true
           verbose: ${{ runner.debug == '1' }}
 
       - name: Upload Rust integration coverage to Codecov
@@ -1828,6 +1831,7 @@ jobs:
           disable_search: true
           flags: integration,rust
           token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: true
           verbose: ${{ runner.debug == '1' }}
 
       - name: Upload desktop integration JS coverage to Codecov
@@ -1838,6 +1842,7 @@ jobs:
           disable_search: true
           flags: integration,javascript
           token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: true
           verbose: ${{ runner.debug == '1' }}
 
       # No test job produced coverage (docs-/CI-only PR). Tell Codecov the
@@ -1850,6 +1855,7 @@ jobs:
           run_command: 'empty-upload'
           force: true
           token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: true
           verbose: ${{ runner.debug == '1' }}
 
   # Static analysis of the workflows themselves (template injection, dangerous

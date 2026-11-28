@@ -21,6 +21,8 @@ import {
   WORKFLOWS_ROOT,
   actionFiles,
   auditActions,
+  auditCodecov,
+  readCodecovSteps,
   findUnpinned,
   isPinned,
   readUses,
@@ -148,6 +150,42 @@ describe('auditActions — the refusals a read that found nothing takes', () => 
     const files = actionFiles();
     assert.ok(files.some((f) => f.startsWith('.github/workflows/')), files.join('\n')); // prettier-ignore
     assert.ok(files.some((f) => f.startsWith('.github/actions/')), files.join('\n')); // prettier-ignore
+  });
+});
+
+describe('codecov steps — every upload error must fail its job', () => {
+  const step = (extra = '') =>
+    `      - name: up\n        uses: codecov/codecov-action@${SHA} # v7\n        with:\n          files: x\n${extra}`;
+  const over = (files) => ({ readFile: (f) => files[f], listFiles: () => Object.keys(files) });
+
+  it('reads a step strict only when its own lines state fail_ci_if_error: true', () => {
+    assert.deepEqual(readCodecovSteps(step('          fail_ci_if_error: true\n')), [
+      { line: 2, strict: true },
+    ]);
+    assert.deepEqual(readCodecovSteps(step()), [{ line: 2, strict: false }]);
+    assert.equal(readCodecovSteps(step('          fail_ci_if_error: false\n'))[0].strict, false);
+    assert.equal(readCodecovSteps(step('          # fail_ci_if_error: true\n'))[0].strict, false);
+  });
+
+  it('does not credit a step with the next step’s key', () => {
+    const text = step() + '      - name: next\n        with:\n          fail_ci_if_error: true\n';
+    assert.deepEqual(readCodecovSteps(text), [{ line: 2, strict: false }]);
+  });
+
+  it('names each lax step across files and counts what it read', () => {
+    const audit = auditCodecov(
+      over({ 'a.yml': step('          fail_ci_if_error: true\n'), 'b.yml': step() }),
+    );
+    assert.equal(audit.stepCount, 2);
+    assert.deepEqual(audit.lax, [{ file: 'b.yml', line: 2 }]);
+  });
+
+  it('refuses a listing with no file and a file set with no codecov step', () => {
+    assert.throws(() => auditCodecov(over({})), InputError);
+    assert.throws(
+      () => auditCodecov(over({ 'a.yml': 'jobs:\n  x:\n' })),
+      (e) => e instanceof InputError && /state no `codecov\/codecov-action` step/.test(e.message),
+    );
   });
 });
 
