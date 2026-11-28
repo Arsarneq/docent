@@ -454,7 +454,7 @@ For example, the person pastes into the field with Ctrl+V and presses Enter, and
 
 ## What a `key` action carries
 
-**DCP-19.** The [session format](../../../../technical/session-format.md#shared-both-platforms)'s `key` row is the home of what a `key` action's `repeat`, `code`, input-method fields and `held_keys` state, on both platforms, and its [Key names](../../../../technical/session-format.md#key-names) section the home of how a key is named. This clause holds only what they do not: five rules of this platform's own.
+**DCP-19.** The [session format](../../../../technical/session-format.md#the-key-action)'s `key` row is the home of what a `key` action's `repeat`, `code`, input-method fields and `held_keys` state, on both platforms, and its [Key names](../../../../technical/session-format.md#key-names) section the home of how a key is named. This clause holds only what they do not: five rules of this platform's own.
 
 - **Injected keys and punctuation keys are typing keys (DCP-9).** A keystroke injected as Unicode (`VK_PACKET`, the path of IME results, remote-desktop stacks, software keyboards and automation) is printable input whatever it carries. Since it is named by its character and buffered as a typing key, the same text is never recorded twice. A punctuation key is a typing key whether or not a character was read for its name.
 - **A release the hook was never handed.** A key whose release the hook was never handed is a press again at its next key-down, not a repeat. The hook is handed key-downs and key-ups in an excluded window and outside an active capture too, so a key pressed there and still held counts as down for `repeat`.
