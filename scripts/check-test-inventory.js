@@ -195,7 +195,7 @@ import { pathToFileURL } from 'node:url';
 import { unified } from 'unified';
 import remarkParse from 'remark-parse';
 import { visit } from 'unist-util-visit';
-import { baseFileReader } from './governance-data.js';
+import { GROWTH_ANSWER, baseFileReader, summaryCell } from './governance-data.js';
 
 /**
  * Playwright's default `testMatch` — the files it collects under its `testDir`,
@@ -2090,9 +2090,6 @@ function auditRowShape(content, { doc, section }, tables) {
 
 /* ── Growth of the Covers cells ──────────────────────────────────────────── */
 
-/** Where the rule on answering a grown Covers cell is stated. */
-const GROWTH_RULE_HOME = 'docs/guides/docs-governance.md';
-
 /**
  * The Covers cell of each named row of an inventory, by file name: the trimmed
  * cell under the Covers header of every row of the inventory's tables, link
@@ -2157,9 +2154,6 @@ export function coversGrowth({ readFile, readBaseFile, inventories = DOC_INVENTO
   return notes;
 }
 
-/** What the list of grown cells is headed with, on the log and in the job summary. */
-const GROWTH_ANSWER = `This does not fail: the pull request's reviewer answers each (${GROWTH_RULE_HOME}, Writing docs).`;
-
 /**
  * What the check prints for the grown cells: a heading that says the list does
  * not fail and who answers it, then one indented line per cell, opening with
@@ -2190,8 +2184,7 @@ export function formatGrowth(notes, baseRef) {
  */
 export function growthSummary(notes, baseRef) {
   if (notes.length === 0) return '';
-  // The backslash first, so one that stands before a pipe cannot undo the pipe's escape.
-  const cell = (text) => String(text).replace(/\\/g, '\\\\').replace(/\|/g, '\\|');
+  const cell = summaryCell;
   return [
     `### Covers cells that grew since ${baseRef}`,
     '',

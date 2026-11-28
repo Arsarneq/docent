@@ -93,7 +93,8 @@ The `lint` gates below read the pull request's base branch in CI and take it loc
 ```bash
 git fetch --no-tags origin main
 
-# also reds on a baseline entry the base branch's list does not hold
+# also reds on a baseline entry the base branch's list does not hold, and
+# lists, without failing, each unit of a clause that grew
 npm run lint:clause-form -- origin/main
 
 # also lists, without failing, each Covers cell that grew in place
