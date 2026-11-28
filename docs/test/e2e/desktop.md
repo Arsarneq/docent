@@ -28,7 +28,7 @@ Each test starts the app on a data folder of its own: the fixture points `APPDAT
 
 ## Retries and flaky tests
 
-One worker: the tests share the machine's keyboard, mouse and foreground window. A failed test runs once more, traced, so the run keeps a trace of it. A test that passes only on that retry fails the run (`failOnFlakyTests`). The job uploads `test-results/` (artifact `desktop-e2e-results`) on every run: each test's `app.log`, and for a failed test its trace and screenshot.
+One worker: the tests share the machine's keyboard, mouse and foreground window. A failed test runs once more, traced, so the run keeps a trace of it. A test that passes only on that retry fails the run (`failOnFlakyTests`). The job uploads `test-results/` (artifact `desktop-e2e-results`) on every run: the `app.log` of each test that starts the app, the exported document of each test that exports, and for a failed test its trace and screenshot.
 
 The job runs the driver's own tests first, before it builds the app: the planner's (`driver/plan.test.mjs`) and the window test (`driver/drive.test.ps1`). A red window test means the keys or clicks do not arrive on that runner, and the job stops there, in minutes instead of after the build.
 

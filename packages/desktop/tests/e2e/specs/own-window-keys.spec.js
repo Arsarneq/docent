@@ -12,7 +12,7 @@
  * driven over the DevTools protocol, so its clicks are not input.
  */
 
-import { copyFileSync, mkdtempSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -29,6 +29,11 @@ test("a key pressed in Docent's own window is recorded when the window is", asyn
 }, testInfo) => {
   const { panel } = app;
   await panel.uncheck('#self-capture-toggle');
+  // What the app writes to stderr reaches the test's app.log.
+  const appLog = testInfo.outputPath('app.log');
+  await expect
+    .poll(() => (existsSync(appLog) ? readFileSync(appLog, 'utf8') : ''))
+    .toContain('[Docent] Self-capture exclusion OFF');
   await panel.click('#btn-new-project');
   await panel.fill('#new-project-name', 'Own window');
   await panel.click('#btn-new-project-create');

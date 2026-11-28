@@ -271,7 +271,7 @@ export const test = base.extend({
   },
   // eslint-disable-next-line no-empty-pattern
   app: async ({}, use, testInfo) => {
-    const app = await launchApp({ logPath: testInfo.outputPath('app.log') });
+    const app = await launchApp(); // red check only: no app.log
     try {
       await use(app);
     } finally {
