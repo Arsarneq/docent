@@ -287,7 +287,7 @@ The required status is `codecov/patch`, configured in [`.github/codecov.yml`](..
 [`mutation.yml`](../../.github/workflows/mutation.yml) (Mondays, plus manual dispatch) runs two tools:
 
 - Stryker over the shared, extension, and desktop JavaScript packages. Each config ([`stryker.config.mjs`](../../stryker.config.mjs), [`stryker.extension.mjs`](../../stryker.extension.mjs), [`stryker.desktop.mjs`](../../stryker.desktop.mjs)) sets a `thresholds.break` floor that fails the run when the mutation score drops below it.
-- `cargo-mutants` over the desktop crate modules that [`mutants.toml`](../../packages/desktop/src-tauri/.cargo/mutants.toml)'s `examine_globs` enumerates. The Rust job currently runs in measurement posture: missed-mutant and timeout exit codes are tolerated, and the counts are reported to the run summary while the baseline is established.
+- `cargo-mutants` over the desktop crate modules that [`mutants.toml`](../../packages/desktop/src-tauri/.cargo/mutants.toml)'s `examine_globs` enumerates. The Rust job runs as parallel shards, each on its own runner over its own slice of the mutants, so the run's counts are the sum of the shards' summaries. It currently runs in measurement posture: missed-mutant and timeout exit codes are tolerated, and the counts are reported to the run summary while the baseline is established.
 
 Mutation is a standing repo-health gate on this schedule, never a per-PR check. The strategy and scope decisions are in [mutation testing](../test/strategy/mutation.md).
 
@@ -359,6 +359,8 @@ This table states no Save column because every row has the same posture, and it 
 - `cargo-mutants` in a workflow whose runs are its weekly schedule and its manual dispatches.
 
 The key already carries the runner OS and the pinned version, so those writes cannot collide. A family cache, whose save is gated on `main`, is the one that would, and its split keeps it from doing so. The difference is a considered exception, taken on that ground.
+
+Inside one run, the jobs of one matrix do write the same key. The shards of `cargo-mutants-desktop` each restore and, on a miss, save the same `mutation` family entry and the same `cargo-mutants` entry. An entry is never overwritten. The first save creates it, and the cache action refuses each later save of that key as a concurrency race without failing the step. The shards build one lockfile and install one pin, so whichever save wins stores the same contents.
 
 The table keys instead on the tool, one row per tool name. A second job caching a listed tool has no row to take, and the gate refuses that shape on its own exit code: the mirror of the families' one-cache-per-job limit above. What the gate recomputes of all this is the table itself: its cells (the tool, its key's version segment, the install pin and the Doc mention) and that one-row-per-tool limit. The posture, the step shape and the job placements stated here for the tool caches are read from the workflow files by hand. So a tool cache later written as a gated split, or moved to another job, would leave them stale with nothing red.
 

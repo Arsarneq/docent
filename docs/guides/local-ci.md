@@ -134,7 +134,7 @@ The Rust job, `cargo-mutants-desktop`, runs on `windows-latest`, so run it nativ
    cargo mutants --in-place
    ```
 
-`--in-place` is needed because the Tauri build reads `../dist`, which sits outside the cargo tree. The mutation scope comes from [`mutants.toml`](../../packages/desktop/src-tauri/.cargo/mutants.toml).
+`--in-place` is needed because the Tauri build reads `../dist`, which sits outside the cargo tree. CI splits this run into shards, one per runner; the command above runs every mutant in one go. The mutation scope comes from [`mutants.toml`](../../packages/desktop/src-tauri/.cargo/mutants.toml).
 
 A gate reads the version above. The Job bounds and caches gate takes the first backticked version token after `cargo-mutants` in this subsection as that tool's Doc mention cell ([CI gates § What the caches key on](ci.md#what-the-caches-key-on)) and holds it to the pin the workflow states. Changing the version here alone, or removing its backticks, turns that gate red.
 

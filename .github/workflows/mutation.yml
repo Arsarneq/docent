@@ -134,9 +134,24 @@ jobs:
   # run summary, not failing — once a few weekly runs establish the baseline,
   # drop the exit-code tolerance below so a regression reddens the run like the
   # Stryker jobs do.
+  #
+  # The job runs as a matrix of shards, each on a runner of its own, because
+  # one runner working through the whole mutant list serially no longer fits
+  # under a bound below the platform's job limit. Every shard runs the same
+  # command over the same tree, and cargo-mutants' own `--shard k/n` gives each
+  # one its slice of that list: k is the shard's zero-based place in the matrix
+  # and n the matrix's size, both read from the `strategy` context, so the
+  # number of entries in `shard` below is the shard count and nothing else
+  # needs to change with it. fail-fast is off so every shard reports its own
+  # slice whatever another one does. Every bound and step below applies per
+  # shard.
   cargo-mutants-desktop:
     timeout-minutes: 180
     runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -155,6 +170,9 @@ jobs:
       # across a patch bump and restore the old binary under a key that still
       # looked current, leaving the run on a version the file no longer names.
       # (The cargo-deny cache in the test workflow spells its pin the same way.)
+      # On a miss every shard installs the binary and its post-job save races
+      # for this one key; the first save creates the entry and the others are
+      # refused without failing the job, as for the registry below.
       - name: Cache cargo-mutants
         id: cache-cargo-mutants
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -207,6 +225,12 @@ jobs:
       # plus the queue delay a scheduled run takes puts each restore at the edge
       # of the window it refreshes rather than comfortably inside it. Accepted as
       # written — the cost of landing outside it is the cold start above.
+      #
+      # Every shard restores and, on a miss, saves this same key. The entries
+      # are immutable: the first shard's save creates the entry, and the cache
+      # action refuses the later shards' saves of that key as a concurrency
+      # race it reports without failing the step. The shards build one lockfile,
+      # so whichever save wins stores the same registry.
       - name: Restore cargo registry
         id: cargo-cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -225,6 +249,7 @@ jobs:
 
       # --in-place: the build reads ../dist, which sits outside the cargo tree,
       # so mutants must build in the real tree (serially) rather than in a copy.
+      # Each shard does so on its own runner's tree.
       # Exit codes 2 (missed mutants) and 3 (a mutant timed out — a normal
       # mutation outcome) are tolerated while this job is measuring its
       # baseline; a genuine build/tool failure still fails the job.
@@ -241,12 +266,16 @@ jobs:
       # outcome. This STEP's bound is the one the sizing is measured against,
       # and it fires before the job's own.
       #
-      # That maximum is the product of three factors. Two the mutants
-      # configuration states: the module set it enumerates, which decides how
-      # many mutants are seeded, and the per-mutant test list, which decides
-      # what each seeded mutant costs. Widening either — a module joining
-      # examine_globs, or a binary joining additional_cargo_test_args — is the
-      # moment to re-check this number. The third is the cache above: it stores
+      # That maximum is a shard's, and it comes from four factors. Two the
+      # mutants configuration states: the module set it enumerates, which
+      # decides how many mutants are seeded, and the per-mutant test list, which
+      # decides what each seeded mutant costs. The third is the shard count
+      # above, which divides the seeded mutants between the shards; it divides
+      # nothing else, since every shard builds and tests the baseline in full
+      # before its first mutant. Widening the configuration — a module joining
+      # examine_globs, or a binary joining additional_cargo_test_args — or
+      # shrinking the shard count is the moment to re-check this number. The
+      # fourth is the cache above: it stores
       # the registry only, and this job's weekly cadence sits at the platform's
       # inactivity-eviction window, so what this bound has to cover is the cold
       # run — a registry refetch and the whole baseline build ahead of the first
@@ -255,9 +284,12 @@ jobs:
         working-directory: packages/desktop/src-tauri
         timeout-minutes: 150
         shell: bash
+        env:
+          SHARD_INDEX: ${{ strategy.job-index }}
+          SHARD_COUNT: ${{ strategy.job-total }}
         run: |
           set +e
-          cargo mutants --in-place
+          cargo mutants --in-place --shard "$SHARD_INDEX/$SHARD_COUNT"
           code=$?
           if [ "$code" -ne 0 ] && [ "$code" -ne 2 ] && [ "$code" -ne 3 ]; then exit "$code"; fi
 
@@ -277,9 +309,12 @@ jobs:
         if: always()
         working-directory: packages/desktop/src-tauri
         shell: bash
+        env:
+          SHARD_INDEX: ${{ strategy.job-index }}
+          SHARD_COUNT: ${{ strategy.job-total }}
         run: |
           {
-            echo "## cargo-mutants (desktop capture logic modules)"
+            echo "## cargo-mutants (desktop capture logic modules), shard $SHARD_INDEX/$SHARD_COUNT"
             for f in caught missed timeout unviable; do
               n=$(wc -l < "mutants.out/$f.txt" 2>/dev/null || echo 0)
               echo "- $f: $n"
@@ -290,6 +325,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
-          name: mutation-report-desktop-rust
+          name: mutation-report-desktop-rust-shard-${{ strategy.job-index }}
           path: packages/desktop/src-tauri/mutants.out/
           retention-days: 30
