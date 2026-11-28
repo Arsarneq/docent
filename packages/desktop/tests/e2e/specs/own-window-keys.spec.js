@@ -58,6 +58,8 @@ test("a key pressed in Docent's own window is recorded when the window is", asyn
   const doc = await exportProject(app, file);
   copyFileSync(file, testInfo.outputPath('export.docent.json'));
 
+  expect(doc.recordings).toHaveLength(1);
+  expect(doc.recordings[0].steps).toHaveLength(1);
   const actions = doc.recordings[0].steps[0].actions;
   console.log(
     `[actions] ${JSON.stringify(actions.map((a) => `${a.type}:${a.value ?? a.key ?? a.title ?? ''}`))}`,
