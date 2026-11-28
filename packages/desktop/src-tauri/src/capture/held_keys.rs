@@ -1680,6 +1680,20 @@ mod tests {
     }
 
     #[test]
+    fn regression_825_a_ctrl_or_alt_down_by_the_generic_code_alone_is_written() {
+        // The keyboard's state holds the generic Ctrl or Alt code down and
+        // neither left nor right one: the system's Ctrl or Alt, written as
+        // every verdict on a key reads it.
+        const VK_CONTROL: u32 = 0x11;
+        const VK_MENU: u32 = 0x12;
+        let record = CtrlAltKeys::new();
+        let ctrl = record.read(|vk| vk == VK_CONTROL, 7);
+        assert_eq!(ctrl.held(Some(true)), held(true, false, false));
+        let alt = record.read(|vk| vk == VK_MENU, 7);
+        assert_eq!(alt.held(Some(true)), held(false, true, false));
+    }
+
+    #[test]
     fn regression_825_a_stale_record_leaves_ctrl_and_alt_as_the_keyboard_holds_them() {
         // AltGr went down, its key-ups never handed to the hook; then a left
         // Ctrl and a left Alt held: the keyboard's state is written, no AltGr
