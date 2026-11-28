@@ -882,7 +882,7 @@
     },
     {
       "path": "packages/desktop/src-tauri/tests/capture_lifecycle_test.rs",
-      "reason": "The capture-layer lifecycle contract binary — idempotent start, no-op stop, the active-state transitions, bounded restart, the commit flush barrier's sentinel on the action stream, and the one block of capture timings a stop writes, none where the stop throws the take away — driven entirely through the seam's trait obligations. The capture-seam document states those obligations, the Windows capture principles own the barrier and the stop drains it asserts (DCP-2, DCP-12), the desktop end-to-end suite's doc states the capture timings, and the suite orientation lists it.",
+      "reason": "The capture-layer lifecycle contract binary — idempotent start, no-op stop, the active-state transitions, bounded restart, the commit flush barrier's sentinel on the action stream, and the one block of capture timings a stop writes, none for a capture started while its timings are held — driven entirely through the seam's trait obligations. The capture-seam document states those obligations, the Windows capture principles own the barrier and the stop drains it asserts (DCP-2, DCP-12), the desktop end-to-end suite's doc states the capture timings, and the suite orientation lists it.",
       "governed-by": [
         "docs/architecture/application/desktop/capture-seam.md",
         "docs/architecture/application/desktop/windows/capture-principles.md",
