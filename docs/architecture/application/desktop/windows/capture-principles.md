@@ -236,7 +236,7 @@ The switch carries the timestamp of the action it stands ahead of.
 Three events take no switch and introduce no window:
 
 - a close;
-- a lone Shift, Ctrl or Alt press, which the worker drops (DCP-13);
+- a press of Shift, Ctrl or Alt, which is not written (DCP-13);
 - a key attributed to no window (DCP-14), which has no window to introduce.
 
 An action in a window introduced earlier carries that window's `context_id` with no switch before it (after a wheel over an inactive window, a key in the window in front, for example).
@@ -297,7 +297,7 @@ Two cases stay open:
 
 | The person presses                                                                                                                                            | What the file holds                                                                                         |
 | ------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| Shift, Ctrl or Alt alone                                                                                                                                      | Nothing (DCP-13)                                                                                            |
+| Shift, Ctrl or Alt                                                                                                                                            | Nothing (DCP-13)                                                                                            |
 | A key that enters text in a password field (DCP-11's signal; which keys, below)                                                                               | The field's masked `type`, whether or not the field reports a value change, and never a `key` for it        |
 | A shortcut, a key that is no typing key, or a typing key on a control that takes no typed text (a letter on a button)                                         | The `key`. A value change on such a control (the field a button clears) is no `type`                        |
 | A typing key, and no value change of its element comes within 500 ms of the last typing key pressed there (a control with no text, like Calculator's display) | The `key`                                                                                                   |
@@ -327,7 +327,7 @@ Every other key counts as text there: a character, `Space`, `Dead`, `Unidentifie
 
 **When the `type` is written.** When the typing in the field ends, ahead of the action that ended it. The typing ends at one of these, a closed list:
 
-- a key that is no printable keystroke: a key that is no typing key, or a shortcut. Shift, Ctrl or Alt pressed alone ends nothing (DCP-13);
+- a key that is no printable keystroke: a key that is no typing key, or a shortcut. A press of Shift, Ctrl or Alt ends nothing (DCP-13);
 - a printable keystroke in another element;
 - a pointer press (a click, a right-click or a drag);
 - a `context_switch` written for an activation or ahead of an action (DCP-6, DCP-7, DCP-20), save the one ahead of a first action in an inactive window (below);
@@ -382,7 +382,7 @@ The panel joins the masked typing of a sensitive field by the same place, read f
 | After the dead key                                                                                                                             | What the file holds                                                                |
 | ---------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
 | A typing key that enters text                                                                                                                  | The text, in the field's `type`, and no `key` for the dead key                     |
-| Shift, Ctrl or Alt alone                                                                                                                       | Nothing for that press (DCP-13): the press after it decides                        |
+| Shift, Ctrl or Alt                                                                                                                             | Nothing for that press (DCP-13): the press after it decides                        |
 | The dead key again, or a key that is no typing key (Enter), where the program enters the bare accent and the field gained it (the count below) | The accent in the field's `type`, and no `key` for the dead key                    |
 | Anything else, the end of the typing included                                                                                                  | The dead key as a `key`, behind the keys pressed before it that are still buffered |
 
@@ -659,7 +659,7 @@ After a typing worker gives its role up at a commit, two things hold for deliver
 
 **DCP-13.** This platform's exceptions within the surface (core [CP-15](../../../../architecture/system/capture-principles.md#capture-surface)):
 
-- A lone Shift, Ctrl or Alt press is not written; these keys are recorded only within a combination (a lone Win press is recorded, as `Meta`).
+- A press of Shift, Ctrl or Alt is not written, as [the `key` action](../../../../technical/session-format.md#the-key-action) states; a press of Win is recorded, as `Meta`.
 - A key press whose keyboard layout could not be asked is written with `key`
   `Unidentified` where the key has no name of its own (a letter, a digit, a
   punctuation key), where the extension writes the character; a departure
