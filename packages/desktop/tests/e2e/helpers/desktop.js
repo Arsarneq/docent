@@ -19,7 +19,16 @@
 
 import { test as base, chromium } from '@playwright/test';
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
+import {
+  closeSync,
+  existsSync,
+  mkdtempSync,
+  openSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+  writeSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -78,18 +87,26 @@ function killTree(pid) {
   spawnSync('taskkill', ['/PID', String(pid), '/T', '/F'], { stdio: 'ignore' });
 }
 
-/** Starts the built app on fresh data and returns its panel as a page. */
-export async function launchApp() {
+/**
+ * Starts the built app on fresh data and returns its panel as a page. With
+ * `logPath`, the app's stdout and stderr go to that file, after a first line
+ * naming the build, so a test's results keep what the app wrote.
+ */
+export async function launchApp({ logPath } = {}) {
   if (!existsSync(APP_EXE)) throw new Error(`no app build at ${APP_EXE}`);
   const appData = mkdtempSync(join(tmpdir(), 'docent-e2e-data-'));
+  const log = logPath ? openSync(logPath, 'w') : null;
+  if (log !== null) writeSync(log, `app: ${APP_EXE}\n`);
   const child = spawn(APP_EXE, [], {
     env: {
       ...process.env,
       APPDATA: appData,
       WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${DEVTOOLS_PORT}`,
     },
-    stdio: 'ignore',
+    stdio: log === null ? 'ignore' : ['ignore', log, log],
   });
+  // The app has its own copy of the file handle now.
+  if (log !== null) closeSync(log);
   try {
     await waitForDevTools(child, 60_000);
     const browser = await chromium.connectOverCDP(`http://127.0.0.1:${DEVTOOLS_PORT}`);
@@ -254,7 +271,7 @@ export const test = base.extend({
   },
   // eslint-disable-next-line no-empty-pattern
   app: async ({}, use, testInfo) => {
-    const app = await launchApp();
+    const app = await launchApp({ logPath: testInfo.outputPath('app.log') });
     try {
       await use(app);
     } finally {
