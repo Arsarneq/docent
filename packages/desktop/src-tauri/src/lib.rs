@@ -61,6 +61,13 @@ pub fn run() {
     };
 
     tauri::Builder::default()
+        // The window library asks Windows for raw keyboard and mouse input
+        // while its window has the focus, and Windows then hands this
+        // process's low-level keyboard hook no key pressed in that window:
+        // the capture would know nothing of a key pressed in the panel
+        // (docent#833). The app reads no device events, so none are asked
+        // for.
+        .device_event_filter(tauri::DeviceEventFilter::Always)
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .manage(app_state)
