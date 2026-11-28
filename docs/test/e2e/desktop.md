@@ -11,7 +11,7 @@ Each test drives the app with two hands:
 - **The panel**, as a page. The fixture (`helpers/desktop.js`) starts the release build with WebView2's DevTools port open (`WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=…`) and connects Playwright to it. A test clicks the panel's own buttons, so each click runs the panel's handler and the real backend command behind it. The clicks go through that protocol, not as operating-system input, so a click on the panel does not move the foreground the way a person's click does.
 - **Other programs and dialogs**, with real keyboard and mouse input, and the app's own window where a test is about a key or click a person gives it. The [input driver](../../../packages/desktop/tests/e2e/driver/README.md) sends `SendInput` keys and clicks from a steps file and checks, before each step's input, that it goes to the window the steps named. `helpers/front.ps1` brings a program's window, or its open dialog, to the front first. When the window is not already in front, it presses an unassigned key to be allowed to (not Alt, which would put a window with a menu bar in menu mode and lose the next key), so it is called before a recording starts.
 
-Each test starts the app on a data folder of its own: the fixture points `APPDATA`, where the app keeps its projects, at a new temporary folder, and ends the app and its WebView processes afterwards. When a test fails, the `app` and `notepad` fixtures print every visible window (process, class, title) to the job log and attach a screenshot (`helpers/screen.ps1`) before they end the app or Notepad.
+Each test starts the app on a data folder of its own: the fixture points `APPDATA`, where the app keeps its projects, at a new temporary folder, and ends the app and its WebView processes afterwards. What the app writes to stdout and stderr goes to `app.log` in the test's results. When a test fails, the `app` and `notepad` fixtures print every visible window (process, class, title) to the job log and attach a screenshot (`helpers/screen.ps1`) before they end the app or Notepad.
 
 ## What the suite covers
 
@@ -28,7 +28,7 @@ Each test starts the app on a data folder of its own: the fixture points `APPDAT
 
 ## Retries and flaky tests
 
-One worker: the tests share the machine's keyboard, mouse and foreground window. A failed test runs once more, traced, so the run keeps a trace of it. A test that passes only on that retry fails the run (`failOnFlakyTests`). When a test fails, the job uploads `test-results/` (artifact `desktop-e2e-results`) with its trace and screenshot; a green run writes nothing there, so it uploads nothing.
+One worker: the tests share the machine's keyboard, mouse and foreground window. A failed test runs once more, traced, so the run keeps a trace of it. A test that passes only on that retry fails the run (`failOnFlakyTests`). The job uploads `test-results/` (artifact `desktop-e2e-results`) on every run: each test's `app.log`, and for a failed test its trace and screenshot.
 
 The job runs the driver's own tests first, before it builds the app: the planner's (`driver/plan.test.mjs`) and the window test (`driver/drive.test.ps1`). A red window test means the keys or clicks do not arrive on that runner, and the job stops there, in minutes instead of after the build.
 
