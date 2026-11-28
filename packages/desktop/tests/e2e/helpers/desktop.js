@@ -17,7 +17,7 @@
  * with no Docent keys stored.
  */
 
-import { test as base, chromium } from '@playwright/test';
+import { test as base, chromium, expect } from '@playwright/test';
 import { spawn, spawnSync } from 'node:child_process';
 import {
   closeSync,
@@ -90,7 +90,8 @@ function killTree(pid) {
 /**
  * Starts the built app on fresh data and returns its panel as a page. With
  * `logPath`, the app's stdout and stderr go to that file, after a first line
- * naming the build, so a test's results keep what the app wrote.
+ * naming the build, so a test's results keep what the app wrote. The capture
+ * timings are on.
  */
 export async function launchApp({ logPath } = {}) {
   if (!existsSync(APP_EXE)) throw new Error(`no app build at ${APP_EXE}`);
@@ -101,6 +102,8 @@ export async function launchApp({ logPath } = {}) {
     env: {
       ...process.env,
       APPDATA: appData,
+      // The capture timings: their block goes to the log as a capture stops.
+      DOCENT_CAPTURE_TIMINGS: '1',
       WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${DEVTOOLS_PORT}`,
     },
     stdio: log === null ? 'ignore' : ['ignore', log, log],
@@ -113,6 +116,7 @@ export async function launchApp({ logPath } = {}) {
     const panel = await waitForPanel(browser, 30_000);
     return {
       panel,
+      logPath,
       async close() {
         await browser.close().catch(() => {});
         killTree(child.pid);
@@ -124,6 +128,37 @@ export async function launchApp({ logPath } = {}) {
     rmSync(appData, { recursive: true, force: true, maxRetries: 5 });
     throw e;
   }
+}
+
+/** The capture timings lines in a log: those that start `capture-timings `. */
+function timingLines(logPath) {
+  if (!logPath || !existsSync(logPath)) return [];
+  return readFileSync(logPath, 'utf8')
+    .split(/\r?\n/)
+    .filter((line) => line.startsWith('capture-timings '));
+}
+
+/**
+ * Pauses the capture if it records, and returns the lines of the capture
+ * timings block the app writes to its log as the capture stops
+ * (docs/test/e2e/desktop.md, Running the suite). Throws when no new block
+ * comes within `timeoutMs`. Where no recording is open, or its capture does
+ * not record, nothing is clicked and no lines are given.
+ */
+export async function pauseCapture(app, { timeoutMs = 15_000 } = {}) {
+  const toggle = app.panel.locator('#btn-toggle-recording');
+  if (!(await toggle.isVisible()) || !((await toggle.textContent()) ?? '').includes('Pause'))
+    return [];
+  const before = timingLines(app.logPath).length;
+  await toggle.click();
+  await expect(toggle).toContainText('Resume');
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const lines = timingLines(app.logPath);
+    if (lines.length > before) return lines.slice(before);
+    await new Promise((r) => setTimeout(r, 200));
+  }
+  throw new Error(`no capture timings block in ${app.logPath} within ${timeoutMs} ms of Pause`);
 }
 
 /**
@@ -254,9 +289,10 @@ function reportScreenOnFailure(testInfo) {
 }
 
 /**
- * The suite's test. `app` is the built app, started fresh for the test;
- * `notepad` is Notepad, started for the test. Both end after it, and a failed
- * test reports the screen first.
+ * The suite's test. `app` is the built app, started fresh for the test with
+ * the capture timings on; `notepad` is Notepad, started for the test. Both
+ * end after it, a failed test reports the screen first, and a capture still
+ * recording is paused before the app ends.
  */
 export const test = base.extend({
   // eslint-disable-next-line no-empty-pattern
@@ -276,6 +312,11 @@ export const test = base.extend({
       await use(app);
     } finally {
       reportScreenOnFailure(testInfo);
+      // A capture still recording is paused, so the log holds its timings
+      // block: the app writes none when it is ended while it records.
+      await pauseCapture(app, { timeoutMs: 5_000 }).catch((e) =>
+        console.log(`[timings] ${testInfo.title}: ${e.message}`),
+      );
       await app.close();
     }
   },
