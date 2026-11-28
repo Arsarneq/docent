@@ -178,7 +178,7 @@ export function actionFiles() {
  *             unpinned: Array<{ file: string, line: number, ref: string }>,
  *             lax: Array<{ file: string, line: number }> }}
  * @throws {InputError} when the listing names no file, or the files state no
- *   `uses:` reference between them
+ *   `uses:` reference or no codecov step between them
  */
 export function auditActions({ readFile, listFiles }) {
   const files = listFiles();
@@ -221,7 +221,8 @@ export function auditActions({ readFile, listFiles }) {
 /* c8 ignore start -- CLI wrapper: the pure pieces above are unit-tested, and
  * each of the wrapper's verdicts is pinned at the process boundary by a
  * spawned-CLI case in packages/shared/tests/unit — the committed tree's green,
- * the refusal, and an unpinned reference; this glue reads a tree and prints. */
+ * the refusals, an unpinned reference and a codecov step without the flag;
+ * this glue reads a tree and prints. */
 function run() {
   let audit;
   try {

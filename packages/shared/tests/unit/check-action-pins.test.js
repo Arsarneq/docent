@@ -2,9 +2,9 @@
  * check-action-pins.test.js — Unit tests for the GitHub Actions SHA-pin guard:
  * every `uses:` must pin to a 40-char commit SHA; local `./…` refs are exempt.
  * The offender list and the count of what was read come from one pass, so the
- * two shapes where that read finds nothing — a file list naming no file, and a
- * file set stating no `uses:` reference between them — are refused here rather
- * than reported as a clean tree, and each of the command line's verdicts is
+ * three shapes where that read finds nothing — a file list naming no file, a
+ * file set stating no `uses:` reference between them, and a file set stating
+ * no codecov step — are refused here rather than reported as a clean tree, and each of the command line's verdicts is
  * pinned at the process boundary: the committed tree's green, the refusals a
  * scan reading nothing raises, an unpinned reference and a codecov step without the flag.
  */
