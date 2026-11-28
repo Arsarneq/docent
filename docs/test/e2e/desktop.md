@@ -52,10 +52,10 @@ npm run test:e2e:desktop
 
 `DOCENT_CAPTURE_TIMINGS=1` in the app's environment turns on the capture timings, which say how long the typing worker took over its steps:
 
-- Each time a capture stops, the app writes one block to stderr. An app ended while it records writes none, and an event a worker is still handling when the stop's wait for the workers runs out is not in the block.
+- Each time a capture stops, the app writes one block to stderr, also for a capture whose step is then thrown away (a re-record that is left). An app ended while it records writes none, and an event a worker is still handling when the stop's wait for the workers runs out is not in the block.
 - Each line is a step and its largest duration in ms, or `-` where none was measured, and the counts of the looks at the focused control ahead of any key, by how they ended. The words are those of [`timing_lines.rs`](../../../packages/desktop/src-tauri/src/capture/timing_lines.rs).
-- Every key and value change the typing worker handles is measured, in any field; a press of Shift, Ctrl or Alt is not.
-- The block shows whether at least one key and at least one value change took each step, never how many nor in what order, and this holds for a masked field too.
+- Every key and value change of a recorded window is measured, in any field. Not measured: a key or value change of a window that is not recorded (Docent's own when it is excluded among them), and a press of Shift, Ctrl or Alt alone.
+- The block shows whether at least one key and at least one value change took each step, never how many, in what order or how far apart. A masked field shows as masked there, by which steps are filled, as it does in a recording.
 - A release build has no console, so the block is seen only where the app's stderr is redirected, as this suite's fixture does into `app.log`. The suite's job does not set the switch.
 - The switch is off by default and changes no action.
 
