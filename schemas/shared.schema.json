@@ -271,7 +271,7 @@
         },
         "key": {
           "type": "string",
-          "description": "What the press means on the active keyboard layout, named by the W3C UI Events `key` values (a, A, ?, Enter, ArrowUp), a space written as Space. The session-format document states the whole rule under Key names."
+          "description": "What the press means on the active keyboard layout, named by the W3C UI Events `key` values (a, A, ?, Enter, ArrowUp), a space written as Space, and Unidentified where that is not known. The session-format document states the whole rule under Key names."
         },
         "modifiers": {
           "$ref": "#/$defs/modifiers"

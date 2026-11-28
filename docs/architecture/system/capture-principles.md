@@ -105,7 +105,7 @@ platform's events also deliver MUST change the other with it.
 
 ## Observing From Outside
 
-**CP-20.** The capture layer observes a program and takes no part in it. It reads only through what the platform offers a program that watches another from outside. On the desktop it runs in Docent's own process alone: it MUST NOT load code into another program, start a thread in one or write into one's memory. On the extension it runs only where the browser places an extension's scripts.
+**CP-20.** The capture layer observes a program and takes no part in it. What it does to a program it records is a closed list: it reads the events the platform delivers to a program that watches from outside, and it asks the questions the platform defines for such a watcher (the accessibility interface, a window message that reads a state). It MUST NOT do anything else to another program: loading code into one, starting a thread in one, writing into its memory, sending it input and sending it a message that changes it are all outside the list. On the desktop it therefore runs in Docent's own process alone. On the extension it runs where the browser places an extension's scripts, and there it MUST NOT change what the page does.
 
 A fact that only code inside the program is told is therefore not read. The recording says it is not known, in the value the format has for that (a key whose meaning is not known is `Unidentified`), and the field's documentation states both what is not read and this clause as the reason.
 

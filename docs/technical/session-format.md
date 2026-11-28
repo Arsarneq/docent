@@ -410,8 +410,9 @@ Some presses are written differently on one platform:
 
 - On the desktop, the keys typed into a field since the last value taken of it are `key` actions after its `type`, and the keys alone where no value was taken: a departure the desktop capture document lists ([DCP-18](../architecture/application/desktop/windows/capture-principles.md#a-value-read-after-later-keys) states when a value is taken).
 - On the extension the character keys typed into a date or time field are text once the field has a value and `key` actions where they gave it none (ECP-13 states which keys count together), and a key the input method takes is not written (its text arrives as a composition the field's `type` records): the extension capture document's ECP-12 states which of these is a departure.
+- On the desktop a key pressed while an input method is on is named `Unidentified`, where the extension names a key the input method did not take: a difference that comes from the platforms themselves (core CP-19), which `input_method_open` below states.
 
-**`key`** names the press as [Key names](#key-names) states, the same on both platforms but for the departures the desktop capture document lists (DCP-13).
+**`key`** names the press as [Key names](#key-names) states, the same on both platforms but for the differences and departures the desktop capture document lists (DCP-13).
 
 **`modifiers`** is the modifier keys held, as [Modifiers](#modifiers) states.
 
@@ -437,7 +438,7 @@ Some presses are written differently on one platform:
 
 The five highest bits, the four Windows reserves among them, are not written.
 
-An input method that is on can take a key press for a text it composes. Only code inside the program is told whether it did, and the desktop runs none there (core CP-20; the desktop capture document's DCP-13 holds the measurements). So a press at which the desktop read an input method as on (`input_method_open` true) is written with `key` `Unidentified`, whatever the key, Enter, Tab, an arrow or a shortcut among them: nothing says whether the program got the key or the input method took it. Its `code` still names the physical key.
+An input method that is on can take a key press for a text it composes. Only code inside the program is told whether it did, and the desktop runs none there (core CP-20; the desktop capture document's DCP-13 holds the measurements). So a press at which the desktop read an input method as on (`input_method_open` true) is written with `key` `Unidentified`, whatever the key, Enter, Tab, an arrow or a shortcut among them: nothing says whether the program got the key or the input method took it. Its `code` still names the physical key where the press has one; an injected character has none, and its action then says only that a key was pressed.
 
 Where the state was not read the key keeps its name, and nothing says that no input method was on. The conversion mode is written only beside the open status. Both are absent:
 
@@ -476,7 +477,7 @@ UI Events `key` values. `held_keys` names a key the same way.
 | The key pressed behind a dead key                      | The one character the two make: `é`, not `e`      |
 | A key the rows above give no name                      | `Unidentified`                                    |
 
-On the desktop a key pressed while an input method was read as on is `Unidentified` whatever the rows give it ([The `key` action](#the-key-action) states why).
+While an input method is on, what a press means is the input method's to decide and not the layout's, and the desktop cannot read what it decided ([The `key` action](#the-key-action) states why). What the layout gives the key is then not the press's meaning and is not written: on the desktop such a key is `Unidentified` whatever the rows give it.
 
 A key that gives no character with the modifiers held (Ctrl with A) is named
 by trying, in order:
@@ -554,7 +555,8 @@ The desktop names a key from what Windows gives it:
   core CP-19).
 - A keystroke injected as Unicode (`VK_PACKET`) is the character it carried,
   a space as `Space`, or `Unidentified` for a code unit that is no character
-  on its own (half of a surrogate pair, or a control character).
+  on its own (half of a surrogate pair, or a control character), and
+  `Unidentified` like every key while an input method was read as on.
 - The key behind a dead key is named from the keys in the order pressed.
   The desktop follows which accent waits on each keyboard layout, and reads
   what an accent and a character make together from the layout's own list.
