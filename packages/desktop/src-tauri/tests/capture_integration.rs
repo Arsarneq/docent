@@ -4133,98 +4133,210 @@ mod alt_graph {
             .collect()
     }
 
-    /// The E key pressed with the keys `held` down, released in reverse.
-    fn press_e_with(enigo: &mut Enigo, held: &[enigo::Key]) {
-        for key in held {
-            enigo.key(*key, Direction::Press).unwrap();
-            thread::sleep(Duration::from_millis(30));
+    /// One step of the input a test sends.
+    #[derive(Clone, Copy)]
+    enum Step {
+        /// A key goes down and stays down.
+        Down(enigo::Key),
+        /// A key held down goes up.
+        Up(enigo::Key),
+        /// The E key pressed and released.
+        E,
+        /// A left click at the middle of the test window.
+        Click,
+    }
+
+    /// Sends `steps` in order, a pause after each, and every key still down
+    /// at the end released.
+    fn send(enigo: &mut Enigo, window: &ResponsiveWindow, steps: &[Step]) {
+        let (cx, cy) = window.center();
+        enigo.move_mouse(cx, cy, Coordinate::Abs).unwrap();
+        thread::sleep(Duration::from_millis(50));
+        let mut down: Vec<enigo::Key> = Vec::new();
+        for step in steps {
+            match *step {
+                Step::Down(key) => {
+                    enigo.key(key, Direction::Press).unwrap();
+                    down.push(key);
+                }
+                Step::Up(key) => {
+                    enigo.key(key, Direction::Release).unwrap();
+                    down.retain(|k| *k != key);
+                }
+                Step::E => enigo
+                    .key(enigo::Key::Other(VK_E), Direction::Click)
+                    .unwrap(),
+                Step::Click => enigo.button(enigo::Button::Left, Direction::Click).unwrap(),
+            }
+            thread::sleep(Duration::from_millis(60));
         }
-        enigo
-            .key(enigo::Key::Other(VK_E), Direction::Click)
-            .unwrap();
-        thread::sleep(Duration::from_millis(30));
-        for key in held.iter().rev() {
+        for key in down.iter().rev() {
             enigo.key(*key, Direction::Release).unwrap();
             thread::sleep(Duration::from_millis(30));
         }
         thread::sleep(Duration::from_millis(150));
     }
 
+    /// Sends `steps` on layout `id` and asserts that each press of the E key
+    /// was captured, in order, with its own `modifiers` of `want_keys`, and
+    /// each click with its own of `want_clicks`.
+    fn assert_each_press(
+        id: &str,
+        language: usize,
+        title: &str,
+        steps: &[Step],
+        want_keys: &[serde_json::Value],
+        want_clicks: &[serde_json::Value],
+    ) {
+        let steps = steps.to_vec();
+        let events = capture_with_layout(id, language, title, move |enigo, window| {
+            send(enigo, window, &steps)
+        });
+        assert_eq!(
+            e_presses(&events),
+            want_keys,
+            "each press of E, captured once, with its own modifiers"
+        );
+        let got_clicks: Vec<_> = clicks(&events).into_iter().map(modifiers_of).collect();
+        assert_eq!(
+            got_clicks, want_clicks,
+            "each click, captured once, with its own modifiers"
+        );
+    }
+
+    use enigo::Key::{LControl, LMenu, RMenu};
+    use Step::{Click, Down, Up, E};
+
+    /// The Danish layout, which has AltGr.
+    const DANISH: (&str, usize) = ("00000406", 0x0406);
+    /// The US layout, which has none.
+    const US: (&str, usize) = ("00000409", 0x0409);
+
     // Regression: #825 — the desktop wrote AltGr as Ctrl and Alt, the same as
     // a Ctrl and an Alt the person held.
     // https://github.com/Arsarneq/docent/issues/825
     //
-    // On the Danish layout, which has AltGr: AltGr with E; a left Ctrl held,
-    // then AltGr, with E; a left Ctrl and a left Alt with E. Windows hands
-    // AltGr to programs as a left Ctrl of its own and the right Alt; the left
-    // Ctrl the person holds is written as `ctrl`, Windows' own is not. Each
-    // press that was captured states exactly its modifiers (a press the
-    // workers reach no focus target for is not captured: see
-    // `stop_capture_bounded`); the AltGr press must be captured.
+    // On the Danish layout: AltGr with E (case a); a left Ctrl held, then
+    // AltGr, with E (case i: Windows then sends no Ctrl of its own in front
+    // of the right Alt); a left Alt held, then AltGr, with E (case k); a left
+    // Ctrl and a left Alt with E (case b).
     #[test]
     #[serial]
     fn regression_825_altgr_is_alt_graph_and_a_held_ctrl_or_alt_is_its_own() {
-        use enigo::Key::{LControl, LMenu, RMenu};
-        let events = capture_with_layout("00000406", 0x0406, "AltGr Keys", |enigo, _| {
-            press_e_with(enigo, &[RMenu]);
-            press_e_with(enigo, &[LControl, RMenu]);
-            press_e_with(enigo, &[LControl, LMenu]);
-        });
-        let presses = e_presses(&events);
-        assert!(presses.len() <= 3, "no press is written twice: {presses:?}");
-        let want = [
-            expected(false, false, true),
-            expected(true, false, true),
-            expected(true, true, false),
-        ];
-        if presses.len() == 3 {
-            assert_eq!(presses, want);
-        } else {
-            for got in &presses {
-                assert!(want.contains(got), "unexpected modifiers {got}");
-            }
-        }
+        assert_each_press(
+            DANISH.0,
+            DANISH.1,
+            "AltGr Keys",
+            &[
+                Down(RMenu),
+                E,
+                Up(RMenu),
+                Down(LControl),
+                Down(RMenu),
+                E,
+                Up(RMenu),
+                Up(LControl),
+                Down(LMenu),
+                Down(RMenu),
+                E,
+                Up(RMenu),
+                Up(LMenu),
+                Down(LControl),
+                Down(LMenu),
+                E,
+                Up(LMenu),
+                Up(LControl),
+            ],
+            &[
+                expected(false, false, true),
+                expected(true, false, true),
+                expected(false, true, true),
+                expected(true, true, false),
+            ],
+            &[],
+        );
+    }
+
+    // Regression: #825 — a left Ctrl held, AltGr, E, AltGr released, E (case
+    // r): AltGr with the Ctrl at the first E, the Ctrl alone at the second.
+    // https://github.com/Arsarneq/docent/issues/825
+    #[test]
+    #[serial]
+    fn regression_825_a_ctrl_held_across_altgr_is_ctrl_before_and_after() {
+        assert_each_press(
+            DANISH.0,
+            DANISH.1,
+            "Ctrl AltGr Up",
+            &[Down(LControl), Down(RMenu), E, Up(RMenu), E, Up(LControl)],
+            &[expected(true, false, true), expected(true, false, false)],
+            &[],
+        );
+    }
+
+    // Regression: #825 — AltGr, a left Ctrl, E, the Ctrl released, E (case
+    // s): the Ctrl with AltGr at the first E, AltGr alone at the second.
+    // https://github.com/Arsarneq/docent/issues/825
+    #[test]
+    #[serial]
+    fn regression_825_a_ctrl_pressed_and_released_within_altgr_is_ctrl_while_held() {
+        assert_each_press(
+            DANISH.0,
+            DANISH.1,
+            "AltGr Ctrl Up",
+            &[Down(RMenu), Down(LControl), E, Up(LControl), E, Up(RMenu)],
+            &[expected(true, false, true), expected(false, false, true)],
+            &[],
+        );
     }
 
     // Regression: #825 — a click with AltGr held is written with
-    // `alt_graph` true and neither `ctrl` nor `alt`.
+    // `alt_graph` true and neither `ctrl` nor `alt` (case g), and with a left
+    // Ctrl held before AltGr with `ctrl` too (case n).
     // https://github.com/Arsarneq/docent/issues/825
     #[test]
     #[serial]
     fn regression_825_a_click_with_altgr_held_states_alt_graph() {
-        let events = capture_with_layout("00000406", 0x0406, "AltGr Click", |enigo, window| {
-            let (cx, cy) = window.center();
-            enigo.move_mouse(cx, cy, Coordinate::Abs).unwrap();
-            thread::sleep(Duration::from_millis(50));
-            enigo.key(enigo::Key::RMenu, Direction::Press).unwrap();
-            thread::sleep(Duration::from_millis(30));
-            enigo.button(enigo::Button::Left, Direction::Click).unwrap();
-            thread::sleep(Duration::from_millis(30));
-            enigo.key(enigo::Key::RMenu, Direction::Release).unwrap();
-        });
-        let click_events = clicks(&events);
-        assert!(
-            !click_events.is_empty(),
-            "the click with AltGr held must be captured"
+        assert_each_press(
+            DANISH.0,
+            DANISH.1,
+            "AltGr Click",
+            &[
+                Down(RMenu),
+                Click,
+                Up(RMenu),
+                Down(LControl),
+                Down(RMenu),
+                Click,
+                Up(RMenu),
+                Up(LControl),
+            ],
+            &[],
+            &[expected(false, false, true), expected(true, false, true)],
         );
-        for click in click_events {
-            assert_eq!(modifiers_of(click), expected(false, false, true));
-        }
     }
 
     // Regression: #825 — on a layout with no AltGr the right Alt is a plain
-    // Alt: `alt` true, `alt_graph` false.
+    // Alt: `alt` true, `alt_graph` false, alone and with a left Ctrl.
     // https://github.com/Arsarneq/docent/issues/825
     #[test]
     #[serial]
     fn regression_825_the_right_alt_on_a_layout_with_no_altgr_is_alt() {
-        let events = capture_with_layout("00000409", 0x0409, "Right Alt Keys", |enigo, _| {
-            press_e_with(enigo, &[enigo::Key::RMenu]);
-        });
-        let presses = e_presses(&events);
-        assert!(presses.len() <= 1, "no press is written twice: {presses:?}");
-        for got in &presses {
-            assert_eq!(*got, expected(false, true, false));
-        }
+        assert_each_press(
+            US.0,
+            US.1,
+            "Right Alt Keys",
+            &[
+                Down(RMenu),
+                E,
+                Up(RMenu),
+                Down(LControl),
+                Down(RMenu),
+                E,
+                Up(RMenu),
+                Up(LControl),
+            ],
+            &[expected(false, true, false), expected(true, true, false)],
+            &[],
+        );
     }
 }
