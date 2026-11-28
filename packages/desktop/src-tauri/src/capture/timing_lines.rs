@@ -12,6 +12,7 @@
 // not measured, and what the block shows, are stated in that doc.
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -241,6 +242,24 @@ fn ms_or_unseen(took: Option<Duration>) -> String {
 pub struct Timings {
     kept: Option<Arc<Mutex<Kept>>>,
     sink: Option<mpsc::Sender<String>>,
+    measuring: Arc<Measured>,
+}
+
+/// Whether a capture's timings measure now, and whether they measured at any
+/// time since it started.
+#[derive(Debug, Default)]
+struct Measured {
+    now: AtomicBool,
+    ever: AtomicBool,
+}
+
+impl Measured {
+    fn from(measuring: bool) -> Arc<Self> {
+        Arc::new(Self {
+            now: AtomicBool::new(measuring),
+            ever: AtomicBool::new(measuring),
+        })
+    }
 }
 
 impl Timings {
@@ -256,6 +275,7 @@ impl Timings {
             Self {
                 kept: Some(Arc::default()),
                 sink: None,
+                measuring: Measured::from(true),
             }
         } else {
             Self::off()
@@ -269,6 +289,25 @@ impl Timings {
         Self {
             kept: on.then(Arc::default),
             sink: Some(sink),
+            measuring: Measured::from(true),
+        }
+    }
+
+    /// The same timings measuring from the start or not, as a capture started
+    /// while a re-record is open does not.
+    pub fn with_measuring(self, measuring: bool) -> Self {
+        Self {
+            measuring: Measured::from(measuring),
+            ..self
+        }
+    }
+
+    /// Measures from now on, or not: not while a re-record is open. An event
+    /// whose handling started before is measured as it was then.
+    pub fn set_measuring(&self, measuring: bool) {
+        self.measuring.now.store(measuring, Ordering::SeqCst);
+        if measuring {
+            self.measuring.ever.store(true, Ordering::SeqCst);
         }
     }
 
@@ -278,32 +317,34 @@ impl Timings {
     }
 
     /// Starts measuring the handling of an event of `subject`; nothing is
-    /// measured while the timings are off.
+    /// measured while the timings are off or not measuring.
     pub fn start(&self, subject: Subject) -> Timing {
-        Timing(self.kept.as_ref().map(|kept| Measuring {
-            kept: Arc::clone(kept),
-            subject,
-            begun: Instant::now(),
-            steps: Vec::new(),
-            look: None,
-        }))
-    }
-
-    /// Throws away what has been kept so far; what is measured after is
-    /// kept. Nothing while the timings are off.
-    pub fn discard(&self) {
-        if let Some(kept) = &self.kept {
-            *kept.lock().unwrap_or_else(|e| e.into_inner()) = Kept::default();
-        }
+        let measuring = self.measuring.now.load(Ordering::SeqCst);
+        Timing(
+            self.kept
+                .as_ref()
+                .filter(|_| measuring)
+                .map(|kept| Measuring {
+                    kept: Arc::clone(kept),
+                    subject,
+                    begun: Instant::now(),
+                    steps: Vec::new(),
+                    look: None,
+                }),
+        )
     }
 
     /// Writes the block, once the capture has stopped. Nothing while the
-    /// timings are off. A failed write is dropped: a closed stderr must not
+    /// timings are off, nor where they measured at no time since the capture
+    /// started. A failed write is dropped: a closed stderr must not
     /// stop the capture's teardown.
     pub fn write_block(&self) {
         let Some(kept) = &self.kept else {
             return;
         };
+        if !self.measuring.ever.load(Ordering::SeqCst) {
+            return;
+        }
         let block = kept.lock().unwrap_or_else(|e| e.into_inner()).block();
         match &self.sink {
             Some(sink) => {

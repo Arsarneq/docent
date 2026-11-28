@@ -635,6 +635,9 @@ pub struct WindowsCapture {
     timings: Timings,
     /// Where the timings' block goes in place of stderr. For tests.
     timings_sink: Option<Sender<String>>,
+    /// Whether the captures this layer starts measure their timings: not
+    /// while a re-record is open.
+    timings_measuring: bool,
 }
 
 impl WindowsCapture {
@@ -653,6 +656,7 @@ impl WindowsCapture {
             barrier_counter: AtomicU64::new(0),
             timings: Timings::off(),
             timings_sink: None,
+            timings_measuring: true,
         }
     }
 }
@@ -914,6 +918,7 @@ impl CaptureLayer for WindowsCapture {
         if let Some(sink) = &self.timings_sink {
             self.timings = Timings::sending_to(self.timings.is_on(), sink.clone());
         }
+        self.timings = self.timings.clone().with_measuring(self.timings_measuring);
         let excluded_pid = self.excluded_pid.clone();
 
         // Each worker signals here once it has finished its (possibly cold)
@@ -1191,13 +1196,9 @@ impl CaptureLayer for WindowsCapture {
         Ok(report)
     }
 
-    fn stop_discarding_timings(&mut self) -> Result<BarrierReport, CaptureError> {
-        self.timings = Timings::off();
-        self.stop()
-    }
-
-    fn discard_timings(&mut self) {
-        self.timings.discard();
+    fn set_timings_measuring(&mut self, measuring: bool) {
+        self.timings_measuring = measuring;
+        self.timings.set_measuring(measuring);
     }
 
     fn is_active(&self) -> bool {

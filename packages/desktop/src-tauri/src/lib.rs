@@ -74,7 +74,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::start_capture,
             commands::stop_capture,
-            commands::discard_capture_timings,
+            commands::set_capture_timings_measuring,
             commands::list_windows,
             commands::load_state,
             commands::save_state,

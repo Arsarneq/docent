@@ -101,16 +101,12 @@ pub trait CaptureLayer: Send + 'static {
     /// fallback drain and says so ([`BarrierCompletion`]).
     fn stop(&mut self) -> Result<BarrierReport, CaptureError>;
 
-    /// Stop capturing as [`stop`](CaptureLayer::stop) does, for a take that
-    /// is thrown away: the capture's timings are written in no block.
-    fn stop_discarding_timings(&mut self) -> Result<BarrierReport, CaptureError> {
-        self.stop()
-    }
-
-    /// Throw away the timings the running capture has kept so far, for a
-    /// take that is thrown away while the capture keeps running. What is
-    /// measured after is kept.
-    fn discard_timings(&mut self) {}
+    /// Measure the capture timings or not: not while a re-record is open.
+    /// Holds for the running capture and for every capture started after,
+    /// until told otherwise. A capture that measured at no time while it ran
+    /// writes no block. The default does nothing, for a backend that keeps
+    /// no timings.
+    fn set_timings_measuring(&mut self, _measuring: bool) {}
 
     /// Check if capture is currently active.
     fn is_active(&self) -> bool;
