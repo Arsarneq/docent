@@ -287,6 +287,63 @@ function exportWithLocators(locators) {
   ]);
 }
 
+describe('Schema validation: desktop modifiers (docent#825)', () => {
+  const none = { ctrl: false, shift: false, alt: false, meta: false };
+  const element = {
+    tag: 'Edit',
+    id: null,
+    name: 'Search',
+    role: 'edit',
+    type: null,
+    text: null,
+    selector: 'Edit:Search',
+  };
+  const withModifiers = (modifiers) =>
+    buildDesktopExport([
+      {
+        type: 'key',
+        timestamp: Date.now(),
+        capture_mode: 'accessibility',
+        context_id: 65538,
+        key: '\u20ac',
+        code: 'KeyE',
+        repeat: false,
+        modifiers,
+        held_keys: [],
+        element,
+        window_rect: null,
+      },
+      {
+        type: 'click',
+        timestamp: Date.now(),
+        capture_mode: 'accessibility',
+        context_id: 65538,
+        x: 10,
+        y: 10,
+        modifiers,
+        held_keys: [],
+        element,
+        window_rect: null,
+      },
+    ]);
+
+  it('regression_825_accepts_alt_graph_held_and_not_held', () => {
+    for (const alt_graph of [true, false]) {
+      const data = withModifiers({ ...none, alt_graph });
+      assert.ok(validateDesktop(data), `Failed:\n${formatErrors(validateDesktop)}`);
+    }
+  });
+
+  it('regression_825_accepts_modifiers_without_alt_graph_(older_recordings)', () => {
+    const data = withModifiers(none);
+    assert.ok(validateDesktop(data), `Failed:\n${formatErrors(validateDesktop)}`);
+  });
+
+  it('regression_825_rejects_a_non_boolean_alt_graph', () => {
+    assert.ok(!validateDesktop(withModifiers({ ...none, alt_graph: 1 })));
+  });
+});
+
 describe('Schema validation: desktop locators[]', () => {
   it('accepts an element carrying every desktop strategy shape', () => {
     const data = exportWithLocators([
