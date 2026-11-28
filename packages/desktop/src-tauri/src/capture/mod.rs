@@ -384,7 +384,8 @@ pub struct HeldKeysAtAction {
 
 /// What was read of the input method at a key press (see
 /// [`held_keys::InputMethodState`]), as a `key` action states it: two fields
-/// of the action itself, each left out of the file where it was not read.
+/// of the action itself, each left out of the file where it was not read,
+/// and one mark internal to the stream to the frontend (the last field).
 /// The conversion mode is never there without the open status.
 #[derive(Debug, Serialize, Clone, Copy, Default, PartialEq, Eq)]
 pub struct InputMethodAtKey {

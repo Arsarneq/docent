@@ -8,8 +8,8 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-/// Calls that put code or data into another process, or start a thread in
-/// one, and the flag that asks Windows to run an event hook inside the
+/// Calls that put code or data into another process, start a thread in one,
+/// or end, suspend or attach a debugger to one, and the flag that asks Windows to run an event hook inside the
 /// watched program. None may be named anywhere in the source, the generated
 /// bindings and the list they are generated from included.
 const INTO_ANOTHER_PROCESS: &[&str] = &[

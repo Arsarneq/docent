@@ -477,7 +477,7 @@ UI Events `key` values. `held_keys` names a key the same way.
 | The key pressed behind a dead key                      | The one character the two make: `é`, not `e`      |
 | A key the rows above give no name                      | `Unidentified`                                    |
 
-While an input method is on, what a press means is the input method's to decide and not the layout's, and the desktop cannot read what it decided ([The `key` action](#the-key-action) states why). What the layout gives the key is then not the press's meaning and is not written, whatever the rows give it.
+While an input method is on, what a press means is the input method's to decide and not the layout's, and the desktop cannot read what it decided ([The `key` action](#the-key-action) states why). What the layout gives the key is then not the press's meaning; [the `key` action](#the-key-action) states where the desktop does not write it.
 
 A key that gives no character with the modifiers held (Ctrl with A) is named
 by trying, in order:
