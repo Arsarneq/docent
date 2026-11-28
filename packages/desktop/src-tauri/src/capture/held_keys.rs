@@ -1432,6 +1432,35 @@ mod tests {
         );
     }
 
+    // Regression: #237 - the same for a held character injected as Unicode,
+    // which is kept by its code unit and not by its key code.
+    // https://github.com/Arsarneq/docent/issues/237
+    #[test]
+    fn regression_237_a_held_injected_character_carries_whether_an_input_method_was_on() {
+        let on = input_method_param(Some(InputMethodState {
+            open: true,
+            conversion_mode: Some(9),
+        }));
+        let mut held = HeldKeys::new();
+        for (sequence_id, unit, param) in [(1, u32::from(b'a'), on), (2, u32::from(b'b'), 0)] {
+            held.press(VK_PACKET, unit);
+            let mut packet = raw(RawEventType::Keyboard, sequence_id, VK_PACKET, unit);
+            packet.callback_params[0] |= param;
+            held.stamp(&mut packet);
+        }
+        let mut click = raw(RawEventType::Click, 3, 0, 0);
+        held.stamp(&mut click);
+        let read: Vec<(u32, bool)> = click
+            .held
+            .iter()
+            .map(|k| (k.scan_code, k.input_method_on))
+            .collect();
+        assert_eq!(
+            read,
+            vec![(u32::from(b'a'), true), (u32::from(b'b'), false)]
+        );
+    }
+
     #[test]
     fn a_click_a_right_click_and_a_drop_are_stamped_with_every_key_down() {
         let mut held = HeldKeys::new();

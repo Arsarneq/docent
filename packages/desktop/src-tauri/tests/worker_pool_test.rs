@@ -3936,6 +3936,57 @@ fn regression_237_in_a_password_field_with_an_input_method_on_enter_stays_a_key(
     );
 }
 
+/// The `key_enters_no_text` mark of each `key` action in `events`, as the
+/// action is written for the frontend: `None` where the action carries none.
+fn no_text_marks(events: &[ActionEvent]) -> Vec<Option<serde_json::Value>> {
+    events
+        .iter()
+        .filter(|e| matches!(e.payload, ActionPayload::Key { .. }))
+        .map(|e| {
+            serde_json::to_value(e)
+                .unwrap()
+                .get("key_enters_no_text")
+                .cloned()
+        })
+        .collect()
+}
+
+/// A key written `Unidentified` for the input method no longer says by its
+/// name whether it enters text, which the frontend's sensitive-field rule
+/// goes by. The worker, which knows the key, marks the one that enters no
+/// character (docent#237); a typing key, and a key that kept its name, carry
+/// no mark.
+#[test]
+fn regression_237_a_key_unnamed_for_the_input_method_says_where_it_enters_no_text() {
+    let on = input_method_param(Some(InputMethodState {
+        open: true,
+        conversion_mode: Some(9),
+    }));
+    let off = input_method_param(Some(InputMethodState {
+        open: false,
+        conversion_mode: Some(0),
+    }));
+
+    for (code, param, expected) in [
+        (0x0D, on, Some(serde_json::json!(true))), // Enter, unnamed
+        (0x70, on, Some(serde_json::json!(true))), // F1, unnamed
+        (0x4E, on, None),                          // N, unnamed, a typing key
+        (0x0D, off, None),                         // Enter, named
+    ] {
+        let harness = WorkerTestHarness::new(MockBackend::new());
+        let mut key = layout_key(1, now_ms(), code);
+        key.callback_params[0] |= param;
+        harness.send_event(key);
+        thread::sleep(Duration::from_millis(900));
+        let events = harness.shutdown();
+        assert_eq!(
+            no_text_marks(&events),
+            vec![expected],
+            "key code {code:#x}, got {events:?}"
+        );
+    }
+}
+
 /// A typing key pressed with an input method read as on, into a control that
 /// reports no value change for it, is written as a key and is `Unidentified`.
 #[test]

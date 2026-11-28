@@ -477,7 +477,7 @@ UI Events `key` values. `held_keys` names a key the same way.
 | The key pressed behind a dead key                      | The one character the two make: `é`, not `e`      |
 | A key the rows above give no name                      | `Unidentified`                                    |
 
-While an input method is on, what a press means is the input method's to decide and not the layout's, and the desktop cannot read what it decided ([The `key` action](#the-key-action) states why). What the layout gives the key is then not the press's meaning and is not written: on the desktop a key pressed where an input method was read as on is `Unidentified` whatever the rows give it.
+While an input method is on, what a press means is the input method's to decide and not the layout's, and the desktop cannot read what it decided ([The `key` action](#the-key-action) states why). What the layout gives the key is then not the press's meaning and is not written, whatever the rows give it.
 
 A key that gives no character with the modifiers held (Ctrl with A) is named
 by trying, in order:
@@ -555,8 +555,9 @@ The desktop names a key from what Windows gives it:
   core CP-19).
 - A keystroke injected as Unicode (`VK_PACKET`) is the character it carried,
   a space as `Space`, or `Unidentified` for a code unit that is no character
-  on its own (half of a surrogate pair, or a control character), and
-  `Unidentified` like every key while an input method was read as on.
+  on its own (half of a surrogate pair, or a control character). The
+  input-method rule of [the `key` action](#the-key-action) holds for it as
+  for every key.
 - The key behind a dead key is named from the keys in the order pressed.
   The desktop follows which accent waits on each keyboard layout, and reads
   what an accent and a character make together from the layout's own list.

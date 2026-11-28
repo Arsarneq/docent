@@ -1,6 +1,8 @@
 //! The desktop capture layer observes a program from outside and takes no
 //! part in it (core capture principles, CP-20). These tests read the desktop
 //! application's own Rust source and fail on a call that would break that.
+//! The lists below name the calls looked for; an act they do not name is
+//! judged at review.
 //! They run on every platform: nothing here calls Windows.
 
 use std::fs;
@@ -28,6 +30,9 @@ const INTO_ANOTHER_PROCESS: &[&str] = &[
     "PROCESS_VM_WRITE",
     "PROCESS_VM_OPERATION",
     "PROCESS_CREATE_THREAD",
+    "TerminateProcess",
+    "DebugActiveProcess",
+    "SuspendThread",
 ];
 
 /// The two kinds of Windows hook that run in the process that set them.
@@ -50,6 +55,12 @@ const ACTS_ON_ANOTHER_PROGRAM: &[&str] = &[
     "PostMessageW",
     "SendMessageW",
     "SendNotifyMessageW",
+    "SendMessageA",
+    "PostMessageA",
+    "SetWindowTextA",
+    "MoveWindow",
+    "SetFocus",
+    "SetActiveWindow",
 ];
 
 /// The generated bindings: declarations, with no code of the application.

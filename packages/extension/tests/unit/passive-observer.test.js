@@ -6,13 +6,14 @@
  * page are a closed list, and so are the calls in them that cancel or stop a
  * page's event or write to the page: the one that stands today is the
  * `dragover` cancellation the extension capture document lists as a defect
- * (ECP-12; docent#881). A new one fails here.
+ * (ECP-12; docent#881). A new one fails here. The lists name what is looked
+ * for; an act they do not name is judged at review.
  */
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
@@ -40,6 +41,9 @@ const CALLS = [
   'insertAdjacentText',
   'append',
   'prepend',
+  'before',
+  'after',
+  'replaceChildren',
   'remove',
   'focus',
   'blur',
@@ -71,6 +75,18 @@ const ASSIGNED = [
 
 const CALL = new RegExp(`\\.(${CALLS.join('|')})\\s*\\(`, 'g');
 const ASSIGNMENT = new RegExp(`\\.(${ASSIGNED.join('|')})\\s*=(?!=)`, 'g');
+
+/** The extension's own JavaScript under `dir`, its tests and installed packages left out. */
+function sourceFiles(dir) {
+  const found = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    if (entry.name === 'tests' || entry.name === 'node_modules') continue;
+    const path = resolve(dir, entry.name);
+    if (entry.isDirectory()) found.push(...sourceFiles(path));
+    else if (entry.name.endsWith('.js')) found.push(path);
+  }
+  return found;
+}
 
 /** Each call or assignment of the lists in `source`, as `{ line, name }`, comments left out. */
 function actsOnThePage(source) {
@@ -114,6 +130,22 @@ describe('the recorder takes no part in the page (core CP-20)', () => {
       }
     }
     assert.deepEqual([...new Set(placed)], PLACED_IN_A_PAGE);
+  });
+
+  it('nothing but the background places a script, and the manifest places none', () => {
+    const manifest = JSON.parse(readFileSync(resolve(EXTENSION, 'manifest.json'), 'utf8'));
+    assert.equal('content_scripts' in manifest, false, 'manifest.json: content_scripts');
+    const placing = [];
+    for (const file of sourceFiles(EXTENSION)) {
+      const source = readFileSync(file, 'utf8');
+      const inBackground = relative(EXTENSION, file).split(sep)[0] === 'background';
+      if (
+        /registerContentScripts\s*\(/.test(source) ||
+        (!inBackground && /executeScript\s*\(/.test(source))
+      )
+        placing.push(relative(EXTENSION, file));
+    }
+    assert.deepEqual(placing, []);
   });
 
   it('the recorder cancels, stops and writes nothing but the dragover of docent#881', () => {
