@@ -19,6 +19,7 @@ pub mod physical_key;
 pub mod pre_capture;
 pub mod scroll;
 pub mod timing;
+pub mod timing_lines;
 pub mod waiting_accents;
 pub mod worker_pool;
 

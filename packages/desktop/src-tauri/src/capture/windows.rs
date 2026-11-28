@@ -892,6 +892,7 @@ impl CaptureLayer for WindowsCapture {
 
         self.active.store(true, Ordering::SeqCst);
         hook_diagnostics::reset();
+        super::timing_lines::switch_from_environment();
         let excluded_pid = self.excluded_pid.clone();
 
         // Each worker signals here once it has finished its (possibly cold)

@@ -20,6 +20,7 @@ use super::held_keys::KEY_EXTENDED_PARAM;
 use super::language::preferred_languages;
 use super::physical_key::physical_key_code;
 use super::scroll::{RawScrollEvent, ScrollAccumulator};
+use super::timing_lines::{Skipped, Step, Subject, Timing};
 use super::waiting_accents::{NamedPresses, WaitingAccents};
 use super::{
     ActionEvent, ActionPayload, CaptureError, CaptureMode, ElementDescription, HeldKeysAtAction,
@@ -2761,6 +2762,8 @@ struct WorkerState {
     accents: WaitingAccents,
     /// What each key-down was named, shared by the pool's workers.
     named_presses: Arc<NamedPresses>,
+    /// The timing line of the keystroke or value change being handled.
+    timing: Timing,
 }
 
 impl WorkerState {
@@ -2778,6 +2781,7 @@ impl WorkerState {
             mark_seq: 0,
             last_key: None,
             controls: HashMap::new(),
+            timing: Timing::default(),
         }
     }
 }
@@ -3440,21 +3444,45 @@ fn look_at_focused_control<B: AccessibilityBackend>(
     controls: &mut HashMap<i64, KnownControl>,
     excluded_pid: u32,
 ) {
+    let mut timing = Timing::start(Subject::LookAhead, None);
+    look_and_time(backend, controls, excluded_pid, &mut timing);
+    timing.write();
+}
+
+/// [`look_at_focused_control`], each wait noted on `timing`.
+fn look_and_time<B: AccessibilityBackend>(
+    backend: &B,
+    controls: &mut HashMap<i64, KnownControl>,
+    excluded_pid: u32,
+    timing: &mut Timing,
+) {
     let epoch = backend.focus_epoch();
     if epoch == 0 {
+        timing.skipped(Skipped::NoFocusCount);
         return;
     }
     let control = backend.focused_control();
-    if control == 0 || controls.contains_key(&control) {
+    if control == 0 {
+        timing.skipped(Skipped::NoFocusedControl);
+        return;
+    }
+    if controls.contains_key(&control) {
+        timing.skipped(Skipped::Known);
         return;
     }
     let window = backend.root_window_handle(control);
     if excluded_pid != 0 && backend.process_id_of(window) == excluded_pid {
+        timing.skipped(Skipped::OwnProcess);
         return;
     }
-    if !backend.answers_promptly(control) {
+    let started = timing.mark();
+    let answers = backend.answers_promptly(control);
+    timing.took(Step::Answer, started);
+    if !answers {
+        timing.skipped(Skipped::NoAnswer);
         return;
     }
+    let started = timing.mark();
     let title = backend.window_title(window);
     describe_and_note_control(
         backend,
@@ -3467,6 +3495,7 @@ fn look_at_focused_control<B: AccessibilityBackend>(
             title,
         },
     );
+    timing.took(Step::Describe, started);
 }
 
 /// The element remembered for `raw`'s window and focus epoch, if any. Epoch
@@ -3563,6 +3592,21 @@ fn process_raw_event<B: AccessibilityBackend>(
         return;
     }
 
+    // Each keystroke and value change gets a timing line while the switch
+    // is on.
+    let subject = match raw.event_type {
+        RawEventType::Keyboard => Some(Subject::Key),
+        RawEventType::ValueChange => Some(Subject::ValueChange),
+        _ => None,
+    };
+    state.timing = match subject {
+        Some(subject) if super::timing_lines::is_on() => {
+            Timing::start(subject, Some((raw.timestamp, current_timestamp_ms())))
+        }
+        _ => Timing::default(),
+    };
+    let window_started = state.timing.mark();
+
     // Resolve context_id from the root window handle.
     let context_id = if raw.window_handle != 0 {
         let root = backend.root_window_handle(raw.window_handle);
@@ -3581,6 +3625,7 @@ fn process_raw_event<B: AccessibilityBackend>(
     } else {
         None
     };
+    state.timing.took(Step::Window, window_started);
 
     // The typing in a field has ended: its `type` goes out ahead of this
     // event's action. The dispatcher tells the typing worker the same when
@@ -3643,6 +3688,7 @@ fn process_raw_event<B: AccessibilityBackend>(
                 state,
                 window_rect.clone(),
             );
+            std::mem::take(&mut state.timing).write();
             // A value change arrived — pending keys will be superseded by the
             // type event when it flushes. Clear them now. A value change whose
             // element could not be described supersedes nothing: the keys are
@@ -3664,6 +3710,7 @@ fn process_raw_event<B: AccessibilityBackend>(
                 state,
                 window_rect.clone(),
             );
+            std::mem::take(&mut state.timing).write();
         }
         RawEventType::Foreground => {
             handle_foreground(raw, backend, action_sender, context_id, window_rect.clone());
@@ -4124,7 +4171,10 @@ fn handle_value_change<B: AccessibilityBackend>(
         let value = if is_password {
             PASSWORD_MASK.to_string()
         } else {
-            match backend.control_value(key_control) {
+            let started = state.timing.mark();
+            let read = backend.control_value(key_control);
+            state.timing.took(Step::Value, started);
+            match read {
                 Some(_) if !read_in_time(last_key, backend) => {
                     keep_keys_after_late_read(pending);
                     return false;
@@ -4164,7 +4214,12 @@ fn handle_value_change<B: AccessibilityBackend>(
     // description can change while the element stays (a window title in the
     // selector that gains a "modified" mark with the first character).
     let same_as_key = match last_key {
-        Some(k) if k.mark == Some(state.mark_seq) => backend.focused_is_marked(),
+        Some(k) if k.mark == Some(state.mark_seq) => {
+            let started = state.timing.mark();
+            let same = backend.focused_is_marked();
+            state.timing.took(Step::Confirm, started);
+            same
+        }
         _ => None,
     };
     if same_as_key == Some(false) {
@@ -4172,7 +4227,9 @@ fn handle_value_change<B: AccessibilityBackend>(
         return false;
     }
     let key_field = last_key.map(|k| (k.selector.clone(), k.place.clone()));
+    let started = state.timing.mark();
     let described = describe_focused_for(raw, backend, &mut state.mark_seq);
+    state.timing.took(Step::Describe, started);
     let Some(FocusedNow {
         element: Some(element),
         focus_stands,
@@ -4620,7 +4677,9 @@ fn handle_keyboard<B: AccessibilityBackend>(
     // that excluded window's, so nothing is asked of the backend; the key is
     // no keystroke of any window, so the typing state is left as it is.
     if raw.window_handle == 0 {
+        let started = state.timing.mark();
         let named = key_as_named(raw, backend, state);
+        state.timing.took(Step::Name, started);
         let raw = named.as_ref().unwrap_or(raw);
         let key = key_name(raw);
         let mut element = ElementDescription {
@@ -4631,6 +4690,12 @@ fn handle_keyboard<B: AccessibilityBackend>(
         // Stamped like every constructed stand-in (session format,
         // `described_after_ms`).
         stamp_described_after(&mut element, raw.timestamp);
+        let started = state.timing.mark();
+        let modifiers = modifiers_of(raw, backend);
+        state.timing.took(Step::Modifiers, started);
+        let started = state.timing.mark();
+        let held = held_at(raw, backend, &state.named_presses);
+        state.timing.took(Step::Held, started);
         let event = ActionEvent {
             timestamp: raw.timestamp,
             context_id: None,
@@ -4641,11 +4706,11 @@ fn handle_keyboard<B: AccessibilityBackend>(
             sequence_id: Some(raw.sequence_id),
             payload: ActionPayload::Key {
                 key,
-                modifiers: modifiers_of(raw, backend),
+                modifiers,
                 code: physical_key_of(raw),
                 input_method: input_method_at(raw),
                 repeat: is_repeat(raw),
-                held: held_at(raw, backend, &state.named_presses),
+                held,
                 element,
             },
         };
@@ -4672,13 +4737,16 @@ fn handle_keyboard<B: AccessibilityBackend>(
     // Before any of that: the key carries the handle of the control that held
     // the focus when it was pressed, and where that settles the element no
     // focused-element query is made at all.
+    let started = state.timing.mark();
     let on_control = settle_key_on_its_control(raw, backend, &mut state.controls);
+    state.timing.took(Step::Settle, started);
     let control = if on_control.is_some() {
         key_control(raw)
     } else {
         0
     };
     let mut disproved = false;
+    let timing = &mut state.timing;
     let remembered = if on_control.is_some() {
         None
     } else {
@@ -4688,7 +4756,13 @@ fn handle_keyboard<B: AccessibilityBackend>(
         let present_speaks = known.mark == state.mark_seq
             && backend.focus_epoch() == raw.focus_epoch
             && backend.is_foreground_window(raw.window_handle);
-        if present_speaks && backend.focused_is_marked() == Some(false) {
+        let confirmed = present_speaks.then(|| {
+            let started = timing.mark();
+            let same = backend.focused_is_marked();
+            timing.took(Step::Confirm, started);
+            same
+        });
+        if confirmed == Some(Some(false)) {
             disproved = true;
             None
         } else {
@@ -4707,24 +4781,29 @@ fn handle_keyboard<B: AccessibilityBackend>(
     let (mut element, mark, unknowable) = match (on_control, remembered) {
         (Some(element), _) => (element, None, false),
         (None, Some((element, mark))) => (element, Some(mark), false),
-        (None, None) => match describe_focused_for(raw, backend, &mut state.mark_seq) {
-            Some(FocusedNow {
-                element: Some(element),
-                focus_stands,
-                person_moved_focus: false,
-            }) => {
-                if focus_stands {
-                    state.typing_focus = Some(TypingFocus {
-                        context_id,
-                        epoch: raw.focus_epoch,
-                        element: element.clone(),
-                        mark: state.mark_seq,
-                    });
+        (None, None) => {
+            let started = state.timing.mark();
+            let found = match describe_focused_for(raw, backend, &mut state.mark_seq) {
+                Some(FocusedNow {
+                    element: Some(element),
+                    focus_stands,
+                    person_moved_focus: false,
+                }) => {
+                    if focus_stands {
+                        state.typing_focus = Some(TypingFocus {
+                            context_id,
+                            epoch: raw.focus_epoch,
+                            element: element.clone(),
+                            mark: state.mark_seq,
+                        });
+                    }
+                    (element, Some(state.mark_seq), false)
                 }
-                (element, Some(state.mark_seq), false)
-            }
-            _ => (undescribed_element(raw, backend), None, true),
-        },
+                _ => (undescribed_element(raw, backend), None, true),
+            };
+            state.timing.took(Step::Describe, started);
+            found
+        }
     };
     // The gap to the moment this worker settled the key's element.
     stamp_described_after(&mut element, raw.timestamp);
@@ -4732,7 +4811,9 @@ fn handle_keyboard<B: AccessibilityBackend>(
     // off the keyboard hook and with the element settled. The first ask of a
     // layout builds its table, which takes long enough for the focus to move.
     // The key is named with an accent that waited taken in.
+    let started = state.timing.mark();
     let named = key_as_named(raw, backend, state);
+    state.timing.took(Step::Name, started);
     let raw = named.as_ref().unwrap_or(raw);
     let key = key_name(raw);
     let key_element = element.clone();
@@ -4792,12 +4873,21 @@ fn handle_keyboard<B: AccessibilityBackend>(
     let value_at_dead_key = if !dead {
         None
     } else if control != 0 {
-        backend.control_value(control)
+        let started = state.timing.mark();
+        let value = backend.control_value(control);
+        state.timing.took(Step::DeadKeyValue, started);
+        value
     } else if described_now {
         element.value.clone()
     } else {
         None
     };
+    let started = state.timing.mark();
+    let modifiers = modifiers_of(raw, backend);
+    state.timing.took(Step::Modifiers, started);
+    let started = state.timing.mark();
+    let held = held_at(raw, backend, &state.named_presses);
+    state.timing.took(Step::Held, started);
 
     let event = ActionEvent {
         timestamp: raw.timestamp,
@@ -4809,11 +4899,11 @@ fn handle_keyboard<B: AccessibilityBackend>(
         sequence_id: Some(raw.sequence_id),
         payload: ActionPayload::Key {
             key: key.clone(),
-            modifiers: modifiers_of(raw, backend),
+            modifiers,
             repeat: is_repeat(raw),
             code: physical_key_of(raw),
             input_method: input_method_at(raw),
-            held: held_at(raw, backend, &state.named_presses),
+            held,
             element,
         },
     };
