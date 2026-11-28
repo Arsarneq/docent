@@ -19,6 +19,7 @@ pub mod physical_key;
 pub mod pre_capture;
 pub mod scroll;
 pub mod timing;
+pub mod timing_lines;
 pub mod waiting_accents;
 pub mod worker_pool;
 
@@ -99,6 +100,13 @@ pub trait CaptureLayer: Send + 'static {
     /// barrier that could not run marker-ordered recovers the held buffers by
     /// fallback drain and says so ([`BarrierCompletion`]).
     fn stop(&mut self) -> Result<BarrierReport, CaptureError>;
+
+    /// Measure the capture timings or not: not while a re-record is open.
+    /// Holds for the running capture and for every capture started after,
+    /// until told otherwise. A capture that measured at no time while it ran
+    /// writes no block. The default does nothing, for a backend that keeps
+    /// no timings.
+    fn set_timings_measuring(&mut self, _measuring: bool) {}
 
     /// Check if capture is currently active.
     fn is_active(&self) -> bool;

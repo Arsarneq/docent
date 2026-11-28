@@ -223,3 +223,142 @@ fn rapid_restart_cycles_are_bounded_and_consistent() {
         );
     }
 }
+
+/// Puts the capture timings switch back as it was when dropped, also when
+/// a test's assertion fails.
+struct SwitchRestored(Option<std::ffi::OsString>);
+
+impl Drop for SwitchRestored {
+    fn drop(&mut self) {
+        use docent_desktop_lib::capture::timing_lines::SWITCH_VARIABLE;
+        match self.0.take() {
+            Some(before) => std::env::set_var(SWITCH_VARIABLE, before),
+            None => std::env::remove_var(SWITCH_VARIABLE),
+        }
+    }
+}
+
+/// Runs `drive` with the capture timings switch set to `value` (unset with
+/// `None`), and puts it back after.
+fn with_timings_switch(value: Option<&str>, drive: impl FnOnce()) {
+    use docent_desktop_lib::capture::timing_lines::SWITCH_VARIABLE;
+    let _restored = SwitchRestored(std::env::var_os(SWITCH_VARIABLE));
+    match value {
+        Some(value) => std::env::set_var(SWITCH_VARIABLE, value),
+        None => std::env::remove_var(SWITCH_VARIABLE),
+    }
+    drive();
+}
+
+/// With the capture timings switch on, a capture writes nothing while it
+/// runs and one block when it stops; a stop of a capture already stopped
+/// writes none.
+#[test]
+#[serial]
+fn a_capture_with_timings_writes_one_block_when_it_stops() {
+    with_timings_switch(Some("1"), || {
+        let (tx, _rx) = channel();
+        let (blocks_tx, blocks) = mpsc::channel::<String>();
+        let mut capture = WindowsCapture::new();
+        capture.send_timings_to(blocks_tx);
+
+        capture.start(tx).expect("start should succeed");
+        std::thread::sleep(Duration::from_millis(200));
+        assert_eq!(
+            blocks.try_iter().count(),
+            0,
+            "nothing is written while the capture runs"
+        );
+        capture.stop().expect("stop should succeed");
+        let written: Vec<String> = blocks.try_iter().collect();
+        assert_eq!(written.len(), 1, "one block at the stop, got {written:?}");
+        assert!(
+            written[0].starts_with("capture-timings "),
+            "{:?}",
+            written[0]
+        );
+        capture.stop().expect("a second stop is a no-op");
+        assert_eq!(blocks.try_iter().count(), 0, "a second stop writes none");
+    });
+}
+
+/// With the switch unset, a capture whose timings are sent to a channel
+/// writes no block: the channel takes the output, the switch turns the
+/// timings on.
+#[test]
+#[serial]
+fn a_capture_with_the_timings_switch_unset_writes_no_block() {
+    with_timings_switch(None, || {
+        let (tx, _rx) = channel();
+        let (blocks_tx, blocks) = mpsc::channel::<String>();
+        let mut capture = WindowsCapture::new();
+        capture.send_timings_to(blocks_tx);
+        capture.start(tx).expect("start should succeed");
+        capture.stop().expect("stop should succeed");
+        assert_eq!(
+            blocks.try_iter().count(),
+            0,
+            "no block with the switch unset"
+        );
+    });
+}
+
+/// A capture started while its timings are held, as a re-record's take
+/// is, writes no block at its stop, and the hold lasts to the next start;
+/// once the timings measure again, the next capture writes its block.
+#[test]
+#[serial]
+fn a_capture_started_while_its_timings_are_held_writes_no_block() {
+    with_timings_switch(Some("1"), || {
+        let (blocks_tx, blocks) = mpsc::channel::<String>();
+        let mut capture = WindowsCapture::new();
+        capture.send_timings_to(blocks_tx);
+        capture.set_timings_measuring(false);
+
+        for _ in 0..2 {
+            let (tx, _rx) = channel();
+            capture.start(tx).expect("start should succeed");
+            capture.stop().expect("stop should succeed");
+            assert!(!capture.is_active(), "the stop stops the capture");
+        }
+        assert_eq!(
+            blocks.try_iter().count(),
+            0,
+            "no block for a capture held throughout"
+        );
+
+        capture.set_timings_measuring(true);
+        let (tx, _rx) = channel();
+        capture.start(tx).expect("start should succeed");
+        capture.stop().expect("stop should succeed");
+        assert_eq!(
+            blocks.try_iter().count(),
+            1,
+            "the next capture writes its block"
+        );
+    });
+}
+
+/// A capture started while its timings are held and told to measure again
+/// while it runs, as a re-record cancelled while it records leaves its
+/// capture running, writes its block at its stop.
+#[test]
+#[serial]
+fn a_capture_told_to_measure_again_while_it_runs_writes_its_block() {
+    with_timings_switch(Some("1"), || {
+        let (blocks_tx, blocks) = mpsc::channel::<String>();
+        let mut capture = WindowsCapture::new();
+        capture.send_timings_to(blocks_tx);
+        capture.set_timings_measuring(false);
+
+        let (tx, _rx) = channel();
+        capture.start(tx).expect("start should succeed");
+        capture.set_timings_measuring(true);
+        capture.stop().expect("stop should succeed");
+        assert_eq!(
+            blocks.try_iter().count(),
+            1,
+            "the capture measured again while it ran"
+        );
+    });
+}

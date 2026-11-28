@@ -1,0 +1,447 @@
+// Capture timings: how long the steps of the typing worker took, kept while
+// a capture runs with the capture timings switch on and written to stderr as
+// one block when the capture stops (docs/test/e2e/desktop.md, Running the
+// suite). Off by default.
+//
+// For each subject and each of its steps the block gives the largest duration
+// measured, or [`UNSEEN`] where none was, and for the looks ahead of any key
+// how many ended each way. Every duration starts inside the handling of one
+// event: nothing is measured from the time an event arrived. The block holds
+// fixed words and numbers only: what is kept is numbers and the enums below,
+// so no key, character, value, title or element can reach it. What is and is
+// not measured, and what the block shows, are stated in that doc.
+
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{mpsc, Arc, Mutex};
+use std::time::{Duration, Instant};
+
+/// The environment variable that turns the timings on, read at capture
+/// start: `1` turns them on, anything else or nothing leaves them off.
+pub const SWITCH_VARIABLE: &str = "DOCENT_CAPTURE_TIMINGS";
+
+/// What a slot of the block holds where no duration was kept.
+pub const UNSEEN: &str = "-";
+
+/// What a duration is of.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Subject {
+    /// A keystroke the typing worker handled.
+    Key,
+    /// A value change the typing worker handled.
+    ValueChange,
+    /// The look at the focused control ahead of any key, at capture start
+    /// and when a window comes to the front.
+    LookAhead,
+}
+
+const SUBJECTS: [Subject; 3] = [Subject::Key, Subject::ValueChange, Subject::LookAhead];
+
+/// A step a worker took, each a call that can wait on the system or on a
+/// program, and the whole of the handling.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Step {
+    /// The event's window: its root and its rectangle.
+    Window,
+    /// The key settled on the control it was pressed in.
+    Settle,
+    /// The focused element: the check that the element remembered or marked
+    /// is still the focused one, or its description, or the stand-in for
+    /// none. On the path through the focus a value change's value is read
+    /// inside the description.
+    Describe,
+    /// The key named by its layout, and at a dead key the value of its field
+    /// read from its control.
+    Name,
+    /// The modifiers read.
+    Modifiers,
+    /// The held keys named.
+    Held,
+    /// The person's preferred languages read.
+    Languages,
+    /// The held actions: the lock, the flushes and the sends.
+    Buffers,
+    /// The value read from the control for a value change. On the path
+    /// through the focus the value is read inside [`Step::Describe`].
+    Value,
+    /// The focus count read.
+    FocusCount,
+    /// The focused control asked for.
+    FocusedControl,
+    /// The control's root window.
+    Root,
+    /// The process of the control's window.
+    Process,
+    /// The wait for the control's window to answer.
+    Answer,
+    /// The title of the control's window.
+    Title,
+    /// From the start of the handling to its end.
+    Total,
+}
+
+/// The steps of each subject, in the block's order.
+const fn steps_of(subject: Subject) -> &'static [Step] {
+    match subject {
+        Subject::Key => &[
+            Step::Window,
+            Step::Settle,
+            Step::Describe,
+            Step::Name,
+            Step::Modifiers,
+            Step::Held,
+            Step::Languages,
+            Step::Buffers,
+            Step::Total,
+        ],
+        Subject::ValueChange => &[
+            Step::Window,
+            Step::Value,
+            Step::Describe,
+            Step::Buffers,
+            Step::Total,
+        ],
+        Subject::LookAhead => &[
+            Step::FocusCount,
+            Step::FocusedControl,
+            Step::Root,
+            Step::Process,
+            Step::Answer,
+            Step::Title,
+            Step::Describe,
+            Step::Total,
+        ],
+    }
+}
+
+/// How a look ahead of any key ended.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Look {
+    /// It described the control, or noted a window that holds other
+    /// elements.
+    Described,
+    /// The platform counts no focus changes.
+    NoFocusCount,
+    /// No control held the keyboard focus.
+    NoFocusedControl,
+    /// The control was known already.
+    Known,
+    /// The control is the excluded process's own.
+    OwnProcess,
+    /// Its window did not answer in time.
+    NoAnswer,
+    /// The control was gone when it was described.
+    Gone,
+}
+
+const LOOKS: [Look; 7] = [
+    Look::Described,
+    Look::NoFocusCount,
+    Look::NoFocusedControl,
+    Look::Known,
+    Look::OwnProcess,
+    Look::NoAnswer,
+    Look::Gone,
+];
+
+const fn subject_word(subject: Subject) -> &'static str {
+    match subject {
+        Subject::Key => "key",
+        Subject::ValueChange => "value-change",
+        Subject::LookAhead => "look-ahead",
+    }
+}
+
+const fn step_word(step: Step) -> &'static str {
+    match step {
+        Step::Window => "window",
+        Step::Settle => "settle",
+        Step::Describe => "describe",
+        Step::Name => "name",
+        Step::Modifiers => "modifiers",
+        Step::Held => "held",
+        Step::Languages => "languages",
+        Step::Buffers => "buffers",
+        Step::Value => "value",
+        Step::FocusCount => "focus-count",
+        Step::FocusedControl => "focused-control",
+        Step::Root => "root",
+        Step::Process => "process",
+        Step::Answer => "answer",
+        Step::Title => "title",
+        Step::Total => "total",
+    }
+}
+
+/// The words of a look's line: `described`, or `skipped` and its reason.
+const fn look_words(look: Look) -> &'static str {
+    match look {
+        Look::Described => "described",
+        Look::NoFocusCount => "skipped no-focus-count",
+        Look::NoFocusedControl => "skipped no-focused-control",
+        Look::Known => "skipped known",
+        Look::OwnProcess => "skipped own-process",
+        Look::NoAnswer => "skipped no-answer",
+        Look::Gone => "skipped gone",
+    }
+}
+
+/// What a capture has kept: the largest duration of each subject's steps,
+/// and how many looks ahead ended each way.
+#[derive(Debug, Default)]
+struct Kept {
+    largest: HashMap<(Subject, Step), Duration>,
+    looks: [u64; LOOKS.len()],
+}
+
+impl Kept {
+    fn note(&mut self, subject: Subject, step: Step, took: Duration) {
+        let largest = self.largest.entry((subject, step)).or_default();
+        *largest = (*largest).max(took);
+    }
+
+    /// The block: a line per subject and step with its largest duration in
+    /// ms to a tenth, then a line per way a look ended with its count.
+    fn block(&self) -> String {
+        let mut lines = Vec::new();
+        for subject in SUBJECTS {
+            for &step in steps_of(subject) {
+                lines.push(format!(
+                    "capture-timings {} {} {}",
+                    subject_word(subject),
+                    step_word(step),
+                    ms_or_unseen(self.largest.get(&(subject, step)).copied())
+                ));
+            }
+        }
+        for (look, count) in LOOKS.iter().zip(self.looks) {
+            lines.push(format!(
+                "capture-timings {} {} {count}",
+                subject_word(Subject::LookAhead),
+                look_words(*look)
+            ));
+        }
+        lines.join("\n")
+    }
+}
+
+fn ms_or_unseen(took: Option<Duration>) -> String {
+    match took {
+        Some(took) => {
+            let tenths = took.as_micros() / 100;
+            format!("{}.{}", tenths / 10, tenths % 10)
+        }
+        None => UNSEEN.to_string(),
+    }
+}
+
+/// The timings of one capture: off, or on and keeping what its workers
+/// measured, for the block written when it stops. Each worker of the capture
+/// holds a clone.
+#[derive(Debug, Clone, Default)]
+pub struct Timings {
+    kept: Option<Arc<Mutex<Kept>>>,
+    sink: Option<mpsc::Sender<String>>,
+    measuring: Arc<Measured>,
+}
+
+/// Whether a capture's timings measure now, and whether they measured at any
+/// time since it started.
+#[derive(Debug, Default)]
+struct Measured {
+    now: AtomicBool,
+    ever: AtomicBool,
+}
+
+impl Measured {
+    fn from(measuring: bool) -> Arc<Self> {
+        Arc::new(Self {
+            now: AtomicBool::new(measuring),
+            ever: AtomicBool::new(measuring),
+        })
+    }
+}
+
+impl Timings {
+    /// Timings that keep nothing and write nothing.
+    pub fn off() -> Self {
+        Self::default()
+    }
+
+    /// The timings of a capture starting now, on where [`SWITCH_VARIABLE`]
+    /// is `1`.
+    pub fn from_environment() -> Self {
+        if std::env::var_os(SWITCH_VARIABLE).is_some_and(|v| v == "1") {
+            Self {
+                kept: Some(Arc::default()),
+                sink: None,
+                measuring: Measured::from(true),
+            }
+        } else {
+            Self::off()
+        }
+    }
+
+    /// Timings on or off whose block goes to `sink` in place of stderr. For
+    /// tests.
+    #[doc(hidden)]
+    pub fn sending_to(on: bool, sink: mpsc::Sender<String>) -> Self {
+        Self {
+            kept: on.then(Arc::default),
+            sink: Some(sink),
+            measuring: Measured::from(true),
+        }
+    }
+
+    /// The same timings measuring from the start or not, as a capture started
+    /// while a re-record is open does not.
+    pub fn with_measuring(self, measuring: bool) -> Self {
+        Self {
+            measuring: Measured::from(measuring),
+            ..self
+        }
+    }
+
+    /// Measures from now on, or not: not while a re-record is open. An event
+    /// whose handling started before is measured as it was then.
+    pub fn set_measuring(&self, measuring: bool) {
+        self.measuring.now.store(measuring, Ordering::SeqCst);
+        if measuring {
+            self.measuring.ever.store(true, Ordering::SeqCst);
+        }
+    }
+
+    /// Whether the timings are on.
+    pub fn is_on(&self) -> bool {
+        self.kept.is_some()
+    }
+
+    /// Starts measuring the handling of an event of `subject`; nothing is
+    /// measured while the timings are off or not measuring.
+    pub fn start(&self, subject: Subject) -> Timing {
+        let measuring = self.measuring.now.load(Ordering::SeqCst);
+        Timing(
+            self.kept
+                .as_ref()
+                .filter(|_| measuring)
+                .map(|kept| Measuring {
+                    kept: Arc::clone(kept),
+                    subject,
+                    begun: Instant::now(),
+                    steps: Vec::new(),
+                    look: None,
+                }),
+        )
+    }
+
+    /// Writes the block, once the capture has stopped. Nothing while the
+    /// timings are off, nor where they measured at no time since the capture
+    /// started. A failed write is dropped: a closed stderr must not
+    /// stop the capture's teardown.
+    pub fn write_block(&self) {
+        let Some(kept) = &self.kept else {
+            return;
+        };
+        if !self.measuring.ever.load(Ordering::SeqCst) {
+            return;
+        }
+        let block = kept.lock().unwrap_or_else(|e| e.into_inner()).block();
+        match &self.sink {
+            Some(sink) => {
+                let _ = sink.send(block);
+            }
+            None => {
+                use std::io::Write;
+                let _ = writeln!(std::io::stderr(), "{block}");
+            }
+        }
+    }
+}
+
+/// The steps of the handling of one event, measured while the timings are
+/// on and kept by [`Timing::keep`].
+#[derive(Debug, Default)]
+pub struct Timing(Option<Measuring>);
+
+#[derive(Debug)]
+struct Measuring {
+    kept: Arc<Mutex<Kept>>,
+    subject: Subject,
+    begun: Instant,
+    steps: Vec<(Step, Duration)>,
+    look: Option<Look>,
+}
+
+impl Timing {
+    /// The moment a step starts, where the handling is measured.
+    pub fn mark(&self) -> Option<Instant> {
+        self.0.as_ref().map(|_| Instant::now())
+    }
+
+    /// Notes `step` as taking from `started` until now.
+    pub fn took(&mut self, step: Step, started: Option<Instant>) {
+        if let (Some(measuring), Some(started)) = (self.0.as_mut(), started) {
+            measuring.steps.push((step, started.elapsed()));
+        }
+    }
+
+    /// Notes how the look ahead ended.
+    pub fn ended(&mut self, look: Look) {
+        if let Some(measuring) = self.0.as_mut() {
+            measuring.look = Some(look);
+        }
+    }
+
+    /// Leaves the event out of the timings: one a recording holds nothing
+    /// for, a press of Shift, Ctrl or Alt alone.
+    pub fn leave_out(&mut self) {
+        self.0 = None;
+    }
+
+    /// Keeps what was measured, with the whole handling as its total: a step
+    /// taken more than once counts once, with the time of all its takes.
+    pub fn keep(self) {
+        let Some(measuring) = self.0 else {
+            return;
+        };
+        let mut steps: Vec<(Step, Duration)> = Vec::new();
+        for (step, took) in measuring.steps {
+            match steps.iter_mut().find(|(s, _)| *s == step) {
+                Some((_, sum)) => *sum += took,
+                None => steps.push((step, took)),
+            }
+        }
+        steps.push((Step::Total, measuring.begun.elapsed()));
+        let mut kept = measuring.kept.lock().unwrap_or_else(|e| e.into_inner());
+        for (step, took) in steps {
+            kept.note(measuring.subject, step, took);
+        }
+        if let Some(look) = measuring.look {
+            if let Some(i) = LOOKS.iter().position(|l| *l == look) {
+                kept.looks[i] += 1;
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A step keeps its largest duration, not the sum of its durations.
+    #[test]
+    fn a_step_keeps_its_largest_duration() {
+        let mut kept = Kept::default();
+        kept.note(Subject::Key, Step::Settle, Duration::from_millis(30));
+        for _ in 0..3 {
+            kept.note(Subject::Key, Step::Settle, Duration::from_millis(10));
+        }
+        let block = kept.block();
+        assert!(
+            block
+                .lines()
+                .any(|l| l == "capture-timings key settle 30.0"),
+            "{block}"
+        );
+    }
+}
