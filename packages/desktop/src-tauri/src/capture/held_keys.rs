@@ -629,6 +629,11 @@ pub const VK_RCONTROL: u32 = 0xA3;
 pub const VK_LMENU: u32 = 0xA4;
 /// See [`VK_LCONTROL`].
 pub const VK_RMENU: u32 = 0xA5;
+/// The generic virtual-key codes of Ctrl and Alt, which the keyboard's state
+/// holds beside the left and right ones.
+pub const VK_CONTROL: u32 = 0x11;
+/// See [`VK_CONTROL`].
+pub const VK_MENU: u32 = 0x12;
 
 /// The bit Windows sets in the scan code of a keystroke it makes itself
 /// (`FAKE_KEYSTROKE` of the keyboard headers, shifted to the scan code). On a
@@ -666,6 +671,12 @@ pub const SEEDED_LEFT_CTRL_WITH_ALT_GR: bool = false;
 /// ([`CtrlAltRead::held`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CtrlAltRead {
+    /// The keyboard's state holds a Ctrl down: the generic Ctrl code, the
+    /// left or the right one. The system's `ctrl`, which every verdict on a
+    /// key reads.
+    pub ctrl: bool,
+    /// The same for Alt: the generic Alt code, the left or the right one.
+    pub alt: bool,
     /// The keyboard's state holds the left Ctrl down.
     pub left_ctrl: bool,
     /// The keyboard's state holds the right Ctrl down.
@@ -688,6 +699,8 @@ pub struct CtrlAltRead {
 impl Default for CtrlAltRead {
     fn default() -> Self {
         Self {
+            ctrl: false,
+            alt: false,
             left_ctrl: false,
             right_ctrl: false,
             left_alt: false,
@@ -716,8 +729,8 @@ impl CtrlAltRead {
         let alt_gr = layout_alt_gr == Some(true) || self.windows_ctrl_for_right_alt;
         if !(self.right_alt && self.left_ctrl && alt_gr) {
             return CtrlAltHeld {
-                ctrl: self.left_ctrl || self.right_ctrl,
-                alt: self.left_alt || self.right_alt,
+                ctrl: self.ctrl,
+                alt: self.alt,
                 alt_graph: false,
             };
         }
@@ -826,11 +839,15 @@ impl CtrlAltKeys {
     /// What is read of the Ctrl and Alt keys now, with `is_down` the
     /// keyboard's own state and `layout` the layout in force.
     pub fn read(&self, is_down: impl Fn(u32) -> bool, layout: i64) -> CtrlAltRead {
+        let (left_ctrl, right_ctrl) = (is_down(VK_LCONTROL), is_down(VK_RCONTROL));
+        let (left_alt, right_alt) = (is_down(VK_LMENU), is_down(VK_RMENU));
         CtrlAltRead {
-            left_ctrl: is_down(VK_LCONTROL),
-            right_ctrl: is_down(VK_RCONTROL),
-            left_alt: is_down(VK_LMENU),
-            right_alt: is_down(VK_RMENU),
+            ctrl: is_down(VK_CONTROL) || left_ctrl || right_ctrl,
+            alt: is_down(VK_MENU) || left_alt || right_alt,
+            left_ctrl,
+            right_ctrl,
+            left_alt,
+            right_alt,
             person_left_ctrl: self.person_left_ctrl,
             windows_ctrl_for_right_alt: self.windows_ctrl_for_right_alt,
             layout,
@@ -1684,8 +1701,6 @@ mod tests {
         // The keyboard's state holds the generic Ctrl or Alt code down and
         // neither left nor right one: the system's Ctrl or Alt, written as
         // every verdict on a key reads it.
-        const VK_CONTROL: u32 = 0x11;
-        const VK_MENU: u32 = 0x12;
         let record = CtrlAltKeys::new();
         let ctrl = record.read(|vk| vk == VK_CONTROL, 7);
         assert_eq!(ctrl.held(Some(true)), held(true, false, false));

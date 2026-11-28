@@ -6267,6 +6267,8 @@ mod tests {
         // (AltGr alone, or a left Ctrl held before AltGr), the left Ctrl and
         // the left Alt down. On the probe's layout, which has AltGr.
         let read = |person_left_ctrl, windows_ctrl_for_right_alt, right_alt: bool| CtrlAltRead {
+            ctrl: true,
+            alt: true,
             left_ctrl: true,
             right_ctrl: false,
             left_alt: !right_alt,

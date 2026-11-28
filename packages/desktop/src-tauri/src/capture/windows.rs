@@ -4601,7 +4601,7 @@ pub(crate) fn current_timestamp_ms() -> u64 {
 /// left Ctrl is down, and the keyboard layout of thread `thread_id` (the
 /// foreground window's). Read on the Input_Thread.
 unsafe fn input_modifiers(thread_id: u32) -> super::held_keys::ModifiersHeld {
-    use super::held_keys::{VK_LCONTROL, VK_LMENU, VK_RCONTROL, VK_RMENU};
+    use super::held_keys::{VK_CONTROL, VK_LCONTROL, VK_LMENU, VK_MENU, VK_RCONTROL, VK_RMENU};
     // Thread 0 would ask for this thread's own layout, not the window's.
     let layout = if thread_id == 0 {
         0
@@ -4609,22 +4609,22 @@ unsafe fn input_modifiers(thread_id: u32) -> super::held_keys::ModifiersHeld {
         GetKeyboardLayout(thread_id).0 as isize as i64
     };
     let down = |vk: u32| GetAsyncKeyState(vk as i32) < 0;
-    let keys = [VK_LCONTROL, VK_RCONTROL, VK_LMENU, VK_RMENU].map(|vk| (vk, down(vk)));
+    let keys = [
+        VK_CONTROL,
+        VK_LCONTROL,
+        VK_RCONTROL,
+        VK_MENU,
+        VK_LMENU,
+        VK_RMENU,
+    ]
+    .map(|vk| (vk, down(vk)));
     let read = INPUT_CTRL_ALT_KEYS.with(|record| record.get()).read(
         |vk| keys.iter().any(|&(key, is_down)| key == vk && is_down),
         layout,
     );
     let shift = GetAsyncKeyState(VK_SHIFT) < 0;
     let meta = GetAsyncKeyState(VK_LWIN) < 0 || GetAsyncKeyState(VK_RWIN) < 0;
-    (
-        (
-            read.left_ctrl || read.right_ctrl,
-            shift,
-            read.left_alt || read.right_alt,
-            meta,
-        ),
-        read,
-    )
+    ((read.ctrl, shift, read.alt, meta), read)
 }
 
 /// [`input_modifiers`] with the layout of the foreground window's thread
