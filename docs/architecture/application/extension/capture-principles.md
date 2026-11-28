@@ -246,7 +246,7 @@ The extension knows fewer keys to be down than the desktop does (the `key` row).
 | In another recorded frame of the same tab                                              | Ahead of the action's own keys, until its release or the start of a drag, also where a press in a recorded frame moved the focus since    |
 | In a document the focus then left in any other way than by a press in a recorded frame | No                                                                                                                                        |
 
-The modifiers held at an action are exact wherever they were pressed, save a Ctrl held with AltGr (ECP-12): `modifiers` carries them. The cases where a key held in another frame is missing or a released key is named are departures ECP-12 lists.
+The modifiers held at an action are exact wherever they were pressed, save a Ctrl or an Alt held with AltGr (ECP-12): `modifiers` carries them. The cases where a key held in another frame is missing or a released key is named are departures ECP-12 lists.
 
 ---
 
@@ -426,10 +426,10 @@ machine, including live-capture behaviour at the boundary.
   not written, no event reaching the recorder. The desktop's keyboard hook is
   handed such a key and writes it; the difference comes from the platforms
   themselves (core CP-19)
-- A Ctrl held together with AltGr: written as `ctrl` false, where the desktop
-  writes `ctrl` true, the browser reporting no Ctrl at such a press (measured
-  with Ctrl, AltGr and E on the Danish layout, in Chrome on Windows). A pointer
-  action with the two held, and an Alt held with AltGr, were not measured. A
+- A Ctrl or an Alt held together with AltGr at a key press: written as `ctrl`
+  false and `alt` false, where the desktop writes the held one true, the
+  browser reporting neither at such a press (measured with Ctrl, AltGr and E,
+  and with Alt, AltGr and E, on the Danish layout, in Chrome on Windows). A
   departure (core CP-19)
 - Arrow keys in the open list of a native `<select>` are swallowed by the
   browser before the recorder's listeners see them; on a closed `<select>`

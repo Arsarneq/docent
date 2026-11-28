@@ -504,7 +504,7 @@ The desktop names a key from what Windows gives it:
 
 Ctrl and Alt held without AltGr are written as Ctrl and Alt, also where the layout then enters the character AltGr would: Ctrl and Alt with E give `€` on the Danish layout, as AltGr with E does.
 
-Both platforms write the same for the same input, save one departure the extension capture document lists (ECP-12): a Ctrl held with AltGr is written `ctrl` `false` there. A recording made before `alt_graph` existed carries none.
+Both platforms write the same for the same input, save one departure the extension capture document lists (ECP-12): at a key press, a Ctrl or an Alt held with AltGr is written `false` there. A recording made before `alt_graph` existed carries none.
 
 ### Extension only
 
