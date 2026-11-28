@@ -1858,8 +1858,10 @@ const UNIDENTIFIED_KEY: &str = "Unidentified";
 ///   `Unidentified` for a unit that is no character on its own (a surrogate
 ///   half of a character outside the Basic Multilingual Plane, or a control
 ///   character);
-/// - Shift, Control and Alt by their generic codes, and the empty name for
-///   their left and right codes, which a caller skips;
+/// - Shift, Control and Alt by the empty name, which a caller skips, by
+///   whichever code they come: generic, left or right. A press of one is no
+///   `key` (DCP-9, DCP-13), and a key pressed while one is held states it in
+///   its own modifiers;
 /// - the space bar `Space` where no layout was read;
 /// - a key with a name of its own by that name
 ///   ([`super::key_value::named_key`]), the mode keys by the language of the
@@ -1890,11 +1892,9 @@ fn key_name_of(key_code: u32, scan_code: i64, key_value: u32, language: u16) -> 
             Some(c) if !c.is_control() => c.to_string(),
             _ => UNIDENTIFIED_KEY.to_string(),
         },
-        0x10 => "Shift".to_string(),
-        0x11 => "Control".to_string(),
-        0x12 => "Alt".to_string(),
-        // VK_LSHIFT, VK_RSHIFT, VK_LCONTROL, VK_RCONTROL, VK_LMENU, VK_RMENU.
-        0xA0..=0xA5 => String::new(),
+        // VK_SHIFT, VK_CONTROL, VK_MENU, and VK_LSHIFT, VK_RSHIFT,
+        // VK_LCONTROL, VK_RCONTROL, VK_LMENU, VK_RMENU.
+        code if is_shift_ctrl_or_alt(code) => String::new(),
         // The space bar where no layout was read. Where one was, the key is
         // named by what the layout gives it, a space among them.
         0x20 if answer_of(key_value).is_none() => SPACE_KEY.to_string(),
@@ -2169,8 +2169,8 @@ fn note_unrecorded_key<B: AccessibilityBackend>(
     };
 }
 
-/// Whether a key name is the empty name [`key_name`] gives the
-/// left/right Shift, Control and Alt codes: `true` means skip the event.
+/// Whether a key name is the empty name [`key_name`] gives the Shift,
+/// Control and Alt codes: `true` means skip the event.
 /// Printable characters are handled separately via the pending_keys buffer.
 fn is_modifier_only_key(key: &str) -> bool {
     key.is_empty()
@@ -3063,7 +3063,7 @@ impl Default for KeyNumbers {
 /// [`KeyNumbers::for_key`]): every key but Shift, Control and Alt, generic
 /// (`0x10`–`0x12`) or left and right (`0xA0`–`0xA5`).
 pub const fn numbers_key(vk: u32) -> bool {
-    !matches!(vk, 0x10..=0x12 | 0xA0..=0xA5)
+    !is_shift_ctrl_or_alt(vk)
 }
 
 /// A key number as a keystroke's `callback_params[3]` carries it, to be
@@ -4607,7 +4607,8 @@ fn handle_keyboard<B: AccessibilityBackend>(
     state: &mut WorkerState,
     window_rect: Option<WindowRect>,
 ) {
-    // Skip the empty name: every left/right Shift, Control or Alt keydown;
+    // Skip the empty name: every Shift, Control or Alt keydown, generic,
+    // left or right;
     // a key pressed while they are held reads them into its own modifiers.
     // The empty name is given by the key's code alone, whatever its layout.
     if is_modifier_only_key(&key_name(raw)) {
@@ -6630,12 +6631,9 @@ mod tests {
         // The numeric keypad with Num Lock off sends the navigation keys'
         // codes, and the 5 key sends Clear.
         assert_eq!(name_with(0x0C, None), "Clear");
-        // Shift, Control and Alt by their generic codes; the left and right
-        // codes are skipped (the empty name).
-        assert_eq!(name_with(0x10, None), "Shift");
-        assert_eq!(name_with(0x11, None), "Control");
-        assert_eq!(name_with(0x12, None), "Alt");
-        for vk in 0xA0..=0xA5 {
+        // Shift, Control and Alt by any of their codes, generic, left or
+        // right, are skipped (the empty name).
+        for vk in [0x10, 0x11, 0x12, 0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5] {
             assert!(is_modifier_only_key(&name_with(vk, None)), "vk {vk:#x}");
         }
     }
@@ -6912,7 +6910,10 @@ mod tests {
         let mut packet = probe_key(VK_PACKET, false, 2);
         packet.callback_params[0] = i64::from(u32::from('x'));
         assert_eq!(named_in(&mut state, &packet), "x");
-        assert_eq!(named_in(&mut state, &probe_key(0x10, false, 3)), "Shift");
+        assert!(is_modifier_only_key(&named_in(
+            &mut state,
+            &probe_key(0x10, false, 3)
+        )));
         assert_eq!(named_in(&mut state, &probe_key(0x45, false, 4)), "é");
     }
 
