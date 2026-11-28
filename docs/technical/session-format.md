@@ -504,7 +504,7 @@ The desktop names a key from what Windows gives it:
 
 Ctrl and Alt held without AltGr are written as Ctrl and Alt, also where the layout then enters the character AltGr would: Ctrl and Alt with E give `€` on the Danish layout, as AltGr with E does.
 
-On Windows the right Alt key is AltGr only while the Ctrl that Windows holds for it is down. Where that Ctrl has gone up with the key still held (a left Ctrl pressed and let go within AltGr takes it along), the program is given the key as an Alt, and so it is written: `alt` `true`, `alt_graph` `false`. Where AltGr is let go with a Ctrl still held, `ctrl` is written as Windows then holds it.
+On Windows the right Alt key is AltGr only while the Ctrl that Windows holds for it is down. A key Windows took as AltGr when it was pressed stays AltGr while that holds, also where the layout changes under it. Where that Ctrl has gone up with the key still held (a left Ctrl pressed and let go within AltGr takes it along), the program is given the key as an Alt, and so it is written: `alt` `true`, `alt_graph` `false`. Where AltGr is let go with a Ctrl still held, `ctrl` is written as Windows then holds it.
 
 Both platforms write the same for the same input, save where the browser gives the extension less with AltGr held; the extension capture document states what it then writes, as a departure (ECP-12, [#862](https://github.com/Arsarneq/docent/issues/862)). The desktop capture document states the cases where the desktop cannot know AltGr, or a left Ctrl held with it (DCP-13).
 
