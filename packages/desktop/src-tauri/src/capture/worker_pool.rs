@@ -2359,9 +2359,10 @@ fn input_method_at(raw: &RawEvent) -> super::InputMethodAtKey {
     super::held_keys::input_method_of(raw.callback_params[0]).into()
 }
 
-/// The key names that enter no character: Shift, Control and Alt, and every
-/// key with a name of its own ([`super::key_value::named_key`]) except
-/// `Process`, the key an input method took, which stands for a typing key.
+/// The key names that enter no character: every key with a name of its own
+/// ([`super::key_value::named_key`]) except `Process`, the key an input method
+/// took, which stands for a typing key. Shift, Control and Alt are named by
+/// no key ([`key_name`]).
 /// The function keys (`F1` to `F24`) join them by their form. The adapter's
 /// sensitive-field rule keeps the same list
 /// (`packages/desktop/src/adapter-tauri.js`).
@@ -2369,9 +2370,6 @@ const NON_TEXT_KEY_NAMES: &[&str] = &[
     "Backspace",
     "Tab",
     "Enter",
-    "Shift",
-    "Control",
-    "Alt",
     "Pause",
     "CapsLock",
     "Escape",
@@ -7251,6 +7249,24 @@ mod tests {
         for name in ["a", "A", "?", "Space", "Dead", "Unidentified"] {
             assert!(enters_text_in_password_field(&raw, name), "{name}");
         }
+    }
+
+    /// The keys that enter no character are a closed list: exactly the names
+    /// of the keys with a name of their own, `Process` excepted. A name no
+    /// key is given has no place on it.
+    #[test]
+    fn the_keys_that_enter_no_character_are_the_keys_with_a_name_of_their_own() {
+        use crate::capture::key_value::named_key;
+        let mut named: Vec<&str> = [0_u16, 0x11, 0x12]
+            .into_iter()
+            .flat_map(|language| (0..=0xFF_u32).filter_map(move |vk| named_key(vk, language)))
+            .filter(|name| *name != "Process" && !is_function_key_name(name))
+            .collect();
+        named.sort_unstable();
+        named.dedup();
+        let mut listed = NON_TEXT_KEY_NAMES.to_vec();
+        listed.sort_unstable();
+        assert_eq!(listed, named);
     }
 
     // -- keys numbered per window (docent#761) -------------------------------
