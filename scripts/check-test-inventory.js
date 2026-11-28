@@ -16,8 +16,8 @@
  *       actually selects that suite's tests here. Selection is the line, not
  *       execution — a selected test that some CI run then skips is still a
  *       member. An entry opted into the row shape (`rowShape`) is also held
- *       to how its tables are written: compact lines, a capped Covers cell,
- *       and per-file detail headings each linked from its own row and from
+ *       to how its tables are written: compact lines, and per-file detail
+ *       headings each linked from its own row and from
  *       nothing else, one per file in its file's section (see auditRowShape).
  *   (b) coverage lists — every entry of the registered hand-maintained
  *       `TRACKED_FILES` lists (the extension e2e and desktop integration
@@ -180,11 +180,14 @@
  * is the offer's price.
  *
  * Usage:
- *   node scripts/check-test-inventory.js      # or: npm run lint:test-inventory
+ *   node scripts/check-test-inventory.js           # or: npm run lint:test-inventory
+ *   node scripts/check-test-inventory.js <base>    # also lists, without failing, each Covers
+ *                                                  # cell that grew since the merge base with
+ *                                                  # <base>: npm run lint:test-inventory -- origin/main
  */
 
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { appendFileSync, readFileSync } from 'node:fs';
 // Aliased: this module states its own repo-relative `basename` below, which
 // reads a posix path, while this one reads the platform's own file path.
 import { basename as fileBasename } from 'node:path';
@@ -192,6 +195,7 @@ import { pathToFileURL } from 'node:url';
 import { unified } from 'unified';
 import remarkParse from 'remark-parse';
 import { visit } from 'unist-util-visit';
+import { GROWTH_ANSWER, baseFileReader, summaryCell } from './governance-data.js';
 
 /**
  * Playwright's default `testMatch` — the files it collects under its `testDir`,
@@ -329,12 +333,6 @@ export const registered = (entry) =>
   entry.discovery ? { ...entry, selects: selectsFor(entry.discovery) } : { ...entry };
 
 /**
- * The row shape the JavaScript unit inventories opt into — one statement for
- * the three trees `docs/test/unit.md` enumerates (see {@link auditRowShape}).
- */
-const UNIT_ROW_SHAPE = { coversMax: 300 };
-
-/**
  * The suite documents and the suites they enumerate. `section` is the `##`
  * heading whose tables make the enumeration claim and `header` their whole
  * header — together they identify the inventory tables, so a table added
@@ -349,7 +347,8 @@ const UNIT_ROW_SHAPE = { coversMax: 300 };
  * selected, and the registration closure reads the same descriptor against the
  * invocation itself. A member is named in the table by its path from `dir`.
  * An entry carrying `rowShape` also holds how its tables are written (see
- * {@link auditRowShape}): `coversMax` is the longest a Covers cell may be.
+ * {@link auditRowShape}). The length of a Covers cell is held by no entry:
+ * {@link coversGrowth} lists the cells that grew, for a reviewer to answer.
  */
 export const DOC_INVENTORIES = [
   registered({
@@ -385,7 +384,7 @@ export const DOC_INVENTORIES = [
     header: ['Test file', 'Covers'],
     dir: 'packages/shared/tests/unit',
     discovery: { runner: RUNNERS.node, pattern: '*.test.js' },
-    rowShape: UNIT_ROW_SHAPE,
+    rowShape: true,
   }),
   registered({
     doc: 'docs/test/unit.md',
@@ -393,7 +392,7 @@ export const DOC_INVENTORIES = [
     header: ['Test file', 'Covers'],
     dir: 'packages/desktop/tests/unit',
     discovery: { runner: RUNNERS.node, pattern: '*.test.js' },
-    rowShape: UNIT_ROW_SHAPE,
+    rowShape: true,
   }),
   registered({
     doc: 'docs/test/unit.md',
@@ -401,7 +400,7 @@ export const DOC_INVENTORIES = [
     header: ['Test file', 'Covers'],
     dir: 'packages/extension/tests/unit',
     discovery: { runner: RUNNERS.node, pattern: '*.test.js' },
-    rowShape: UNIT_ROW_SHAPE,
+    rowShape: true,
   }),
 ];
 
@@ -493,7 +492,7 @@ export function parseTables(markdown) {
     const rows = [];
     let j = i + 2;
     while (j < lines.length && isRow(lines[j])) rows.push(splitRow(lines[j++]));
-    tables.push({ section, subsection, header, rows, lines: lines.slice(i, j) });
+    tables.push({ section, subsection, header, rows, lines: lines.slice(i, j), line: i + 1 });
     i = j - 1;
   }
   return tables;
@@ -512,7 +511,7 @@ export function parseTables(markdown) {
  * @param {string[]} where.header the exact header cells
  * @param {string} [where.section] the `##` section the table sits in
  * @param {string} [where.subsection] the deeper heading inside that section
- * @returns {{ tables: { section: string | null, subsection: string | null, header: string[], rows: string[][], lines: string[] }[], matches: number }}
+ * @returns {{ tables: { section: string | null, subsection: string | null, header: string[], rows: string[][], lines: string[], line: number }[], matches: number }}
  */
 export function selectTablesByHeader(docText, { header, section, subsection }) {
   const tables = parseTables(docText).filter(
@@ -2020,20 +2019,19 @@ function detailHeadings(markdown) {
 /**
  * How an opted-in inventory's tables are written, so a row edit stays a
  * one-line diff and every Covers cell stays a line a reviewer reads whole.
- * The verdicts, one per breach, name these causes: a Covers cell longer than
- * `coversMax` (the JavaScript length of the trimmed cell, link markup
- * included); a table line not in the compact form — its cells rebuilt
+ * The verdicts, one per breach, name these causes: a table line not in the
+ * compact form — its cells rebuilt
  * `| a | b |`, the delimiter's cells exactly `---`; a row whose Covers cell
  * links within the document to anything but its own detail heading — the
  * `### ` heading naming its file in the same `##` section; and a detail
  * heading no row links, or one with no row in its section, or a second one for
  * one file in a section.
  * @param {string} content the inventory document
- * @param {{ doc: string, section: string, rowShape: { coversMax: number } }} inventory
+ * @param {{ doc: string, section: string }} inventory
  * @param {{ header: string[], rows: string[][], lines: string[] }[]} tables the inventory's tables
  * @returns {string[]} the verdicts
  */
-function auditRowShape(content, { doc, section, rowShape }, tables) {
+function auditRowShape(content, { doc, section }, tables) {
   const verdicts = [];
   const where = `${doc}: "## ${section}"`;
   const own = new Map();
@@ -2060,11 +2058,6 @@ function auditRowShape(content, { doc, section, rowShape }, tables) {
       const name = backtickedName(first);
       if (name === null) continue;
       rowNames.add(name);
-      if (covers.length > rowShape.coversMax) {
-        verdicts.push(
-          `${where} \`${name}\`'s Covers cell is ${covers.length} characters, over the ${rowShape.coversMax} cap — keep its summary in the cell and move the rest to bullets under a "### \`${name}\`" heading after the table, linked from the cell`,
-        );
-      }
       // An in-document link written `](#anchor)` is what this reads; a
       // path-qualified, titled or reference-style link is outside its scope.
       for (const [, target] of covers.matchAll(/\]\(#([^)\s]*)\)/g)) {
@@ -2088,11 +2081,123 @@ function auditRowShape(content, { doc, section, rowShape }, tables) {
       );
     } else if (!linked.has(name)) {
       verdicts.push(
-        `${where} "### \`${name}\`" heading (#${slug}) has no link to it from its row — end \`${name}\`'s Covers cell with "[Detail](#${slug})", or, if the whole text fits within the cap, fold the section back into the cell`,
+        `${where} "### \`${name}\`" heading (#${slug}) has no link to it from its row — end \`${name}\`'s Covers cell with "[Detail](#${slug})", or fold its bullets into the cell and remove the heading`,
       );
     }
   }
   return verdicts;
+}
+
+/* ── Growth of the Covers cells ──────────────────────────────────────────── */
+
+/**
+ * The Covers cell of each named row of an inventory, by file name: the trimmed
+ * cell under the Covers header of every row of the inventory's tables, link
+ * markup included, with the line the row stands on. A document that cannot be
+ * read, or holds no such table, gives no cells.
+ * @param {string | null} content the inventory document
+ * @param {{ section: string, header: string[] }} inventory
+ * @returns {Map<string, { covers: string, line: number }>} file name → its cell and 1-based line
+ */
+function coversCells(content, { section, header }) {
+  const cells = new Map();
+  if (content == null) return cells;
+  for (const table of selectTablesByHeader(content, { section, header }).tables) {
+    const column = resolveColumn(table, 'Covers');
+    table.rows.forEach((row, i) => {
+      const name = backtickedName(row[0]);
+      if (name === null || cells.has(name)) return;
+      // The header and the delimiter stand on the two lines before the rows.
+      cells.set(name, { covers: (row[column] ?? '').trim(), line: table.line + 2 + i });
+    });
+  }
+  return cells;
+}
+
+/**
+ * One Covers cell that grew.
+ * @typedef {object} GrowthNote
+ * @property {string} doc the inventory document
+ * @property {number} line the 1-based line of the row in that document now
+ * @property {string} section the `##` section the row stands in
+ * @property {string} name the test file the row names
+ * @property {number} was the characters the cell held on the base
+ * @property {number} now the characters it holds
+ */
+
+/**
+ * The Covers cells that are longer than on the base: one note per row of a
+ * registered inventory whose cell holds more characters than the same file's
+ * row in the same section of the base's document. Only growth in place is
+ * listed: a row the base does not hold under that section of that document
+ * (a new, moved or renamed row, or one under a renamed section or document)
+ * is not. The notes are a report: no length is refused, and what a grown cell
+ * needs is a reviewer's answer (see {@link formatGrowth}).
+ * @param {object} opts
+ * @param {(f: string) => (string | null)} opts.readFile content reader (null if unreadable)
+ * @param {(f: string) => (string | null)} opts.readBaseFile the base's content reader (null if absent there)
+ * @param {typeof DOC_INVENTORIES} [opts.inventories]
+ * @returns {GrowthNote[]} the notes, in registration and then row order
+ */
+export function coversGrowth({ readFile, readBaseFile, inventories = DOC_INVENTORIES }) {
+  const notes = [];
+  for (const inventory of inventories) {
+    const { doc, section } = inventory;
+    const before = coversCells(readBaseFile(doc), inventory);
+    if (before.size === 0) continue;
+    for (const [name, { covers, line }] of coversCells(readFile(doc), inventory)) {
+      const was = before.get(name)?.covers.length;
+      if (was === undefined || covers.length <= was) continue;
+      notes.push({ doc, line, section, name, was, now: covers.length });
+    }
+  }
+  return notes;
+}
+
+/**
+ * What the check prints for the grown cells: a heading that says the list does
+ * not fail and who answers it, then one indented line per cell, opening with
+ * the document and the line of the row. No notes, one line that says no cell
+ * grew, so the log shows the cells were compared.
+ * @param {GrowthNote[]} notes from {@link coversGrowth}
+ * @param {string} baseRef the base the cells were compared with, as given
+ * @returns {string[]} the lines to print
+ */
+export function formatGrowth(notes, baseRef) {
+  if (notes.length === 0) return [`note: no Covers cell grew since ${baseRef}.`];
+  return [
+    `note: ${notes.length} Covers cell(s) grew since ${baseRef}. ${GROWTH_ANSWER}`,
+    ...notes.map(
+      ({ doc, line, section, name, was, now }) =>
+        `  ${doc}:${line}: "## ${section}" \`${name}\`'s Covers cell grew from ${was} to ${now} characters`,
+    ),
+  ];
+}
+
+/**
+ * The grown cells as markdown for the job summary, so the list shows on the
+ * pull request's checks page as well as in the log: a heading, who answers the
+ * list, and one table row per cell. No notes, no text.
+ * @param {GrowthNote[]} notes from {@link coversGrowth}
+ * @param {string} baseRef the base the cells were compared with, as given
+ * @returns {string} the markdown to append, ending in a newline, or ''
+ */
+export function growthSummary(notes, baseRef) {
+  if (notes.length === 0) return '';
+  const cell = summaryCell;
+  return [
+    `### Covers cells that grew since ${baseRef}`,
+    '',
+    GROWTH_ANSWER,
+    '',
+    '| Guide | Line | Section | Test file | Before | Now |',
+    '| --- | --- | --- | --- | --- | --- |',
+    ...notes.map(
+      ({ doc, line, section, name, was, now }) =>
+        `| \`${cell(doc)}\` | ${line} | ${cell(section)} | \`${cell(name)}\` | ${was} | ${now} |`,
+    ),
+    '',
+  ].join('\n');
 }
 
 /* ── The audit ───────────────────────────────────────────────────────────── */
@@ -4562,10 +4667,9 @@ const PROBLEM_BLOCKS = {
     heading: (n) => `${n} inventory line(s) or detail heading(s) break the row shape`,
     fix:
       `keep each opted-in inventory table compact under its prettier-ignore marker — "| a | b |"\n` +
-      `  rows and a "| --- | --- |" delimiter, so a row edit is a one-line diff — and each Covers\n` +
-      `  cell within its cap (the entry's \`rowShape\` in ${SELF_PATH}): the summary\n` +
-      `  stays in the cell, the rest moves to bullets under one "### \`<file>\`" heading after\n` +
-      `  the table in the same section, and the cell links that heading and no other.`,
+      `  rows and a "| --- | --- |" delimiter, so a row edit is a one-line diff. A file's detail\n` +
+      `  section, where it has one, is one "### \`<file>\`" heading after the table in the same\n` +
+      `  section, and the file's Covers cell links that heading and no other.`,
   },
   undescribed: {
     heading: (n) => `${n} registered suite entr(ies) state no discovery descriptor`,
@@ -4845,8 +4949,11 @@ export function duplicateSurfaceProblems(surfaces, entries) {
 /* c8 ignore start — the CLI wrapper reads the tracked-file list from git and the
  * inventory sources from disk, then prints; the parsing and audit logic it
  * delegates to (parseTables, readListEntries, auditInventories,
- * auditRegistrationClosure, formatProblems) is unit-tested. */
-function run() {
+ * auditRegistrationClosure, formatProblems, coversGrowth, formatGrowth,
+ * growthSummary) is unit-tested. Given a base ref as its one argument, it
+ * first prints the Covers cells that grew since the merge base with it, and in
+ * CI writes them to the job summary; that list never fails. */
+function run(baseRef) {
   // Through this module's own population reader, whose docblock states the
   // quotepath policy.
   const files = trackedFilesUnder('.');
@@ -4865,6 +4972,24 @@ function run() {
     ...formatProblems(auditMutationKillSets({ files, readFile })),
     ...formatProblems(membership),
   ];
+  // The grown cells are listed first, so the list shows whether or not the
+  // audits below it pass.
+  if (baseRef !== undefined) {
+    const git = (args) =>
+      execFileSync('git', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+    let readBaseFile;
+    try {
+      readBaseFile = baseFileReader(git, baseRef);
+    } catch (e) {
+      if (problems.length) console.error(problems.join('\n\n'));
+      console.error(`✗ an input this check reads could not be read:\n    ${e.message}`);
+      process.exit(2);
+    }
+    const grown = coversGrowth({ readFile, readBaseFile });
+    for (const line of formatGrowth(grown, baseRef)) console.log(line);
+    const summaryPath = process.env.GITHUB_STEP_SUMMARY;
+    if (summaryPath && grown.length) appendFileSync(summaryPath, growthSummary(grown, baseRef));
+  }
   if (problems.length) {
     console.error(problems.join('\n\n'));
     process.exit(1);
@@ -4900,6 +5025,6 @@ function run() {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  run();
+  run(process.argv[2]);
 }
 /* c8 ignore stop */

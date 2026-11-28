@@ -265,6 +265,7 @@
       "code": [
         "scripts/check-{area-map,clause-registry,clause-governance,clause-preamble,clause-form,doc-reachability}.js",
         "scripts/clause-form-baseline.json",
+        "scripts/report-clause-doc-words.js",
         "scripts/area-map.json"
       ],
       "docs": ["docs/guides/docs-governance.md"]
@@ -343,6 +344,11 @@
     {
       "path": "packages/shared/tests/unit/check-*.test.js",
       "reason": "Unit tests for the CI-machinery check scripts — they exercise the check tooling itself; their contract is the behaviour of the scripts under test, and the unit-suite orientation lists them.",
+      "governed-by": ["docs/test/unit.md"]
+    },
+    {
+      "path": "packages/shared/tests/unit/report-clause-doc-words.test.js",
+      "reason": "Unit tests for the word report over the documents that hold clauses — they exercise the report script itself, and the unit-suite orientation lists them.",
       "governed-by": ["docs/test/unit.md"]
     },
     {
@@ -748,13 +754,26 @@
     },
     {
       "path": "packages/desktop/src-tauri/src/capture/windows.rs",
-      "reason": "the desktop Windows provider decides when context lifecycle actions are emitted, so it owes the session-format doc on top of its capture-area governance; declared single-source (its governing set stated here as its covering areas' whole doc sets plus that one doc) so the pointer to the format doc does not resolve at area granularity and drag the format-contract area's other docs onto it — the amplification the sync re-cut terminated on the shared chokepoints. The per-platform schemas remain authoritative for field semantics.",
-      "governed-by": ["area:desktop-windows/capture", "docs/technical/session-format.md"]
+      "reason": "the desktop Windows provider decides when context lifecycle actions are emitted, and turns the capture timings on at start and writes their block at stop, so it owes the session-format doc and the desktop end-to-end suite's doc, which states the timings, on top of its capture-area governance; declared single-source (its governing set stated here as its covering areas' whole doc sets plus those two docs) so the pointers to those docs do not resolve at area granularity and drag the format-contract and end-to-end areas' other docs onto it — the amplification the sync re-cut terminated on the shared chokepoints. The per-platform schemas remain authoritative for field semantics.",
+      "governed-by": [
+        "area:desktop-windows/capture",
+        "docs/technical/session-format.md",
+        "docs/test/e2e/desktop.md"
+      ]
+    },
+    {
+      "path": "packages/desktop/src-tauri/src/capture/timing_lines.rs",
+      "reason": "the capture timings switch, its block and the words the block holds are stated in the desktop end-to-end suite's doc, where a person running the suite turns them on, so the file owes that doc on top of its capture-area governance; declared single-source (its governing set stated here as its covering area's whole doc set plus that one doc) so the doc does not resolve at area granularity and drag the end-to-end areas' other docs onto it.",
+      "governed-by": ["area:desktop-windows/capture", "docs/test/e2e/desktop.md"]
     },
     {
       "path": "packages/desktop/src-tauri/src/capture/worker_pool.rs",
-      "reason": "the desktop worker pool assigns each captured action's ordering and fields as it enters the stream, so it owes the session-format doc on top of its capture-area governance; declared single-source (its governing set stated here as its covering areas' whole doc sets plus that one doc) so the pointer to the format doc does not resolve at area granularity and drag the format-contract area's other docs onto it — the amplification the sync re-cut terminated on the shared chokepoints. The per-platform schemas remain authoritative for field semantics.",
-      "governed-by": ["area:desktop-windows/capture", "docs/technical/session-format.md"]
+      "reason": "the desktop worker pool assigns each captured action's ordering and fields as it enters the stream, and measures the steps the capture timings report, so it owes the session-format doc and the desktop end-to-end suite's doc, which states the timings, on top of its capture-area governance; declared single-source (its governing set stated here as its covering areas' whole doc sets plus those two docs) so the pointers to those docs do not resolve at area granularity and drag the format-contract and end-to-end areas' other docs onto it — the amplification the sync re-cut terminated on the shared chokepoints. The per-platform schemas remain authoritative for field semantics.",
+      "governed-by": [
+        "area:desktop-windows/capture",
+        "docs/technical/session-format.md",
+        "docs/test/e2e/desktop.md"
+      ]
     },
     {
       "path": "packages/desktop/src-tauri/src/commands.rs",
@@ -863,12 +882,19 @@
     },
     {
       "path": "packages/desktop/src-tauri/tests/capture_lifecycle_test.rs",
-      "reason": "The capture-layer lifecycle contract binary — idempotent start, no-op stop, the active-state transitions, bounded restart, and the commit flush barrier's sentinel on the action stream — driven entirely through the seam's trait obligations. The capture-seam document states those obligations, the pipeline document owns the barrier and the shutdown doctrine it asserts, and the suite orientation lists it.",
+      "reason": "The capture-layer lifecycle contract binary — idempotent start, no-op stop, the active-state transitions, bounded restart, the commit flush barrier's sentinel on the action stream, and the one block of capture timings a stop writes, none for a capture held from its start to its stop — driven entirely through the seam's trait obligations. The capture-seam document states those obligations, the Windows capture principles own the barrier and the stop drains it asserts (DCP-2, DCP-12), the desktop end-to-end suite's doc states the capture timings, and the suite orientation lists it.",
       "governed-by": [
         "docs/architecture/application/desktop/capture-seam.md",
+        "docs/architecture/application/desktop/windows/capture-principles.md",
         "docs/architecture/application/desktop/windows/capture-pipeline.md",
-        "docs/test/desktop-rust.md"
+        "docs/test/desktop-rust.md",
+        "docs/test/e2e/desktop.md"
       ]
+    },
+    {
+      "path": "packages/desktop/src-tauri/tests/timing_switch_test.rs",
+      "reason": "The capture timings switch read from the environment: on only where the variable is 1. The desktop end-to-end suite's doc states the switch, and the suite orientation lists the binary.",
+      "governed-by": ["docs/test/e2e/desktop.md", "docs/test/desktop-rust.md"]
     },
     {
       "path": "packages/desktop/src-tauri/tests/commands_test.rs",
@@ -898,8 +924,13 @@
       ]
     },
     {
+      "path": "packages/desktop/src-tauri/tests/passive_observer_test.rs",
+      "reason": "The guard that the desktop observes a program from outside: it reads the application's own source and fails on a call into another process, a hook that runs in one, or a call that sends input or changes a window. The cross-platform capture doctrine states the rule and its row names this binary (CP-20), and the suite orientation lists it.",
+      "governed-by": ["docs/architecture/system/capture-principles.md", "docs/test/desktop-rust.md"]
+    },
+    {
       "path": "packages/desktop/src-tauri/tests/control_look_test.rs",
-      "reason": "The Windows backend's look at a control by its window handle, against real windows of the test process: a field as a control of its own, a password field, a window that holds fields, the value read from the control, and a handle of no window. The Windows capture doctrine's focus row states what a worker asks a control and when (DCP-11), and the suite orientation lists the binary.",
+      "reason": "The Windows backend's look at a control by its window handle, against real windows of the test process: a field as a control of its own, a password field, a window that holds fields, the value read from the control, and a handle of no window. The Windows capture doctrine states the element of a keystroke and what a control of its own is (DCP-16), and the suite orientation lists the binary.",
       "governed-by": [
         "docs/architecture/application/desktop/windows/capture-principles.md",
         "docs/test/desktop-rust.md"
@@ -907,12 +938,13 @@
     },
     {
       "path": "packages/desktop/src-tauri/tests/worker_pool_test.rs",
-      "reason": "The worker-pool property and truth-lock binary — sequence numbering, shortest-queue dispatch, sticky and drag-pair routing, and the dead-worker drain rescues, alongside end-to-end action truth-locks over the same pipeline. The Windows capture doctrine's ordering row names its flush-barrier tests among that row's existing guards (DCP-2) and the worker-delivery row names its respawn and shutdown drains among that row's (DCP-12), while the drag-classification row's own unit stays intended and names this binary for the right-button path's downstream half alone (DCP-10); the pipeline document owns the delivery model it locks, the retired desktop manual history names it among its replacements, and the suite orientation lists it.",
+      "reason": "The worker-pool property and truth-lock binary — sequence numbering, shortest-queue dispatch, sticky and drag-pair routing, the dead-worker drain rescues, and the capture timings, alongside end-to-end action truth-locks over the same pipeline. The Windows capture doctrine's ordering row names its flush-barrier tests among that row's existing guards (DCP-2) and the worker-delivery row names its respawn and shutdown drains among that row's (DCP-12), the redaction row names its cases for a keystroke that names no element (DCP-11), the description row names its preferred-languages case (DCP-15) and the keystroke-element row its cases for the element a keystroke and a value change are recorded on (DCP-16), while the drag-classification row's own unit stays intended and names this binary for the right-button path's downstream half alone (DCP-10); the pipeline document orients on the stages it drives, the retired desktop manual history names it among its replacements, the desktop end-to-end suite's doc states the capture timings its timing cases hold, and the suite orientation lists it.",
       "governed-by": [
         "docs/architecture/application/desktop/windows/capture-principles.md",
         "docs/architecture/application/desktop/windows/capture-pipeline.md",
         "docs/test/manual/windows.md",
-        "docs/test/desktop-rust.md"
+        "docs/test/desktop-rust.md",
+        "docs/test/e2e/desktop.md"
       ]
     },
     {
@@ -1059,6 +1091,15 @@
       ]
     },
     {
+      "path": "packages/extension/tests/unit/passive-observer.test.js",
+      "reason": "The guard that the recorder takes no part in the page: it reads the extension's own source and fails on a script placed in a page other than the recorder, and on a call in the recorder that cancels or stops a page's event or writes to the page, beyond the one defect the extension capture doctrine lists. The cross-platform capture doctrine states the rule and its row names this suite (CP-20), and the unit-suite orientation lists it.",
+      "governed-by": [
+        "docs/architecture/system/capture-principles.md",
+        "docs/architecture/application/extension/capture-principles.md",
+        "docs/test/unit.md"
+      ]
+    },
+    {
       "path": "packages/extension/tests/unit/recorder-logic.test.js",
       "reason": "The extracted content-script logic: selector derivation, locator measurement over a fake document, element description, and the scroll-capture decision. The cross-platform capture doctrine states the scroll settle-and-floor rule whose row names this suite (CP-16), the extension capture doctrine owns the recorder's own rules, the locator procedure defines the strategies and measurement facts it derives, and the unit-suite orientation lists it.",
       "governed-by": [
@@ -1174,7 +1215,7 @@
     },
     {
       "path": "packages/desktop/tests/unit/reorder-buffer.test.js",
-      "reason": "The ordered-insertion suite over the desktop adapter: out-of-order events placed by sequence id, immediate delivery with no buffering, completeness, and the internal id stripped before store or export. The Windows capture doctrine states that ordering rule and its row names this suite (DCP-2); the pipeline document owns the delivery model it sits at the end of; and the unit-suite orientation lists it.",
+      "reason": "The ordered-insertion suite over the desktop adapter: out-of-order events placed by sequence id, immediate delivery with no buffering, completeness, and the internal id stripped before store or export. The Windows capture doctrine states that ordering rule and its row names this suite (DCP-2); the pipeline document orients on the stages it sits at the end of; and the unit-suite orientation lists it.",
       "governed-by": [
         "docs/architecture/application/desktop/windows/capture-principles.md",
         "docs/architecture/application/desktop/windows/capture-pipeline.md",

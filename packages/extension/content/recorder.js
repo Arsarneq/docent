@@ -656,6 +656,26 @@
   }
 
   /**
+   * The modifiers held at a trusted key, mouse or drag event (#239), each as the
+   * event reports it; `alt_graph` is the browser's AltGraph state (#825).
+   * Whether a key is a shortcut is read from Ctrl, Alt and Meta alone
+   * (`isShortcut`).
+   *
+   * @param {{ctrlKey: boolean, shiftKey: boolean, altKey: boolean, metaKey: boolean,
+   *   getModifierState(key: string): boolean}} e — the event
+   * @returns {{ctrl: boolean, shift: boolean, alt: boolean, meta: boolean, alt_graph: boolean}}
+   */
+  function modifiersOf(e) {
+    return {
+      ctrl: e.ctrlKey,
+      shift: e.shiftKey,
+      alt: e.altKey,
+      meta: e.metaKey,
+      alt_graph: e.getModifierState('AltGraph'),
+    };
+  }
+
+  /**
    * The `autocomplete` tokens and the name pattern of a sensitive element: a
    * copy of the shared rule's (`shared/lib/field-sensitivity.js`), which a
    * content script cannot import. A test holds the two equal.
@@ -944,7 +964,8 @@
   //   Made the `key` it was (written with the time of the press) by whichever
   //   of these comes first:
   //     - the timer task after the press's `keypress` (the browser enters a
-  //       key's text while it handles that event);
+  //       key's text while it handles that event), for the presses that
+  //       waited at that `keypress`;
   //     - the key's release, or the release of any key;
   //     - the next key press;
   //     - a pointer action, or any other action written in a later task;
@@ -1041,7 +1062,12 @@
     // `modifiers` states. (A character key pressed on a sensitive element is
     // never written as a `key`, so it does not get here.)
     const named = press.downByThis && press.key !== 'Meta';
-    if (named && keysDown.get(press.code) === null) keysDown.set(press.code, press.key);
+    if (named && keysDown.get(press.code) === null) {
+      keysDown.set(press.code, press.key);
+      // A key the browser names no `code` for cannot be told from another
+      // such key, nor matched to its release: it is named in this document only.
+      if (press.code) reportHeldKey('down', press.code, press.key, downUnderMeta.has(press.code));
+    }
   }
 
   /** Send what waited behind the presses, once none is waiting. */
@@ -1185,6 +1211,53 @@
   const keysDown = new Map();
   // The physical keys that went down while the Meta key was held, by `code`.
   const downUnderMeta = new Set();
+  // A pointer press in this document is being handled: the focus the window
+  // takes in that time is the press's own. Dropped by the next timer task.
+  let pressInTask = false;
+  // The keys this document did not see go down and whose first repeat here
+  // was not written as a `key`, by `code`: another document of the tab can
+  // have named them, so their release is the worker's to hear of.
+  const repeatedFromElsewhere = new Set();
+  // This recorder's reports of held keys are numbered, so the worker can
+  // tell that it has the latest one (lib/held-keys-relay.js). The name is
+  // new with each document.
+  const heldReports = { recorder: `${Date.now()}-${Math.random()}`, seq: 0 };
+  /**
+   * Tell the worker what the tab's other documents cannot see of the keys
+   * held here: a key named as held, a key's release, the release of the Meta
+   * key, the focus a press gave this window, its blur, and a drag (`clear`).
+   * The worker names a key held in one document of a tab in `held_keys` of an
+   * action in another (#779), and only while its release is sure to be
+   * reported (lib/held-keys-relay.js). A key typed as text in this document
+   * is never named, so nothing of it is reported: neither its press nor its
+   * release. Of a key this document did not see go down, the `code` is
+   * reported at its release, whatever it was pressed as elsewhere: another
+   * document can have named it.
+   *
+   * @param {'down'|'up'|'metaup'|'focus'|'blur'|'clear'} event
+   * @param {string} [code]
+   * @param {string} [key]
+   * @param {boolean} [underMeta] — the key went down while the Meta key was held
+   */
+  function reportHeldKey(event, code, key, underMeta) {
+    if (!active) return;
+    try {
+      heldReports.seq += 1;
+      chrome.runtime
+        .sendMessage({
+          type: 'HELD_KEY',
+          event,
+          code,
+          key,
+          underMeta,
+          recorder: heldReports.recorder,
+          seq: heldReports.seq,
+        })
+        .catch(() => undefined);
+    } catch {
+      // Worker unavailable (a teardown): nothing to tell.
+    }
+  }
   /**
    * The names of the keys that are down by a written keydown, other than the
    * key `code` itself: what an action's `held_keys` states (#706).
@@ -1365,13 +1438,6 @@
     noteEntryMadeAgain(field);
   }
 
-  /** The modifiers held at a trusted key, mouse or drag event (#239). */
-  const modifiersOf = (e) => ({
-    ctrl: e.ctrlKey,
-    shift: e.shiftKey,
-    alt: e.altKey,
-    meta: e.metaKey,
-  });
   let lastTabKeyTimestamp = 0;
   let lastSelectTimestamp = 0;
   let lastFileInputClickEl = null;
@@ -1392,6 +1458,10 @@
       if (!e.isTrusted) return;
       lastMousedownTime = Date.now();
       lastMousedownEl = e.target;
+      pressInTask = true;
+      setTimeout(() => {
+        pressInTask = false;
+      }, 0);
       writeEntryEndedByPointer(e.target);
       // The press ends the typing in the tab's other documents too, which see
       // nothing of it: the worker tells them, and stores what this document
@@ -1601,6 +1671,10 @@
       // This keydown is the one the key is down by when it is the press, or the
       // first keydown of the key this document sees.
       const downByThis = !e.repeat || !keysDown.has(e.code);
+      // A repeat of a key this document did not see go down: where another
+      // document named it, it stays named, and its release is reported
+      // whatever this keydown is written as.
+      if (e.repeat && !keysDown.has(e.code)) repeatedFromElsewhere.add(e.code);
       if (downByThis) {
         keysDown.delete(e.code);
         keysDown.set(e.code, null);
@@ -1766,10 +1840,18 @@
       if (pressedKeysDown.has(e.code)) markKeyEvent();
       // The browser enters a key's text while it handles this event. A press
       // still waiting once that is over entered none: the next timer task
-      // comes after it, whether or not the key is released.
+      // comes after it, whether or not the key is released. The browser can
+      // hand over the next key presses ahead of that task, so it settles the
+      // presses that wait now and leaves a later one waiting (#789).
       if (pendingKeys.some((press) => !press.byParts)) {
+        const waitingNow = new Set(pendingKeys);
         setTimeout(() => {
-          if (active) resolvePendingKeys(waitsForMore);
+          if (!active) return;
+          resolvePendingKeys((press, at, all) => {
+            if (!waitingNow.has(press)) return true;
+            const waitedThen = all.filter((other) => waitingNow.has(other));
+            return waitsForMore(press, waitedThen.indexOf(press), waitedThen);
+          });
         }, 0);
       }
     },
@@ -1784,12 +1866,20 @@
       if (active) resolvePendingKeys(waitsForMore);
       // A release ends the key's time among the held keys whether or not the
       // recording is on: a key released while it is off is not down after it.
+      // The worker is told of the release of a key named as held, and of one
+      // this document did not see go down: another document of the tab can
+      // have named it. The release of a key typed as text here is not told.
+      const fromElsewhere = repeatedFromElsewhere.delete(e.code);
+      if (keysDown.get(e.code) !== null || fromElsewhere) reportHeldKey('up', e.code);
       keysDown.delete(e.code);
       downUnderMeta.delete(e.code);
       // Some systems send the page no release for a key let go while the Meta
       // key is held: once the Meta key is released, no key pressed under it
       // is known to be down. One still held is down again by its next repeat.
       if (e.key === 'Meta') {
+        // The keys that went down under it in the tab's other documents are
+        // the worker's to forget.
+        reportHeldKey('metaup');
         for (const code of downUnderMeta) {
           keysDown.delete(code);
           pressedKeysDown.delete(code);
@@ -1814,6 +1904,20 @@
       pressedKeysDown.clear();
       keysDown.clear();
       downUnderMeta.clear();
+      repeatedFromElsewhere.clear();
+      reportHeldKey('blur');
+    },
+    { capture: true, passive: true },
+  );
+
+  // The focus a pointer press gives this window: the keys held in the
+  // document that had it are released here from now on, which the worker is
+  // told (#779). A focus that comes any other way says nothing of the keys.
+  window.addEventListener(
+    'focus',
+    (e) => {
+      if (!e.isTrusted || e.target !== window) return;
+      if (pressInTask) reportHeldKey('focus');
     },
     { capture: true, passive: true },
   );
@@ -1980,6 +2084,7 @@
       // released in that time is never seen to go up: from the start of the
       // drag nothing is known to be down.
       keysDown.clear();
+      repeatedFromElsewhere.clear();
       if (!active) return;
       dragSource = e.target;
       appendAction({
@@ -1989,6 +2094,9 @@
         held_keys: held,
         element: describeElement(e.target),
       });
+      // Told behind the `drag_start`, which still names the keys held in the
+      // tab's other documents as it names this document's.
+      reportHeldKey('clear');
       markUserAction();
     },
     { capture: true, passive: true },
@@ -2017,6 +2125,8 @@
       // No key is known to be down at the end of a drag, wherever it started:
       // the page was sent no key events while it lasted.
       keysDown.clear();
+      repeatedFromElsewhere.clear();
+      reportHeldKey('clear');
       resolvePendingKeys();
       appendAction({
         type: 'drop',
@@ -2158,12 +2268,20 @@
   // a commit that waited on the answer holds the entry.
 
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    if (sender.id !== chrome.runtime.id || message?.type !== 'END_TYPING') return false;
-    if (!active) {
-      sendResponse({ ok: true });
+    if (sender.id !== chrome.runtime.id) return false;
+    // Either answer names the last report of held keys this recorder sent:
+    // the worker waits for it before it names a key held here to an action
+    // of another frame.
+    if (message?.type === 'HELD_KEY_REPORTS') {
+      sendResponse({ ok: true, heldReports: { ...heldReports } });
       return false;
     }
-    endTyping().then(() => sendResponse({ ok: true }));
+    if (message?.type !== 'END_TYPING') return false;
+    if (!active) {
+      sendResponse({ ok: true, heldReports: { ...heldReports } });
+      return false;
+    }
+    endTyping().then(() => sendResponse({ ok: true, heldReports: { ...heldReports } }));
     return true;
   });
 

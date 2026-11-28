@@ -204,9 +204,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          # Full history so the release-output guard can diff against the PR
-          # base via merge-base (three-dot). Other steps don't need it but it's
-          # harmless.
+          # Full history: the release-output guard diffs against the PR base
+          # via merge-base (three-dot), and the clause-form step, the words
+          # report and the test-inventories step read files at the merge base.
           fetch-depth: 0
 
       - uses: ./.github/actions/debug-env
@@ -285,13 +285,16 @@ jobs:
 
       # A rule has one home: an issue linked from two clauses of one document,
       # or a run of words standing in two clauses, is a rule stated twice, and
-      # the copies drift with the next change. A clause is also read by a
-      # person, so a paragraph, list item or table row over the word limit reds
-      # until it is split. scripts/clause-form-baseline.json lists the cases
-      # the check admits. On a pull request the check is given the base
-      # branch and reds on an entry the base's list does not hold;
+      # the copies drift with the next change. scripts/clause-form-baseline.json
+      # lists the cases the check admits. On a pull request the check is given
+      # the base branch and reds on an entry the base's list does not hold. It
+      # also lists each paragraph, list item or table row of a clause that grew
+      # since the base, in the log and in the job summary. That list does not
+      # fail the step: the pull request's reviewer answers it
+      # (docs/guides/docs-governance.md, Writing docs). A base branch the check
+      # cannot read does fail it.
       # scripts/check-clause-form.js holds the rules and their limits.
-      - name: Validate one home per rule and clause unit length
+      - name: Validate one home per rule and list grown clause units
         run: |
           if [ -n "$GITHUB_BASE_REF" ]; then
             git fetch --no-tags origin "$GITHUB_BASE_REF"
@@ -299,6 +302,16 @@ jobs:
           else
             npm run lint:clause-form
           fi
+
+      # Prints, for each document that holds clauses, the words it held at the
+      # base and the words it holds now, and writes the same table to the job
+      # summary. The step passes however much a document grew and fails only
+      # when an input it reads cannot be read. The base branch is the one the
+      # step above fetched. docs/guides/docs-governance.md ("Words before and
+      # after") holds what the numbers are for.
+      - name: Report words before and after in clause documents
+        if: github.event_name == 'pull_request'
+        run: npm run report:clause-doc-words -- "origin/$GITHUB_BASE_REF"
 
       # The committed data that goes stale around the test suites, held to the
       # tree: what each suite document enumerates, the coverage plumbing's
@@ -309,9 +322,19 @@ jobs:
       # header is the home of the closures it holds. It runs here, in the
       # always-on job, because the diff that stales one of them is often
       # docs-only, and a PR that sets none of the workflow's change flags —
-      # usually a docs-only one — skips every path-filtered test job.
+      # usually a docs-only one — skips every path-filtered test job. On a pull
+      # request the check is given the base branch the clause-form step
+      # fetched, and also lists each Covers cell that grew in place since it,
+      # in the log and in the job summary. That list does not fail the step:
+      # the pull request's reviewer answers it (docs/guides/docs-governance.md,
+      # Writing docs). A base branch the check cannot read does fail it.
       - name: Validate test-suite inventories, registration and kill sets
-        run: npm run lint:test-inventory
+        run: |
+          if [ -n "$GITHUB_BASE_REF" ]; then
+            npm run lint:test-inventory -- "origin/$GITHUB_BASE_REF"
+          else
+            npm run lint:test-inventory
+          fi
 
       # The verification documents state inventories of things that live
       # elsewhere, each held to the code constant, the manifest, the
@@ -1505,12 +1528,12 @@ jobs:
       - name: Install root dependencies
         run: npm ci
 
-      - name: Keyboard driver planner tests
+      - name: Input driver planner tests
         run: node --test --import ./packages/shared/tests/support/git-env-preload.js packages/desktop/tests/e2e/driver/plan.test.mjs
 
       # The driver's own window test, before the build: a red here means the
-      # keys do not arrive on this runner, and the job stops in minutes.
-      - name: Keyboard driver test
+      # keys and clicks do not arrive on this runner, and the job stops in minutes.
+      - name: Input driver test
         timeout-minutes: 5
         run: powershell -NoProfile -ExecutionPolicy Bypass -File packages/desktop/tests/e2e/driver/drive.test.ps1
 
@@ -1775,6 +1798,7 @@ jobs:
           disable_search: true
           flags: unit,javascript
           token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: true
           verbose: ${{ runner.debug == '1' }}
 
       - name: Upload extension E2E coverage to Codecov
@@ -1785,6 +1809,7 @@ jobs:
           disable_search: true
           flags: e2e,javascript
           token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: true
           verbose: ${{ runner.debug == '1' }}
 
       - name: Upload Rust unit coverage to Codecov
@@ -1795,6 +1820,7 @@ jobs:
           disable_search: true
           flags: unit,rust
           token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: true
           verbose: ${{ runner.debug == '1' }}
 
       - name: Upload Rust integration coverage to Codecov
@@ -1805,6 +1831,7 @@ jobs:
           disable_search: true
           flags: integration,rust
           token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: true
           verbose: ${{ runner.debug == '1' }}
 
       - name: Upload desktop integration JS coverage to Codecov
@@ -1815,6 +1842,7 @@ jobs:
           disable_search: true
           flags: integration,javascript
           token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: true
           verbose: ${{ runner.debug == '1' }}
 
       # No test job produced coverage (docs-/CI-only PR). Tell Codecov the
@@ -1827,6 +1855,7 @@ jobs:
           run_command: 'empty-upload'
           force: true
           token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: true
           verbose: ${{ runner.debug == '1' }}
 
   # Static analysis of the workflows themselves (template injection, dangerous
@@ -1840,7 +1869,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: zizmorcore/zizmor-action@45d7276c9ca790aabd705e31ca99c6185c3e76dd # v0.8.1
+      - uses: zizmorcore/zizmor-action@1b4550e929643b8b26a62303c6bd64814271a4f1 # v0.9.2
         with:
           version: 1.26.1
           advanced-security: false

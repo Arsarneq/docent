@@ -74,5 +74,24 @@ for (const { key, fixture } of PLATFORMS) {
     it('rejects an unknown top-level key (additionalProperties false)', () => {
       assert.equal(validate({ ...validFixture, sneaky: true }), false);
     });
+
+    // docent#825: `modifiers` states AltGr as `alt_graph`, a boolean that a
+    // recording made before the field existed does not carry.
+    it('regression_825_modifiers_take_an_optional_boolean_alt_graph', () => {
+      const withModifiers = (modifiers) => {
+        const payload = structuredClone(validFixture);
+        const action = payload.recordings[0].steps
+          .flatMap((s) => s.actions)
+          .find((a) => a.type === 'click' || a.type === 'key');
+        action.modifiers = modifiers;
+        return payload;
+      };
+      const none = { ctrl: false, shift: false, alt: false, meta: false };
+      for (const modifiers of [none, { ...none, alt_graph: false }, { ...none, alt_graph: true }]) {
+        const payload = withModifiers(modifiers);
+        assert.equal(validate(payload), true, JSON.stringify(validate.errors));
+      }
+      assert.equal(validate(withModifiers({ ...none, alt_graph: 'yes' })), false);
+    });
   });
 }

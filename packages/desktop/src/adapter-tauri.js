@@ -191,18 +191,21 @@ function _redactSensitive(action) {
 // not reach. On a sensitive field a key that enters text is therefore recorded
 // as what it is there — typing into the field — in the one shape that typing
 // has: the field's masked `type`. Keys that enter no character (Enter, Tab,
-// Backspace, the arrows) and shortcuts (Ctrl, Alt or Meta held, other than
-// Ctrl and Alt together, which is AltGr) stay keys.
-// The test is closed on the keys that stay keys, so a key name this list does
-// not know counts as text and is masked. The native layer's password rule
+// Backspace, the arrows, every key with a name of its own) and shortcuts
+// (Meta, Ctrl without Alt or AltGr, Alt without Ctrl or AltGr: see
+// _keyEntersText) stay keys.
+// The test is closed on the keys that stay keys, so every other name counts
+// as text and is masked: a character, `Space`, `Dead`, `Unidentified`, and
+// `Process`, the key an input method took, which stands for a typing key. The native layer's password rule
 // keeps the same list (NON_TEXT_KEY_NAMES in src-tauri/src/capture/worker_pool.rs).
+// A key written `Unidentified` because an input method was on does not say
+// by its name what it is; the native layer, which knows the key, marks the
+// one that enters no character (`key_enters_no_text`, internal to this
+// stream and dropped in _insertOrdered), and that key stays a key.
 const _NON_TEXT_KEY_NAMES = new Set([
   'Backspace',
   'Tab',
   'Enter',
-  'Shift',
-  'Control',
-  'Alt',
   'Pause',
   'CapsLock',
   'Escape',
@@ -220,6 +223,54 @@ const _NON_TEXT_KEY_NAMES = new Set([
   'Meta',
   'NumLock',
   'ScrollLock',
+  'Cancel',
+  'Clear',
+  'JunjaMode',
+  'FinalMode',
+  'Convert',
+  'NonConvert',
+  'Accept',
+  'ModeChange',
+  'Select',
+  'Print',
+  'Execute',
+  'Help',
+  'ContextMenu',
+  'Standby',
+  'BrowserBack',
+  'BrowserForward',
+  'BrowserRefresh',
+  'BrowserStop',
+  'BrowserSearch',
+  'BrowserFavorites',
+  'BrowserHome',
+  'AudioVolumeMute',
+  'AudioVolumeDown',
+  'AudioVolumeUp',
+  'MediaTrackNext',
+  'MediaTrackPrevious',
+  'MediaStop',
+  'MediaPlayPause',
+  'LaunchMail',
+  'LaunchMediaPlayer',
+  'LaunchApplication1',
+  'LaunchApplication2',
+  'Attn',
+  'CrSel',
+  'ExSel',
+  'EraseEof',
+  'Play',
+  'ZoomToggle',
+  'HangulMode',
+  'HanjaMode',
+  'KanaMode',
+  'KanjiMode',
+  'Alphanumeric',
+  'Katakana',
+  'Hiragana',
+  'Hankaku',
+  'Zenkaku',
+  'Romaji',
 ]);
 
 // The control types that take no typed text: a key pressed on one presses,
@@ -236,9 +287,17 @@ const _NON_TEXT_CONTROL_TAGS = new Set([
   'TabItem',
 ]);
 
-function _keyEntersText(action) {
-  const { ctrl = false, alt = false, meta = false } = action.modifiers || {};
-  if (meta || ctrl !== alt) return false;
+// The shortcut modifiers are Meta, Ctrl held without Alt or AltGr, and Alt
+// held without Ctrl or AltGr: AltGr, and Ctrl and Alt held together, enter
+// characters of the layout. `ctrl` and `alt` state only a Ctrl and an Alt the
+// person held beside AltGr (`alt_graph`), so a character entered with AltGr
+// and a held Ctrl or Alt is no shortcut (docent#825). The native layer's
+// typing rule reads the same verdict from the keys as Windows holds them,
+// AltGr counted as Ctrl and Alt together.
+function _keyEntersText(action, entersNoText = false) {
+  if (entersNoText) return false;
+  const { ctrl = false, alt = false, meta = false, alt_graph = false } = action.modifiers || {};
+  if (meta || (!alt_graph && ctrl !== alt)) return false;
   const key = action.key;
   if (typeof key !== 'string' || key === '') return false;
   return !_NON_TEXT_KEY_NAMES.has(key) && !/^F\d+$/.test(key);
@@ -320,8 +379,14 @@ function _insertOrdered(action) {
   const seqId = action.sequence_id;
 
   // Strip sequence_id before adding to pending actions, and with it the
-  // key-downs the held keys are down by: both are internal to this stream.
-  const { sequence_id: _seq, held_presses: heldPresses, ...received } = action;
+  // key-downs the held keys are down by and the mark of an unnamed key that
+  // enters no text: all three are internal to this stream.
+  const {
+    sequence_id: _seq,
+    held_presses: heldPresses,
+    key_enters_no_text: entersNoText,
+    ...received
+  } = action;
   _redactSensitive(received);
   const typedOnSensitiveField =
     received.type === 'key' &&
@@ -331,7 +396,7 @@ function _insertOrdered(action) {
     // as its name; a title is no field name, so it decides nothing here.
     !(received.element.tag === 'Unknown' && received.element.selector === '') &&
     !_NON_TEXT_CONTROL_TAGS.has(received.element.tag) &&
-    _keyEntersText(received);
+    _keyEntersText(received, entersNoText === true);
   const cleanAction = typedOnSensitiveField ? _maskedTypeFromKey(received) : received;
   // Which of the keys that were down are held keys of the recording is known
   // only when the step's actions are complete (see _nameHeldKeys). Until then
@@ -372,8 +437,9 @@ function _insertOrdered(action) {
 
 // ─── Completeness Guarantee ───────────────────────────────────────────────────
 // The frontend half of the step-commit flush barrier (docent#298; desktop
-// capture-principles DCP-2 states the guarantee and why the wait is on the
-// stream rather than on the command). What lives here: wait for the
+// capture-principles DCP-2 states the guarantee, and the capture pipeline's
+// commit flush barrier section why the wait is on the stream rather than on
+// the command). What lives here: wait for the
 // `barrier_complete` sentinel the backend emits last on the capture:action
 // stream, then strip the internal _seq fields from all pending actions.
 

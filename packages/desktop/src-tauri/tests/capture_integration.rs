@@ -69,10 +69,18 @@ struct ResponsiveWindow {
     /// Owning thread id — target of the `WM_QUIT` that stops the pump.
     thread_id: u32,
     handle: Option<std::thread::JoinHandle<()>>,
+    /// The window's screen rectangle as created: left, top, width, height.
+    rect: (i32, i32, i32, i32),
 }
 
 impl ResponsiveWindow {
+    /// A 600 x 400 window at (200, 200).
     fn new(title: &str) -> Self {
+        Self::at(title, (200, 200, 600, 400))
+    }
+
+    /// A window at `rect`: left, top, width, height.
+    fn at(title: &str, rect: (i32, i32, i32, i32)) -> Self {
         use docent_desktop_lib::capture::win32_bindings::GetCurrentThreadId;
         use docent_desktop_lib::capture::win32_bindings::{
             CreateWindowExW, DestroyWindow, DispatchMessageW, GetMessageW, SetForegroundWindow,
@@ -92,10 +100,10 @@ impl ResponsiveWindow {
                     windows_core::w!("STATIC"),
                     windows_core::PCWSTR(title_wide.as_ptr()),
                     (WS_OVERLAPPEDWINDOW | WS_VISIBLE) as u32 | SS_NOTIFY_STYLE,
-                    200,
-                    200,
-                    600,
-                    400,
+                    rect.0,
+                    rect.1,
+                    rect.2,
+                    rect.3,
                     None,
                     None,
                     None,
@@ -134,7 +142,14 @@ impl ResponsiveWindow {
         Self {
             thread_id,
             handle: Some(handle),
+            rect,
         }
+    }
+
+    /// The screen point at the middle of the window.
+    fn center(&self) -> (i32, i32) {
+        let (x, y, width, height) = self.rect;
+        (x + width / 2, y + height / 2)
     }
 }
 
@@ -419,45 +434,6 @@ fn expect_hwnd(hwnd: HWND, msg: &str) -> HWND {
 
 mod user_actions {
     use super::*;
-    use docent_desktop_lib::capture::win32_bindings::HWND;
-    use docent_desktop_lib::capture::win32_bindings::RECT;
-    use docent_desktop_lib::capture::win32_bindings::{
-        CreateWindowExW, DestroyWindow, GetWindowRect, SetForegroundWindow, WS_OVERLAPPEDWINDOW,
-        WS_VISIBLE,
-    };
-    use std::ptr;
-    use windows_core::w;
-
-    /// Create a test window and return its handle + center coordinates.
-    unsafe fn create_target_window() -> (HWND, i32, i32) {
-        let hwnd = crate::expect_hwnd(
-            CreateWindowExW(
-                docent_desktop_lib::capture::win32_bindings::WS_EX_TOPMOST as u32,
-                w!("STATIC"),
-                w!("Docent Test Target"),
-                (WS_OVERLAPPEDWINDOW | WS_VISIBLE) as u32 | SS_NOTIFY_STYLE,
-                200,
-                200,
-                600,
-                400,
-                None,
-                None,
-                None,
-                Some(ptr::null()),
-            ),
-            "Failed to create target window",
-        );
-
-        let _ = SetForegroundWindow(hwnd);
-        thread::sleep(Duration::from_millis(100));
-
-        let mut rect = RECT::default();
-        GetWindowRect(hwnd, &mut rect).unwrap();
-        let cx = (rect.left + rect.right) / 2;
-        let cy = (rect.top + rect.bottom) / 2;
-
-        (hwnd, cx, cy)
-    }
 
     #[test]
     #[serial]
@@ -468,7 +444,8 @@ mod user_actions {
         capture.start(tx).expect("Failed to start capture");
         thread::sleep(Duration::from_millis(200));
 
-        let (hwnd, cx, cy) = unsafe { create_target_window() };
+        let window = ResponsiveWindow::new("Click Test");
+        let (cx, cy) = window.center();
         thread::sleep(Duration::from_millis(200));
 
         let mut enigo = Enigo::new(&Settings::default()).unwrap();
@@ -477,9 +454,7 @@ mod user_actions {
         enigo.button(enigo::Button::Left, Direction::Click).unwrap();
         thread::sleep(Duration::from_millis(500));
 
-        unsafe {
-            let _ = DestroyWindow(hwnd);
-        }
+        drop(window);
         capture.stop().unwrap();
         let events: Vec<_> = rx.try_iter().collect();
 
@@ -499,7 +474,8 @@ mod user_actions {
         capture.start(tx).expect("Failed to start capture");
         thread::sleep(Duration::from_millis(200));
 
-        let (hwnd, cx, cy) = unsafe { create_target_window() };
+        let window = ResponsiveWindow::new("Right Click Test");
+        let (cx, cy) = window.center();
         thread::sleep(Duration::from_millis(200));
 
         let mut enigo = Enigo::new(&Settings::default()).unwrap();
@@ -510,9 +486,7 @@ mod user_actions {
             .unwrap();
         thread::sleep(Duration::from_millis(500));
 
-        unsafe {
-            let _ = DestroyWindow(hwnd);
-        }
+        drop(window);
         capture.stop().unwrap();
         let events: Vec<_> = rx.try_iter().collect();
 
@@ -557,7 +531,8 @@ mod user_actions {
         capture.start(tx).expect("Failed to start capture");
         thread::sleep(Duration::from_millis(200));
 
-        let (hwnd, cx, cy) = unsafe { create_target_window() };
+        let window = ResponsiveWindow::new("Scroll Test");
+        let (cx, cy) = window.center();
         thread::sleep(Duration::from_millis(200));
 
         let mut enigo = Enigo::new(&Settings::default()).unwrap();
@@ -566,9 +541,7 @@ mod user_actions {
         enigo.scroll(5, enigo::Axis::Vertical).unwrap();
         thread::sleep(Duration::from_millis(500));
 
-        unsafe {
-            let _ = DestroyWindow(hwnd);
-        }
+        drop(window);
         capture.stop().unwrap();
         let events: Vec<_> = rx.try_iter().collect();
 
@@ -588,16 +561,14 @@ mod user_actions {
         capture.start(tx).expect("Failed to start capture");
         thread::sleep(Duration::from_millis(200));
 
-        let (hwnd, _, _) = unsafe { create_target_window() };
+        let window = ResponsiveWindow::new("Typing Test");
         thread::sleep(Duration::from_millis(200));
 
         let mut enigo = Enigo::new(&Settings::default()).unwrap();
         enigo.text("hello").unwrap();
         thread::sleep(Duration::from_millis(600));
 
-        unsafe {
-            let _ = DestroyWindow(hwnd);
-        }
+        drop(window);
         capture.stop().unwrap();
         let events: Vec<_> = rx.try_iter().collect();
 
@@ -618,7 +589,8 @@ mod user_actions {
         capture.start(tx).expect("Failed to start capture");
         thread::sleep(Duration::from_millis(200));
 
-        let (hwnd, cx, cy) = unsafe { create_target_window() };
+        let window = ResponsiveWindow::new("Double Click Test");
+        let (cx, cy) = window.center();
         thread::sleep(Duration::from_millis(200));
 
         let mut enigo = Enigo::new(&Settings::default()).unwrap();
@@ -629,9 +601,7 @@ mod user_actions {
         enigo.button(enigo::Button::Left, Direction::Click).unwrap();
         thread::sleep(Duration::from_millis(500));
 
-        unsafe {
-            let _ = DestroyWindow(hwnd);
-        }
+        drop(window);
         capture.stop().unwrap();
         let events: Vec<_> = rx.try_iter().collect();
 
@@ -651,7 +621,12 @@ mod user_actions {
         capture.start(tx).expect("Failed to start capture");
         thread::sleep(Duration::from_millis(200));
 
-        let (hwnd, cx, cy) = unsafe { create_target_window() };
+        // A window that pumps its messages: the worker describes the element
+        // under the point at the drag start, and a window that never answers
+        // WM_GETOBJECT holds that worker past stop()'s wait, which then loses
+        // both the drag start and the drop (docent#795).
+        let window = ResponsiveWindow::new("Drag Test");
+        let (cx, cy) = window.center();
         thread::sleep(Duration::from_millis(200));
 
         let mut enigo = Enigo::new(&Settings::default()).unwrap();
@@ -666,9 +641,7 @@ mod user_actions {
             .unwrap();
         thread::sleep(Duration::from_millis(500));
 
-        unsafe {
-            let _ = DestroyWindow(hwnd);
-        }
+        drop(window);
         capture.stop().unwrap();
         let events: Vec<_> = rx.try_iter().collect();
 
@@ -1159,46 +1132,6 @@ mod side_effects_additional {
 
 mod user_actions_advanced {
     use super::*;
-    use docent_desktop_lib::capture::win32_bindings::HWND;
-    use docent_desktop_lib::capture::win32_bindings::RECT;
-    use docent_desktop_lib::capture::win32_bindings::{
-        CreateWindowExW, DestroyWindow, GetWindowRect, SetForegroundWindow, WS_OVERLAPPEDWINDOW,
-        WS_VISIBLE,
-    };
-    use std::ptr;
-    use windows_core::w;
-
-    unsafe fn create_target_window(title: &str, x: i32, y: i32) -> (HWND, i32, i32) {
-        let title_wide: Vec<u16> = title.encode_utf16().chain(std::iter::once(0)).collect();
-        let hwnd = crate::expect_hwnd(
-            CreateWindowExW(
-                docent_desktop_lib::capture::win32_bindings::WS_EX_TOPMOST as u32,
-                w!("STATIC"),
-                windows_core::PCWSTR(title_wide.as_ptr()),
-                (WS_OVERLAPPEDWINDOW | WS_VISIBLE) as u32 | SS_NOTIFY_STYLE,
-                x,
-                y,
-                400,
-                300,
-                None,
-                None,
-                None,
-                Some(ptr::null()),
-            ),
-            "Failed to create target window",
-        );
-
-        let _ = SetForegroundWindow(hwnd);
-        thread::sleep(Duration::from_millis(100));
-
-        let mut rect = RECT::default();
-        GetWindowRect(hwnd, &mut rect).unwrap();
-        let cx = (rect.left + rect.right) / 2;
-        let cy = (rect.top + rect.bottom) / 2;
-
-        (hwnd, cx, cy)
-    }
-
     #[test]
     #[serial]
     fn user_click_switches_window_produces_context_switch() {
@@ -1210,9 +1143,11 @@ mod user_actions_advanced {
         thread::sleep(Duration::from_millis(200));
 
         // Create two windows in non-overlapping screen regions.
-        let (hwnd1, cx1, cy1) = unsafe { create_target_window("Window A", 100, 100) };
+        let window_a = ResponsiveWindow::at("Window A", (100, 100, 400, 300));
+        let (cx1, cy1) = window_a.center();
         thread::sleep(Duration::from_millis(200));
-        let (hwnd2, cx2, cy2) = unsafe { create_target_window("Window B", 600, 100) };
+        let window_b = ResponsiveWindow::at("Window B", (600, 100, 400, 300));
+        let (cx2, cy2) = window_b.center();
         thread::sleep(Duration::from_millis(200));
 
         let mut enigo = Enigo::new(&Settings::default()).unwrap();
@@ -1236,10 +1171,8 @@ mod user_actions_advanced {
         enigo.button(enigo::Button::Left, Direction::Click).unwrap();
         thread::sleep(Duration::from_millis(500));
 
-        unsafe {
-            let _ = DestroyWindow(hwnd1);
-            let _ = DestroyWindow(hwnd2);
-        }
+        drop(window_a);
+        drop(window_b);
         capture.stop().unwrap();
         let events: Vec<_> = rx.try_iter().collect();
 
@@ -1618,8 +1551,9 @@ mod capture_behaviour {
 
         // No count assertion (see above). Whatever printable keys ARE captured
         // must be clean single characters with no Ctrl/Alt/Meta — captured keys
-        // are never garbled. (vk_to_key_name maps VK 'A'..'Z' to uppercase
-        // regardless of shift state, so compare case-insensitively.)
+        // are never garbled. (A letter is named in the case the press gives
+        // it, which Caps Lock on the machine decides, so compare
+        // case-insensitively.)
         for e in keys(&events) {
             if let ActionPayload::Key { key, modifiers, .. } = &e.payload {
                 if key.len() == 1 && !modifiers.ctrl && !modifiers.alt && !modifiers.meta {
@@ -4020,6 +3954,699 @@ mod taskbar_chrome {
             !click_events.is_empty(),
             "Expected click on system tray area, got 0 clicks (total events: {})",
             events.len()
+        );
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ALTGR AND THE CTRL AND ALT HELD WITH IT (docent#825)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+mod alt_graph {
+    use super::*;
+    use docent_desktop_lib::capture::win32_bindings::{
+        FindWindowW, GetKeyboardLayout, GetKeyboardLayoutList, LoadKeyboardLayoutW, PostMessageW,
+        UnloadKeyboardLayout, HKL, LPARAM, WPARAM,
+    };
+
+    /// `LoadKeyboardLayoutW` flags: make the layout the active one, for every
+    /// thread of the process.
+    const KLF_ACTIVATE: u32 = 0x0000_0001;
+    const KLF_SETFORPROCESS: u32 = 0x0000_0100;
+    /// The message that asks a window's thread to take another layout.
+    const WM_INPUTLANGCHANGEREQUEST: u32 = 0x0050;
+    /// The virtual-key code of the E key.
+    const VK_E: u32 = 0x45;
+
+    /// A keyboard layout made the active one of the test process and of the
+    /// test window's thread for real input, and taken back when dropped.
+    struct ActiveLayout {
+        hkl: HKL,
+        before: HKL,
+        unload: bool,
+    }
+
+    impl ActiveLayout {
+        /// Makes layout `id` active for `window`, and panics, saying so, where
+        /// the window's thread does not take it.
+        fn make(id: &str, language: usize, window: &ResponsiveWindow, title: &str) -> Self {
+            let wide: Vec<u16> = id.encode_utf16().chain(Some(0)).collect();
+            let title_wide: Vec<u16> = title.encode_utf16().chain(Some(0)).collect();
+            // SAFETY: the list is read into a buffer of the size the first
+            // call reports; the strings are NUL-terminated and outlive the
+            // calls.
+            unsafe {
+                let before = GetKeyboardLayout(window.thread_id);
+                let mut loaded = vec![HKL::default(); GetKeyboardLayoutList(0, None) as usize];
+                let n = GetKeyboardLayoutList(loaded.len() as i32, Some(loaded.as_mut_ptr()));
+                loaded.truncate(n.max(0) as usize);
+                let hkl = LoadKeyboardLayoutW(
+                    windows_core::PCWSTR(wide.as_ptr()),
+                    KLF_ACTIVATE | KLF_SETFORPROCESS,
+                );
+                assert!(!hkl.0.is_null(), "layout {id} must load");
+                assert_eq!(hkl.0 as usize & 0xFFFF, language, "layout {id}");
+                // The window's own thread is asked too: with per-window input
+                // languages the process-wide activation can leave it alone.
+                let hwnd = FindWindowW(
+                    windows_core::w!("STATIC"),
+                    windows_core::PCWSTR(title_wide.as_ptr()),
+                );
+                if !hwnd.0.is_null() {
+                    let _ = PostMessageW(
+                        Some(hwnd),
+                        WM_INPUTLANGCHANGEREQUEST,
+                        WPARAM(0),
+                        LPARAM(hkl.0 as isize),
+                    );
+                }
+                let start = Instant::now();
+                while GetKeyboardLayout(window.thread_id) != hkl
+                    && start.elapsed() < Duration::from_secs(2)
+                {
+                    thread::sleep(Duration::from_millis(20));
+                }
+                assert_eq!(
+                    GetKeyboardLayout(window.thread_id),
+                    hkl,
+                    "layout {id} could not be made active for the test window's thread \
+                     (LoadKeyboardLayoutW with KLF_ACTIVATE | KLF_SETFORPROCESS, then \
+                     WM_INPUTLANGCHANGEREQUEST to the window)"
+                );
+                ActiveLayout {
+                    hkl,
+                    before,
+                    unload: !loaded.contains(&hkl),
+                }
+            }
+        }
+    }
+
+    impl Drop for ActiveLayout {
+        fn drop(&mut self) {
+            // SAFETY: handles the system gave; activating a loaded layout and
+            // unloading one this test loaded.
+            unsafe {
+                if !self.before.0.is_null() && self.before != self.hkl {
+                    // The layout id of the handle: its device half, or its
+                    // language half where the device half names no layout.
+                    let handle = self.before.0 as usize;
+                    let device = (handle >> 16) & 0xFFFF;
+                    let klid = if device & 0xF000 == 0xF000 {
+                        handle & 0xFFFF
+                    } else {
+                        device
+                    };
+                    let id: Vec<u16> = format!("{klid:08X}")
+                        .encode_utf16()
+                        .chain(Some(0))
+                        .collect();
+                    let _ = LoadKeyboardLayoutW(
+                        windows_core::PCWSTR(id.as_ptr()),
+                        KLF_ACTIVATE | KLF_SETFORPROCESS,
+                    );
+                }
+                if self.unload {
+                    let _ = UnloadKeyboardLayout(self.hkl);
+                }
+            }
+        }
+    }
+
+    /// The `modifiers` an action states, as the file holds them.
+    pub(super) fn modifiers_of(event: &ActionEvent) -> serde_json::Value {
+        serde_json::to_value(event).unwrap()["modifiers"].clone()
+    }
+
+    /// What `modifiers` must hold: Shift and Meta up.
+    fn expected(ctrl: bool, alt: bool, alt_graph: bool) -> serde_json::Value {
+        serde_json::json!({
+            "ctrl": ctrl,
+            "shift": false,
+            "alt": alt,
+            "meta": false,
+            "alt_graph": alt_graph,
+        })
+    }
+
+    /// Runs `drive` against a test window with layout `id` active and
+    /// returns what was captured.
+    pub(super) fn capture_with_layout(
+        id: &str,
+        language: usize,
+        title: &str,
+        drive: impl FnOnce(&mut Enigo, &ResponsiveWindow),
+    ) -> Vec<ActionEvent> {
+        let (tx, rx) = mpsc::channel::<ActionEvent>();
+        let mut capture = WindowsCapture::new();
+        capture.set_excluded_pid(None);
+        capture.start(tx).unwrap();
+        thread::sleep(Duration::from_millis(200));
+
+        let window = ResponsiveWindow::new(title);
+        let layout = ActiveLayout::make(id, language, &window, title);
+        let mut enigo = Enigo::new(&Settings::default()).unwrap();
+        drive(&mut enigo, &window);
+        thread::sleep(Duration::from_millis(500));
+
+        drop(layout);
+        drop(window);
+        let events = stop_capture_bounded(capture, &rx);
+        assert_captured_keys_well_formed(&events);
+        events
+    }
+
+    /// The `modifiers` of each captured press of the E key, in order.
+    fn e_presses(events: &[ActionEvent]) -> Vec<serde_json::Value> {
+        events
+            .iter()
+            .filter(|e| {
+                matches!(
+                    &e.payload,
+                    ActionPayload::Key {
+                        code: Some("KeyE"),
+                        ..
+                    }
+                )
+            })
+            .map(modifiers_of)
+            .collect()
+    }
+
+    /// One step of the input a test sends.
+    #[derive(Clone, Copy)]
+    enum Step {
+        /// A key goes down and stays down.
+        Down(enigo::Key),
+        /// A key held down goes up.
+        Up(enigo::Key),
+        /// The E key pressed and released.
+        E,
+        /// A left click at the middle of the test window.
+        Click,
+        /// The keyboard's state of the left Ctrl read and kept: with AltGr
+        /// held on a layout with AltGr, Windows holds its own left Ctrl down.
+        ReadLeftCtrl,
+    }
+
+    /// Whether the keyboard's state holds the left Ctrl down now.
+    fn left_ctrl_down() -> bool {
+        use docent_desktop_lib::capture::held_keys::VK_LCONTROL;
+        use docent_desktop_lib::capture::win32_bindings::GetAsyncKeyState;
+        // SAFETY: a read of the keyboard's state for a key code.
+        unsafe { GetAsyncKeyState(VK_LCONTROL as i32) < 0 }
+    }
+
+    /// Sends `steps` in order, a pause after each, and every key still down
+    /// at the end released. Returns what each [`Step::ReadLeftCtrl`] read.
+    fn send(enigo: &mut Enigo, window: &ResponsiveWindow, steps: &[Step]) -> Vec<bool> {
+        let mut reads = Vec::new();
+        let (cx, cy) = window.center();
+        enigo.move_mouse(cx, cy, Coordinate::Abs).unwrap();
+        thread::sleep(Duration::from_millis(50));
+        let mut down: Vec<enigo::Key> = Vec::new();
+        for step in steps {
+            match *step {
+                Step::Down(key) => {
+                    enigo.key(key, Direction::Press).unwrap();
+                    down.push(key);
+                }
+                Step::Up(key) => {
+                    enigo.key(key, Direction::Release).unwrap();
+                    down.retain(|k| *k != key);
+                }
+                Step::E => enigo
+                    .key(enigo::Key::Other(VK_E), Direction::Click)
+                    .unwrap(),
+                Step::Click => enigo.button(enigo::Button::Left, Direction::Click).unwrap(),
+                Step::ReadLeftCtrl => reads.push(left_ctrl_down()),
+            }
+            thread::sleep(Duration::from_millis(60));
+        }
+        for key in down.iter().rev() {
+            enigo.key(*key, Direction::Release).unwrap();
+            thread::sleep(Duration::from_millis(30));
+        }
+        thread::sleep(Duration::from_millis(150));
+        reads
+    }
+
+    /// Sends `steps` on layout `id` and asserts that each press of the E key
+    /// was captured, in order, with its own `modifiers` of `want_keys`, and
+    /// each click with its own of `want_clicks`. Every [`Step::ReadLeftCtrl`]
+    /// must find the left Ctrl down: each stands where AltGr is held on a
+    /// layout with AltGr, and Windows holds its own Ctrl with it.
+    fn assert_each_press(
+        id: &str,
+        language: usize,
+        title: &str,
+        steps: &[Step],
+        want_keys: &[serde_json::Value],
+        want_clicks: &[serde_json::Value],
+    ) {
+        let steps = steps.to_vec();
+        let mut reads = Vec::new();
+        let events = capture_with_layout(id, language, title, |enigo, window| {
+            reads = send(enigo, window, &steps)
+        });
+        assert!(
+            reads.iter().all(|down| *down),
+            "Windows holds no left Ctrl of its own with the injected AltGr on layout {id}: {reads:?}"
+        );
+        assert_eq!(
+            e_presses(&events),
+            want_keys,
+            "each press of E, captured once, with its own modifiers"
+        );
+        let got_clicks: Vec<_> = clicks(&events).into_iter().map(modifiers_of).collect();
+        assert_eq!(
+            got_clicks, want_clicks,
+            "each click, captured once, with its own modifiers"
+        );
+    }
+
+    use enigo::Key::{LControl, LMenu, RMenu};
+    use Step::{Click, Down, ReadLeftCtrl, Up, E};
+
+    /// The Danish layout, which has AltGr.
+    const DANISH: (&str, usize) = ("00000406", 0x0406);
+    /// The US layout, which has none.
+    pub(super) const US: (&str, usize) = ("00000409", 0x0409);
+
+    // Regression: #825 — the desktop wrote AltGr as Ctrl and Alt, the same as
+    // a Ctrl and an Alt the person held.
+    // https://github.com/Arsarneq/docent/issues/825
+    //
+    // On the Danish layout: AltGr with E (case a); a left Ctrl held, then
+    // AltGr, with E (case i: Windows then sends no Ctrl of its own in front
+    // of the right Alt); a left Alt held, then AltGr, with E (case k); a left
+    // Ctrl and a left Alt with E (case b).
+    #[test]
+    #[serial]
+    fn regression_825_altgr_is_alt_graph_and_a_held_ctrl_or_alt_is_its_own() {
+        assert_each_press(
+            DANISH.0,
+            DANISH.1,
+            "AltGr Keys",
+            &[
+                Down(RMenu),
+                ReadLeftCtrl,
+                E,
+                Up(RMenu),
+                Down(LControl),
+                Down(RMenu),
+                E,
+                Up(RMenu),
+                Up(LControl),
+                Down(LMenu),
+                Down(RMenu),
+                E,
+                Up(RMenu),
+                Up(LMenu),
+                Down(LControl),
+                Down(LMenu),
+                E,
+                Up(LMenu),
+                Up(LControl),
+            ],
+            &[
+                expected(false, false, true),
+                expected(true, false, true),
+                expected(false, true, true),
+                expected(true, true, false),
+            ],
+            &[],
+        );
+    }
+
+    // Regression: #825 — a left Ctrl held, AltGr, E, AltGr released, E (case
+    // r): AltGr with the Ctrl at the first E, the Ctrl alone at the second.
+    // https://github.com/Arsarneq/docent/issues/825
+    #[test]
+    #[serial]
+    fn regression_825_a_ctrl_held_across_altgr_is_ctrl_before_and_after() {
+        assert_each_press(
+            DANISH.0,
+            DANISH.1,
+            "Ctrl AltGr Up",
+            &[Down(LControl), Down(RMenu), E, Up(RMenu), E, Up(LControl)],
+            &[expected(true, false, true), expected(true, false, false)],
+            &[],
+        );
+    }
+
+    // Regression: #825 — AltGr, a left Ctrl, E, the Ctrl released, E (case
+    // s): the Ctrl with AltGr at the first E; at the second Windows has let
+    // go of the left Ctrl with the person's, and the program gets the right
+    // Alt alone (the key is named `e`, not `€`): Alt, no AltGr.
+    // https://github.com/Arsarneq/docent/issues/825
+    #[test]
+    #[serial]
+    fn regression_825_a_ctrl_pressed_and_released_within_altgr_is_ctrl_while_held() {
+        assert_each_press(
+            DANISH.0,
+            DANISH.1,
+            "AltGr Ctrl Up",
+            &[Down(RMenu), Down(LControl), E, Up(LControl), E, Up(RMenu)],
+            &[expected(true, false, true), expected(false, true, false)],
+            &[],
+        );
+    }
+
+    // Regression: #825 — a click with AltGr held is written with
+    // `alt_graph` true and neither `ctrl` nor `alt` (case g), and with a left
+    // Ctrl held before AltGr with `ctrl` too (case n).
+    // https://github.com/Arsarneq/docent/issues/825
+    #[test]
+    #[serial]
+    fn regression_825_a_click_with_altgr_held_states_alt_graph() {
+        assert_each_press(
+            DANISH.0,
+            DANISH.1,
+            "AltGr Click",
+            &[
+                Down(RMenu),
+                ReadLeftCtrl,
+                Click,
+                Up(RMenu),
+                Down(LControl),
+                Down(RMenu),
+                Click,
+                Up(RMenu),
+                Up(LControl),
+            ],
+            &[],
+            &[expected(false, false, true), expected(true, false, true)],
+        );
+    }
+
+    // Regression: #825 — on a layout with no AltGr the right Alt is a plain
+    // Alt: `alt` true, `alt_graph` false, alone and with a left Ctrl.
+    // https://github.com/Arsarneq/docent/issues/825
+    #[test]
+    #[serial]
+    fn regression_825_the_right_alt_on_a_layout_with_no_altgr_is_alt() {
+        assert_each_press(
+            US.0,
+            US.1,
+            "Right Alt Keys",
+            &[
+                Down(RMenu),
+                E,
+                Up(RMenu),
+                Down(LControl),
+                Down(RMenu),
+                E,
+                Up(RMenu),
+                Up(LControl),
+            ],
+            &[expected(false, true, false), expected(true, true, false)],
+            &[],
+        );
+    }
+
+    // Regression: #825 — AltGr, a left Ctrl, AltGr released with the Ctrl
+    // still held, E: no AltGr, and `ctrl` is what Windows' state holds of the
+    // left Ctrl then, read here at that moment. Whether Windows' own Ctrl
+    // going up with the right Alt takes the held Ctrl's state with it is not
+    // measured; the test prints what it found.
+    // https://github.com/Arsarneq/docent/issues/825
+    #[test]
+    #[serial]
+    fn regression_825_altgr_released_with_a_ctrl_still_held_is_the_keyboard_s_state() {
+        let mut reads = Vec::new();
+        let events =
+            capture_with_layout(DANISH.0, DANISH.1, "AltGr Up Ctrl Held", |enigo, window| {
+                reads = send(
+                    enigo,
+                    window,
+                    &[
+                        Down(RMenu),
+                        Down(LControl),
+                        Up(RMenu),
+                        ReadLeftCtrl,
+                        E,
+                        Up(LControl),
+                    ],
+                )
+            });
+        let held = reads[0];
+        println!("left Ctrl held after AltGr's release, by Windows' state: {held}");
+        assert_eq!(e_presses(&events), vec![expected(held, false, false)]);
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SHIFT, CTRL AND ALT SENT BY THEIR GENERIC CODES
+// A program that sends input (an on-screen keyboard, a remote-desktop client,
+// an automation tool) can send Shift, Ctrl and Alt by their generic
+// virtual-key codes, `VK_SHIFT`, `VK_CONTROL` and `VK_MENU`, with no scan
+// code. A press of Shift, Ctrl or Alt is written as no `key` (DCP-9, DCP-13),
+// and a key pressed while one is held states it in its `modifiers`. These
+// tests send that input with `SendInput` itself, since enigo fills in a scan
+// code. A low-level keyboard hook of their own must be handed a key-down for
+// each press, by one of its key's codes, and the codes it was handed are
+// reported.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+mod generic_modifier_codes {
+    use super::alt_graph::{capture_with_layout, modifiers_of, US};
+    use super::*;
+    use docent_desktop_lib::capture::win32_bindings::{
+        CallNextHookEx, GetCurrentThreadId, GetMessageW, PeekMessageW, PostThreadMessageW,
+        SendInput, SetWindowsHookExW, UnhookWindowsHookEx, INPUT, INPUT_0, INPUT_KEYBOARD,
+        KBDLLHOOKSTRUCT, KEYBDINPUT, KEYEVENTF_KEYUP, LLKHF_INJECTED, LPARAM, LRESULT, MSG,
+        PM_NOREMOVE, WH_KEYBOARD_LL, WM_KEYDOWN, WM_QUIT, WM_SYSKEYDOWN, WPARAM,
+    };
+    use std::sync::Mutex;
+
+    /// The virtual-key code of the E key.
+    const VK_E: u32 = 0x45;
+
+    /// One message a low-level keyboard hook was handed: the message, the
+    /// virtual-key code, the scan code and the flags.
+    #[derive(Debug, Clone, Copy)]
+    struct Handed {
+        message: u32,
+        vk: u32,
+        scan: u32,
+        flags: u32,
+    }
+
+    /// What the observing hook kept, in order.
+    static HANDED: Mutex<Vec<Handed>> = Mutex::new(Vec::new());
+
+    /// Whether the observing hook keeps a message: an injected one, of a key
+    /// the test sends or a code the system may hand for it (Shift, Ctrl or Alt
+    /// by their generic, left or right codes, and E).
+    fn kept(vk: u32, flags: u32) -> bool {
+        flags & LLKHF_INJECTED as u32 != 0 && matches!(vk, 0x10..=0x12 | 0xA0..=0xA5 | VK_E)
+    }
+
+    /// The observing hook: it keeps the messages [`kept`] admits and passes
+    /// every message on.
+    unsafe extern "system" fn observe(code: i32, w_param: WPARAM, l_param: LPARAM) -> LRESULT {
+        if code >= 0 {
+            // SAFETY: a low-level keyboard hook's `lParam` points at the
+            // message's `KBDLLHOOKSTRUCT` for the length of the call.
+            let k = unsafe { &*(l_param.0 as *const KBDLLHOOKSTRUCT) };
+            if kept(k.vkCode, k.flags) {
+                if let Ok(mut handed) = HANDED.lock() {
+                    handed.push(Handed {
+                        message: w_param.0 as u32,
+                        vk: k.vkCode,
+                        scan: k.scanCode,
+                        flags: k.flags,
+                    });
+                }
+            }
+        }
+        // SAFETY: the arguments the hook was called with.
+        unsafe { CallNextHookEx(None, code, w_param, l_param) }
+    }
+
+    /// A low-level keyboard hook of the test's own, on a thread that pumps
+    /// messages, which keeps the injected messages of the test's keys the
+    /// system hands it until it is dropped.
+    struct Observer {
+        thread_id: u32,
+        handle: Option<thread::JoinHandle<()>>,
+    }
+
+    impl Observer {
+        fn start() -> Self {
+            HANDED.lock().unwrap().clear();
+            let (ready_tx, ready_rx) = mpsc::channel();
+            let handle = thread::spawn(move || {
+                // SAFETY: the hook is installed, pumped and removed on this
+                // thread; the message buffer outlives every call.
+                unsafe {
+                    let mut msg = MSG::default();
+                    // Gives the thread its message queue before its id is
+                    // handed out, so the WM_QUIT posted to it is kept.
+                    let _ = PeekMessageW(&mut msg, None, 0, 0, PM_NOREMOVE as u32);
+                    let hook = SetWindowsHookExW(WH_KEYBOARD_LL, Some(observe), None, 0);
+                    let _ = ready_tx.send((GetCurrentThreadId(), !hook.0.is_null()));
+                    while GetMessageW(&mut msg, None, 0, 0).as_bool() {}
+                    if !hook.0.is_null() {
+                        let _ = UnhookWindowsHookEx(hook);
+                    }
+                }
+            });
+            let (thread_id, hooked) = ready_rx
+                .recv_timeout(Duration::from_secs(5))
+                .expect("the observing hook's thread starts");
+            assert!(hooked, "the observing low-level keyboard hook is installed");
+            Observer {
+                thread_id,
+                handle: Some(handle),
+            }
+        }
+
+        /// Stops the hook and returns what it kept.
+        fn stop(mut self) -> Vec<Handed> {
+            self.quit();
+            HANDED.lock().unwrap().clone()
+        }
+
+        fn quit(&mut self) {
+            if let Some(handle) = self.handle.take() {
+                // SAFETY: posting WM_QUIT to the hook's own thread.
+                unsafe {
+                    let _ =
+                        PostThreadMessageW(self.thread_id, WM_QUIT as u32, WPARAM(0), LPARAM(0));
+                }
+                let _ = handle.join();
+            }
+        }
+    }
+
+    impl Drop for Observer {
+        fn drop(&mut self) {
+            self.quit();
+        }
+    }
+
+    /// Sends one key-down or key-up by virtual-key code `vk`, with no scan
+    /// code and no flag but the key-up's.
+    fn send_by_code_alone(vk: u16, up: bool) {
+        let input = INPUT {
+            r#type: INPUT_KEYBOARD as u32,
+            Anonymous: INPUT_0 {
+                ki: KEYBDINPUT {
+                    wVk: vk,
+                    wScan: 0,
+                    dwFlags: if up { KEYEVENTF_KEYUP as u32 } else { 0 },
+                    time: 0,
+                    dwExtraInfo: 0,
+                },
+            },
+        };
+        // SAFETY: one well-formed keyboard input, of its own size.
+        let sent = unsafe { SendInput(&[input], std::mem::size_of::<INPUT>() as i32) };
+        assert_eq!(sent, 1, "SendInput takes the key {vk:#x} (up: {up})");
+    }
+
+    /// The `key` actions among `events`, each as its key name, its `code` and
+    /// its `modifiers`, for an assertion and for the failure message.
+    fn keys_of(events: &[ActionEvent]) -> Vec<(String, Option<String>, serde_json::Value)> {
+        events
+            .iter()
+            .filter_map(|e| match &e.payload {
+                ActionPayload::Key { key, code, .. } => {
+                    Some((key.clone(), code.map(str::to_string), modifiers_of(e)))
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// What `modifiers` must hold with exactly one of Ctrl, Shift and Alt.
+    fn only(ctrl: bool, shift: bool, alt: bool) -> serde_json::Value {
+        serde_json::json!({
+            "ctrl": ctrl,
+            "shift": shift,
+            "alt": alt,
+            "meta": false,
+            "alt_graph": false,
+        })
+    }
+
+    /// Shift, Ctrl and Alt, each sent by its generic code with no scan code,
+    /// held while E is pressed and released: the observing hook is handed a
+    /// key-down of the modifier by one of its codes, generic, left or right,
+    /// the file holds no `key` for the modifier, and the E's `key` states it.
+    /// Which of its codes the hook is handed is not held to. The failure
+    /// message gives, per modifier, the codes the observing hook was handed
+    /// and the `key` actions captured.
+    #[test]
+    #[serial]
+    fn a_generic_shift_ctrl_or_alt_code_is_no_key_and_the_letter_states_it() {
+        let cases: [(&str, u16, [u32; 3], serde_json::Value); 3] = [
+            ("Shift", 0x10, [0x10, 0xA0, 0xA1], only(false, true, false)),
+            ("Ctrl", 0x11, [0x11, 0xA2, 0xA3], only(true, false, false)),
+            ("Alt", 0x12, [0x12, 0xA4, 0xA5], only(false, false, true)),
+        ];
+        let mut report = Vec::new();
+        let mut held_to = true;
+        for (name, vk, codes, want) in cases {
+            let observer = Observer::start();
+            let events = capture_with_layout(
+                US.0,
+                US.1,
+                &format!("Generic {name} Code"),
+                |enigo, window| {
+                    let (cx, cy) = window.center();
+                    enigo.move_mouse(cx, cy, Coordinate::Abs).unwrap();
+                    thread::sleep(Duration::from_millis(50));
+                    send_by_code_alone(vk, false);
+                    thread::sleep(Duration::from_millis(60));
+                    enigo
+                        .key(enigo::Key::Other(VK_E), Direction::Click)
+                        .unwrap();
+                    thread::sleep(Duration::from_millis(60));
+                    send_by_code_alone(vk, true);
+                    thread::sleep(Duration::from_millis(150));
+                },
+            );
+            let handed = observer.stop();
+            let pressed = handed.iter().any(|h| {
+                (h.message == WM_KEYDOWN as u32 || h.message == WM_SYSKEYDOWN as u32)
+                    && codes.contains(&h.vk)
+            });
+            if !pressed {
+                held_to = false;
+            }
+            let keys = keys_of(&events);
+            // The E's name is the layout's for the key with the modifier held,
+            // so only its `code` and its `modifiers` are held to.
+            let written: Vec<_> = keys
+                .iter()
+                .map(|(_, c, m)| (c.clone(), m.clone()))
+                .collect();
+            if written != [(Some("KeyE".to_string()), want)] {
+                held_to = false;
+            }
+            let handed: Vec<String> = handed
+                .iter()
+                .map(|h| {
+                    format!(
+                        "msg {:#06x} vk {:#04x} scan {:#x} flags {:#x}",
+                        h.message, h.vk, h.scan, h.flags
+                    )
+                })
+                .collect();
+            report.push(format!(
+                "{name} (sent as vk {vk:#04x}, scan 0):\n  hook handed a key-down of the key: {pressed}\n  hook handed: {handed:#?}\n  key actions: {keys:?}"
+            ));
+        }
+        let report = report.join("\n");
+        println!("{report}");
+        assert!(
+            held_to,
+            "a press of Shift, Ctrl or Alt by its generic code reaches a low-level keyboard \
+             hook as a key-down by one of its key's codes, is written as no `key`, and the E \
+             pressed while it is held is one `key` stating it in `modifiers`:\n{report}"
         );
     }
 }

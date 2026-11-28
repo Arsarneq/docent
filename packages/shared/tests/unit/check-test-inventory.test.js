@@ -73,6 +73,7 @@ import {
   auditRegistrationClosure,
   classifySpecifier,
   classifyTestSurface,
+  coversGrowth,
   crateLibraryName,
   importSpecifiers,
   pathGlobToRegExp,
@@ -96,6 +97,8 @@ import {
   extractLoopGlobs,
   extractStepBody,
   flattenWhitespace,
+  formatGrowth,
+  growthSummary,
   formatProblems,
   gitEntries,
   identifiesSameFile,
@@ -473,7 +476,7 @@ describe('auditInventories — the extraction fails loudly', () => {
 });
 
 /** An inventory that opts into the row shape, over one `##` section of one document. */
-const shaped = (section = 'Unit', rowShape = { coversMax: 300 }) => ({
+const shaped = (section = 'Unit', rowShape = true) => ({
   doc: 'docs/unit.md',
   section,
   header: ['Test file', 'Covers'],
@@ -527,20 +530,237 @@ function assertOneRowShape(result, pattern) {
   assert.equal(formatProblems(result).length, 1);
 }
 
+describe('coversGrowth — the Covers cells that are longer than on the base', () => {
+  /** One document holding one inventory table per section, rows as given. */
+  const guide = (sections) =>
+    [
+      '# Guide',
+      '',
+      ...Object.entries(sections).flatMap(([section, rows]) => [
+        `## ${section}`,
+        '',
+        '| Test file | Covers |',
+        '| --- | --- |',
+        ...rows,
+        '',
+      ]),
+    ].join('\n');
+  const row = (name, covers) => `| \`${name}\` | ${covers} |`;
+  /** The growth notes of `head` against `base`, each a document text or null. */
+  const growth = (head, base, inventories = [shaped('Unit', false)]) =>
+    coversGrowth({
+      readFile: () => head,
+      readBaseFile: () => base,
+      inventories,
+    });
+
+  it('lists a cell longer than on the base, with its line and both lengths', () => {
+    const notes = growth(
+      guide({ Unit: [row('a.test.js', 'The a module and its edges.')] }),
+      guide({ Unit: [row('a.test.js', 'The a module.')] }),
+    );
+    assert.deepEqual(notes, [
+      { doc: 'docs/unit.md', line: 7, section: 'Unit', name: 'a.test.js', was: 13, now: 27 },
+    ]);
+  });
+
+  it("gives each cell its own row's line in the head document, not the base's", () => {
+    const notes = growth(
+      guide({
+        Unit: [
+          row('new.test.js', 'A row the base does not hold.'),
+          row('a.test.js', 'Same.'),
+          row('b.test.js', 'The b module, grown.'),
+        ],
+      }),
+      guide({ Unit: [row('a.test.js', 'Same.'), row('b.test.js', 'The b module.')] }),
+    );
+    assert.deepEqual(
+      notes.map(({ name, line }) => [name, line]),
+      [['b.test.js', 9]],
+    );
+  });
+
+  it('lists nothing for a cell of the same length or shorter', () => {
+    const notes = growth(
+      guide({ Unit: [row('a.test.js', 'The b module.'), row('b.test.js', 'Short.')] }),
+      guide({
+        Unit: [row('a.test.js', 'The a module.'), row('b.test.js', 'Longer than it is now.')],
+      }),
+    );
+    assert.deepEqual(notes, []);
+  });
+
+  it('lists nothing for a row the base does not hold', () => {
+    const notes = growth(
+      guide({ Unit: [row('a.test.js', 'The a module.'), row('new.test.js', 'x'.repeat(900))] }),
+      guide({ Unit: [row('a.test.js', 'The a module.')] }),
+    );
+    assert.deepEqual(notes, []);
+  });
+
+  it('lists nothing for a row moved to another section, or under a renamed section', () => {
+    const base = guide({ Unit: [row('a.test.js', 'Was.')], Other: [row('b.test.js', 'Was.')] });
+    const moved = guide({
+      Unit: [],
+      Other: [row('b.test.js', 'Was.'), row('a.test.js', 'Moved here and grown.')],
+    });
+    assert.deepEqual(growth(moved, base, [shaped('Unit', false), shaped('Other', false)]), []);
+    const renamed = guide({ Renamed: [row('a.test.js', 'Grown under a new heading.')] });
+    assert.deepEqual(growth(renamed, base, [shaped('Renamed', false)]), []);
+  });
+
+  it('lists nothing where the base holds no such document or no such table', () => {
+    const head = guide({ Unit: [row('a.test.js', 'x'.repeat(900))] });
+    assert.deepEqual(growth(head, null), []);
+    assert.deepEqual(growth(head, '# Guide\n\nNo table yet.\n'), []);
+  });
+
+  it('reads a padded table by its trimmed cells, so padding alone is no growth', () => {
+    const padded = [
+      '# Guide',
+      '',
+      '## Unit',
+      '',
+      '| Test file   | Covers                  |',
+      '| ----------- | ----------------------- |',
+      '| `a.test.js` | The a module.           |',
+      '',
+    ].join('\n');
+    assert.deepEqual(growth(padded, guide({ Unit: [row('a.test.js', 'The a module.')] })), []);
+  });
+
+  it('compares a file with its own section, where two sections hold the same row', () => {
+    const notes = growth(
+      guide({
+        Unit: [row('a.test.js', 'Same words.')],
+        Other: [row('a.test.js', 'Same words, now longer.')],
+      }),
+      guide({ Unit: [row('a.test.js', 'Same words.')], Other: [row('a.test.js', 'Same words.')] }),
+      [shaped('Unit', false), shaped('Other', false)],
+    );
+    assert.deepEqual(notes, [
+      { doc: 'docs/unit.md', line: 13, section: 'Other', name: 'a.test.js', was: 11, now: 23 },
+    ]);
+  });
+
+  it('reads the column headed Covers, wherever it stands', () => {
+    const table = (covers) =>
+      [
+        '## Unit',
+        '',
+        '| Test file | Runs in | Covers |',
+        '| --- | --- | --- |',
+        `| \`a.test.js\` | node | ${covers} |`,
+        '',
+      ].join('\n');
+    const inventory = { ...shaped('Unit', false), header: ['Test file', 'Runs in', 'Covers'] };
+    const notes = growth(table('The a module, grown.'), table('The a module.'), [inventory]);
+    assert.deepEqual(
+      notes.map(({ was, now }) => [was, now]),
+      [[13, 20]],
+    );
+  });
+
+  it('reads every registered inventory, whether or not it opts into the row shape', () => {
+    const head = guide({
+      Unit: [row('a.test.js', 'Grew a little.')],
+      Other: [row('b.test.js', 'Grew too, yes.')],
+    });
+    const base = guide({ Unit: [row('a.test.js', 'Was.')], Other: [row('b.test.js', 'Was.')] });
+    const notes = growth(head, base, [shaped('Unit'), shaped('Other', false)]);
+    assert.equal(notes.length, 2, JSON.stringify(notes));
+  });
+
+  it('reads the Covers cells of every committed suite document', () => {
+    // Against itself the tree has grown nowhere; a registered document with no
+    // Covers column would refuse here by name.
+    const readFile = (f) => readFileSync(resolve(ROOT, f), 'utf8');
+    assert.deepEqual(coversGrowth({ readFile, readBaseFile: readFile }), []);
+    // With every base cell emptied, each registered inventory lists a cell.
+    const emptied = (f) =>
+      readFile(f)
+        .split('\n')
+        .map((line) => line.replace(/^(\| `[^`|]+` \|).*\|\s*$/, '$1 |'))
+        .join('\n');
+    const grown = coversGrowth({ readFile, readBaseFile: emptied });
+    for (const { doc, section } of DOC_INVENTORIES) {
+      assert.ok(
+        grown.some((note) => note.doc === doc && note.section === section),
+        `${doc} "## ${section}" lists no cell`,
+      );
+    }
+    // The line each note carries is the line of that file's row.
+    const lines = new Map();
+    for (const { doc, line, name } of grown) {
+      if (!lines.has(doc)) lines.set(doc, readFile(doc).split('\n'));
+      assert.ok(lines.get(doc)[line - 1].startsWith(`| \`${name}\` |`), `${doc}:${line} ${name}`);
+    }
+  });
+});
+
+describe('formatGrowth — what the check prints for grown cells', () => {
+  const note = { doc: 'docs/unit.md', line: 7, section: 'Unit', name: 'a.test.js', was: 1, now: 2 };
+
+  it('says so in one line when no cell grew, so a reader sees the cells were compared', () => {
+    assert.deepEqual(formatGrowth([], 'origin/main'), [
+      'note: no Covers cell grew since origin/main.',
+    ]);
+  });
+
+  it('heads the notes with the count, the base and who answers them', () => {
+    const lines = formatGrowth([note], 'origin/main');
+    assert.match(lines[0], /^note: 1 Covers cell\(s\) grew since origin\/main/);
+    assert.match(lines[0], /does not fail/);
+    assert.match(lines[0], /reviewer answers each/);
+    assert.match(lines[0], /docs\/guides\/docs-governance\.md/);
+  });
+
+  it('prints one line per cell, opening with the document and the line of the row', () => {
+    const lines = formatGrowth([note, { ...note, line: 9, name: 'b.test.js' }], 'origin/main');
+    assert.deepEqual(lines.slice(1), [
+      '  docs/unit.md:7: "## Unit" `a.test.js`\'s Covers cell grew from 1 to 2 characters',
+      '  docs/unit.md:9: "## Unit" `b.test.js`\'s Covers cell grew from 1 to 2 characters',
+    ]);
+  });
+});
+
+describe('growthSummary — the grown cells as the job summary shows them', () => {
+  const note = { doc: 'docs/unit.md', line: 7, section: 'Unit', name: 'a.test.js', was: 1, now: 2 };
+
+  it('writes nothing for no notes', () => {
+    assert.equal(growthSummary([], 'origin/main'), '');
+  });
+
+  it('writes a heading, who answers the list, and one table row per cell', () => {
+    const text = growthSummary([note], 'origin/main');
+    assert.match(text, /^### Covers cells that grew since origin\/main\n/);
+    assert.match(text, /does not fail/);
+    assert.match(text, /reviewer answers each/);
+    assert.match(text, /\n\| Guide \| Line \| Section \| Test file \| Before \| Now \|\n/);
+    assert.match(text, /\n\| `docs\/unit\.md` \| 7 \| Unit \| `a\.test\.js` \| 1 \| 2 \|\n/);
+    assert.ok(text.endsWith('\n'));
+  });
+
+  it('keeps a pipe in a section name inside its cell', () => {
+    const text = growthSummary([{ ...note, section: 'A | B' }], 'origin/main');
+    assert.match(text, /\| A \\\| B \|/);
+  });
+
+  it('keeps a backslash before a pipe from freeing the pipe', () => {
+    // `A\|B` written with the pipe alone escaped would read as an escaped
+    // backslash and a cell boundary.
+    const text = growthSummary([{ ...note, section: 'A\\|B' }], 'origin/main');
+    assert.ok(text.includes('| A\\\\\\|B |'), text);
+  });
+});
+
 describe('auditInventories — the row shape of an opted-in inventory', () => {
   const ok = '| `b.test.js` | The b module. |';
   const linked = '| `a.test.js` | The a module. [Detail](#atestjs) |';
 
-  it('flags a Covers cell one character over the cap', () => {
-    const cell = 'x'.repeat(301);
-    const result = auditShape(shapedSection('Unit', [`| \`b.test.js\` | ${cell} |`]), [
-      'tests/unit/b.test.js',
-    ]);
-    assertOneRowShape(result, /`b\.test\.js`.*301 characters.*300/);
-  });
-
-  it('passes a Covers cell exactly at the cap', () => {
-    const cell = 'x'.repeat(300);
+  it('passes a Covers cell of any length: a long cell is no row-shape problem', () => {
+    const cell = 'x'.repeat(5000);
     const result = auditShape(shapedSection('Unit', [`| \`b.test.js\` | ${cell} |`]), [
       'tests/unit/b.test.js',
     ]);
@@ -575,7 +795,7 @@ describe('auditInventories — the row shape of an opted-in inventory', () => {
       '| `b.test.js` | The b module. |',
       '',
     ];
-    const result = auditShape(lines, ['tests/unit/b.test.js'], [shaped('Unit', null)]);
+    const result = auditShape(lines, ['tests/unit/b.test.js'], [shaped('Unit', false)]);
     assert.deepEqual(formatProblems(result), []);
   });
 
@@ -604,7 +824,7 @@ describe('auditInventories — the row shape of an opted-in inventory', () => {
     ]);
     assertOneRowShape(
       result,
-      /"### `a\.test\.js`" heading \(#atestjs\).*no link to it from its row/,
+      /"### `a\.test\.js`" heading \(#atestjs\).*no link to it from its row.*or fold its bullets into the cell and remove the heading$/,
     );
   });
 
@@ -826,6 +1046,15 @@ describe('parseTables / splitRow / backtickedName', () => {
       ['1', '2'],
       ['3', '4'],
     ]);
+  });
+
+  it('gives each table the line its header stands on in the text, counted from 1', () => {
+    const md =
+      '## One\n\n| A |\n| --- |\n| 1 |\n\n```\n| X |\n| --- |\n```\n\n| B |\n| --- |\n| 2 |\n';
+    assert.deepEqual(
+      parseTables(md).map((table) => table.line),
+      [3, 12],
+    );
   });
 
   it('keeps a deeper heading inside its section and resets on a top-level one', () => {

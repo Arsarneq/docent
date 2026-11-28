@@ -137,3 +137,44 @@ export function readTextOrNull(path) {
     return null;
   }
 }
+
+/**
+ * The reader of files as the commit a change branched from holds them: the
+ * merge base of a ref and HEAD.
+ * @param {(args: string[]) => string} git runs git with the arguments and returns its output; throws when git fails
+ * @param {string} baseRef the ref the change is compared with
+ * @returns {(path: string) => string | null} a repo-relative path's text at the base, or null when the base lacks it
+ * @throws {Error} naming the ref, when git finds no merge base of it and HEAD
+ */
+export function baseFileReader(git, baseRef) {
+  let base;
+  try {
+    base = git(['merge-base', baseRef, 'HEAD']).trim();
+  } catch (e) {
+    throw new Error(`no merge base of ${baseRef} and HEAD`, { cause: e });
+  }
+  return (rel) => {
+    try {
+      return git(['show', `${base}:${rel}`]);
+    } catch {
+      return null;
+    }
+  };
+}
+
+/**
+ * What a list of grown passages is headed with, on the log and in the job
+ * summary: the list does not fail, who answers it, and where that rule stands.
+ */
+export const GROWTH_ANSWER =
+  "This does not fail: the pull request's reviewer answers each (docs/guides/docs-governance.md, Writing docs).";
+
+/**
+ * A value as the text of a markdown table cell in a job summary.
+ * @param {unknown} value the value to show
+ * @returns {string} its text, a backslash and a pipe escaped
+ */
+export function summaryCell(value) {
+  // The backslash first, so one that stands before a pipe cannot undo the pipe's escape.
+  return String(value).replace(/\\/g, '\\\\').replace(/\|/g, '\\|');
+}

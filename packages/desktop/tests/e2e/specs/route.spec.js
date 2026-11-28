@@ -21,9 +21,9 @@ import {
   test,
   expect,
   bringToFront,
-  typeKeys,
+  sendInput,
   readWhenWritten,
-  APP_PROCESS,
+  exportProject,
 } from '../helpers/desktop.js';
 
 /** A fresh folder for the files the dialogs write. */
@@ -37,9 +37,9 @@ test('keys typed into Notepad land in the file its save dialog writes', async ({
   expect(notepad.pid).toBeTruthy();
   const file = join(freshDir(), 'typed.txt');
   bringToFront('notepad');
-  typeKeys([{ window: { process: 'notepad.exe' } }, { chars: 'keep aa' }, { key: 'ctrl+s' }]);
+  sendInput([{ window: { process: 'notepad.exe' } }, { chars: 'keep aa' }, { key: 'ctrl+s' }]);
   bringToFront('notepad', { dialog: true });
-  typeKeys([{ window: { process: 'notepad.exe' } }, { chars: file }, { key: 'enter' }]);
+  sendInput([{ window: { process: 'notepad.exe' } }, { chars: file }, { key: 'enter' }]);
   expect((await readWhenWritten(file)).replace(/^\uFEFF/, '')).toBe('keep aa');
 });
 
@@ -52,11 +52,7 @@ test("the panel's Export writes the project through the app's save dialog", asyn
   await panel.click('#btn-new-project-create');
   await expect(panel.locator('#view-project')).toBeVisible();
 
-  await panel.click('#btn-export-project');
-  bringToFront(APP_PROCESS, { dialog: true });
-  typeKeys([{ window: { process: `${APP_PROCESS}.exe` } }, { chars: file }, { key: 'enter' }]);
-
-  const exported = JSON.parse(await readWhenWritten(file));
+  const exported = await exportProject(app, file);
   expect(exported.docent_format).toBeTruthy();
   expect(exported.project.name).toBe('Route probe');
 });
