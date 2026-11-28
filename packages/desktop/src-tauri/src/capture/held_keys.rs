@@ -601,8 +601,9 @@ impl HeldKeys {
 
 /// The modifiers held at one moment: `(ctrl, shift, alt, meta)` as the
 /// system holds them, AltGr counted as Ctrl and Alt together, and beside it
-/// the Ctrl, Alt and AltGr the person held ([`CtrlAltHeld`]).
-pub type ModifiersHeld = ((bool, bool, bool, bool), CtrlAltHeld);
+/// what was read of the Ctrl and Alt keys, from which an action's
+/// `modifiers` is written ([`CtrlAltRead`]).
+pub type ModifiersHeld = ((bool, bool, bool, bool), CtrlAltRead);
 
 /// The modifiers held and the keys that were down at one moment.
 pub type KeysHeld = (ModifiersHeld, Vec<HeldPress>);
@@ -632,95 +633,211 @@ pub const VK_RMENU: u32 = 0xA5;
 /// The bit Windows sets in the scan code of a keystroke it makes itself
 /// (`FAKE_KEYSTROKE` of the keyboard headers, shifted to the scan code). On a
 /// layout with AltGr, Windows puts a left Ctrl key-down of its own in front of
-/// the right Alt's key-down, and its key-up beside the right Alt's key-up; a
-/// low-level keyboard hook is handed that Ctrl with scan code `0x21D`, this
-/// bit over the left Ctrl's `0x1D`, where a left Ctrl key the person presses
-/// has `0x1D`.
+/// the right Alt's key-down where no left Ctrl is down, and its key-up beside
+/// the right Alt's key-up; a low-level keyboard hook is handed that Ctrl with
+/// scan code `0x21D`, this bit over the left Ctrl's `0x1D`, where a left Ctrl
+/// key the person presses has `0x1D`.
 pub const SCAN_CODE_SIMULATED: u32 = 0x200;
 
-/// Whose left Ctrl is down: the hook's record of the left Ctrl key-downs it
-/// was handed, the person's and Windows' own for AltGr, told apart by
-/// [`SCAN_CODE_SIMULATED`]. With the keyboard's own state it gives the Ctrl,
-/// Alt and AltGr the person holds ([`CtrlAltKeys::held`]).
+/// Whether the person holds the left Ctrl, as the hook's record knows it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PersonLeftCtrl {
+    /// Known from a key-down or key-up the hook was handed.
+    Known(bool),
+    /// Not known: the record started while the right Alt and the left Ctrl
+    /// were both down, and no left Ctrl or right Alt key-down has come since.
+    /// Windows' state then holds the left Ctrl down whether the person holds
+    /// it or Windows holds it for AltGr ([`SEEDED_LEFT_CTRL_WITH_ALT_GR`]).
+    NotKnown,
+}
+
+/// What an action's `ctrl` states of the left Ctrl where it is not known
+/// whether the person holds it ([`PersonLeftCtrl::NotKnown`]): AltGr and the
+/// left Ctrl were both down when the record started, and the system's state
+/// holds the same for AltGr held alone as for a left Ctrl held with AltGr.
+/// Written as Windows' own for AltGr, so not as `ctrl`. A departure from the
+/// rule that `ctrl` states a Ctrl the person held, in this one case.
+pub const SEEDED_LEFT_CTRL_WITH_ALT_GR: bool = false;
+
+/// What the Input_Thread read of the Ctrl and Alt keys at one moment: the
+/// keyboard's own state of each, the hook's record of whose left Ctrl is down
+/// ([`CtrlAltKeys`]), and the keyboard layout in force. A worker writes an
+/// action's `modifiers` from it once it knows whether that layout has AltGr
+/// ([`CtrlAltRead::held`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CtrlAltRead {
+    /// The keyboard's state holds the left Ctrl down.
+    pub left_ctrl: bool,
+    /// The keyboard's state holds the right Ctrl down.
+    pub right_ctrl: bool,
+    /// The keyboard's state holds the left Alt down.
+    pub left_alt: bool,
+    /// The keyboard's state holds the right Alt down.
+    pub right_alt: bool,
+    /// Whether the person holds the left Ctrl, by the record.
+    pub person_left_ctrl: PersonLeftCtrl,
+    /// Windows put its own Ctrl in front of the right Alt's key-down the
+    /// right Alt is down by.
+    pub windows_ctrl_for_right_alt: bool,
+    /// The keyboard layout of the foreground window's thread, as the
+    /// platform hands it (on Windows the layout handle); `0` where none was
+    /// read.
+    pub layout: i64,
+}
+
+impl Default for CtrlAltRead {
+    fn default() -> Self {
+        Self {
+            left_ctrl: false,
+            right_ctrl: false,
+            left_alt: false,
+            right_alt: false,
+            person_left_ctrl: PersonLeftCtrl::Known(false),
+            windows_ctrl_for_right_alt: false,
+            layout: 0,
+        }
+    }
+}
+
+impl CtrlAltRead {
+    /// The Ctrl, Alt and AltGr the person held, where `layout_alt_gr` says
+    /// whether the layout read makes the right Alt AltGr, as its file states
+    /// (`None` where that could not be read: then Windows' own Ctrl in front
+    /// of the right Alt says it, and its absence says nothing).
+    ///
+    /// AltGr is held while the right Alt is down on a layout that makes it
+    /// AltGr. Then `alt` is the left Alt, and `ctrl` the right Ctrl or the
+    /// left Ctrl where the person holds it (and the keyboard's state holds it
+    /// down). Otherwise `ctrl` and `alt` are the keyboard's state as it is.
+    pub fn held(&self, layout_alt_gr: Option<bool>) -> CtrlAltHeld {
+        let alt_gr_layout = layout_alt_gr.unwrap_or(self.windows_ctrl_for_right_alt);
+        if !(self.right_alt && alt_gr_layout) {
+            return CtrlAltHeld {
+                ctrl: self.left_ctrl || self.right_ctrl,
+                alt: self.left_alt || self.right_alt,
+                alt_graph: false,
+            };
+        }
+        let person_left_ctrl = match self.person_left_ctrl {
+            PersonLeftCtrl::Known(held) => held && self.left_ctrl,
+            PersonLeftCtrl::NotKnown => SEEDED_LEFT_CTRL_WITH_ALT_GR && self.left_ctrl,
+        };
+        CtrlAltHeld {
+            ctrl: person_left_ctrl || self.right_ctrl,
+            alt: self.left_alt,
+            alt_graph: true,
+        }
+    }
+}
+
+/// Whose left Ctrl is down: the hook's record of the left Ctrl and right Alt
+/// key-downs and key-ups it was handed, which with the keyboard's own state
+/// gives what [`CtrlAltRead`] holds.
+///
+/// Windows sends its own Ctrl for AltGr ([`SCAN_CODE_SIMULATED`]) only where
+/// no left Ctrl is down, so at that key-down the person holds none; at a
+/// right Alt key-down with no such Ctrl right in front of it, the left Ctrl
+/// the keyboard's state holds is the person's, Windows putting none of its
+/// own there; a left Ctrl key-down or key-up without the mark is the
+/// person's.
 ///
 /// Updated on every key message the hook is handed, like [`HeldKeys`].
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CtrlAltKeys {
-    /// A left Ctrl key-down of the person's is down: no key-up has followed.
-    person_left_ctrl: bool,
-    /// Windows' own left Ctrl for AltGr is down, put in front of the right
-    /// Alt's latest key-down.
-    alt_gr_ctrl: bool,
+    person_left_ctrl: PersonLeftCtrl,
+    /// Windows' own Ctrl went down right in front of the right Alt's
+    /// key-down the right Alt is down by.
+    windows_ctrl_for_right_alt: bool,
     /// The latest message was the key-down of Windows' own left Ctrl.
-    last_was_alt_gr_ctrl_down: bool,
+    last_was_windows_ctrl_down: bool,
 }
 
 impl CtrlAltKeys {
-    /// Nothing seen yet.
+    /// Nothing seen yet, and nothing down.
     pub const fn new() -> Self {
         Self {
-            person_left_ctrl: false,
-            alt_gr_ctrl: false,
-            last_was_alt_gr_ctrl_down: false,
+            person_left_ctrl: PersonLeftCtrl::Known(false),
+            windows_ctrl_for_right_alt: false,
+            last_was_windows_ctrl_down: false,
+        }
+    }
+
+    /// The record as it starts, with the keys `is_down` holds down now. A
+    /// left Ctrl down with no right Alt is the person's; with the right Alt
+    /// down too it is not known whose ([`PersonLeftCtrl::NotKnown`]).
+    pub fn seeded(is_down: impl Fn(u32) -> bool) -> Self {
+        let left_ctrl = is_down(VK_LCONTROL);
+        Self {
+            person_left_ctrl: if left_ctrl && is_down(VK_RMENU) {
+                PersonLeftCtrl::NotKnown
+            } else {
+                PersonLeftCtrl::Known(left_ctrl)
+            },
+            ..Self::new()
         }
     }
 
     /// Takes in one message of the hook: `msg` its Windows message number,
-    /// `vk` the virtual-key code and `scan_code` the scan code it was handed,
-    /// and `already_down` whether the keyboard's own state held the key down
-    /// before this message (the hook is handed a key before that state takes
-    /// it in): a key-down for a key already down is a repeat.
-    pub fn on_hook_message(&mut self, msg: u32, vk: u32, scan_code: u32, already_down: bool) {
+    /// `vk` the virtual-key code and `scan_code` the scan code it was handed.
+    /// `is_down` answers for the keyboard's own state, which the hook reads
+    /// before that state takes this message in: whether a key was down
+    /// before it (a key-down for a key already down is a repeat).
+    pub fn on_hook_message(
+        &mut self,
+        msg: u32,
+        vk: u32,
+        scan_code: u32,
+        is_down: impl Fn(u32) -> bool,
+    ) {
         let down = KEY_DOWN_MESSAGES.contains(&msg);
         let up = KEY_UP_MESSAGES.contains(&msg);
+        if !down && !up {
+            return;
+        }
         let windows_own = scan_code & SCAN_CODE_SIMULATED != 0;
-        let mut alt_gr_ctrl_down = false;
+        let mut windows_ctrl_down = false;
         match vk {
             VK_LCONTROL if windows_own => {
                 if down {
-                    alt_gr_ctrl_down = true;
-                    self.alt_gr_ctrl = true;
-                } else if up {
-                    self.alt_gr_ctrl = false;
+                    windows_ctrl_down = true;
+                    // Windows sends it only where no left Ctrl is down; a
+                    // repeat finds its own Ctrl down and changes nothing.
+                    if !is_down(VK_LCONTROL) {
+                        self.person_left_ctrl = PersonLeftCtrl::Known(false);
+                    }
                 }
             }
-            VK_LCONTROL => {
-                if down {
-                    self.person_left_ctrl = true;
-                } else if up {
-                    self.person_left_ctrl = false;
+            VK_LCONTROL => self.person_left_ctrl = PersonLeftCtrl::Known(down),
+            VK_RMENU if down && !is_down(VK_RMENU) => {
+                self.windows_ctrl_for_right_alt = self.last_was_windows_ctrl_down;
+                if !self.last_was_windows_ctrl_down {
+                    self.person_left_ctrl = PersonLeftCtrl::Known(is_down(VK_LCONTROL));
                 }
             }
-            // The right Alt is AltGr only where Windows put its own Ctrl
-            // right in front of its key-down; a repeat keeps what the press
-            // was.
-            VK_RMENU if down => {
-                self.alt_gr_ctrl =
-                    self.last_was_alt_gr_ctrl_down || (already_down && self.alt_gr_ctrl)
-            }
-            VK_RMENU if up => self.alt_gr_ctrl = false,
+            VK_RMENU if up => self.windows_ctrl_for_right_alt = false,
             _ => {}
         }
-        if down || up {
-            self.last_was_alt_gr_ctrl_down = alt_gr_ctrl_down;
-        }
+        self.last_was_windows_ctrl_down = windows_ctrl_down;
     }
 
-    /// The Ctrl, Alt and AltGr the person holds, where `is_down` answers
-    /// whether the keyboard's own state holds a virtual-key code down.
-    ///
-    /// AltGr is held while the right Alt is down by a key-down Windows put
-    /// its own Ctrl in front of. A left Ctrl the keyboard holds down is the
-    /// person's unless the only left Ctrl down by the record is Windows' own;
-    /// a key the keyboard holds up is not held, whatever the record says.
-    pub fn held(&self, is_down: impl Fn(u32) -> bool) -> CtrlAltHeld {
-        let alt_graph = is_down(VK_RMENU) && self.alt_gr_ctrl;
-        let windows_ctrl_only = self.alt_gr_ctrl && !self.person_left_ctrl;
-        CtrlAltHeld {
-            ctrl: (is_down(VK_LCONTROL) && !windows_ctrl_only) || is_down(VK_RCONTROL),
-            alt: is_down(VK_LMENU) || (is_down(VK_RMENU) && !alt_graph),
-            alt_graph,
+    /// What is read of the Ctrl and Alt keys now, with `is_down` the
+    /// keyboard's own state and `layout` the layout in force.
+    pub fn read(&self, is_down: impl Fn(u32) -> bool, layout: i64) -> CtrlAltRead {
+        CtrlAltRead {
+            left_ctrl: is_down(VK_LCONTROL),
+            right_ctrl: is_down(VK_RCONTROL),
+            left_alt: is_down(VK_LMENU),
+            right_alt: is_down(VK_RMENU),
+            person_left_ctrl: self.person_left_ctrl,
+            windows_ctrl_for_right_alt: self.windows_ctrl_for_right_alt,
+            layout,
         }
+    }
+}
+
+impl Default for CtrlAltKeys {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -1183,7 +1300,7 @@ mod tests {
             process_id: 0,
             key_code,
             modifiers: (false, false, false, false),
-            ctrl_alt_held: None,
+            ctrl_alt_read: None,
             scroll_delta: 0.0,
             callback_params: [i64::from(scan_code), 0, 0, 0],
             key_value: 0,
@@ -1352,18 +1469,28 @@ mod tests {
 
     /// A keyboard: the hook's record and the keyboard's own state, fed the
     /// messages Windows hands a low-level hook. The state takes a key in after
-    /// the hook was handed it, as Windows' does.
-    #[derive(Default)]
+    /// the hook was handed it, as Windows' does. `alt_gr` is whether the
+    /// layout makes the right Alt AltGr: Windows then puts its own Ctrl in
+    /// front of the right Alt's key-down where no left Ctrl is down, as
+    /// measured on the Danish layout.
     struct Keyboard {
         record: CtrlAltKeys,
         state: std::collections::BTreeSet<u32>,
+        alt_gr: bool,
     }
 
     impl Keyboard {
+        fn on(alt_gr: bool) -> Self {
+            Self {
+                record: CtrlAltKeys::new(),
+                state: Default::default(),
+                alt_gr,
+            }
+        }
         fn send(&mut self, msg: u32, vk: u32, scan_code: u32) -> &mut Self {
-            let already_down = self.state.contains(&vk);
+            let state = self.state.clone();
             self.record
-                .on_hook_message(msg, vk, scan_code, already_down);
+                .on_hook_message(msg, vk, scan_code, |k| state.contains(&k));
             if KEY_DOWN_MESSAGES.contains(&msg) {
                 self.state.insert(vk);
             } else {
@@ -1371,18 +1498,31 @@ mod tests {
             }
             self
         }
-        /// AltGr going down on a layout with AltGr: Windows' own left Ctrl,
-        /// then the right Alt.
-        fn alt_gr_down(&mut self) -> &mut Self {
-            self.send(DOWN, VK_LCONTROL, ALT_GR_CTRL_SC)
-                .send(SYS_DOWN, VK_RMENU, ALT_SC)
+        fn ctrl_down(&mut self) -> &mut Self {
+            self.send(DOWN, VK_LCONTROL, CTRL_SC)
         }
-        fn alt_gr_up(&mut self) -> &mut Self {
-            self.send(UP, VK_LCONTROL, ALT_GR_CTRL_SC)
-                .send(SYS_UP, VK_RMENU, ALT_SC)
+        fn ctrl_up(&mut self) -> &mut Self {
+            self.send(UP, VK_LCONTROL, CTRL_SC)
         }
+        fn right_alt_down(&mut self) -> &mut Self {
+            if self.alt_gr && !self.state.contains(&VK_LCONTROL) {
+                self.send(DOWN, VK_LCONTROL, ALT_GR_CTRL_SC);
+            }
+            self.send(SYS_DOWN, VK_RMENU, ALT_SC)
+        }
+        fn right_alt_up(&mut self) -> &mut Self {
+            // Windows' own Ctrl goes up with it where it went down with it.
+            if self.alt_gr && self.record.windows_ctrl_for_right_alt {
+                self.send(UP, VK_LCONTROL, ALT_GR_CTRL_SC);
+            }
+            self.send(SYS_UP, VK_RMENU, ALT_SC)
+        }
+        /// What an action writes now, the layout's file read.
         fn held(&self) -> CtrlAltHeld {
-            self.record.held(|vk| self.state.contains(&vk))
+            self.read().held(Some(self.alt_gr))
+        }
+        fn read(&self) -> CtrlAltRead {
+            self.record.read(|vk| self.state.contains(&vk), 7)
         }
     }
 
@@ -1396,96 +1536,153 @@ mod tests {
 
     #[test]
     fn regression_825_altgr_is_alt_graph_and_neither_ctrl_nor_alt() {
-        let mut keyboard = Keyboard::default();
-        keyboard.alt_gr_down();
+        let mut keyboard = Keyboard::on(true);
+        keyboard.right_alt_down();
         assert_eq!(keyboard.held(), held(false, false, true));
-        // Held, AltGr repeats as the pair it went down as.
-        keyboard.alt_gr_down();
+        // Held, AltGr repeats.
+        keyboard.right_alt_down();
         assert_eq!(keyboard.held(), held(false, false, true));
-        // A repeat of the right Alt alone keeps it AltGr.
-        keyboard.send(SYS_DOWN, VK_RMENU, ALT_SC);
-        assert_eq!(keyboard.held(), held(false, false, true));
-        keyboard.alt_gr_up();
+        keyboard.right_alt_up();
         assert_eq!(keyboard.held(), held(false, false, false));
     }
 
     #[test]
-    fn regression_825_a_left_ctrl_held_with_altgr_is_ctrl_in_either_order() {
-        let mut keyboard = Keyboard::default();
-        keyboard.send(DOWN, VK_LCONTROL, CTRL_SC).alt_gr_down();
+    fn regression_825_a_left_ctrl_held_before_altgr_is_ctrl_though_windows_sends_no_ctrl_of_its_own(
+    ) {
+        // Case i: no Ctrl of Windows' own goes in front of the right Alt.
+        let mut keyboard = Keyboard::on(true);
+        keyboard.ctrl_down().right_alt_down();
+        assert!(!keyboard.read().windows_ctrl_for_right_alt);
         assert_eq!(keyboard.held(), held(true, false, true));
-        keyboard.alt_gr_up().send(UP, VK_LCONTROL, CTRL_SC);
+        // Case r: AltGr released, the Ctrl still held.
+        keyboard.right_alt_up();
+        assert_eq!(keyboard.held(), held(true, false, false));
+        keyboard.ctrl_up();
         assert_eq!(keyboard.held(), held(false, false, false));
+    }
 
-        keyboard.alt_gr_down().send(DOWN, VK_LCONTROL, CTRL_SC);
+    #[test]
+    fn regression_825_a_left_ctrl_pressed_within_altgr_is_ctrl_until_it_goes_up() {
+        // Case s: AltGr, Ctrl, then the Ctrl up while AltGr is held. Windows'
+        // state lets go of the left Ctrl with the person's.
+        let mut keyboard = Keyboard::on(true);
+        keyboard.right_alt_down().ctrl_down();
         assert_eq!(keyboard.held(), held(true, false, true));
-        // The Ctrl released, AltGr still held.
-        keyboard.send(UP, VK_LCONTROL, CTRL_SC);
+        keyboard.ctrl_up();
         assert_eq!(keyboard.held(), held(false, false, true));
     }
 
     #[test]
     fn regression_825_a_right_ctrl_or_a_left_alt_held_with_altgr_is_its_own() {
-        let mut keyboard = Keyboard::default();
-        keyboard.send(DOWN, VK_RCONTROL, CTRL_SC).alt_gr_down();
+        let mut keyboard = Keyboard::on(true);
+        keyboard
+            .send(DOWN, VK_RCONTROL, CTRL_SC | 0x100)
+            .right_alt_down();
         assert_eq!(keyboard.held(), held(true, false, true));
-        keyboard.alt_gr_up().send(UP, VK_RCONTROL, CTRL_SC);
-
-        keyboard.send(SYS_DOWN, VK_LMENU, ALT_SC).alt_gr_down();
+        keyboard
+            .right_alt_up()
+            .send(UP, VK_RCONTROL, CTRL_SC | 0x100);
+        keyboard.send(SYS_DOWN, VK_LMENU, ALT_SC).right_alt_down();
         assert_eq!(keyboard.held(), held(false, true, true));
     }
 
     #[test]
     fn regression_825_ctrl_and_alt_held_without_altgr_are_ctrl_and_alt() {
-        let mut keyboard = Keyboard::default();
-        keyboard
-            .send(DOWN, VK_LCONTROL, CTRL_SC)
-            .send(SYS_DOWN, VK_LMENU, ALT_SC);
-        assert_eq!(keyboard.held(), held(true, true, false));
-        let mut keyboard = Keyboard::default();
-        keyboard
-            .send(SYS_DOWN, VK_LMENU, ALT_SC)
-            .send(DOWN, VK_LCONTROL, CTRL_SC);
-        assert_eq!(keyboard.held(), held(true, true, false));
+        for alt_gr in [true, false] {
+            let mut keyboard = Keyboard::on(alt_gr);
+            keyboard.ctrl_down().send(SYS_DOWN, VK_LMENU, ALT_SC);
+            assert_eq!(keyboard.held(), held(true, true, false));
+        }
     }
 
     #[test]
     fn regression_825_the_right_alt_on_a_layout_with_no_altgr_is_alt() {
-        // No Ctrl of Windows' own goes in front of it.
-        let mut keyboard = Keyboard::default();
-        keyboard.send(SYS_DOWN, VK_RMENU, ALT_SC);
+        let mut keyboard = Keyboard::on(false);
+        keyboard.right_alt_down();
         assert_eq!(keyboard.held(), held(false, true, false));
-        // With a left Ctrl the person holds: Ctrl and Alt.
-        keyboard.send(DOWN, VK_LCONTROL, CTRL_SC);
+        keyboard.right_alt_up().ctrl_down().right_alt_down();
         assert_eq!(keyboard.held(), held(true, true, false));
     }
 
     #[test]
-    fn regression_825_a_right_alt_key_down_with_no_windows_ctrl_in_front_is_no_altgr() {
-        // AltGr held on a layout with AltGr, its key-ups never handed to the
-        // hook (the input went to the secure desktop), then the right Alt
-        // pressed again on a layout with none: the key-down has no Ctrl of
-        // Windows' own in front of it, so it is a plain Alt.
-        let mut keyboard = Keyboard::default();
-        keyboard.alt_gr_down();
-        keyboard.state.clear();
-        keyboard.send(SYS_DOWN, VK_RMENU, ALT_SC);
-        assert_eq!(keyboard.held(), held(false, true, false));
+    fn regression_825_where_the_layout_s_file_is_not_read_windows_own_ctrl_says_altgr() {
+        let mut keyboard = Keyboard::on(true);
+        keyboard.right_alt_down();
+        assert_eq!(keyboard.read().held(None), held(false, false, true));
+        // A Ctrl held before AltGr: nothing says AltGr, and the keyboard's
+        // state is written as it is.
+        let mut keyboard = Keyboard::on(true);
+        keyboard.ctrl_down().right_alt_down();
+        assert_eq!(keyboard.read().held(None), held(true, true, false));
     }
 
     #[test]
-    fn regression_825_a_left_ctrl_the_keyboard_holds_up_is_not_held() {
-        // A left Ctrl key-down whose key-up the hook was never handed: the
-        // keyboard's own state says it is up, and it is not written.
-        let mut keyboard = Keyboard::default();
-        keyboard.send(DOWN, VK_LCONTROL, CTRL_SC);
+    fn regression_825_a_ctrl_key_up_the_hook_never_saw_writes_no_ctrl_with_altgr() {
+        // A left Ctrl held, its key-up never handed to the hook (the input
+        // went to the secure desktop), then AltGr: the record says the
+        // person's Ctrl, the keyboard's state says no left Ctrl, and Windows
+        // puts its own in front of the right Alt.
+        let mut keyboard = Keyboard::on(true);
+        keyboard.ctrl_down();
+        keyboard.state.remove(&VK_LCONTROL);
+        keyboard.right_alt_down();
+        assert_eq!(keyboard.held(), held(false, false, true));
+        // And where the record's Ctrl is stale while AltGr is down.
+        let mut keyboard = Keyboard::on(true);
+        keyboard.right_alt_down().ctrl_down();
+        keyboard.state.remove(&VK_LCONTROL);
+        assert_eq!(keyboard.held(), held(false, false, true));
+    }
+
+    #[test]
+    fn regression_825_a_stale_record_leaves_ctrl_and_alt_as_the_keyboard_holds_them() {
+        // AltGr went down, its key-ups never handed to the hook; then a left
+        // Ctrl and a left Alt held: the keyboard's state is written, no AltGr
+        // and nothing taken off (a key read as a shortcut where it is none
+        // would be the harm).
+        let mut keyboard = Keyboard::on(true);
+        keyboard.right_alt_down();
         keyboard.state.clear();
-        assert_eq!(keyboard.held(), held(false, false, false));
-        // A left Ctrl down before the hook saw any key-down of it is the
-        // person's.
-        let mut keyboard = Keyboard::default();
-        keyboard.state.insert(VK_LCONTROL);
-        assert_eq!(keyboard.held(), held(true, false, false));
+        keyboard.ctrl_down().send(SYS_DOWN, VK_LMENU, ALT_SC);
+        assert_eq!(keyboard.held(), held(true, true, false));
+        assert_eq!(keyboard.read().held(None), held(true, true, false));
+    }
+
+    #[test]
+    fn regression_825_altgr_held_when_the_record_starts_is_alt_graph() {
+        // AltGr alone held: Windows' state holds its own left Ctrl and the
+        // right Alt. Whose the left Ctrl is cannot be known here, and is
+        // written as Windows' own (SEEDED_LEFT_CTRL_WITH_ALT_GR).
+        let down = [VK_LCONTROL, VK_RMENU];
+        let record = CtrlAltKeys::seeded(|vk| down.contains(&vk));
+        let read = record.read(|vk| down.contains(&vk), 7);
+        assert_eq!(read.person_left_ctrl, PersonLeftCtrl::NotKnown);
+        assert_eq!(
+            read.held(Some(true)),
+            held(SEEDED_LEFT_CTRL_WITH_ALT_GR, false, true)
+        );
+        assert_eq!(read.held(Some(true)), held(false, false, true));
+        // On a layout with no AltGr the keyboard's state is written.
+        assert_eq!(read.held(Some(false)), held(true, true, false));
+    }
+
+    #[test]
+    fn regression_825_a_ctrl_or_altgr_alone_held_when_the_record_starts_is_known() {
+        let ctrl = [VK_LCONTROL];
+        let record = CtrlAltKeys::seeded(|vk| ctrl.contains(&vk));
+        assert_eq!(
+            record.read(|vk| ctrl.contains(&vk), 7).person_left_ctrl,
+            PersonLeftCtrl::Known(true)
+        );
+        // A not-known Ctrl is known again at the next left Ctrl key-up or
+        // right Alt key-down.
+        let mut keyboard = Keyboard::on(true);
+        keyboard.state.extend([VK_LCONTROL, VK_RMENU]);
+        keyboard.record = CtrlAltKeys::seeded(|vk| [VK_LCONTROL, VK_RMENU].contains(&vk));
+        keyboard.right_alt_up();
+        keyboard.state.remove(&VK_LCONTROL);
+        keyboard.right_alt_down();
+        assert_eq!(keyboard.held(), held(false, false, true));
     }
 
     fn keys(shift: bool, press: u64) -> KeysHeld {
@@ -1498,7 +1695,7 @@ mod tests {
             held: 0,
         };
         (
-            ((false, shift, false, false), CtrlAltHeld::default()),
+            ((false, shift, false, false), CtrlAltRead::default()),
             vec![key],
         )
     }

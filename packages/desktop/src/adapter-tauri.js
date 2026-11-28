@@ -192,8 +192,8 @@ function _redactSensitive(action) {
 // as what it is there — typing into the field — in the one shape that typing
 // has: the field's masked `type`. Keys that enter no character (Enter, Tab,
 // Backspace, the arrows, every key with a name of its own) and shortcuts
-// (Ctrl, Alt or Meta held, other than Ctrl and Alt together, which is AltGr)
-// stay keys.
+// (Meta, Ctrl without Alt or AltGr, Alt without Ctrl or AltGr: see
+// _keyEntersText) stay keys.
 // The test is closed on the keys that stay keys, so every other name counts
 // as text and is masked: a character, `Space`, `Dead`, `Unidentified`, and
 // `Process`, the key an input method took, which stands for a typing key. The native layer's password rule

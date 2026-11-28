@@ -31,6 +31,8 @@ pub enum LayoutFileError {
     OutOfBounds,
     /// The list has no end within [`MOST_COMPOSITIONS`] entries.
     NoEnd,
+    /// The tables state a version other than the one read here.
+    OtherVersion,
 }
 
 impl std::fmt::Display for LayoutFileError {
@@ -41,6 +43,7 @@ impl std::fmt::Display for LayoutFileError {
             Self::DescriptorNotRead => "KbdLayerDescriptor is not in the form read",
             Self::OutOfBounds => "a place named lies outside the file",
             Self::NoEnd => "the list has no end",
+            Self::OtherVersion => "the tables state another version",
         })
     }
 }
@@ -223,6 +226,38 @@ pub fn compositions_in(file: &[u8]) -> Result<Compositions, LayoutFileError> {
             .checked_add(8)
             .ok_or(LayoutFileError::OutOfBounds)?;
     }
+}
+
+/// The flag of a layout's locale flags that makes the right Alt AltGr
+/// (`KLLF_ALTGR`): Windows then hands programs the right Alt with a left
+/// Ctrl of its own.
+pub const KLLF_ALTGR: u32 = 0x0001;
+
+/// The version a layout's tables state in the upper half of their locale
+/// flags (`KBD_VERSION`).
+const KBD_VERSION: u32 = 1;
+
+/// Where a layout's locale flags sit in its tables (`fLocaleFlags` of
+/// `KBDTABLES`, after ten fields of eight bytes: nine pointers and a byte
+/// padded to eight).
+const LOCALE_FLAGS_AT: u32 = 0x50;
+
+/// Whether the keyboard layout file with the bytes `file` makes the right Alt
+/// AltGr: its tables' locale flags hold [`KLLF_ALTGR`]. An error where the
+/// tables are not read, or state a version other than [`KBD_VERSION`].
+pub fn alt_gr_in(file: &[u8]) -> Result<bool, LayoutFileError> {
+    let image = Image::of(file)?;
+    let descriptor = image.exported(b"KbdLayerDescriptor")?;
+    let tables = image.tables_of(descriptor)?;
+    let at = tables
+        .checked_add(LOCALE_FLAGS_AT)
+        .ok_or(LayoutFileError::OutOfBounds)?;
+    let bytes = image.bytes_at(at, 4)?;
+    let flags = u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
+    if flags >> 16 != KBD_VERSION {
+        return Err(LayoutFileError::OtherVersion);
+    }
+    Ok(flags & KLLF_ALTGR != 0)
 }
 
 /// Where the registry names the file of a keyboard layout, under
@@ -609,6 +644,42 @@ mod tests {
             }
         }
         file
+    }
+
+    /// A layout file with no list whose tables hold the locale flags `flags`.
+    fn layout_file_with_flags(flags: u32) -> Vec<u8> {
+        let mut file = layout_file(None);
+        put(
+            &mut file,
+            DATA.1 + (TABLES - DATA.0 + LOCALE_FLAGS_AT) as usize,
+            &flags.to_le_bytes(),
+        );
+        file
+    }
+
+    // Regression: #825 — whether a layout makes the right Alt AltGr is read
+    // from its file, not guessed.
+    // https://github.com/Arsarneq/docent/issues/825
+    #[test]
+    fn regression_825_the_altgr_flag_is_read_from_the_tables_locale_flags() {
+        assert_eq!(alt_gr_in(&layout_file_with_flags(0x0001_0001)), Ok(true));
+        assert_eq!(alt_gr_in(&layout_file_with_flags(0x0001_0000)), Ok(false));
+        // Another flag beside it changes nothing.
+        assert_eq!(alt_gr_in(&layout_file_with_flags(0x0001_0002)), Ok(false));
+        assert_eq!(alt_gr_in(&layout_file_with_flags(0x0001_0003)), Ok(true));
+    }
+
+    #[test]
+    fn regression_825_tables_of_another_version_say_nothing_of_altgr() {
+        assert_eq!(
+            alt_gr_in(&layout_file_with_flags(0x0000_0001)),
+            Err(LayoutFileError::OtherVersion)
+        );
+        assert_eq!(
+            alt_gr_in(&layout_file_with_flags(0x0002_0001)),
+            Err(LayoutFileError::OtherVersion)
+        );
+        assert_eq!(alt_gr_in(b"MZ"), Err(LayoutFileError::NotAnImage));
     }
 
     const ACUTE: char = '\u{b4}';
