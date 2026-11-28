@@ -170,7 +170,7 @@ test.describe('Drag and Drop', () => {
     await waitForActionsToSettle(serviceWorker, testPage);
 
     const actions = await getPendingActions(serviceWorker);
-    const none = { ctrl: false, shift: false, alt: false, meta: false };
+    const none = { ctrl: false, shift: false, alt: false, meta: false, alt_graph: false };
     expect(
       actions
         .filter((a) => a.type === 'click' || a.type === 'right_click')
@@ -193,7 +193,7 @@ test.describe('Drag and Drop', () => {
     await waitForActionsToSettle(serviceWorker, testPage);
 
     const actions = await getPendingActions(serviceWorker);
-    const none = { ctrl: false, shift: false, alt: false, meta: false };
+    const none = { ctrl: false, shift: false, alt: false, meta: false, alt_graph: false };
     expect(
       actions
         .filter((a) => a.type === 'drag_start' || a.type === 'drop')
