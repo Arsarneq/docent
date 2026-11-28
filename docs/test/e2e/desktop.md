@@ -54,9 +54,9 @@ npm run test:e2e:desktop
 
 - Each time a capture stops, the app writes one block to stderr, also for a capture whose step is then thrown away (a re-record that is left). An app ended while it records writes none, and an event a worker is still handling when the stop's wait for the workers runs out is not in the block.
 - Each line is a step and its largest duration in ms, or `-` where none was measured, and the counts of the looks at the focused control ahead of any key, by how they ended. The words are those of [`timing_lines.rs`](../../../packages/desktop/src-tauri/src/capture/timing_lines.rs).
-- Every key and value change of a recorded window is measured, in any field. Not measured: a key or value change of a window that is not recorded (Docent's own when it is excluded among them), and a press of Shift, Ctrl or Alt alone.
+- Every key and value change of a recorded window is measured, in any field, and so is a key attributed to no window (a key the system takes while an excluded window is in front, DCP-14). Not measured: a key or value change of a window that is not recorded (Docent's own when it is excluded among them), and a press of Shift, Ctrl or Alt alone.
 - The block shows whether at least one key and at least one value change took each step, never how many, in what order or how far apart. A masked field shows as masked there, by which steps are filled, as it does in a recording.
 - A release build has no console, so the block is seen only where the app's stderr is redirected, as this suite's fixture does into `app.log`. The suite's job does not set the switch.
 - The switch is off by default and changes no action.
 
-The tests that hold this are in the [worker-pool, lifecycle and timing-switch rows](../desktop-rust.md#suite-layout) of the Rust tests. They read the block from a channel in place of stderr: the write to stderr itself is checked by no test.
+The tests that hold this are in the [worker-pool, lifecycle and timing-switch rows](../desktop-rust.md#suite-layout) of the Rust tests, and in the in-module tests of `timing_lines`, which hold that a step keeps its largest duration. They read the block from a channel in place of stderr: the write to stderr itself is checked by no test.

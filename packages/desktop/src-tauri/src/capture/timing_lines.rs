@@ -4,16 +4,12 @@
 // suite). Off by default.
 //
 // For each subject and each of its steps the block gives the largest duration
-// measured within the handling of one event, or [`UNSEEN`] where none was,
-// and for the looks ahead of any key how many ended each way. No step depends
-// on when the person's events arrived. The block holds fixed words and
-// numbers only: what is kept is numbers and the enums below, so no key,
-// character, value, title or element can reach it. Every key and value change
-// of a recorded window is measured, in any field; a press of Shift, Ctrl or
-// Alt alone is not, since a recording holds nothing for it. So a step's line
-// shows only whether at least one event took that step, never how many, in
-// what order or how far apart. A masked field shows as masked, by which steps
-// are filled, as it does in a recording.
+// measured, or [`UNSEEN`] where none was, and for the looks ahead of any key
+// how many ended each way. Every duration starts inside the handling of one
+// event: nothing is measured from the time an event arrived. The block holds
+// fixed words and numbers only: what is kept is numbers and the enums below,
+// so no key, character, value, title or element can reach it. What is and is
+// not measured, and what the block shows, are stated in that doc.
 
 use std::collections::HashMap;
 use std::sync::{mpsc, Arc, Mutex};

@@ -4486,9 +4486,6 @@ fn read_in_time<B: AccessibilityBackend>(last_key: Option<&LastKey>, backend: &B
     }
 }
 
-/// A value read too late is not taken: the pending `type` keeps the last
-/// value read in time, and the keys buffered now are the keys after it, to
-/// be written as keys unless a value read in time supersedes them.
 /// Runs `keep`, a keeping of the held actions, timed under
 /// [`Step::Buffers`].
 fn in_buffers(timing: &mut Timing, keep: impl FnOnce()) {
@@ -4497,6 +4494,9 @@ fn in_buffers(timing: &mut Timing, keep: impl FnOnce()) {
     timing.took(Step::Buffers, started);
 }
 
+/// A value read too late is not taken: the pending `type` keeps the last
+/// value read in time, and the keys buffered now are the keys after it, to
+/// be written as keys unless a value read in time supersedes them.
 fn keep_keys_after_late_read(pending: &SharedPendingBuffers) {
     let mut buffers = lock_buffers(pending);
     buffers.keys_after_type = buffers.pending_keys.len();
