@@ -1,0 +1,1040 @@
+//! What a key press means on the active keyboard layout: the value a `key`
+//! action's `key` states, named by the W3C UI Events `key` values (`a`, `A`,
+//! `?`, `Enter`, `Dead`, `Unidentified`). The session-format document states
+//! the rule under Key names; this module is the desktop's source for it,
+//! built the way a browser builds the value on Windows.
+//!
+//! Platform-agnostic: the keyboard hook reads which layout a press is on, a
+//! worker asks the backend what that layout gives the key
+//! ([`answer_param`]) and names the key from it ([`key_value_name`]).
+
+/// What a keyboard layout gives a key with given modifiers held.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LayoutAnswer {
+    /// Nothing at all.
+    Nothing,
+    /// Something that is no one character and no dead key: a control
+    /// character, half a character, or more than one character at once. It
+    /// names no key, and it takes a waiting accent away
+    /// ([`super::waiting_accents`]).
+    Other,
+    /// One character.
+    Char(char),
+    /// The key is a dead key, with this accent.
+    Dead(char),
+}
+
+/// The modifiers a layout is asked with: the ones that change what a key
+/// gives. The Meta key changes nothing a layout gives and is no part of it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Held {
+    pub shift: bool,
+    pub ctrl: bool,
+    pub alt: bool,
+    pub caps_lock: bool,
+}
+
+impl Held {
+    /// The place of this combination among the sixteen, for a table.
+    pub const fn index(self) -> usize {
+        self.shift as usize
+            | (self.ctrl as usize) << 1
+            | (self.alt as usize) << 2
+            | (self.caps_lock as usize) << 3
+    }
+
+    /// The combination at place `index` among the sixteen
+    /// ([`index`](Self::index)).
+    pub const fn from_index(index: usize) -> Self {
+        Self {
+            shift: index & 1 != 0,
+            ctrl: index & 2 != 0,
+            alt: index & 4 != 0,
+            caps_lock: index & 8 != 0,
+        }
+    }
+
+    /// The Shift and Caps Lock state of the press, with no other modifier.
+    const fn shift_and_caps_lock(self) -> Self {
+        Self {
+            shift: self.shift,
+            ctrl: false,
+            alt: false,
+            caps_lock: self.caps_lock,
+        }
+    }
+}
+
+/// What the layout's translation of a key (`ToUnicodeEx`'s return value and
+/// the first UTF-16 unit it wrote) says the key gives: nothing where it
+/// answered 0; a dead key where it answered -1, one character where it
+/// answered 1, each only for a unit of U+0020 or above that is a character on
+/// its own. Every other answer is something else: a control character, a
+/// surrogate half, or two or more characters at once.
+pub const fn layout_answer(answered: i32, first_unit: u16) -> LayoutAnswer {
+    if answered == 0 {
+        return LayoutAnswer::Nothing;
+    }
+    // A surrogate half is no character on its own.
+    if first_unit < 0x20 || (first_unit >= 0xD800 && first_unit <= 0xDFFF) {
+        return LayoutAnswer::Other;
+    }
+    match (answered, char::from_u32(first_unit as u32)) {
+        (-1, Some(accent)) => LayoutAnswer::Dead(accent),
+        (1, Some(character)) => LayoutAnswer::Char(character),
+        _ => LayoutAnswer::Other,
+    }
+}
+
+/// The value of a key as pressed: the first of these that gives one
+/// character or a dead key, asking the layout through `ask`:
+///
+/// 1. the modifiers as held (AltGr is Ctrl and Alt together);
+/// 2. the Shift and Caps Lock state of the press, with no other modifier;
+/// 3. no modifier.
+///
+/// `ask` answers `None` where the layout could not be asked now; the value
+/// is then not known, and `None` is returned, so that no later try names the
+/// key by a character the press as held would not give.
+pub fn value_as_pressed(
+    held: Held,
+    mut ask: impl FnMut(Held) -> Option<LayoutAnswer>,
+) -> Option<LayoutAnswer> {
+    let tries = [held, held.shift_and_caps_lock(), Held::default()];
+    for (at, with) in tries.iter().enumerate() {
+        // A combination already asked gave nothing.
+        if tries[..at].contains(with) {
+            continue;
+        }
+        match ask(*with)? {
+            LayoutAnswer::Nothing | LayoutAnswer::Other => {}
+            answer => return Some(answer),
+        }
+    }
+    Some(LayoutAnswer::Nothing)
+}
+
+/// The mark that the layout was read for the key: bit 31 of the value a
+/// keyboard event carries. A character has 21 bits, so the three marks are
+/// clear of it.
+const ANSWER_READ: u32 = 1 << 31;
+/// The layout answered a dead key, its accent in the low 21 bits.
+const ANSWER_DEAD: u32 = 1 << 30;
+/// The layout answered one character, in the low 21 bits.
+const ANSWER_CHAR: u32 = 1 << 29;
+/// The layout answered something that is no one character and no dead key.
+const ANSWER_OTHER: u32 = 1 << 26;
+const ANSWER_CHAR_MASK: u32 = 0x1F_FFFF;
+
+/// A key's value as a keyboard event carries it: 0 where none was read.
+pub const fn answer_param(read: Option<LayoutAnswer>) -> u32 {
+    match read {
+        None => 0,
+        Some(LayoutAnswer::Nothing) => ANSWER_READ,
+        Some(LayoutAnswer::Other) => ANSWER_READ | ANSWER_OTHER,
+        Some(LayoutAnswer::Dead(accent)) => ANSWER_READ | ANSWER_DEAD | accent as u32,
+        Some(LayoutAnswer::Char(character)) => ANSWER_READ | ANSWER_CHAR | character as u32,
+    }
+}
+
+/// The read [`answer_param`] carried; `None` where none was read.
+pub const fn answer_of(param: u32) -> Option<LayoutAnswer> {
+    if param & ANSWER_READ == 0 {
+        return None;
+    }
+    let character = char::from_u32(param & ANSWER_CHAR_MASK);
+    Some(
+        match (
+            param & ANSWER_DEAD != 0,
+            param & ANSWER_CHAR != 0,
+            character,
+        ) {
+            (true, _, Some(accent)) => LayoutAnswer::Dead(accent),
+            (false, true, Some(character)) => LayoutAnswer::Char(character),
+            _ if param & ANSWER_OTHER != 0 => LayoutAnswer::Other,
+            _ => LayoutAnswer::Nothing,
+        },
+    )
+}
+
+/// The mark that the layout was also asked what the key gives with the
+/// modifiers as held: bit 27, set by [`pressed_param`] alone.
+const ANSWER_AS_HELD_READ: u32 = 1 << 27;
+/// The key is a dead key with the modifiers as held.
+const ANSWER_DEAD_AS_HELD: u32 = 1 << 28;
+/// The key gives one character with the modifiers as held.
+const ANSWER_CHAR_AS_HELD: u32 = 1 << 25;
+/// The key gives something else with the modifiers as held
+/// ([`LayoutAnswer::Other`]).
+const ANSWER_OTHER_AS_HELD: u32 = 1 << 24;
+/// The marks of the first try alone.
+const ANSWER_AS_HELD_MARKS: u32 =
+    ANSWER_AS_HELD_READ | ANSWER_DEAD_AS_HELD | ANSWER_CHAR_AS_HELD | ANSWER_OTHER_AS_HELD;
+
+/// What a layout gives a key as pressed, as a keyboard event carries it: the
+/// key's value ([`value_as_pressed`], [`answer_param`]) and beside it
+/// what the key gives with the modifiers as held, the first try alone
+/// ([`as_held_of`]). A later try can name a dead key the press does not make
+/// (Ctrl with a dead key is named `Dead` and composes nothing), so the two
+/// are carried apart. 0 where the layout could not be asked.
+pub fn pressed_param(held: Held, mut ask: impl FnMut(Held) -> Option<LayoutAnswer>) -> u32 {
+    let Some(as_held) = ask(held) else {
+        return 0;
+    };
+    let Some(value) = value_as_pressed(held, ask) else {
+        return 0;
+    };
+    // A character or a dead key as held is the value itself, the first try.
+    let as_held = match as_held {
+        LayoutAnswer::Nothing => 0,
+        LayoutAnswer::Other => ANSWER_OTHER_AS_HELD,
+        LayoutAnswer::Char(_) => ANSWER_CHAR_AS_HELD,
+        LayoutAnswer::Dead(_) => ANSWER_DEAD_AS_HELD,
+    };
+    answer_param(Some(value)) | ANSWER_AS_HELD_READ | as_held
+}
+
+/// What the key gives with the modifiers as held, the first try alone, as
+/// [`pressed_param`] carried it; `None` where that was not asked. It is what
+/// the key does to an accent that waits ([`super::waiting_accents`]).
+pub const fn as_held_of(param: u32) -> Option<LayoutAnswer> {
+    if param & ANSWER_AS_HELD_READ == 0 {
+        return None;
+    }
+    if param & (ANSWER_DEAD_AS_HELD | ANSWER_CHAR_AS_HELD) != 0 {
+        return answer_of(param);
+    }
+    Some(if param & ANSWER_OTHER_AS_HELD != 0 {
+        LayoutAnswer::Other
+    } else {
+        LayoutAnswer::Nothing
+    })
+}
+
+/// `param` ([`pressed_param`]) with the key's value put as `value`, and what
+/// the key gives as held kept: the name of a key pressed behind an accent
+/// that waited.
+pub const fn with_value(param: u32, value: LayoutAnswer) -> u32 {
+    answer_param(Some(value)) | (param & ANSWER_AS_HELD_MARKS)
+}
+
+/// Whether the key is a dead key with the modifiers as held, as
+/// [`pressed_param`] carried it; `None` where that was not asked.
+pub const fn dead_as_held_of(param: u32) -> Option<bool> {
+    if param & ANSWER_AS_HELD_READ == 0 {
+        None
+    } else {
+        Some(param & ANSWER_DEAD_AS_HELD != 0)
+    }
+}
+
+/// The primary language of a keyboard layout handle: the low ten bits of its
+/// language identifier, the handle's low word.
+pub const fn primary_language(layout: i64) -> u16 {
+    (layout & 0x3FF) as u16
+}
+
+/// The name of a key that has a name of its own, by its virtual-key code:
+/// the table a browser uses on Windows, with the Korean and Japanese mode
+/// keys named by the layout's primary language. `None` for a key the layout
+/// names (a character key, a dead key), and for Shift, Control and Alt, which
+/// a worker judges before it names a key.
+pub fn named_key(key_code: u32, primary_language: u16) -> Option<&'static str> {
+    const KOREAN: u16 = 0x12;
+    const JAPANESE: u16 = 0x11;
+    let by_language = match (primary_language, key_code) {
+        (KOREAN, 0x15) => Some("HangulMode"),
+        (KOREAN, 0x19) => Some("HanjaMode"),
+        (JAPANESE, 0x15 | 0xF6) => Some("KanaMode"),
+        (JAPANESE, 0x19) => Some("KanjiMode"),
+        (JAPANESE, 0xF0) => Some("Alphanumeric"),
+        (JAPANESE, 0xF1) => Some("Katakana"),
+        (JAPANESE, 0xF2) => Some("Hiragana"),
+        (JAPANESE, 0xF3) => Some("Hankaku"),
+        (JAPANESE, 0xF4) => Some("Zenkaku"),
+        (JAPANESE, 0xF5) => Some("Romaji"),
+        _ => None,
+    };
+    if by_language.is_some() {
+        return by_language;
+    }
+    const FUNCTION_KEYS: [&str; 24] = [
+        "F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F11", "F12", "F13", "F14",
+        "F15", "F16", "F17", "F18", "F19", "F20", "F21", "F22", "F23", "F24",
+    ];
+    Some(match key_code {
+        0x03 => "Cancel",
+        0x08 => "Backspace",
+        0x09 => "Tab",
+        0x0C | 0xFE => "Clear",
+        0x0D => "Enter",
+        0x13 => "Pause",
+        0x14 => "CapsLock",
+        0x17 => "JunjaMode",
+        0x18 => "FinalMode",
+        0x1B => "Escape",
+        0x1C => "Convert",
+        0x1D => "NonConvert",
+        0x1E => "Accept",
+        0x1F => "ModeChange",
+        0x21 => "PageUp",
+        0x22 => "PageDown",
+        0x23 => "End",
+        0x24 => "Home",
+        0x25 => "ArrowLeft",
+        0x26 => "ArrowUp",
+        0x27 => "ArrowRight",
+        0x28 => "ArrowDown",
+        0x29 => "Select",
+        0x2A => "Print",
+        0x2B => "Execute",
+        0x2C => "PrintScreen",
+        0x2D => "Insert",
+        0x2E => "Delete",
+        0x2F => "Help",
+        0x5B | 0x5C => "Meta",
+        0x5D => "ContextMenu",
+        0x5F => "Standby",
+        0x70..=0x87 => FUNCTION_KEYS[(key_code - 0x70) as usize],
+        0x90 => "NumLock",
+        0x91 => "ScrollLock",
+        0xA6 => "BrowserBack",
+        0xA7 => "BrowserForward",
+        0xA8 => "BrowserRefresh",
+        0xA9 => "BrowserStop",
+        0xAA => "BrowserSearch",
+        0xAB => "BrowserFavorites",
+        0xAC => "BrowserHome",
+        0xAD => "AudioVolumeMute",
+        0xAE => "AudioVolumeDown",
+        0xAF => "AudioVolumeUp",
+        0xB0 => "MediaTrackNext",
+        0xB1 => "MediaTrackPrevious",
+        0xB2 => "MediaStop",
+        0xB3 => "MediaPlayPause",
+        0xB4 => "LaunchMail",
+        0xB5 => "LaunchMediaPlayer",
+        0xB6 => "LaunchApplication1",
+        0xB7 => "LaunchApplication2",
+        0xE5 => "Process",
+        0xF6 => "Attn",
+        0xF7 => "CrSel",
+        0xF8 => "ExSel",
+        0xF9 => "EraseEof",
+        0xFA => "Play",
+        0xFB => "ZoomToggle",
+        _ => return None,
+    })
+}
+
+/// The `key` value of a key with no name of its own, from what the layout
+/// gave the press: the character, a space as `Space`, `Dead` for a dead key,
+/// and `Unidentified` where the layout gave nothing or was not read.
+pub fn key_value_name(read: Option<LayoutAnswer>) -> String {
+    match read {
+        Some(LayoutAnswer::Char(' ')) => "Space".to_string(),
+        Some(LayoutAnswer::Char(character)) => character.to_string(),
+        Some(LayoutAnswer::Dead(_)) => "Dead".to_string(),
+        Some(LayoutAnswer::Nothing | LayoutAnswer::Other) | None => "Unidentified".to_string(),
+    }
+}
+
+/// What a layout answered for each key and combination of modifiers, so each
+/// question is put to the layout once. One layout a table: an answer for
+/// another layout clears the rest. The backend keeps one table a layout and
+/// shares them between the workers; nothing here is used on the keyboard
+/// hook.
+pub struct LayoutAnswers {
+    layout: isize,
+    /// The [`answer_param`] of each key code and combination; 0 not asked.
+    answers: [u32; 256 * 16],
+}
+
+impl LayoutAnswers {
+    pub const fn new() -> Self {
+        Self {
+            layout: 0,
+            answers: [0; 256 * 16],
+        }
+    }
+
+    const fn index(key_code: u32, held: Held) -> usize {
+        (key_code as usize & 0xFF) * 16 + held.index()
+    }
+
+    /// The answer kept for this key on `layout`; `None` where none was taken.
+    pub fn get(&self, layout: isize, key_code: u32, held: Held) -> Option<LayoutAnswer> {
+        if layout != self.layout {
+            return None;
+        }
+        match self.answers[Self::index(key_code, held)] {
+            0 => None,
+            kept => answer_of(kept),
+        }
+    }
+
+    /// Keep `answer` as `layout`'s answer for this key.
+    pub fn learn(&mut self, layout: isize, key_code: u32, held: Held, answer: LayoutAnswer) {
+        if layout != self.layout {
+            self.layout = layout;
+            self.answers = [0; 256 * 16];
+        }
+        self.answers[Self::index(key_code, held)] = answer_param(Some(answer));
+    }
+
+    /// Whether the table holds `layout`'s answers.
+    pub const fn is_of(&self, layout: isize) -> bool {
+        layout != 0 && layout == self.layout
+    }
+
+    /// Take `layout`'s answer for every key code and combination from `ask`,
+    /// in place of whatever the table held, and say whether they were taken.
+    ///
+    /// `answers_cleanly` says whether the layout can be asked right now (on
+    /// Windows: no accent of a dead key is pending, which would change every
+    /// answer). It is asked before the first key code and after each, since
+    /// the fill takes long enough for the person to type meanwhile. Where it
+    /// says no, nothing more is asked and the table holds nothing.
+    pub fn fill(
+        &mut self,
+        layout: isize,
+        mut ask: impl FnMut(u32, Held) -> LayoutAnswer,
+        mut answers_cleanly: impl FnMut() -> bool,
+    ) -> bool {
+        self.forget();
+        if !answers_cleanly() {
+            return false;
+        }
+        for key_code in 0..256_u32 {
+            for combination in 0..16 {
+                let held = Held::from_index(combination);
+                self.answers[Self::index(key_code, held)] = answer_param(Some(ask(key_code, held)));
+            }
+            if !answers_cleanly() {
+                self.forget();
+                return false;
+            }
+        }
+        self.layout = layout;
+        true
+    }
+
+    /// Hold no layout's answers.
+    pub fn forget(&mut self) {
+        self.layout = 0;
+        self.answers = [0; 256 * 16];
+    }
+}
+
+impl Default for LayoutAnswers {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const NONE: Held = Held {
+        shift: false,
+        ctrl: false,
+        alt: false,
+        caps_lock: false,
+    };
+    const SHIFT: Held = Held {
+        shift: true,
+        ..NONE
+    };
+    const CTRL: Held = Held { ctrl: true, ..NONE };
+    const ALT_GR: Held = Held {
+        ctrl: true,
+        alt: true,
+        ..NONE
+    };
+    const CAPS: Held = Held {
+        caps_lock: true,
+        ..NONE
+    };
+
+    /// A layout's letter key A, as a browser's table holds it: `a`, `A` with
+    /// Shift or Caps Lock, `a` with both, nothing with Ctrl or Alt.
+    fn letter_a(held: Held) -> Option<LayoutAnswer> {
+        Some(if held.ctrl || held.alt {
+            LayoutAnswer::Nothing
+        } else if held.shift != held.caps_lock {
+            LayoutAnswer::Char('A')
+        } else {
+            LayoutAnswer::Char('a')
+        })
+    }
+
+    #[test]
+    fn a_translation_of_one_character_is_that_character() {
+        assert_eq!(layout_answer(1, 0x61), LayoutAnswer::Char('a'));
+        assert_eq!(layout_answer(1, 0xE6), LayoutAnswer::Char('æ'));
+        assert_eq!(layout_answer(1, 0x20AC), LayoutAnswer::Char('€'));
+        assert_eq!(layout_answer(1, 0x20), LayoutAnswer::Char(' '));
+    }
+
+    #[test]
+    fn a_translation_that_answers_minus_one_is_a_dead_key() {
+        assert_eq!(layout_answer(-1, 0xB4), LayoutAnswer::Dead('\u{b4}'));
+    }
+
+    #[test]
+    fn a_control_character_a_surrogate_half_and_several_characters_are_something_else() {
+        assert_eq!(layout_answer(1, 0x01), LayoutAnswer::Other, "Ctrl+A");
+        assert_eq!(layout_answer(1, 0x1F), LayoutAnswer::Other);
+        assert_eq!(layout_answer(-1, 0x00), LayoutAnswer::Other);
+        assert_eq!(layout_answer(1, 0xD83D), LayoutAnswer::Other, "half");
+        assert_eq!(layout_answer(2, 0x61), LayoutAnswer::Other, "ligature");
+        assert_eq!(layout_answer(-2, 0xB4), LayoutAnswer::Other);
+    }
+
+    #[test]
+    fn a_translation_that_answers_nothing_is_nothing() {
+        assert_eq!(layout_answer(0, 0x61), LayoutAnswer::Nothing);
+        assert_eq!(layout_answer(0, 0x00), LayoutAnswer::Nothing);
+    }
+
+    #[test]
+    fn something_else_names_no_key_and_the_next_try_is_asked() {
+        // Ctrl with A gives a control character as held: the key is named by
+        // the next try.
+        let a = |held: Held| {
+            Some(if held.ctrl {
+                LayoutAnswer::Other
+            } else {
+                LayoutAnswer::Char('a')
+            })
+        };
+        assert_eq!(value_as_pressed(CTRL, a), Some(LayoutAnswer::Char('a')));
+        assert_eq!(key_value_name(Some(LayoutAnswer::Other)), "Unidentified");
+    }
+
+    #[test]
+    fn a_press_carries_what_its_key_gives_as_held() {
+        const ACUTE: char = '\u{b4}';
+        // A character as held, and a dead key with its accent.
+        let letter = pressed_param(NONE, |_| Some(LayoutAnswer::Char('e')));
+        assert_eq!(as_held_of(letter), Some(LayoutAnswer::Char('e')));
+        let dead = pressed_param(NONE, |_| Some(LayoutAnswer::Dead(ACUTE)));
+        assert_eq!(as_held_of(dead), Some(LayoutAnswer::Dead(ACUTE)));
+        // Ctrl with A: a control character as held, named `a`.
+        let ctrl_a = pressed_param(CTRL, |held| {
+            Some(if held.ctrl {
+                LayoutAnswer::Other
+            } else {
+                LayoutAnswer::Char('a')
+            })
+        });
+        assert_eq!(answer_of(ctrl_a), Some(LayoutAnswer::Char('a')));
+        assert_eq!(as_held_of(ctrl_a), Some(LayoutAnswer::Other));
+        // Ctrl with a key that gives nothing with it: nothing as held.
+        let ctrl_dead = pressed_param(CTRL, |held| {
+            Some(if held.ctrl {
+                LayoutAnswer::Nothing
+            } else {
+                LayoutAnswer::Dead(ACUTE)
+            })
+        });
+        assert_eq!(answer_of(ctrl_dead), Some(LayoutAnswer::Dead(ACUTE)));
+        assert_eq!(as_held_of(ctrl_dead), Some(LayoutAnswer::Nothing));
+        // Not asked.
+        assert_eq!(as_held_of(0), None);
+        assert_eq!(
+            as_held_of(answer_param(Some(LayoutAnswer::Char('e')))),
+            None
+        );
+    }
+
+    #[test]
+    fn a_press_is_given_another_value_with_what_it_gives_as_held_kept() {
+        const ACUTE: char = '\u{b4}';
+        let letter = pressed_param(NONE, |_| Some(LayoutAnswer::Char('e')));
+        let composed = with_value(letter, LayoutAnswer::Char('é'));
+        assert_eq!(answer_of(composed), Some(LayoutAnswer::Char('é')));
+        assert_eq!(dead_as_held_of(composed), Some(false));
+        let dead = pressed_param(NONE, |_| Some(LayoutAnswer::Dead(ACUTE)));
+        let unknown = with_value(dead, LayoutAnswer::Nothing);
+        assert_eq!(answer_of(unknown), Some(LayoutAnswer::Nothing));
+        assert_eq!(dead_as_held_of(unknown), Some(true));
+    }
+
+    #[test]
+    fn a_key_is_named_with_the_modifiers_as_held_first() {
+        assert_eq!(
+            value_as_pressed(NONE, letter_a),
+            Some(LayoutAnswer::Char('a'))
+        );
+        assert_eq!(
+            value_as_pressed(SHIFT, letter_a),
+            Some(LayoutAnswer::Char('A'))
+        );
+        assert_eq!(
+            value_as_pressed(CAPS, letter_a),
+            Some(LayoutAnswer::Char('A'))
+        );
+        // AltGr with E on a Danish layout.
+        let e = |held: Held| {
+            Some(if held == ALT_GR {
+                LayoutAnswer::Char('€')
+            } else if held == NONE {
+                LayoutAnswer::Char('e')
+            } else {
+                LayoutAnswer::Nothing
+            })
+        };
+        assert_eq!(value_as_pressed(ALT_GR, e), Some(LayoutAnswer::Char('€')));
+    }
+
+    #[test]
+    fn a_shortcut_is_named_by_the_shift_and_caps_lock_state_of_the_press() {
+        // Ctrl with A gives no character: `a`. With Shift too: `A`.
+        assert_eq!(
+            value_as_pressed(CTRL, letter_a),
+            Some(LayoutAnswer::Char('a'))
+        );
+        assert_eq!(
+            value_as_pressed(
+                Held {
+                    shift: true,
+                    ..CTRL
+                },
+                letter_a
+            ),
+            Some(LayoutAnswer::Char('A'))
+        );
+        assert_eq!(
+            value_as_pressed(
+                Held {
+                    caps_lock: true,
+                    ..CTRL
+                },
+                letter_a
+            ),
+            Some(LayoutAnswer::Char('A'))
+        );
+    }
+
+    #[test]
+    fn a_key_the_shift_state_gives_nothing_is_named_with_no_modifier() {
+        // A key that gives a character only unshifted, pressed with Shift
+        // and Ctrl.
+        let key = |held: Held| {
+            Some(if held == NONE {
+                LayoutAnswer::Char('<')
+            } else {
+                LayoutAnswer::Nothing
+            })
+        };
+        assert_eq!(
+            value_as_pressed(
+                Held {
+                    shift: true,
+                    ..CTRL
+                },
+                key
+            ),
+            Some(LayoutAnswer::Char('<'))
+        );
+    }
+
+    #[test]
+    fn a_key_the_layout_gives_nothing_at_all_has_no_value() {
+        assert_eq!(
+            value_as_pressed(SHIFT, |_| Some(LayoutAnswer::Nothing)),
+            Some(LayoutAnswer::Nothing)
+        );
+    }
+
+    #[test]
+    fn a_dead_key_is_dead_as_pressed() {
+        // Dead with no modifier, a character with Shift.
+        let key = |held: Held| {
+            Some(if held == SHIFT {
+                LayoutAnswer::Char('`')
+            } else if held == NONE {
+                LayoutAnswer::Dead('\u{b4}')
+            } else {
+                LayoutAnswer::Nothing
+            })
+        };
+        assert_eq!(
+            value_as_pressed(NONE, key),
+            Some(LayoutAnswer::Dead('\u{b4}'))
+        );
+        assert_eq!(value_as_pressed(SHIFT, key), Some(LayoutAnswer::Char('`')));
+        assert_eq!(
+            value_as_pressed(CTRL, key),
+            Some(LayoutAnswer::Dead('\u{b4}'))
+        );
+    }
+
+    #[test]
+    fn each_combination_is_asked_once_and_in_order() {
+        let mut asked = Vec::new();
+        let value = value_as_pressed(
+            Held {
+                shift: true,
+                ..CTRL
+            },
+            |held| {
+                asked.push(held);
+                Some(LayoutAnswer::Nothing)
+            },
+        );
+        assert_eq!(value, Some(LayoutAnswer::Nothing));
+        assert_eq!(
+            asked,
+            vec![
+                Held {
+                    shift: true,
+                    ..CTRL
+                },
+                SHIFT,
+                NONE
+            ]
+        );
+        // A press with no modifier is one question.
+        let mut count = 0;
+        value_as_pressed(NONE, |_| {
+            count += 1;
+            Some(LayoutAnswer::Nothing)
+        });
+        assert_eq!(count, 1);
+        // Shift alone: as held, then none.
+        let mut count = 0;
+        value_as_pressed(SHIFT, |_| {
+            count += 1;
+            Some(LayoutAnswer::Nothing)
+        });
+        assert_eq!(count, 2);
+    }
+
+    #[test]
+    fn a_layout_that_cannot_be_asked_now_leaves_the_value_unknown() {
+        // The first try gave nothing and the second could not be asked: the
+        // third must not name the key.
+        let value = value_as_pressed(
+            Held {
+                shift: true,
+                ..CTRL
+            },
+            |held| {
+                if held.ctrl {
+                    Some(LayoutAnswer::Nothing)
+                } else if held.shift {
+                    None
+                } else {
+                    Some(LayoutAnswer::Char('a'))
+                }
+            },
+        );
+        assert_eq!(value, None);
+    }
+
+    #[test]
+    fn an_answer_is_carried_and_read_back() {
+        for answer in [
+            LayoutAnswer::Nothing,
+            LayoutAnswer::Other,
+            LayoutAnswer::Dead('\u{b4}'),
+            LayoutAnswer::Dead('\u{2c7}'),
+            LayoutAnswer::Char('a'),
+            LayoutAnswer::Char(' '),
+            LayoutAnswer::Char('€'),
+            LayoutAnswer::Char('\u{10FFFF}'),
+        ] {
+            let param = answer_param(Some(answer));
+            assert_ne!(param, 0, "{answer:?} is told from nothing read");
+            assert_eq!(answer_of(param), Some(answer));
+        }
+        assert_eq!(answer_param(None), 0);
+        assert_eq!(answer_of(0), None);
+    }
+
+    #[test]
+    fn a_key_value_is_named() {
+        assert_eq!(key_value_name(Some(LayoutAnswer::Char('a'))), "a");
+        assert_eq!(key_value_name(Some(LayoutAnswer::Char('?'))), "?");
+        assert_eq!(key_value_name(Some(LayoutAnswer::Char(' '))), "Space");
+        assert_eq!(key_value_name(Some(LayoutAnswer::Dead('\u{b4}'))), "Dead");
+        assert_eq!(key_value_name(Some(LayoutAnswer::Nothing)), "Unidentified");
+        assert_eq!(key_value_name(None), "Unidentified");
+    }
+
+    #[test]
+    fn a_key_with_a_name_of_its_own_is_named_by_its_code() {
+        for (code, name) in [
+            (0x03, "Cancel"),
+            (0x08, "Backspace"),
+            (0x09, "Tab"),
+            (0x0C, "Clear"),
+            (0x0D, "Enter"),
+            (0x13, "Pause"),
+            (0x14, "CapsLock"),
+            (0x17, "JunjaMode"),
+            (0x18, "FinalMode"),
+            (0x1B, "Escape"),
+            (0x1C, "Convert"),
+            (0x1D, "NonConvert"),
+            (0x1E, "Accept"),
+            (0x1F, "ModeChange"),
+            (0x21, "PageUp"),
+            (0x22, "PageDown"),
+            (0x23, "End"),
+            (0x24, "Home"),
+            (0x25, "ArrowLeft"),
+            (0x26, "ArrowUp"),
+            (0x27, "ArrowRight"),
+            (0x28, "ArrowDown"),
+            (0x29, "Select"),
+            (0x2A, "Print"),
+            (0x2B, "Execute"),
+            (0x2C, "PrintScreen"),
+            (0x2D, "Insert"),
+            (0x2E, "Delete"),
+            (0x2F, "Help"),
+            (0x5B, "Meta"),
+            (0x5C, "Meta"),
+            (0x5D, "ContextMenu"),
+            (0x5F, "Standby"),
+            (0x70, "F1"),
+            (0x7B, "F12"),
+            (0x87, "F24"),
+            (0x90, "NumLock"),
+            (0x91, "ScrollLock"),
+            (0xA6, "BrowserBack"),
+            (0xA7, "BrowserForward"),
+            (0xA8, "BrowserRefresh"),
+            (0xA9, "BrowserStop"),
+            (0xAA, "BrowserSearch"),
+            (0xAB, "BrowserFavorites"),
+            (0xAC, "BrowserHome"),
+            (0xAD, "AudioVolumeMute"),
+            (0xAE, "AudioVolumeDown"),
+            (0xAF, "AudioVolumeUp"),
+            (0xB0, "MediaTrackNext"),
+            (0xB1, "MediaTrackPrevious"),
+            (0xB2, "MediaStop"),
+            (0xB3, "MediaPlayPause"),
+            (0xB4, "LaunchMail"),
+            (0xB5, "LaunchMediaPlayer"),
+            (0xB6, "LaunchApplication1"),
+            (0xB7, "LaunchApplication2"),
+            (0xE5, "Process"),
+            (0xF6, "Attn"),
+            (0xF7, "CrSel"),
+            (0xF8, "ExSel"),
+            (0xF9, "EraseEof"),
+            (0xFA, "Play"),
+            (0xFB, "ZoomToggle"),
+            (0xFE, "Clear"),
+        ] {
+            assert_eq!(named_key(code, 0x06), Some(name), "code {code:#04X}");
+        }
+    }
+
+    #[test]
+    fn a_key_the_layout_names_has_no_name_of_its_own() {
+        // The space bar, digits, letters, the numeric keypad, punctuation,
+        // an injected character, codes with no meaning, and Shift, Control
+        // and Alt.
+        for code in [
+            0x10, 0x11, 0x12, 0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5, 0x20, 0x30, 0x39, 0x41, 0x5A,
+            0x60, 0x69, 0x6A, 0x6B, 0x6C, 0x6D, 0x6E, 0x6F, 0xBA, 0xC2, 0xDB, 0xDF, 0xE2, 0xE7,
+            0x07, 0xFF,
+        ] {
+            assert_eq!(named_key(code, 0x06), None, "code {code:#04X}");
+        }
+    }
+
+    #[test]
+    fn a_press_carries_whether_its_key_is_dead_as_held_apart_from_its_value() {
+        let ctrl = Held {
+            ctrl: true,
+            ..Held::default()
+        };
+        // A dead key pressed alone: dead as held, and named so.
+        let dead_key = |with: Held| {
+            Some(if with.ctrl {
+                LayoutAnswer::Nothing
+            } else {
+                LayoutAnswer::Dead('\u{b4}')
+            })
+        };
+        let alone = pressed_param(Held::default(), dead_key);
+        assert_eq!(answer_of(alone), Some(LayoutAnswer::Dead('\u{b4}')));
+        assert_eq!(dead_as_held_of(alone), Some(true));
+        // With Ctrl it gives nothing as held; a later try names it `Dead`,
+        // and the press makes no dead key.
+        let with_ctrl = pressed_param(ctrl, dead_key);
+        assert_eq!(answer_of(with_ctrl), Some(LayoutAnswer::Dead('\u{b4}')));
+        assert_eq!(dead_as_held_of(with_ctrl), Some(false));
+        // A character key.
+        let letter = pressed_param(Held::default(), |_| Some(LayoutAnswer::Char('e')));
+        assert_eq!(answer_of(letter), Some(LayoutAnswer::Char('e')));
+        assert_eq!(dead_as_held_of(letter), Some(false));
+        // A layout that cannot be asked carries nothing.
+        assert_eq!(pressed_param(Held::default(), |_| None), 0);
+        assert_eq!(dead_as_held_of(0), None);
+        // A value carried without that question says nothing of it.
+        assert_eq!(
+            dead_as_held_of(answer_param(Some(LayoutAnswer::Dead('\u{b4}')))),
+            None
+        );
+    }
+
+    #[test]
+    fn the_mode_keys_are_named_by_the_language_of_the_layout() {
+        const KOREAN: u16 = 0x12;
+        const JAPANESE: u16 = 0x11;
+        const DANISH: u16 = 0x06;
+        assert_eq!(named_key(0x15, KOREAN), Some("HangulMode"));
+        assert_eq!(named_key(0x19, KOREAN), Some("HanjaMode"));
+        assert_eq!(named_key(0x15, JAPANESE), Some("KanaMode"));
+        assert_eq!(named_key(0xF6, JAPANESE), Some("KanaMode"));
+        assert_eq!(named_key(0x19, JAPANESE), Some("KanjiMode"));
+        assert_eq!(named_key(0xF0, JAPANESE), Some("Alphanumeric"));
+        assert_eq!(named_key(0xF1, JAPANESE), Some("Katakana"));
+        assert_eq!(named_key(0xF2, JAPANESE), Some("Hiragana"));
+        assert_eq!(named_key(0xF3, JAPANESE), Some("Hankaku"));
+        assert_eq!(named_key(0xF4, JAPANESE), Some("Zenkaku"));
+        assert_eq!(named_key(0xF5, JAPANESE), Some("Romaji"));
+        // On another layout the same codes have no such name.
+        assert_eq!(named_key(0x15, DANISH), None);
+        assert_eq!(named_key(0x19, DANISH), None);
+        assert_eq!(named_key(0xF0, DANISH), None);
+        assert_eq!(named_key(0xF6, DANISH), Some("Attn"));
+        // A Korean layout names only its two.
+        assert_eq!(named_key(0xF2, KOREAN), None);
+    }
+
+    #[test]
+    fn the_primary_language_is_read_from_the_layout_handle() {
+        // Danish (0x0406) on the Danish layout; Japanese with its input
+        // method's device part in the high word.
+        assert_eq!(primary_language(0x0406_0406), 0x06);
+        assert_eq!(primary_language(0xE001_0411u32 as i32 as i64), 0x11);
+        assert_eq!(primary_language(0x0412_0412), 0x12);
+        assert_eq!(primary_language(0), 0);
+    }
+
+    #[test]
+    fn layout_answers_are_kept_for_one_layout_at_a_time() {
+        let mut kept = Box::new(LayoutAnswers::new());
+        assert_eq!(kept.get(1, 0x41, NONE), None);
+        kept.learn(1, 0x41, NONE, LayoutAnswer::Char('a'));
+        kept.learn(1, 0x41, SHIFT, LayoutAnswer::Char('A'));
+        kept.learn(1, 0x41, CTRL, LayoutAnswer::Nothing);
+        kept.learn(1, 0xDD, NONE, LayoutAnswer::Dead('\u{b4}'));
+        assert_eq!(kept.get(1, 0x41, NONE), Some(LayoutAnswer::Char('a')));
+        assert_eq!(kept.get(1, 0x41, SHIFT), Some(LayoutAnswer::Char('A')));
+        assert_eq!(kept.get(1, 0x41, CTRL), Some(LayoutAnswer::Nothing));
+        assert_eq!(kept.get(1, 0xDD, NONE), Some(LayoutAnswer::Dead('\u{b4}')));
+        assert_eq!(kept.get(1, 0x41, CAPS), None, "not asked");
+        assert_eq!(kept.get(2, 0x41, NONE), None, "another layout");
+        kept.learn(2, 0x41, NONE, LayoutAnswer::Char('q'));
+        assert_eq!(kept.get(2, 0x41, NONE), Some(LayoutAnswer::Char('q')));
+        assert_eq!(kept.get(1, 0x41, NONE), None, "the first is cleared");
+        assert_eq!(kept.get(2, 0x41, SHIFT), None);
+    }
+
+    #[test]
+    fn a_combination_is_read_back_from_its_place() {
+        for index in 0..16 {
+            assert_eq!(Held::from_index(index).index(), index);
+        }
+    }
+
+    /// The answers of a layout are good only while the layout can be asked
+    /// (on Windows: while no accent is pending). The check is made around
+    /// every key code's questions, so a spell in the middle of the fill is
+    /// seen, and a table it touched is not kept.
+    #[test]
+    fn a_fill_is_dropped_when_the_layout_stops_answering_cleanly_midway() {
+        for bad_check in [0_u32, 1, 130, 256] {
+            let mut answers = LayoutAnswers::new();
+            let mut asked = 0_u32;
+            let mut checked = 0_u32;
+            let filled = answers.fill(
+                7,
+                |_, _| {
+                    asked += 1;
+                    LayoutAnswer::Char('x')
+                },
+                || {
+                    checked += 1;
+                    checked - 1 != bad_check
+                },
+            );
+            assert!(!filled, "check {bad_check}");
+            assert!(!answers.is_of(7), "check {bad_check}");
+            assert_eq!(answers.get(7, 0x41, Held::default()), None);
+            // Nothing more is asked once a check failed.
+            assert_eq!(asked, bad_check * 16, "check {bad_check}");
+        }
+    }
+
+    #[test]
+    fn a_table_is_filled_for_one_layout_with_an_answer_for_every_key() {
+        let mut answers = LayoutAnswers::new();
+        assert!(!answers.is_of(7));
+        assert!(!answers.is_of(0), "no layout is no layout's table");
+        let mut asked = 0;
+        let mut checked = 0;
+        let filled = answers.fill(
+            7,
+            |key_code, held| {
+                asked += 1;
+                match (key_code, held.shift) {
+                    (0x41, false) => LayoutAnswer::Char('a'),
+                    (0x41, true) => LayoutAnswer::Char('A'),
+                    (0xDD, _) => LayoutAnswer::Dead('\u{b4}'),
+                    _ => LayoutAnswer::Nothing,
+                }
+            },
+            || {
+                checked += 1;
+                true
+            },
+        );
+        assert!(filled);
+        assert_eq!(asked, 256 * 16);
+        // Before the first key code and after each.
+        assert_eq!(checked, 257);
+        assert!(answers.is_of(7));
+        assert!(!answers.is_of(8));
+        let shift = Held {
+            shift: true,
+            ..Held::default()
+        };
+        assert_eq!(
+            answers.get(7, 0x41, Held::default()),
+            Some(LayoutAnswer::Char('a'))
+        );
+        assert_eq!(answers.get(7, 0x41, shift), Some(LayoutAnswer::Char('A')));
+        assert_eq!(
+            answers.get(7, 0xDD, shift),
+            Some(LayoutAnswer::Dead('\u{b4}'))
+        );
+        // A key the layout gives nothing was asked too.
+        assert_eq!(
+            answers.get(7, 0x42, Held::default()),
+            Some(LayoutAnswer::Nothing)
+        );
+        assert_eq!(answers.get(8, 0x41, Held::default()), None);
+        // Another layout takes the table over.
+        assert!(answers.fill(8, |_, _| LayoutAnswer::Char('x'), || true));
+        assert!(!answers.is_of(7));
+        assert_eq!(
+            answers.get(8, 0x41, Held::default()),
+            Some(LayoutAnswer::Char('x'))
+        );
+        answers.forget();
+        assert!(!answers.is_of(8));
+        assert_eq!(answers.get(8, 0x41, Held::default()), None);
+    }
+}

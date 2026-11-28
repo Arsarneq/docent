@@ -163,7 +163,7 @@ test('typing in Notepad and closing it unsaved exports exactly those actions', a
   expectType(a1, 'keep aa', ctxA);
   expectKey(a2, { key: 'Backspace', code: 'Backspace', context: ctxA });
   expectType(a3, 'keep a word', ctxA);
-  expectKey(a4, { key: 'A', code: 'KeyA', on: ['ctrl'], context: ctxA });
+  expectKey(a4, { key: 'a', code: 'KeyA', on: ['ctrl'], context: ctxA });
   expectKey(a5, { key: 'F4', code: 'F4', on: ['alt'], context: ctxA });
 
   // B: the save-changes dialog, introduced by a switch (DCP-7, DCP-20, DCP-13), an
@@ -178,7 +178,7 @@ test('typing in Notepad and closing it unsaved exports exactly those actions', a
     expect(actions[next].context_id).toBe(ctxB);
     next += 1;
   }
-  expectKey(actions[next], { key: 'N', code: 'KeyN', on: ['alt'], context: ctxB });
+  expectKey(actions[next], { key: 'n', code: 'KeyN', on: ['alt'], context: ctxB });
   const answer = next;
 
   // After the dialog closes the specs allow a switch back and a focus, nothing
@@ -267,10 +267,10 @@ test('clicks, Unicode typing, a long repeat and the Format menu in Notepad expor
   expect(Number.isInteger(ctxA)).toBe(true);
   expectClick(a1, { name: 'Text Editor', tag: 'Edit', context: ctxA });
   expectType(a2, 'hello docent', ctxA);
-  expectKey(a3, { key: 'A', code: 'KeyA', on: ['ctrl'], context: ctxA });
+  expectKey(a3, { key: 'a', code: 'KeyA', on: ['ctrl'], context: ctxA });
   expectType(a4, 'keep', ctxA);
   expectClick(a5, { name: 'Text Editor', tag: 'Edit', context: ctxA });
-  expectKey(a6, { key: 'A', code: 'KeyA', on: ['ctrl'], context: ctxA });
+  expectKey(a6, { key: 'a', code: 'KeyA', on: ['ctrl'], context: ctxA });
   expectType(a7, `k${e10}p`, ctxA);
 
   // B: the Format menu, twice. The click on Format is in the main window. The

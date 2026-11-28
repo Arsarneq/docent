@@ -130,22 +130,22 @@ end-to-end spec enforces the readiness bound.
 - `click` is the activation of an element, written as a `click` unless a key caused it (ECP-17).
 - `contextmenu` is the browser's request for a context menu. It is written as the right-click only where neither a press of the right button nor a key asked for the menu (ECP-17).
 - `keydown` is a key press, written as a `key` unless it is text (ECP-13). A press written as a `key` ends the typing done before it (ECP-15).
-- `keypress` is the character event of a key press, during which the browser enters the key's text. It writes nothing. The end of its handling ends the wait of a press held back (ECP-13), and with `keydown` and `keyup` it marks the task in which the browser derives a click from the key (ECP-17).
-- `keyup` is the release of a key. It writes nothing. It ends the wait of a press held back (ECP-13) and the key's time among the held keys (ECP-18), and the browser derives the click of a Space press from it (ECP-17).
-- `change` is a committed value: a `select` choice, an `input` or `textarea` entry (ECP-15), and a file chosen through the OS dialog. A checkbox or radio toggle is recorded by the `click` or the `key` that made it, so its `change` writes nothing. The `change` of a `select` starts the window in which a click with no click count is its effect (ECP-17).
-- `focusin` is a focus move, recorded only when it follows a Tab key press. The value an `input` or `textarea` holds when it takes the focus is noted (ECP-15).
+- `keypress` is the character event of a key press, during which the browser enters the key's text. It writes nothing; with `keydown` it tells a key from text (ECP-13).
+- `keyup` is the release of a key. It writes nothing, and the key is no longer held (ECP-18).
+- `change` is a committed value: a `select` choice, an `input` or `textarea` entry (ECP-15), and a file chosen through the OS dialog. A checkbox or radio toggle is recorded by the `click` or the `key` that made it, so its `change` writes nothing.
+- `focusin` is a focus move, recorded only when it follows a Tab key press.
 - `dragstart` is the start of a drag, which names the drag source. No key is known to be down from here on (ECP-18).
 - `dragover` is the target tracking the browser requires before a drop can fire.
 - `drop` is the end of a drag, paired with the source the drag started from. No key is known to be down at it (ECP-18).
 - `dragend` is the drag's terminal signal, which releases the source.
 - `scroll` is a scroll gesture, debounced and coalesced into one action (ECP-12 states the floor).
-- `input` is text entered into a field or a `contenteditable` host. It writes nothing by itself. It is the sign that a press held back became text (ECP-13), it says which text makes what a field holds a new entry and which host is typed into (ECP-15), and it carries the text of a composition (ECP-16).
+- `input` is text entered into a field or a `contenteditable` host. It writes nothing by itself: the text is the field's `type` (ECP-13, ECP-15, ECP-16).
 - `compositionstart` is the browser opening a composition in a field. It writes nothing by itself (ECP-16).
 - `compositionend` is the end of the composition open for a field. It writes nothing by itself (ECP-16).
 - `blur` is an `input`, a `textarea` or a `contenteditable` host losing the focus. The entry it holds is written (ECP-15).
-- `blur` on `window` is the window losing the focus. It ends the wait of a press held back (ECP-13), and no key is known to be down in this document from then on (ECP-18).
-- `focus` on `window` is the window taking the focus. Where it does so while a pointer press in it is handled, the keys held in the tab's other frames are released here from then on (ECP-18).
-- `pagehide` on `window` is the page being left. It ends the wait of a press held back (ECP-13).
+- `blur` on `window` is the window losing the focus. A key press not yet written is written (ECP-13), and no key is known to be down in this document from then on (ECP-18).
+- `focus` on `window` is the window taking the focus (ECP-18).
+- `pagehide` on `window` is the page being left. A key press not yet written is written (ECP-13).
 
 The service worker captures the browser-chrome proxies in the table of [Browser Chrome Proxies](#browser-chrome-proxies) (ECP-7), each row naming the worker event it is captured from.
 
@@ -161,180 +161,92 @@ An interaction that looks covered by these lists and is not is one of the [excep
 
 ## Keys
 
-**ECP-13.** A key press is written as a `key` unless it is text. The [session format](../../../technical/session-format.md#shared-both-platforms)'s `key` row states, for both platforms, which presses are a `key` and which are text, which modifiers make a shortcut, and what each field of the action carries. This clause states how the recorder tells the two apart, press by press.
+**ECP-13.** A key press is written as a `key` unless it is text. The [session format](../../../technical/session-format.md#shared-both-platforms)'s `key` row states which presses are which and what the action carries. What the file holds for a press, a closed list in which the first row that fits, from the top, decides:
 
-The row names two presses that write nothing: Shift, Ctrl, Alt or AltGr pressed alone, and a key the input method takes. The recorder takes a key for one the input method takes by one of these four signs, a closed list:
+| The person presses                                                                                                                                                                                                                         | What the file holds                                                                                                                                                                                |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Shift, Ctrl, Alt or AltGr alone, or a key the input method takes                                                                                                                                                                           | Nothing (the `key` row)                                                                                                                                                                            |
+| A shortcut, a key that enters no character, or a character key where no field takes it (a letter on a button)                                                                                                                              | The `key` (the `key` row)                                                                                                                                                                          |
+| Space in a date or time field: an `input` of type `date`, `datetime-local`, `month`, `time` or `week`                                                                                                                                      | The `key`                                                                                                                                                                                          |
+| Character keys in a date or time field, one after the other, up to the next other key, pointer press, action written, the window losing the focus, the page being left, a step commit or a stop                                            | The text where they gave the field a value; each the `key` it was where they gave none (the `key` row; ECP-12 for a field left half filled)                                                        |
+| A character key in a field typing can change (a `textarea`, an `input` that takes text, or editable content), and text follows: the browser enters it, or the page does (an input mask), there or in the field the page moved the focus to | The text, in the field's `type` (ECP-15), and no `key`                                                                                                                                             |
+| The same key, and no text follows (a read-only field)                                                                                                                                                                                      | The `key`, with the time and the held keys of the press, ahead of the action after it; also where the window loses the focus, the page is left, the step is committed or the recording stops first |
 
-- a composition is open at the press;
-- the browser reports the press with key code 229;
-- the key value is `Process`;
-- the key value is empty.
-
-A press can become text of a field when all three hold:
-
-- the key enters a character: its key value is one character, or it is a dead key;
-- no shortcut modifier is held;
-- the focused element, followed into shadow roots, is one typing can change: a `textarea`, an `input` that holds an entry, or editable content.
-
-Every other press is written at once: a shortcut, a key that enters no character, and a character key on an element typing cannot change (a letter on a button).
-
-A press that can become text is held back until it is known which it was. It is text, which the field's `type` records, in one of these two cases, a closed list:
-
-- the browser's `input` event for typed text follows the press, in that element or in the one the page moved the focus to from its key handler;
-- the element holds other text once the wait ends than it held at the press (a page that cancels the key and enters the character itself, an input mask for example).
-
-With neither (a character key in a read-only field, for example), the press is the `key` it was, written with the time and the held keys of the press. Whichever of these comes first ends the wait, a closed list:
-
-- the end of the browser's handling of the press's `keypress`;
-- the release of any key;
-- the next key press;
-- a pointer press, in this frame or in another frame of the tab (ECP-15);
-- any other action written in a later task than the press, which is written behind the `key`;
-- the window losing the focus;
-- the page being left;
-- a step commit or a stop (ECP-15).
-
-An action the browser causes while it still handles the press ends nothing (a page that moves the focus from its key handler, for example). An entry among such actions goes out ahead of the press, and any other is written behind the press once it is known what the press was.
-
-A press still held back when capture goes off by another route than a stop is not written, an exception ECP-12 lists. What a character key on a sensitive element is recorded as is ECP-9's to state.
-
-Two kinds of press wait for more than themselves: the character keys pressed in a date or time field, below, and a dead key (ECP-14).
-
-A date or time field is an `input` of one of these five types, a closed list: `date`, `datetime-local`, `month`, `time`, `week`. It is filled part by part. It has a value, for which the browser sends `input`, only once the parts make one. The character keys pressed in such a field one after the other wait together, and end as one of these two:
-
-| What follows the keys           | The keys are          |
-| ------------------------------- | --------------------- |
-| An `input` for the field        | Text, all of them     |
-| Any other end of the list above | Each the `key` it was |
-
-Two ends of that list end nothing for these keys: the end of a `keypress` and the release of a key. Another press that can become text, in the same field, is no next key press for them: it waits with them. A space in such a field is no such press: it opens the field's picker and is written at once, as a shortcut is, and each ends the wait as the next key press. The keys of a field left half filled are an exception ECP-12 lists.
+ECP-12 lists the presses that are lost, and ECP-9 states what a character key on a sensitive element is recorded as.
 
 ### Dead keys
 
-**ECP-14.** A dead key enters nothing until the key after it is pressed. In a field typing can change, it waits for the next press in that field. Either of those two presses that write nothing (ECP-13) is no such press: the dead key waits on through them. Neither the browser being done with a `keypress` nor a key's release ends that wait, and the other ends of a wait apply (ECP-13). What the dead key is recorded as follows from that next press, which is one of these two:
+**ECP-14.** A dead key enters nothing until the key after it. In a field typing can change, what the file holds is a closed list; anywhere else a dead key is ECP-13's second row.
 
-| The next press        | The dead key is                                                                                                                            | The next press is                             |
-| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------- |
-| A character key       | Text or a `key`, together with that press (ECP-13)                                                                                         | Text or a `key`, together with the dead key   |
-| A key of another kind | Text where the browser's `input` for typed text follows in the dead key's own field while the browser handles that key; a `key` without it | The `key` it was, written behind the dead key |
+| After the dead key                                                               | What the file holds                                                                                                                        |
+| -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| A character key (´ and then e)                                                   | The text the two enter, in the field's `type`; both as `key` actions where no text follows                                                 |
+| A key that enters no character (´ and then Enter)                                | The bare accent as text where the browser enters it, and the dead key as a `key` where it does not; then the other key as the `key` it was |
+| A press ECP-13's first row writes nothing for                                    | Nothing for that press: the press after it decides, by the two rows above                                                                  |
+| No key before a pointer press or one of the other ends ECP-13's fourth row names | The dead key as a `key`, ahead of that action                                                                                              |
 
-A key of another kind is the case where the browser can enter the bare accent while it handles that key (Enter after a dead key). That key waits behind the dead key. From then on the wait of both ends at the first of the ends ECP-13 lists, the end of a `keypress` and a key's release among them.
+In editable content the text typed before the dead key is a `type` of its own, ahead of the dead key and the key behind it.
 
-For a dead key with no key of another kind behind it, an `input` that carries composing text counts as the `input` for typed text does: a browser can show a dead key's character as a composition.
-
-Two things do not make a dead key with a key of another kind behind it text:
-
-- other text in the field, because the key behind it can change the field by itself;
-- typed text that lands in another field, which is that key's own character, in the field the focus moved to.
-
-Editable content has its text read when its entry is written, and the key behind a dead key is written only after the page has handled it. So the text is taken at that key's press, and the entry the key ends holds what the page saw. That entry stands ahead of the dead key where the dead key is a `key` too, and goes out ahead of the presses that still wait. Text the browser enters in the element after that press is its next entry, written behind the keys. What the page made of the element by itself is no entry.
-
-The desktop decides the same question by the accent the field's value gained ([desktop capture DCP-17](../desktop/windows/capture-principles.md#dead-keys)).
+The desktop records the same (desktop capture [DCP-17](../desktop/windows/capture-principles.md#dead-keys)).
 
 ---
 
 ## Typing
 
-**ECP-15.** Text entered into a field is one `type`, written when the typing in the field ends. The [session format](../../../technical/session-format.md#shared-both-platforms)'s `type` row states what the action carries and that a pause between two keys ends nothing. This clause states what an entry is and what ends the typing. A field here is an `input` or a `textarea`; editable content is a `contenteditable` host.
+**ECP-15.** Text entered into a field is one `type`, written when the typing in the field ends. The [session format](../../../technical/session-format.md#shared-both-platforms)'s `type` row states what the action carries and that a pause between two keys ends nothing. A field here is an `input` or a `textarea`; editable content is a `contenteditable` host. What the file holds, a closed list:
 
-The recorder notes the value a field holds when it takes the focus, and the entry last written for it, so an entry made since can be told from one already written.
+| In the field                                                                                                                  | What the file holds                                                                                                         |
+| ----------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| The person types, pastes or composes text, and the typing ends                                                                | One `type` with the text, also where it equals what the field held before (typed again over itself, or again after an undo) |
+| The person presses a character key that enters nothing, or gives a composition up (ECP-16 for one open when the typing ended) | No `type`                                                                                                                   |
+| The page sets the value, with no key pressed in the field                                                                     | No `type`                                                                                                                   |
 
-What a field holds is a new entry when one of these happened in it, a closed list:
+The typing ends at the first of these, a closed list, and the `type` stands ahead of the action that ended it:
 
-- text was entered with the keys (ECP-13);
-- text the browser names as pasted was inserted;
-- a composition ended with text (ECP-16);
-- text was inserted right after a key the input method took in the field, before the next key was pressed.
-
-A new entry is written also where it equals the value at focus or the entry written before: the same text typed over itself, or a value undone or removed and typed again.
-
-A character key that entered nothing makes no new entry, and neither does a composition given up. A value the page set, with no key pressed in the field, is not an entry.
-
-The typing ends, and the entry is written, at whichever of these comes first, a closed list:
-
-- a pointer press, wherever it is, another frame of the tab included (below), whether the press takes the focus from the field or leaves it there. The entry stands ahead of the `click` of the press;
-- a key press that is written as a `key`. The entry is complete before the press: it is written ahead of the `key` and carries the time of that press;
-- the field or the host losing the focus, which a host also does when the window does. A field's entry is written also where the browser sends no `change` for it (an entry made again that equals what the field held before);
-- the browser committing the field's value (`change`);
+- a pointer press anywhere in the tab, another frame included;
+- a key press that is written as a `key`, whose time the `type` carries;
+- the field or the host losing the focus, which a host also does when the window does;
+- the browser committing the field's value;
 - for editable content, typing beginning in another host;
-- a step commit or a stop (below).
+- a step commit or a stop, as on the desktop: the text typed into a field that still has the focus is the person's input of that step and of that recording.
 
-An entry already written writes nothing again when the browser commits the field. One press is the exception: the press on a submit control of the field's own form writes no entry, a departure ECP-12 lists.
-
-A pointer press ends the typing in the tab's other frames too. They see nothing of the press, so the recorder reports it to the worker, which asks them to end their typing (extension runtime ERT-4, `END_TYPING`). The worker stores what the pressing frame writes next behind their answers, for up to 500 ms (`END_TYPING_BOUND` in `lib/capture-timing.js`), so their entry stands ahead of the `click` of the press, however short the press was.
-
-A step commit and a stop end the typing as on the desktop. The entry typed into a field or a host that still has the focus is the person's input of that step and of that recording, whether or not the focus left the page first (a press in the panel takes it; a commit sent through the control channel does not). The page is sent no event for either, so the worker asks every registered frame to end its typing ahead of the commit and ahead of the stop, and waits for the answers up to the same 500 ms. A frame asked writes a key press it still holds back first, as the `key` it was, and then its entries.
-
-What happens to the entry of a frame that does not answer in that time (its page is busy with a long task) is an exception ECP-12 lists.
+A `type` already written is not written again when the field then loses the focus or is committed. ECP-12 lists where the `type` is not written or stands behind the action: a press on a submit control of the field's own form, and typing in a frame that does not answer in time.
 
 ### Compositions
 
-**ECP-16.** Text composed by an input method is recorded as the field's `type` and never as `key` actions (ECP-13). A composition is open for a field from the browser's `compositionstart` to its end. An `input` that carries composing text states the text the composition shows. It opens a composition for its field too, unless the composition last opened was that field's, which then goes on. None of these events writes anything by itself.
+**ECP-16.** Text composed by an input method is recorded as the field's `type` and never as `key` actions (ECP-13). What the file holds, a closed list:
 
-While a composition is open, the text it shows is typing not yet ended: a pointer press, a step commit or a stop writes the field's entry with it, as with typed text.
+| The composition                                                                          | What the file holds                                                                                                                                                                                 |
+| ---------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Ends with text                                                                           | The text, in the field's `type` (ECP-15)                                                                                                                                                            |
+| Is given up, or the person removes its text, with no end of the typing while it was open | Nothing                                                                                                                                                                                             |
+| Has its text removed by the page                                                         | The field's `type`, holding what the field then holds, ahead of the key that ends the typing                                                                                                        |
+| Is open when the typing ends (a pointer press, a step commit or a stop)                  | The text it shows, in the field's `type`. Its end then writes the field's `type` again, holding what the field then holds, unless the text is confirmed as written with nothing composed in between |
 
-| How the composition ends | What it entered                                                                                                                                            |
-| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| With text                | A new entry (ECP-15). Text that an entry written during the composition already held is not entered again, unless other text was composed after that write |
-| Given up                 | Nothing                                                                                                                                                    |
-
-A composition whose text is removed with an editing key gets no end from the browser. It is over at the first of these two:
-
-- the next `input` that carries no composing text, with nothing entered;
-- the next key the input method does not take, where the text the composition showed is typing that key ends (ECP-15).
-
-A `compositionend` counts only for a field with a composition open. The browser does not mark every composition end of its own as trusted, so the mark is not asked for. An end followed, with no start between, by more composing text or by a key pressed inside the composition was not the browser's, and is taken back.
-
-An open composition is forgotten when a recording ends or begins.
+Only what is composed while the recording is on counts: a composition open when a recording begins gives its text as the field's `type`, and one that ends while the recording is off gives nothing.
 
 ---
 
 ## Clicks and right-clicks
 
-**ECP-17.** The [session format](../../../technical/session-format.md#shared-both-platforms)'s `click` and `right_click` rows state which clicks and which requests for a context menu are written, on which element, and what the actions carry. This clause states the signs by which the recorder tells the cases of those rows apart. The recorder reads `mousedown`, `click` and `contextmenu` for this, by exactly these rows. For a `click` and for a `contextmenu` the first row that fits, from the top, decides:
-
-| The event the recorder is sent                                                                         | The case of the rows it is taken for                                                                              |
-| ------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------- |
-| A `mousedown` of the right button                                                                      | The right-click                                                                                                   |
-| A `contextmenu` that carries the right button                                                          | The menu request that follows a press of the right button (the first row)                                         |
-| A `contextmenu` that carries no right button, sent while the browser handles an event of a written key | A menu asked for with a key                                                                                       |
-| Any other `contextmenu`                                                                                | A menu asked for with no press and no key                                                                         |
-| A `click` that carries no pointer, sent while the browser handles an event of a written key            | A click the browser derives from a key press                                                                      |
-| A `click` that carries no pointer and no click count, on a native `select`, whatever sent it           | The click a `select` sends when its list closes                                                                   |
-| A `click` that carries no click count, within 50 ms after the `change` of a `select`                   | An effect of the choice just made (core CP-6); nothing written                                                    |
-| A `click` the browser sends on to the control of a `label` just clicked, before the next task          | The second click of a click on a `label`                                                                          |
-| Any other `click`                                                                                      | A click, one that carries no pointer included (ECP-12). The rows say where a click is not written for its element |
-
-The browser derives a key's click from whichever of the key's three events it acts on, so `keydown`, `keypress` and `keyup` each mark their task as one in which a written key is handled, until the next timer task. The 50 ms is `SELECT_SYNTHETIC_CLICK_WINDOW` in `lib/capture-timing.js`.
+**ECP-17.** The [session format](../../../technical/session-format.md#shared-both-platforms)'s `click` and `right_click` rows state which clicks and which requests for a context menu are written, on which element, and what the actions carry. This platform adds no rule to those rows.
 
 ---
 
 ## Held keys
 
-**ECP-18.** An action's `held_keys` names the keys that were down at it. The [session format](../../../technical/session-format.md#shared-both-platforms)'s `key` row states which keys are named, by which names and in which order, and its `click`, `right_click`, `drag_start` and `drop` rows state the moment the list is read. This clause states for how long the recorder knows a key to be down.
+**ECP-18.** An action's `held_keys` names the keys that were down at it. The [session format](../../../technical/session-format.md#shared-both-platforms)'s `key` row states which keys are named, by which names and in which order, and its `click`, `right_click`, `drag_start` and `drop` rows state the moment the list is read.
 
-A key is among an action's `held_keys` only while its release is sure to reach a document the recorder runs in. The browser delivers a key's events to the focused document only, sends the page none while a drag lasts, and gives a page and an extension no interface that reads the keyboard's state or says where the focus came from. The desktop's keyboard hook is handed every key wherever the focus is; ECP-12 lists the difference.
+The extension knows fewer keys to be down than the desktop does (the `key` row). The browser delivers a key's events to the focused document only, sends the page none while a drag lasts, and gives a page and an extension no interface that reads the keyboard's state. What the file holds, a closed list:
 
-In the document that saw it go down, a key is known to be down from its written press for as long as that document's window has the focus. Its time among the held keys ends at the first of these, a closed list:
+| The key was pressed                                                                    | An action names it in `held_keys`                                                                                                         |
+| -------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| In the document of the action                                                          | Until its release, the window losing the focus, or the start or the end of a drag; after the last three, again from the key's next repeat |
+| While the Meta key was held                                                            | Until the Meta key's release, since some systems send the page no release for such a key; then again from the key's next repeat           |
+| In another recorded frame of the same tab                                              | Ahead of the action's own keys, until its release or the start of a drag, also where a press in a recorded frame moved the focus since    |
+| In a document the focus then left in any other way than by a press in a recorded frame | No                                                                                                                                        |
 
-- its release, while the recording is off as well;
-- the release of the Meta key, for a key pressed while the Meta key was held, in whichever frame: some systems send the page no release for such a key;
-- the window losing the focus;
-- the start of a drag, and its end (the `drop`).
-
-A key still held when the focus arrives or returns, when the drag has ended, or after the release of the Meta key is named again from its next repeat in the document that has the focus.
-
-An action in another recorded frame of the same tab names the key too. Each recorder tells the worker the keys it names as held, their releases, its window's blur, a drag, and the focus a pointer press gives its window (`HELD_KEY`, beside the `POINTER_PRESSED` of the press; extension runtime ERT-4). The worker adds the keys held in the tab's other frames to an action, ahead of the action's own. Between frames these five rules hold:
-
-- Where a pointer press in another recorded frame takes the focus, the keys go to that frame once it reports that focus. Their releases reach it from then on, and a recorder reports the release of a key it did not see go down.
-- A frame's reports can reach the worker late (a busy page, a document that is being left), so a key of another frame is named only by what that frame's document has reported up to the action. The worker asks the frame: with the `END_TYPING` of a pointer press, and with `HELD_KEY_REPORTS` for any other action that would be given one of its keys. It stores the action once the report the frame names as its last has arrived.
-- The worker forgets the keys of a frame that gives no answer in time or is gone, and those an earlier document of the frame reported. The time is the bound of the end of typing at a press (ECP-15) and half of that at any other action (`HELD_KEYS_ASK_BOUND` in `lib/capture-timing.js`). A key another frame reports released in that time is not named.
-- What the acting frame writes waits behind the ask, a typed entry too, and such an entry is still stored ahead of the click of another frame's press.
-- No key of a frame is known to be down once the focus leaves its document any other way than by such a press (to another tab, window or program, to a frame the extension does not run in, to another frame by the Tab key or a script), or a drag starts: the release can then reach something that does not report it. The worker forgets the keys held across frames when another tab or window takes the focus, which the browser itself tells it.
-
-The modifiers held at an action are exact wherever they were pressed: the action's own event states them and `modifiers` carries them.
-
-The cases where a key held in another frame is missing or a released key is named are departures ECP-12 lists.
+The modifiers held at an action are exact wherever they were pressed: `modifiers` carries them. The cases where a key held in another frame is missing or a released key is named are departures ECP-12 lists.
 
 ---
 
@@ -468,10 +380,6 @@ machine, including live-capture behaviour at the boundary.
 
 **ECP-12.** This platform's exceptions within the surface (core [CP-15](../../../architecture/system/capture-principles.md#capture-surface)):
 
-- A key press is named by the browser's key value, which follows the layout
-  and the shift state, where the desktop names it from the virtual-key code:
-  a departure (core CP-19;
-  [docent#717](https://github.com/Arsarneq/docent/issues/717))
 - A `key` states nothing of the input method: the browser gives a page and
   an extension no interface that reads whether one is on or its mode, where
   the desktop writes `input_method_open` and `input_method_conversion_mode` on
@@ -495,7 +403,7 @@ machine, including live-capture behaviour at the boundary.
   what was typed. The field has no value for a `type` to carry; a departure
   (core CP-18)
 - A character key the page cancels and enters into the field where the
-  recorder cannot tell (after the wait for it has ended, from a timer for
+  recorder cannot tell (only after the browser is done with the key, from a timer for
   example, or from a listener that runs ahead of the recorder's, so that the
   field already holds the character when the press is noted): written as the
   `key`,
@@ -504,10 +412,7 @@ machine, including live-capture behaviour at the boundary.
   field's text for a reason of its own: taken for text and not written as a
   `key`. The recorder tells a page's own entering of a character by the
   field's text alone; a departure (core CP-18)
-- A key press still held back, and an action the browser caused while it
-  handled that press, when capture is turned off by another route than a
-  stop: not written. Only a stop and a step commit ask the frame to end what
-  waits (both write the press as the `key` it was); a departure (core CP-18)
+- A key press not yet written (ECP-13's fourth and last rows, ECP-14's last row), and an action the browser caused while it handled that press, when capture is turned off by another route than a stop: not written. A stop and a step commit write the press as the `key` it was; a departure (core CP-18)
 - A character key that entered no text on a sensitive element: written as
   the element's masked `type`, not as a `key`, so the recording does not name
   a character of a sensitive value; a departure (core CP-18)
@@ -529,7 +434,7 @@ machine, including live-capture behaviour at the boundary.
   - the worker, which keeps these keys in memory only, was suspended;
   - the recording was stopped and started, or a frame of the tab started
     to navigate;
-  - the frame that reported the key gave no answer in time;
+  - the frame that reported the key gave no answer in time: the time of a frame that does not answer (below) at a pointer press, at most half of it at any other action;
   - a release was reported while the action waited to be stored;
   - a frame's blur reached the worker ahead of the press that caused it.
 - A released key can be named in one case: the focus goes to the
@@ -582,7 +487,7 @@ machine, including live-capture behaviour at the boundary.
   written as a `click` with the coordinates its event carries, though no
   pointer was at that point; a departure (core CP-18). Two such clicks are
   not written. One is a click on a native `select` that carries neither a pointer nor a click count, whoever sent it, an activation an assistive technology sends to a `select` included. The other is the next item's
-- A click that carries no click count, on whatever element, within 50 ms after the `change` of a `select` — not written, taken for an effect of the choice just made (ECP-17); an activation that carries no click count, made in that time (one an assistive technology sends, for example), is dropped with it; a departure (core CP-18)
+- A click that carries no click count, on whatever element, within 50 ms after the `change` of a `select` — not written, taken for an effect of the choice just made; an activation that carries no click count, made in that time (one an assistive technology sends, for example), is dropped with it; a departure (core CP-18)
 - A value entered with no key pressed in the field since it took focus (a
   paste from the context menu, a drop, an autofill) — its `type` is written
   when the browser commits it, which can follow a key pressed after
