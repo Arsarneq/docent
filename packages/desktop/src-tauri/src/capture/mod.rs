@@ -342,13 +342,17 @@ pub struct ElementDescription {
 // Keyboard modifiers
 // ---------------------------------------------------------------------------
 
-/// Modifier key state at the time of a keyboard action.
+/// The modifier keys held at an action, as its `modifiers` states them: AltGr
+/// as `alt_graph`, and `ctrl` and `alt` only for a Ctrl key and an Alt key
+/// the person held, never for the Ctrl and Alt Windows hands programs AltGr
+/// as.
 #[derive(Debug, Serialize, Clone, PartialEq, Eq)]
 pub struct Modifiers {
     pub ctrl: bool,
     pub shift: bool,
     pub alt: bool,
     pub meta: bool,
+    pub alt_graph: bool,
 }
 
 // ---------------------------------------------------------------------------

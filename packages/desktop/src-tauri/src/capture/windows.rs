@@ -544,6 +544,13 @@ thread_local! {
     static INPUT_HELD_KEYS: std::cell::RefCell<super::held_keys::HeldKeys> =
         const { std::cell::RefCell::new(super::held_keys::HeldKeys::new()) };
 
+    /// Whose left Ctrl is down, the person's or Windows' own for AltGr, as
+    /// the keyboard hook saw the left Ctrl and the right Alt go down and up
+    /// (docent#825): what an action's `modifiers` states of Ctrl, Alt and
+    /// AltGr is read from it ([`get_ctrl_alt_held`]).
+    static INPUT_CTRL_ALT_KEYS: std::cell::Cell<super::held_keys::CtrlAltKeys> =
+        const { std::cell::Cell::new(super::held_keys::CtrlAltKeys::new()) };
+
     /// Timestamp of the most recent low-level keyboard event only.
     /// Used specifically for value-change correlation — mouse clicks should not
     /// satisfy value-change correlation because only keyboard input produces
@@ -2041,6 +2048,7 @@ unsafe fn input_win_event_handle(
                 process_id,
                 key_code: 0,
                 modifiers: (false, false, false, false),
+                ctrl_alt_held: None,
                 scroll_delta: 0.0,
                 callback_params: [id_object as i64, id_child as i64, 0, 0],
                 key_value: 0,
@@ -2087,6 +2095,7 @@ unsafe fn input_win_event_handle(
                 process_id,
                 key_code: 0,
                 modifiers: (false, false, false, false),
+                ctrl_alt_held: None,
                 scroll_delta: 0.0,
                 callback_params: [id_object as i64, id_child as i64, 0, 0],
                 key_value: 0,
@@ -2155,6 +2164,7 @@ unsafe fn input_win_event_handle(
                         process_id,
                         key_code: 0,
                         modifiers: (false, false, false, false),
+                        ctrl_alt_held: None,
                         scroll_delta: 0.0,
                         callback_params: [id_object as i64, id_child as i64, 0, 0],
                         key_value: 0,
@@ -2201,6 +2211,7 @@ unsafe fn input_win_event_handle(
                 process_id,
                 key_code: 0,
                 modifiers: (false, false, false, false),
+                ctrl_alt_held: None,
                 scroll_delta: 0.0,
                 // The event's number among the focus events dispatched,
                 // counted here, where the event is sure to be sent.
@@ -2267,6 +2278,7 @@ unsafe fn input_win_event_handle(
                 process_id,
                 key_code: 0,
                 modifiers: (false, false, false, false),
+                ctrl_alt_held: None,
                 scroll_delta: 0.0,
                 callback_params: [id_object as i64, id_child as i64, 0, 0],
                 key_value: 0,
@@ -2337,6 +2349,7 @@ unsafe fn input_win_event_handle(
                 process_id,
                 key_code: 0,
                 modifiers: (false, false, false, false),
+                ctrl_alt_held: None,
                 scroll_delta: 0.0,
                 callback_params: [id_object as i64, id_child as i64, 0, 0],
                 key_value: 0,
@@ -2423,6 +2436,7 @@ unsafe fn input_press_switch(point_hwnd: HWND, fg_hwnd: HWND, timestamp: u64) {
         process_id: clicked_pid,
         key_code: 0,
         modifiers: (false, false, false, false),
+        ctrl_alt_held: None,
         scroll_delta: 0.0,
         callback_params: [0, 0, 0, 0],
         key_value: 0,
@@ -2558,7 +2572,7 @@ unsafe fn input_mouse_ll_handle(n_code: i32, w_param: WPARAM, l_param: LPARAM) {
                         // drag start states what was held when the pointer
                         // first passed the threshold, the drop what is held
                         // now.
-                        let (down_modifiers, down_held) = INPUT_DRAG_START_KEYS
+                        let ((down_modifiers, down_ctrl_alt), down_held) = INPUT_DRAG_START_KEYS
                             .with(|k| k.borrow_mut().at_release(|| input_keys_held()));
                         input_dispatch_raw_event(RawEvent {
                             event_type: RawEventType::DragStart { source_coords },
@@ -2570,6 +2584,7 @@ unsafe fn input_mouse_ll_handle(n_code: i32, w_param: WPARAM, l_param: LPARAM) {
                             process_id: pid,
                             key_code: 0,
                             modifiers: down_modifiers,
+                            ctrl_alt_held: Some(down_ctrl_alt),
                             scroll_delta: 0.0,
                             callback_params: [0, 0, 0, 0],
                             key_value: 0,
@@ -2592,6 +2607,7 @@ unsafe fn input_mouse_ll_handle(n_code: i32, w_param: WPARAM, l_param: LPARAM) {
                             process_id: pid,
                             key_code: 0,
                             modifiers: get_modifier_state(),
+                            ctrl_alt_held: Some(get_ctrl_alt_held()),
                             scroll_delta: 0.0,
                             callback_params: [0, 0, 0, 0],
                             key_value: 0,
@@ -2618,6 +2634,7 @@ unsafe fn input_mouse_ll_handle(n_code: i32, w_param: WPARAM, l_param: LPARAM) {
                             process_id: pid,
                             key_code: 0,
                             modifiers: get_modifier_state(),
+                            ctrl_alt_held: Some(get_ctrl_alt_held()),
                             scroll_delta: 0.0,
                             callback_params: [
                                 if double {
@@ -2659,6 +2676,7 @@ unsafe fn input_mouse_ll_handle(n_code: i32, w_param: WPARAM, l_param: LPARAM) {
                         process_id: pid,
                         key_code: 0,
                         modifiers: (false, false, false, false),
+                        ctrl_alt_held: None,
                         scroll_delta: delta,
                         callback_params: [0, 0, 0, 0],
                         key_value: 0,
@@ -2684,6 +2702,7 @@ unsafe fn input_mouse_ll_handle(n_code: i32, w_param: WPARAM, l_param: LPARAM) {
                         process_id: pid,
                         key_code: 0,
                         modifiers: (false, false, false, false),
+                        ctrl_alt_held: None,
                         scroll_delta: delta,
                         callback_params: [1, 0, 0, 0], // 1 = horizontal axis
                         key_value: 0,
@@ -2719,6 +2738,7 @@ unsafe fn input_mouse_ll_handle(n_code: i32, w_param: WPARAM, l_param: LPARAM) {
                             process_id: pid,
                             key_code: 0,
                             modifiers: get_modifier_state(),
+                            ctrl_alt_held: Some(get_ctrl_alt_held()),
                             scroll_delta: 0.0,
                             callback_params: [down_dispatch_click_mark(msg), 0, 0, 0],
                             key_value: 0,
@@ -2748,7 +2768,7 @@ unsafe fn input_mouse_ll_handle(n_code: i32, w_param: WPARAM, l_param: LPARAM) {
 /// states them.
 unsafe fn input_keys_held() -> super::held_keys::KeysHeld {
     (
-        get_modifier_state(),
+        (get_modifier_state(), get_ctrl_alt_held()),
         INPUT_HELD_KEYS.with(|held| held.borrow().dispatched_down(None)),
     )
 }
@@ -2805,6 +2825,20 @@ unsafe extern "system" fn input_keyboard_ll_proc(
                 |vk| GetAsyncKeyState(vk as i32) < 0,
             )
         });
+        // Whose left Ctrl went down or up: Windows' own for AltGr carries
+        // the simulated mark in its scan code (docent#825). The keyboard's
+        // state does not hold this key yet, so it says whether the key was
+        // down before it.
+        INPUT_CTRL_ALT_KEYS.with(|keys| {
+            let mut record = keys.get();
+            record.on_hook_message(
+                w_param.0 as u32,
+                kb_struct.vkCode,
+                kb_struct.scanCode,
+                GetAsyncKeyState(kb_struct.vkCode as i32) < 0,
+            );
+            keys.set(record);
+        });
     }
 
     if n_code >= 0 && input_is_active() {
@@ -2818,6 +2852,7 @@ unsafe extern "system" fn input_keyboard_ll_proc(
             let excluded = input_get_excluded_pid();
             let foreground_kept = input_should_keep_event_cached(pid, excluded, hwnd);
             let modifiers = get_modifier_state();
+            let ctrl_alt_held = get_ctrl_alt_held();
             // Which window the key is attributed to (DCP-14): a key the
             // system acts on, not the foreground window (the Windows key,
             // Ctrl+Esc, Alt+Tab, for example: `system_takes_key`), is kept
@@ -2894,6 +2929,7 @@ unsafe extern "system" fn input_keyboard_ll_proc(
                     process_id,
                     key_code: kb_struct.vkCode,
                     modifiers,
+                    ctrl_alt_held: Some(ctrl_alt_held),
                     scroll_delta: 0.0,
                     // The scan code: for a VK_PACKET keystroke it is the
                     // injected UTF-16 code unit the worker names the key by
@@ -4486,6 +4522,18 @@ pub(crate) fn current_timestamp_ms() -> u64 {
         .as_millis() as u64
 }
 
+/// The Ctrl, Alt and AltGr the person holds now, as an action's `modifiers`
+/// states them (docent#825): read on the Input_Thread, from the keyboard
+/// hook's record of whose left Ctrl is down and the keyboard's own state.
+unsafe fn get_ctrl_alt_held() -> super::held_keys::CtrlAltHeld {
+    INPUT_CTRL_ALT_KEYS
+        .with(|keys| keys.get())
+        .held(|vk| GetAsyncKeyState(vk as i32) < 0)
+}
+
+/// The modifiers as the system holds them, `(ctrl, shift, alt, meta)`: AltGr
+/// counted as Ctrl and Alt together. Every verdict on a key reads this
+/// (`RawEvent::modifiers`).
 pub(crate) unsafe fn get_modifier_state() -> (bool, bool, bool, bool) {
     let ctrl = GetAsyncKeyState(VK_CONTROL) < 0;
     let shift = GetAsyncKeyState(VK_SHIFT) < 0;
@@ -6416,6 +6464,7 @@ mod tests {
                     shift: false,
                     alt: false,
                     meta: false,
+                    alt_graph: false,
                 },
                 repeat: false,
                 code: None,
