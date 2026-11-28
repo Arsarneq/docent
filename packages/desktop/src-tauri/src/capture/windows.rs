@@ -82,11 +82,13 @@ use super::pre_capture::{
 };
 use super::scroll::KeyAttribution;
 use super::timing;
+use super::timing_lines::Timings;
 use super::waiting_accents::NoList;
 use super::worker_pool::{
-    fallback_drain_and_seal, worker_loop, AccessibilityBackend, ClickPress, ControlLook,
-    ControlNature, DoubleClickBounds, DoubleClickTracker, PendingDirectory, RawEvent, RawEventType,
-    WorkerPool, CLICK_COMPLETES_DOUBLE_CLICK, CLICK_IS_MIDDLE_BUTTON, FLUSH_BARRIER_TIMEOUT,
+    fallback_drain_and_seal, worker_loop_with_timings, AccessibilityBackend, ClickPress,
+    ControlLook, ControlNature, DoubleClickBounds, DoubleClickTracker, PendingDirectory, RawEvent,
+    RawEventType, WorkerPool, CLICK_COMPLETES_DOUBLE_CLICK, CLICK_IS_MIDDLE_BUTTON,
+    FLUSH_BARRIER_TIMEOUT,
 };
 use super::{
     ActionEvent, BarrierCompletion, BarrierReport, CaptureError, CaptureLayer, ElementDescription,
@@ -629,6 +631,8 @@ pub struct WindowsCapture {
     action_sender: Option<Sender<ActionEvent>>,
     /// Monotonic source of commit-barrier ids (docent#298).
     barrier_counter: AtomicU64,
+    /// The capture's timings, set at start and written as a block at stop.
+    timings: Timings,
 }
 
 impl WindowsCapture {
@@ -645,6 +649,7 @@ impl WindowsCapture {
             pending_directory: None,
             action_sender: None,
             barrier_counter: AtomicU64::new(0),
+            timings: Timings::off(),
         }
     }
 }
@@ -892,7 +897,7 @@ impl CaptureLayer for WindowsCapture {
 
         self.active.store(true, Ordering::SeqCst);
         hook_diagnostics::reset();
-        super::timing_lines::switch_from_environment();
+        self.timings = Timings::from_environment();
         let excluded_pid = self.excluded_pid.clone();
 
         // Each worker signals here once it has finished its (possibly cold)
@@ -907,12 +912,14 @@ impl CaptureLayer for WindowsCapture {
         let mut pool = WorkerPool::new(WORKER_COUNT, sender.clone(), {
             let excluded_pid = excluded_pid.clone();
             let ready_tx = ready_tx.clone();
+            let timings = self.timings.clone();
             move |index, rx, queue_len, action_sender, pending| {
                 let excluded_pid = excluded_pid.clone();
                 let ready_tx = ready_tx.clone();
+                let timings = timings.clone();
                 thread::spawn(move || {
                     let backend = WindowsAccessibilityBackend::new();
-                    worker_loop(
+                    worker_loop_with_timings(
                         index,
                         backend,
                         rx,
@@ -921,6 +928,7 @@ impl CaptureLayer for WindowsCapture {
                         excluded_pid,
                         pending,
                         Some(ready_tx),
+                        timings,
                     );
                 })
             }
@@ -1158,6 +1166,9 @@ impl CaptureLayer for WindowsCapture {
         if let Some(line) = hook_diagnostics::snapshot().report() {
             eprintln!("{line}");
         }
+        // The capture timings, with every worker stopped.
+        self.timings.write_block();
+        self.timings = Timings::off();
 
         Ok(report)
     }

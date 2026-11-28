@@ -20,7 +20,7 @@ use super::held_keys::KEY_EXTENDED_PARAM;
 use super::language::preferred_languages;
 use super::physical_key::physical_key_code;
 use super::scroll::{RawScrollEvent, ScrollAccumulator};
-use super::timing_lines::{Skipped, Step, Subject, Timing};
+use super::timing_lines::{Look, Step, Subject, Timing, Timings};
 use super::waiting_accents::{NamedPresses, WaitingAccents};
 use super::{
     ActionEvent, ActionPayload, CaptureError, CaptureMode, ElementDescription, HeldKeysAtAction,
@@ -2489,6 +2489,31 @@ fn enters_text_in_password_field(raw: &RawEvent, key: &str) -> bool {
 #[allow(clippy::too_many_arguments)]
 pub fn worker_loop<B: AccessibilityBackend>(
     worker_index: usize,
+    backend: B,
+    receiver: mpsc::Receiver<WorkerMessage>,
+    queue_len: Arc<AtomicU64>,
+    action_sender: mpsc::Sender<ActionEvent>,
+    excluded_pid: Arc<AtomicU32>,
+    pending: SharedPendingBuffers,
+    ready: Option<mpsc::Sender<()>>,
+) {
+    worker_loop_with_timings(
+        worker_index,
+        backend,
+        receiver,
+        queue_len,
+        action_sender,
+        excluded_pid,
+        pending,
+        ready,
+        Timings::off(),
+    );
+}
+
+/// [`worker_loop`], keeping the durations of its steps in `timings`.
+#[allow(clippy::too_many_arguments)]
+pub fn worker_loop_with_timings<B: AccessibilityBackend>(
+    worker_index: usize,
     mut backend: B,
     receiver: mpsc::Receiver<WorkerMessage>,
     queue_len: Arc<AtomicU64>,
@@ -2496,6 +2521,7 @@ pub fn worker_loop<B: AccessibilityBackend>(
     excluded_pid: Arc<AtomicU32>,
     pending: SharedPendingBuffers,
     ready: Option<mpsc::Sender<()>>,
+    timings: Timings,
 ) {
     let init_result = backend.init();
     // Signal that this worker has finished its (possibly cold) init phase so
@@ -2516,6 +2542,7 @@ pub fn worker_loop<B: AccessibilityBackend>(
     }
 
     let mut state = WorkerState::new(Arc::clone(&lock_buffers(&pending).named_presses));
+    state.timings = timings;
 
     loop {
         match receiver.recv_timeout(RECV_TIMEOUT) {
@@ -2604,6 +2631,7 @@ pub fn worker_loop<B: AccessibilityBackend>(
                         &backend,
                         &mut state.controls,
                         excluded_pid.load(Ordering::SeqCst),
+                        &state.timings,
                     );
                 }));
             }
@@ -2762,7 +2790,9 @@ struct WorkerState {
     accents: WaitingAccents,
     /// What each key-down was named, shared by the pool's workers.
     named_presses: Arc<NamedPresses>,
-    /// The timing line of the keystroke or value change being handled.
+    /// The capture's timings, and the measuring of the keystroke or value
+    /// change being handled.
+    timings: Timings,
     timing: Timing,
 }
 
@@ -2781,6 +2811,7 @@ impl WorkerState {
             mark_seq: 0,
             last_key: None,
             controls: HashMap::new(),
+            timings: Timings::off(),
             timing: Timing::default(),
         }
     }
@@ -3443,47 +3474,58 @@ fn look_at_focused_control<B: AccessibilityBackend>(
     backend: &B,
     controls: &mut HashMap<i64, KnownControl>,
     excluded_pid: u32,
+    timings: &Timings,
 ) {
-    let mut timing = Timing::start(Subject::LookAhead, None);
-    look_and_time(backend, controls, excluded_pid, &mut timing);
-    timing.write();
+    let mut timing = timings.start(Subject::LookAhead);
+    let look = look_and_time(backend, controls, excluded_pid, &mut timing);
+    timing.ended(look);
+    timing.keep();
 }
 
-/// [`look_at_focused_control`], each wait noted on `timing`.
+/// [`look_at_focused_control`], each wait noted on `timing`; how the look
+/// ended.
 fn look_and_time<B: AccessibilityBackend>(
     backend: &B,
     controls: &mut HashMap<i64, KnownControl>,
     excluded_pid: u32,
     timing: &mut Timing,
-) {
+) -> Look {
+    let started = timing.mark();
     let epoch = backend.focus_epoch();
+    timing.took(Step::FocusCount, started);
     if epoch == 0 {
-        timing.skipped(Skipped::NoFocusCount);
-        return;
+        return Look::NoFocusCount;
     }
+    let started = timing.mark();
     let control = backend.focused_control();
+    timing.took(Step::FocusedControl, started);
     if control == 0 {
-        timing.skipped(Skipped::NoFocusedControl);
-        return;
+        return Look::NoFocusedControl;
     }
     if controls.contains_key(&control) {
-        timing.skipped(Skipped::Known);
-        return;
+        return Look::Known;
     }
+    let started = timing.mark();
     let window = backend.root_window_handle(control);
-    if excluded_pid != 0 && backend.process_id_of(window) == excluded_pid {
-        timing.skipped(Skipped::OwnProcess);
-        return;
+    timing.took(Step::Root, started);
+    if excluded_pid != 0 {
+        let started = timing.mark();
+        let process = backend.process_id_of(window);
+        timing.took(Step::Process, started);
+        if process == excluded_pid {
+            return Look::OwnProcess;
+        }
     }
     let started = timing.mark();
     let answers = backend.answers_promptly(control);
     timing.took(Step::Answer, started);
     if !answers {
-        timing.skipped(Skipped::NoAnswer);
-        return;
+        return Look::NoAnswer;
     }
     let started = timing.mark();
     let title = backend.window_title(window);
+    timing.took(Step::Title, started);
+    let started = timing.mark();
     describe_and_note_control(
         backend,
         controls,
@@ -3496,6 +3538,12 @@ fn look_and_time<B: AccessibilityBackend>(
         },
     );
     timing.took(Step::Describe, started);
+    // A control gone when it was described is not noted.
+    if controls.contains_key(&control) {
+        Look::Described
+    } else {
+        Look::Gone
+    }
 }
 
 /// The element remembered for `raw`'s window and focus epoch, if any. Epoch
@@ -3592,19 +3640,18 @@ fn process_raw_event<B: AccessibilityBackend>(
         return;
     }
 
-    // Each keystroke and value change gets a timing line while the switch
-    // is on.
-    let subject = match raw.event_type {
-        RawEventType::Keyboard => Some(Subject::Key),
-        RawEventType::ValueChange => Some(Subject::ValueChange),
-        _ => None,
-    };
-    state.timing = match subject {
-        Some(subject) if super::timing_lines::is_on() => {
-            Timing::start(subject, Some((raw.timestamp, current_timestamp_ms())))
+    // Each keystroke and value change is measured while the timings are on;
+    // a value change is kept only where its value is taken unmasked.
+    state.timing = match raw.event_type {
+        RawEventType::Keyboard => state.timings.start(Subject::Key),
+        RawEventType::ValueChange => {
+            let mut timing = state.timings.start(Subject::ValueChange);
+            timing.keep_only_with_a_value();
+            timing
         }
         _ => Timing::default(),
     };
+    state.timing.queued(raw.timestamp, current_timestamp_ms);
     let window_started = state.timing.mark();
 
     // Resolve context_id from the root window handle.
@@ -3631,7 +3678,9 @@ fn process_raw_event<B: AccessibilityBackend>(
     // event's action. The dispatcher tells the typing worker the same when
     // the event is another worker's.
     if ends_typing(raw) {
+        let started = state.timing.mark();
         lock_buffers(pending).flush_pending_type_only(action_sender);
+        state.timing.took(Step::Buffers, started);
     }
     // A key held behind dead keys is written ahead of this event's action. A
     // value change is what it waits for, and a key settles it itself.
@@ -3688,14 +3737,16 @@ fn process_raw_event<B: AccessibilityBackend>(
                 state,
                 window_rect.clone(),
             );
-            std::mem::take(&mut state.timing).write();
             // A value change arrived — pending keys will be superseded by the
             // type event when it flushes. Clear them now. A value change whose
             // element could not be described supersedes nothing: the keys are
             // then the only record of the typing.
             if described {
+                let started = state.timing.mark();
                 lock_buffers(pending).clear_keys();
+                state.timing.took(Step::Buffers, started);
             }
+            std::mem::take(&mut state.timing).keep();
         }
         RawEventType::Selection => {
             handle_selection(raw, backend, action_sender, context_id, window_rect.clone());
@@ -3710,7 +3761,7 @@ fn process_raw_event<B: AccessibilityBackend>(
                 state,
                 window_rect.clone(),
             );
-            std::mem::take(&mut state.timing).write();
+            std::mem::take(&mut state.timing).keep();
         }
         RawEventType::Foreground => {
             handle_foreground(raw, backend, action_sender, context_id, window_rect.clone());
@@ -4180,6 +4231,7 @@ fn handle_value_change<B: AccessibilityBackend>(
                     return false;
                 }
                 Some(value) => {
+                    state.timing.value_taken();
                     element.text = Some(value.clone());
                     value
                 }
@@ -4190,7 +4242,8 @@ fn handle_value_change<B: AccessibilityBackend>(
                 }
             }
         };
-        return record_type_value(
+        let started = state.timing.mark();
+        let recorded = record_type_value(
             raw,
             action_sender,
             context_id,
@@ -4202,6 +4255,8 @@ fn handle_value_change<B: AccessibilityBackend>(
             value,
             is_password,
         );
+        state.timing.took(Step::Buffers, started);
+        return recorded;
     }
     // A keystroke that named no element (its window was gone, gave no focused
     // element, or the person had moved the focus): the value change has no
@@ -4299,7 +4354,10 @@ fn handle_value_change<B: AccessibilityBackend>(
                 keep_keys_after_late_read(pending);
                 return false;
             }
-            Some(value) => value,
+            Some(value) => {
+                state.timing.value_taken();
+                value
+            }
             None => {
                 // The element has no value: no `type`.
                 keep_keys_of_dropped_value_change(pending, action_sender);
@@ -4307,7 +4365,8 @@ fn handle_value_change<B: AccessibilityBackend>(
             }
         }
     };
-    record_type_value(
+    let started = state.timing.mark();
+    let recorded = record_type_value(
         raw,
         action_sender,
         context_id,
@@ -4318,7 +4377,9 @@ fn handle_value_change<B: AccessibilityBackend>(
         element,
         value,
         is_password,
-    )
+    );
+    state.timing.took(Step::Buffers, started);
+    recorded
 }
 
 /// Start or carry forward the pending `type` of `element` with `value`,
@@ -4667,8 +4728,10 @@ fn handle_keyboard<B: AccessibilityBackend>(
     // a key pressed while they are held reads them into its own modifiers.
     // The empty name is given by the key's code alone, whatever its layout.
     if is_modifier_only_key(&key_name(raw)) {
-        // It gives nothing on any layout, and leaves an accent waiting.
+        // It gives nothing on any layout, and leaves an accent waiting. The
+        // recording writes nothing for it, and the timings leave it out.
         state.named_presses.note(raw.sequence_id, None);
+        state.timing.leave_out();
         return;
     }
 
@@ -4696,13 +4759,16 @@ fn handle_keyboard<B: AccessibilityBackend>(
         let started = state.timing.mark();
         let held = held_at(raw, backend, &state.named_presses);
         state.timing.took(Step::Held, started);
+        let started = state.timing.mark();
+        let languages = preferred_languages();
+        state.timing.took(Step::Languages, started);
         let event = ActionEvent {
             timestamp: raw.timestamp,
             context_id: None,
             capture_mode: CaptureMode::Accessibility,
             frame_src: None,
             window_rect: None,
-            preferred_languages: preferred_languages(),
+            preferred_languages: languages,
             sequence_id: Some(raw.sequence_id),
             payload: ActionPayload::Key {
                 key,
@@ -4714,10 +4780,13 @@ fn handle_keyboard<B: AccessibilityBackend>(
                 element,
             },
         };
+        let started = state.timing.mark();
         let mut buffers = lock_buffers(pending);
         buffers.flush_pending_type_only(action_sender);
         buffers.write_keys(action_sender);
         let _ = action_sender.send(event);
+        drop(buffers);
+        state.timing.took(Step::Buffers, started);
         return;
     }
 
@@ -4753,15 +4822,12 @@ fn handle_keyboard<B: AccessibilityBackend>(
         remembered_focus(&state.typing_focus, raw, context_id)
     }
     .and_then(|known| {
+        let started = timing.mark();
         let present_speaks = known.mark == state.mark_seq
             && backend.focus_epoch() == raw.focus_epoch
             && backend.is_foreground_window(raw.window_handle);
-        let confirmed = present_speaks.then(|| {
-            let started = timing.mark();
-            let same = backend.focused_is_marked();
-            timing.took(Step::Confirm, started);
-            same
-        });
+        let confirmed = present_speaks.then(|| backend.focused_is_marked());
+        timing.took(Step::Confirm, started);
         if confirmed == Some(Some(false)) {
             disproved = true;
             None
@@ -4844,6 +4910,8 @@ fn handle_keyboard<B: AccessibilityBackend>(
     if (element.element_type.as_deref() == Some("password") || unknowable)
         && enters_text_in_password_field(raw, &key)
     {
+        // A masked key is left out of the timings.
+        state.timing.leave_out();
         state.last_value = Some(LastValue::of(context_id, &element, PASSWORD_MASK));
         let mut buffers = lock_buffers(pending);
         // Keys still buffered were typed into another control, one that
@@ -4888,6 +4956,9 @@ fn handle_keyboard<B: AccessibilityBackend>(
     let started = state.timing.mark();
     let held = held_at(raw, backend, &state.named_presses);
     state.timing.took(Step::Held, started);
+    let started = state.timing.mark();
+    let languages = preferred_languages();
+    state.timing.took(Step::Languages, started);
 
     let event = ActionEvent {
         timestamp: raw.timestamp,
@@ -4895,7 +4966,7 @@ fn handle_keyboard<B: AccessibilityBackend>(
         capture_mode: CaptureMode::Accessibility,
         frame_src: None,
         window_rect,
-        preferred_languages: preferred_languages(),
+        preferred_languages: languages,
         sequence_id: Some(raw.sequence_id),
         payload: ActionPayload::Key {
             key: key.clone(),
@@ -4909,6 +4980,7 @@ fn handle_keyboard<B: AccessibilityBackend>(
     };
 
     // In-memory buffer mutation only — short lock, no backend calls inside.
+    let started = state.timing.mark();
     let mut buffers = lock_buffers(pending);
     if buffered {
         // A `type` pending for another element is not this key's: it is
@@ -4967,6 +5039,8 @@ fn handle_keyboard<B: AccessibilityBackend>(
             let _ = action_sender.send(event);
         }
     }
+    drop(buffers);
+    state.timing.took(Step::Buffers, started);
 }
 
 // ---------------------------------------------------------------------------
