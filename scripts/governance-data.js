@@ -161,3 +161,20 @@ export function baseFileReader(git, baseRef) {
     }
   };
 }
+
+/**
+ * What a list of grown passages is headed with, on the log and in the job
+ * summary: the list does not fail, who answers it, and where that rule stands.
+ */
+export const GROWTH_ANSWER =
+  "This does not fail: the pull request's reviewer answers each (docs/guides/docs-governance.md, Writing docs).";
+
+/**
+ * A value as the text of a markdown table cell in a job summary.
+ * @param {unknown} value the value to show
+ * @returns {string} its text, a backslash and a pipe escaped
+ */
+export function summaryCell(value) {
+  // The backslash first, so one that stands before a pipe cannot undo the pipe's escape.
+  return String(value).replace(/\\/g, '\\\\').replace(/\|/g, '\\|');
+}

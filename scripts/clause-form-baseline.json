@@ -1,34 +1,7 @@
 {
-  "description": "The cases scripts/check-clause-form.js admits: the clauses of one document that link the same issue, the pairs of clauses sharing a run of words, and the count of long units per clause. The list only shrinks: an entry the tree no longer needs reds until it is removed or lowered, and on a pull request an entry the base does not hold reds. Fix the clause; do not add an entry.",
+  "description": "The cases scripts/check-clause-form.js admits: the clauses of one document that link the same issue, and the pairs of clauses sharing a run of words. The list only shrinks: an entry the tree no longer needs reds until it is removed, and on a pull request an entry the base does not hold reds. Fix the clause; do not add an entry.",
   "issue-homes": {
     "710": ["DCP-13", "DCP-9"]
   },
-  "shared-text": ["DI-15|SP-25", "SP-1|SP-4", "SP-3|SP-4"],
-  "long-units": {
-    "SF-11": 1,
-    "SF-13": 1,
-    "ERT-5": 1,
-    "SP-1": 1,
-    "SP-5": 1,
-    "SP-9": 1,
-    "SP-10": 1,
-    "SP-13": 1,
-    "SP-19": 1,
-    "STC-10": 1,
-    "STC-18": 1,
-    "STC-22": 1,
-    "DI-7": 1,
-    "SC-3": 1,
-    "DSH-1": 1,
-    "DSH-3": 1,
-    "COV-3": 1,
-    "MUT-3": 1,
-    "MUT-4": 1,
-    "MUT-7": 1,
-    "CI-1": 1,
-    "LC-1": 1,
-    "LC-4": 1,
-    "LC-8": 1,
-    "LC-9": 1
-  }
+  "shared-text": ["DI-15|SP-25", "SP-1|SP-4", "SP-3|SP-4"]
 }

@@ -143,7 +143,7 @@ describe('check-script CLI smoke (deterministic green paths)', () => {
     assert.match(out, /clause preambles canonical/);
   });
 
-  it('check-clause-form: the committed clauses hold one home per rule and their unit length', () => {
+  it('check-clause-form: the committed clauses hold one home per rule', () => {
     const out = runScript('check-clause-form.js');
     assert.match(out, /no issue linked from two clauses/);
   });
