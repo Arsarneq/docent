@@ -4,9 +4,9 @@
  * The offender list and the count of what was read come from one pass, so the
  * two shapes where that read finds nothing — a file list naming no file, and a
  * file set stating no `uses:` reference between them — are refused here rather
- * than reported as a clean tree, and each of the command line's three verdicts
- * is pinned at the process boundary: the committed tree's green, the refusal a
- * scan naming no file raises, and an unpinned reference.
+ * than reported as a clean tree, and each of the command line's verdicts is
+ * pinned at the process boundary: the committed tree's green, the refusals a
+ * scan reading nothing raises, an unpinned reference and a codecov step without the flag.
  */
 
 import { after, describe, it } from 'node:test';
@@ -21,7 +21,6 @@ import {
   WORKFLOWS_ROOT,
   actionFiles,
   auditActions,
-  auditCodecov,
   readCodecovSteps,
   findUnpinned,
   isPinned,
@@ -110,7 +109,10 @@ describe('readUses — the one read the verdict and the count both come from', (
 });
 
 describe('auditActions — the refusals a read that found nothing takes', () => {
-  const pinnedFile = `jobs:\n  x:\n    steps:\n      - uses: actions/checkout@${SHA} # v6\n`;
+  const codecov = (key) =>
+    `      - uses: codecov/codecov-action@${SHA} # v7\n        with:\n          files: x\n${key}`;
+  const strict = codecov('          fail_ci_if_error: true\n');
+  const pinnedFile = `jobs:\n  x:\n    steps:\n      - uses: actions/checkout@${SHA} # v6\n${strict}`;
 
   /** The audit's two seams over a fixed file set, named as the audit takes them. */
   const over = (files) => ({ readFile: (f) => files[f], listFiles: () => Object.keys(files) });
@@ -120,7 +122,9 @@ describe('auditActions — the refusals a read that found nothing takes', () => 
       over({ 'a.yml': pinnedFile, 'b.yml': '      - uses: owner/repo@v1\n' }),
     );
     assert.equal(audit.fileCount, 2);
-    assert.equal(audit.useCount, 2);
+    assert.equal(audit.useCount, 3);
+    assert.equal(audit.codecovCount, 1);
+    assert.deepEqual(audit.lax, []);
     assert.deepEqual(audit.unpinned, [{ file: 'b.yml', line: 1, ref: 'owner/repo@v1' }]);
   });
 
@@ -140,9 +144,24 @@ describe('auditActions — the refusals a read that found nothing takes', () => 
     );
   });
 
+  it('names each codecov step lacking the flag, from the same read', () => {
+    const audit = auditActions(over({ 'a.yml': pinnedFile, 'b.yml': codecov('') }));
+    assert.equal(audit.codecovCount, 2);
+    assert.deepEqual(audit.lax, [{ file: 'b.yml', line: 1 }]);
+  });
+
+  it('refuses a file set stating no codecov step, though it states references', () => {
+    assert.throws(
+      () => auditActions(over({ 'a.yml': `      - uses: actions/checkout@${SHA}\n` })),
+      (error) =>
+        error instanceof InputError &&
+        /state no `codecov\/codecov-action` step/.test(error.message),
+    );
+  });
+
   it('does not refuse one file without a reference beside one with', () => {
     const audit = auditActions(over({ 'a.yml': 'name: nothing\n', 'b.yml': pinnedFile }));
-    assert.equal(audit.useCount, 1);
+    assert.equal(audit.useCount, 2);
     assert.deepEqual(audit.unpinned, []);
   });
 
@@ -156,7 +175,6 @@ describe('auditActions — the refusals a read that found nothing takes', () => 
 describe('codecov steps — every upload error must fail its job', () => {
   const step = (extra = '') =>
     `      - name: up\n        uses: codecov/codecov-action@${SHA} # v7\n        with:\n          files: x\n${extra}`;
-  const over = (files) => ({ readFile: (f) => files[f], listFiles: () => Object.keys(files) });
 
   it('reads a step strict only when its own lines state fail_ci_if_error: true', () => {
     assert.deepEqual(readCodecovSteps(step('          fail_ci_if_error: true\n')), [
@@ -167,25 +185,16 @@ describe('codecov steps — every upload error must fail its job', () => {
     assert.equal(readCodecovSteps(step('          # fail_ci_if_error: true\n'))[0].strict, false);
   });
 
+  it('counts the key only inside the step’s `with:` mapping', () => {
+    const env = '        env:\n          fail_ci_if_error: true\n';
+    assert.equal(readCodecovSteps(step(env))[0].strict, false);
+    assert.equal(readCodecovSteps(step().replace('        with:', env + '        with:'))[0].strict, false); // prettier-ignore
+    assert.equal(readCodecovSteps(step('          fail_ci_if_error: true\n'))[0].strict, true);
+  });
+
   it('does not credit a step with the next step’s key', () => {
     const text = step() + '      - name: next\n        with:\n          fail_ci_if_error: true\n';
     assert.deepEqual(readCodecovSteps(text), [{ line: 2, strict: false }]);
-  });
-
-  it('names each lax step across files and counts what it read', () => {
-    const audit = auditCodecov(
-      over({ 'a.yml': step('          fail_ci_if_error: true\n'), 'b.yml': step() }),
-    );
-    assert.equal(audit.stepCount, 2);
-    assert.deepEqual(audit.lax, [{ file: 'b.yml', line: 2 }]);
-  });
-
-  it('refuses a listing with no file and a file set with no codecov step', () => {
-    assert.throws(() => auditCodecov(over({})), InputError);
-    assert.throws(
-      () => auditCodecov(over({ 'a.yml': 'jobs:\n  x:\n' })),
-      (e) => e instanceof InputError && /state no `codecov\/codecov-action` step/.test(e.message),
-    );
   });
 });
 
@@ -197,11 +206,17 @@ describe('the command line’s verdict over the committed tree', () => {
     });
     assert.equal(r.status, 0, `${r.stdout}${r.stderr}`);
     assert.match(r.stdout, /pinned/i);
+    assert.match(
+      r.stdout,
+      /All \d+ codecov\/codecov-action step\(s\) state fail_ci_if_error: true/,
+    );
     assert.match(r.stdout, /reference\(s\), read across \d+ workflow and composite-action file/);
   });
 });
 
-describe('the command line’s other two verdicts, over throwaway trees', () => {
+describe('the command line’s other verdicts, over throwaway trees', () => {
+  const STRICT_STEP = `  - uses: codecov/codecov-action@${SHA} # v7\n    with:\n      fail_ci_if_error: true\n`;
+  const CODECOV_STEP = `steps:\n  - name: up\n    uses: codecov/codecov-action@${SHA} # v7\n    with:\n      files: x\n`;
   // The check derives the root it scans from the file it is written IN, never
   // from the working directory, so a throwaway tree carries a copy of the
   // script beside the two roots. The copy is the shipped text run unchanged —
@@ -252,17 +267,38 @@ describe('the command line’s other two verdicts, over throwaway trees', () => 
   it('a workflow carrying an unpinned reference ends on exit 1 instead', () => {
     const r = run(
       tree({
-        [`${WORKFLOWS_ROOT}/test.yml`]: [
-          'jobs:',
-          '  x:',
-          '    steps:',
-          '      - uses: actions/checkout@v6',
-          '',
-        ].join('\n'),
+        [`${WORKFLOWS_ROOT}/test.yml`]:
+          ['jobs:', '  x:', '    steps:', '      - uses: actions/checkout@v6', ''].join('\n') +
+          STRICT_STEP,
       }),
     );
     assert.equal(r.status, 1, `${r.stdout}${r.stderr}`);
     assert.match(r.stderr, /test\.yml:4 — not SHA-pinned: actions\/checkout@v6/);
     assert.match(r.stderr, /1 unpinned action\./);
+  });
+
+  it('a pinned codecov step without the flag ends on exit 1, naming file and line', () => {
+    const r = run(tree({ [`${WORKFLOWS_ROOT}/test.yml`]: CODECOV_STEP }));
+    assert.equal(r.status, 1, `${r.stdout}${r.stderr}`);
+    assert.match(r.stderr, /test\.yml:3 — codecov\/codecov-action step without fail_ci_if_error/);
+  });
+
+  it('pinned workflows with no codecov step are the refusal, on exit 2', () => {
+    const r = run(
+      tree({ [`${WORKFLOWS_ROOT}/test.yml`]: `steps:\n  - uses: actions/checkout@${SHA}\n` }),
+    );
+    assert.equal(r.status, 2, `${r.stdout}${r.stderr}`);
+    assert.match(r.stderr, /state no `codecov\/codecov-action` step/);
+  });
+
+  it('an unpinned reference and a lax codecov step are both reported in one run', () => {
+    const r = run(
+      tree({
+        [`${WORKFLOWS_ROOT}/test.yml`]: CODECOV_STEP + '  - uses: actions/checkout@v6\n',
+      }),
+    );
+    assert.equal(r.status, 1, `${r.stdout}${r.stderr}`);
+    assert.match(r.stderr, /not SHA-pinned: actions\/checkout@v6/);
+    assert.match(r.stderr, /step without fail_ci_if_error/);
   });
 });
