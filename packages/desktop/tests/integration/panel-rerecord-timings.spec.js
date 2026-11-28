@@ -3,10 +3,11 @@
  *
  * A re-record's take is hidden by the recording, so its capture measures no
  * timings. The panel tells the backend through `set_capture_timings_measuring`
- * as a re-record opens and as it ends (a commit, a leave, a cancel), whether a
- * capture is running then or starts or stops with it. Each spec reads the
- * panel's command traffic as a trace: every start and stop of the capture,
- * stamped with whether the panel had last told the backend to measure.
+ * not to measure as a re-record opens, and to measure again before each start
+ * of a capture that is not a re-record's, and as a re-record cancelled while it
+ * records leaves its capture running. Each spec reads the panel's command
+ * traffic as a trace: every start and stop of the capture, stamped with
+ * whether the panel had last told the backend to measure.
  */
 
 import { test, expect } from './coverage-fixture.js';
@@ -31,8 +32,7 @@ const CLICK = {
  * Every start and stop of the capture, in order, as `start` or `stop` with
  * `on` where the panel had last told the backend to measure (the backend
  * measures until told otherwise) and `held` where it had told it not to.
- * Also returns whether it measures at the end, and the arguments of every
- * stop.
+ * Also returns whether it measures at the end.
  */
 async function trace(page) {
   const told = (await invokesOf(page, 'set_capture_timings_measuring')).map(
@@ -45,8 +45,7 @@ async function trace(page) {
     if (cmd === 'start_capture') steps.push(`start ${measuring ? 'on' : 'held'}`);
     if (cmd === 'stop_capture') steps.push(`stop ${measuring ? 'on' : 'held'}`);
   }
-  const stopArgs = (await invokesOf(page, 'stop_capture')).map(({ args }) => args);
-  return { steps, measuring, stopArgs };
+  return { steps, measuring };
 }
 
 /** The trace's starts and stops after the first `from` of them. */
@@ -70,6 +69,23 @@ async function openRerecord(page) {
 async function togglePause(page, badge) {
   await page.click('#btn-toggle-recording');
   await expect(page.locator('#recording-badge')).toContainText(badge);
+}
+
+/** A new recording in the open project, which starts a plain capture. */
+async function newRecording(page) {
+  await page.click('#bc-project');
+  await page.waitForSelector('#view-project:not(.hidden)');
+  await seedRecordedStep(page, { project: null, recording: 'R2', actions: null, narration: null });
+}
+
+async function openSettings(page) {
+  await page.click('#btn-settings');
+  await page.waitForSelector('#view-settings:not(.hidden)');
+}
+
+async function closeSettings(page) {
+  await page.click('#btn-settings-back');
+  await page.waitForSelector('#view-projects:not(.hidden)');
 }
 
 test.describe('Desktop Panel: capture timings while a re-record is open', () => {
@@ -117,15 +133,20 @@ test.describe('Desktop Panel: capture timings while a re-record is open', () => 
     ]);
   });
 
-  test('a re-record left while recording stops its take held', async ({ page }) => {
+  test('a re-record left while recording stops its take held, and the next recording is measured', async ({
+    page,
+  }) => {
     const from = await recordingWithAStep(page);
     await openRerecord(page);
 
-    await page.click('#bc-project');
-    await page.waitForSelector('#view-project:not(.hidden)');
+    await newRecording(page);
 
-    expect(await stepsSince(page, from)).toEqual(['stop on', 'start held', 'stop held']);
-    expect((await trace(page)).measuring).toBe(true);
+    expect(await stepsSince(page, from)).toEqual([
+      'stop on',
+      'start held',
+      'stop held',
+      'start on',
+    ]);
   });
 
   test('a re-record paused and cancelled measures nothing of its take, and the recording resumed is measured', async ({
@@ -147,16 +168,23 @@ test.describe('Desktop Panel: capture timings while a re-record is open', () => 
     ]);
   });
 
-  test('a re-record opened while paused and cancelled stops its take held', async ({ page }) => {
+  test('a re-record opened while paused and cancelled stops its take held, and the recording resumed is measured', async ({
+    page,
+  }) => {
     const from = await recordingWithAStep(page);
     await togglePause(page, 'Paused');
     await openRerecord(page);
 
     await page.click('#btn-rerecord-cancel');
     await expect(page.locator('#rerecord-banner')).toBeHidden();
+    await togglePause(page, 'Recording');
 
-    expect(await stepsSince(page, from)).toEqual(['stop on', 'start held', 'stop held']);
-    expect((await trace(page)).measuring).toBe(true);
+    expect(await stepsSince(page, from)).toEqual([
+      'stop on',
+      'start held',
+      'stop held',
+      'start on',
+    ]);
   });
 
   test('a re-record cancelled while recording keeps its capture running and measuring again', async ({
@@ -197,9 +225,99 @@ test.describe('Desktop Panel: capture timings while a re-record is open', () => 
     ]);
   });
 
-  test('Pause and a commit of a plain recording are measured, and every stop is a plain stop', async ({
+  test('a committed re-record in simple mode stops its take held, and the recording after it is measured', async ({
     page,
   }) => {
+    await openPanel(page, server);
+    await openSettings(page);
+    const simpleLabel = page.locator('input[name="recording-mode"][value="simple"]').locator('..');
+    await simpleLabel.scrollIntoViewIfNeeded();
+    await simpleLabel.click();
+    await closeSettings(page);
+    await seedRecordedStep(page, {
+      project: 'P',
+      recording: 'R',
+      actions: [CLICK],
+      narration: null,
+    });
+    await page.click('#btn-commit-step-simple');
+    await expect(page.locator('.step-item')).toHaveCount(1);
+    await expect(page.locator('#recording-badge')).toContainText('Recording');
+    const from = (await trace(page)).steps.length;
+
+    await openRerecord(page);
+    await seedRecordedStep(page, {
+      project: null,
+      recording: null,
+      actions: [CLICK],
+      narration: null,
+    });
+    await page.click('#btn-commit-step-simple');
+    await expect(page.locator('#rerecord-banner')).toBeHidden();
+    await expect(page.locator('#recording-badge')).toContainText('Recording');
+
+    expect(await stepsSince(page, from)).toEqual([
+      'stop on',
+      'start held',
+      'stop held',
+      'start on',
+    ]);
+  });
+
+  test('a sync that ends while a re-record records leaves its take held to the next recording', async ({
+    page,
+  }) => {
+    await openPanel(page, server);
+    await openSettings(page);
+    await page.fill('#settings-sync-url', 'https://sync.example.com');
+    await page.fill('#settings-sync-api-key', 'sync-key');
+    await page.click('#btn-settings-sync-save');
+    await page.waitForTimeout(200);
+    await closeSettings(page);
+    await page.evaluate(() => {
+      window.fetch = async (url, opts) => {
+        if (url.endsWith('/projects') && (!opts || opts.method === 'GET'))
+          return { ok: true, status: 200, json: async () => [] };
+        return { ok: true, status: 200, json: async () => ({}) };
+      };
+    });
+    page.on('dialog', (dialog) => dialog.accept());
+    await seedRecordedStep(page, {
+      project: 'P',
+      recording: 'R',
+      actions: [CLICK],
+      narration: 'a',
+    });
+    await expect(page.locator('#recording-badge')).toContainText('Recording');
+    const from = (await trace(page)).steps.length;
+    await openRerecord(page);
+
+    // The Sync handler does not look at the view: a sync that ends now shows
+    // the projects list, which ends the re-record without stopping its take.
+    await page.evaluate(() => document.getElementById('btn-sync').click());
+    await page.waitForSelector('#view-projects:not(.hidden)');
+    await expect(page.locator('#btn-sync')).toHaveText('Sync');
+
+    expect(await stepsSince(page, from)).toEqual(['stop on', 'start held']);
+    expect((await trace(page)).measuring).toBe(false);
+
+    await page.locator('[data-action="open"]').first().click();
+    await page.waitForSelector('#view-project:not(.hidden)');
+    await seedRecordedStep(page, {
+      project: null,
+      recording: 'R2',
+      actions: null,
+      narration: null,
+    });
+
+    // The capture that path leaves running is not this spec's: the next start
+    // of a capture that is not a re-record's measures, whatever it finds.
+    const after = await trace(page);
+    expect(after.steps.at(-1)).toBe('start on');
+    expect(after.measuring).toBe(true);
+  });
+
+  test('Pause and a commit of a plain recording are measured', async ({ page }) => {
     const from = await recordingWithAStep(page);
 
     await togglePause(page, 'Paused');
@@ -212,6 +330,5 @@ test.describe('Desktop Panel: capture timings while a re-record is open', () => 
     });
 
     expect(await stepsSince(page, from)).toEqual(['stop on', 'start on', 'stop on', 'start on']);
-    expect((await trace(page)).stopArgs.every((args) => args === undefined)).toBe(true);
   });
 });

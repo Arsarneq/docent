@@ -338,3 +338,27 @@ fn a_capture_started_while_its_timings_are_held_writes_no_block() {
         );
     });
 }
+
+/// A capture started while its timings are held and told to measure again
+/// while it runs, as a re-record cancelled while it records leaves its
+/// capture running, writes its block at its stop.
+#[test]
+#[serial]
+fn a_capture_told_to_measure_again_while_it_runs_writes_its_block() {
+    with_timings_switch(Some("1"), || {
+        let (blocks_tx, blocks) = mpsc::channel::<String>();
+        let mut capture = WindowsCapture::new();
+        capture.send_timings_to(blocks_tx);
+        capture.set_timings_measuring(false);
+
+        let (tx, _rx) = channel();
+        capture.start(tx).expect("start should succeed");
+        capture.set_timings_measuring(true);
+        capture.stop().expect("stop should succeed");
+        assert_eq!(
+            blocks.try_iter().count(),
+            1,
+            "the capture measured again while it ran"
+        );
+    });
+}
