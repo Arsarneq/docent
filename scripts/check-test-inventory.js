@@ -2190,7 +2190,8 @@ export function formatGrowth(notes, baseRef) {
  */
 export function growthSummary(notes, baseRef) {
   if (notes.length === 0) return '';
-  const cell = (text) => String(text).replace(/\|/g, '\\|');
+  // The backslash first, so one that stands before a pipe cannot undo the pipe's escape.
+  const cell = (text) => String(text).replace(/\\/g, '\\\\').replace(/\|/g, '\\|');
   return [
     `### Covers cells that grew since ${baseRef}`,
     '',

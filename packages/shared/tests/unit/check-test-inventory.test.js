@@ -746,6 +746,13 @@ describe('growthSummary — the grown cells as the job summary shows them', () =
     const text = growthSummary([{ ...note, section: 'A | B' }], 'origin/main');
     assert.match(text, /\| A \\\| B \|/);
   });
+
+  it('keeps a backslash before a pipe from freeing the pipe', () => {
+    // `A\|B` written with the pipe alone escaped would read as an escaped
+    // backslash and a cell boundary.
+    const text = growthSummary([{ ...note, section: 'A\\|B' }], 'origin/main');
+    assert.ok(text.includes('| A\\\\\\|B |'), text);
+  });
 });
 
 describe('auditInventories — the row shape of an opted-in inventory', () => {
