@@ -63,7 +63,7 @@ jobs:
           retention-days: 30
 
   stryker-extension:
-    timeout-minutes: 30
+    timeout-minutes: 60
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -147,7 +147,7 @@ jobs:
   # slice whatever another one does. Every bound and step below applies per
   # shard.
   cargo-mutants-desktop:
-    timeout-minutes: 180
+    timeout-minutes: 140
     runs-on: windows-latest
     strategy:
       fail-fast: false
@@ -284,7 +284,7 @@ jobs:
       # mutant — not the warm one alone.
       - name: Run cargo-mutants (scoped)
         working-directory: packages/desktop/src-tauri
-        timeout-minutes: 150
+        timeout-minutes: 110
         shell: bash
         env:
           SHARD_INDEX: ${{ strategy.job-index }}
