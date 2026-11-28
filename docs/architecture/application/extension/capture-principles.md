@@ -117,7 +117,7 @@ doctrine, and the windows the module declares live in
 [`lib/capture-timing.js`](../../../../packages/extension/lib/capture-timing.js);
 the recorder carries its windows inline — copies of the module's values it uses,
 and windows of its own the module does not declare — and the service worker
-carries an inline window of its own, the repeat window ECP-12 names; an
+carries an inline window of its own, the five-second repeat ECP-12 states; an
 end-to-end spec enforces the readiness bound.
 
 ---
@@ -380,240 +380,61 @@ machine, including live-capture behaviour at the boundary.
 
 **ECP-12.** This platform's exceptions within the surface (core [CP-15](../../../architecture/system/capture-principles.md#capture-surface)):
 
-- A `key` states nothing of the input method: the browser gives a page and
-  an extension no interface that reads whether one is on or its mode, where
-  the desktop writes `input_method_open` and `input_method_conversion_mode` on
-  each `key` from what Windows tells it. What the layer reads is the key's
-  own event, whose `isComposing` says a composition is open and nothing of
-  whether an input method is on or of its mode; the extension interface that
-  addresses an input method (`chrome.input.ime`) is for an extension that is
-  the input method, on ChromeOS only. A difference that comes from the
-  platforms themselves (core CP-19;
-  [docent#237](https://github.com/Arsarneq/docent/issues/237))
-- A key the input method takes: not written as a `key`. Its text arrives as
-  a composition, which the field's `type` records, and a press whose
-  composition is given up with no text leaves no record; a departure (core
-  CP-18), and one from the desktop, which writes the keys pressed inside a
-  composition as `key` actions (the desktop capture document, DCP-13, states
-  why and which); the composed text is one `type` on both; a difference that
-  comes from the platforms themselves (core CP-19;
-  [docent#744](https://github.com/Arsarneq/docent/issues/744))
-- Character keys pressed in a date or time field whose parts made no value
-  (a date left half filled): written as `key` actions, though the field shows
-  what was typed. The field has no value for a `type` to carry; a departure
-  (core CP-18)
-- A character key the page cancels and enters into the field where the
-  recorder cannot tell (only after the browser is done with the key, from a timer for
-  example, or from a listener that runs ahead of the recorder's, so that the
-  field already holds the character when the press is noted): written as the
-  `key`,
-  and the field's text as its `type` when the field is committed. And a
-  character key that entered nothing, pressed while the page changed the
-  field's text for a reason of its own: taken for text and not written as a
-  `key`. The recorder tells a page's own entering of a character by the
-  field's text alone; a departure (core CP-18)
-- A key press not yet written (ECP-13's fourth and last rows, ECP-14's last row), and an action the browser caused while it handled that press, when capture is turned off by another route than a stop: not written. A stop and a step commit write the press as the `key` it was; a departure (core CP-18)
-- A character key that entered no text on a sensitive element: written as
-  the element's masked `type`, not as a `key`, so the recording does not name
-  a character of a sensitive value; a departure (core CP-18)
-- A reload asked for with a key the page is sent (F5, Ctrl+R): written as
-  the `key` and as the `navigate` (reload) the browser reports. One press,
-  two actions; a departure (core CP-18), and one from the desktop, which
-  writes the `key` alone (core CP-19;
-  [docent#710](https://github.com/Arsarneq/docent/issues/710))
-- A key the browser or the system takes before the page is sent its
-  `keydown` (a browser shortcut the page is not offered, a system hotkey):
-  not written, no event reaching the recorder. The desktop's keyboard hook is
-  handed such a key and writes it; the difference comes from the platforms
-  themselves (core CP-19)
-- Arrow keys in the open list of a native `<select>` are swallowed by the
-  browser before the recorder's listeners see them; on a closed `<select>`
-  each arrow key reaches the page and is written as the `key`, and the option
-  it chooses as the `select` its `change` commits
-- The keys an action's `held_keys` can name are fewer than on the desktop, whose keyboard hook is handed every key wherever the focus is (ECP-18 states which keys the extension knows to be down); the difference comes from the platforms themselves (core CP-19). Between recorded frames these departures remain (core CP-19; [docent#782](https://github.com/Arsarneq/docent/issues/782)). A key held in another frame is missing where:
-  - the worker, which keeps these keys in memory only, was suspended;
-  - the recording was stopped and started, or a frame of the tab started
-    to navigate;
-  - the frame that reported the key gave no answer in time: the time of a frame that does not answer (below) at a pointer press, at most half of it at any other action;
-  - a release was reported while the action waited to be stored;
-  - a frame's blur reached the worker ahead of the press that caused it.
-- A released key can be named in one case: the focus goes to the
-  browser's own interface and comes back by a press in another frame
-  while the page of the frame that held the key, in a process of its own,
-  hangs the whole time and then answers that press in time; its late blur
-  is then taken for the press's own.
+- A `key` states nothing of the input method, where the desktop writes `input_method_open` and `input_method_conversion_mode` on each `key`: the browser gives a page and an extension no interface that reads whether an input method is on or its mode. The extension reads the key's own event, whose `isComposing` says only that a composition is open; the input-method interface (`chrome.input.ime`) serves an extension that is itself the input method, on ChromeOS only. A difference that comes from the platforms themselves (core CP-19; [docent#237](https://github.com/Arsarneq/docent/issues/237)).
+- A key the input method takes that enters text (a letter of a romanized reading, for example) is not written as a `key`: its text is in the field's `type` (ECP-16). The desktop writes such a key as a `key` where the field reports no value for it (DCP-13): a difference that comes from the platforms themselves (core CP-19).
+- A key pressed inside a composition that enters no text (Space that converts, the Enter that confirms, Escape, an arrow in the candidate list or Backspace, for example) is not written, and a press whose composition is given up with no text leaves no record. The desktop writes these keys. A departure (core CP-18, CP-19; [docent#861](https://github.com/Arsarneq/docent/issues/861)).
+- Character keys pressed in a date or time field whose parts made no value (a date left half filled) are written as `key` actions, though the field shows what was typed: the field has no value for a `type` to carry. A departure (core CP-18; [docent#847](https://github.com/Arsarneq/docent/issues/847)).
+- A character key the page cancels and then enters into the field itself, where the recorder cannot tell (after the browser is done with the key, from a timer for example, or before the recorder sees the key), is written as the `key`, and the field's text as its `type` when the field is committed. A character key that entered nothing, pressed while the page changed the field's text for a reason of its own, is taken for text and not written as a `key`: the field's text alone tells a page's own entering of a character. A departure (core CP-18; [docent#847](https://github.com/Arsarneq/docent/issues/847)).
+- A key press not yet written (ECP-13's fourth and last rows, ECP-14's last row), and an action the browser caused while it handled that press, are not written when capture is turned off by another route than a stop. A stop and a step commit write the press as the `key` it was. A departure (core CP-18; [docent#848](https://github.com/Arsarneq/docent/issues/848)).
+- A character key that entered no text on a sensitive element is written as the element's masked `type`, not as a `key`, so the recording does not name a character of a sensitive value. A departure (core CP-18; [docent#849](https://github.com/Arsarneq/docent/issues/849)).
+- A reload asked for with a key the page is sent (F5, Ctrl+R) is written as the `key` and as the `navigate` (reload) the browser reports: one press, two actions. A departure (core CP-18), and one from the desktop, which writes the `key` alone (core CP-19; [docent#710](https://github.com/Arsarneq/docent/issues/710)).
+- A key the browser or the system takes before the page is sent its `keydown` (a browser shortcut the page is not offered, a system hotkey, an arrow key in the open list of a native `<select>`, for example) is not written. The desktop's keyboard hook is handed a browser shortcut and most system hotkeys and writes them (DCP-13 states the keys the system takes before the hooks, which are not written): a difference that comes from the platforms themselves (core CP-19). On a closed `<select>` each arrow key is written as the `key`, and the option it chooses as the `select`.
+- The keys an action's `held_keys` can name are fewer than on the desktop, whose keyboard hook is handed every key wherever the focus is (ECP-18 states which keys the extension knows to be down): a difference that comes from the platforms themselves (core CP-19). Between recorded frames these departures remain (core CP-19; [docent#782](https://github.com/Arsarneq/docent/issues/782)). A key held in another frame is missing where:
+  - the browser suspended the extension's worker;
+  - the recording was stopped and started, or a frame of the tab started to navigate;
+  - the frame that reported the key did not answer within 500 ms (`END_TYPING_BOUND`) at a pointer press, or within 250 ms (`HELD_KEYS_ASK_BOUND`) at any other action;
+  - the key was released in its frame at about the moment of the action;
+  - a press in another frame took the focus, and the browser reported the focus leaving first.
+- A released key can be named in one case: the focus goes to the browser's own interface and comes back by a press in another frame while the page of the frame that held the key, in a process of its own, hangs the whole time and then answers that press in time. A departure (core CP-18, CP-19; [docent#782](https://github.com/Arsarneq/docent/issues/782)).
 
-- Back/forward between same-document entries (an SPA's history) — a
-  browser-chrome action; the worker's committed-navigation listener does not
-  report it
-- Back/forward that moves only an embedded frame's document — the committed
-  navigation is the frame's, and the worker proxies a tab's main-frame
-  navigations only, so no `navigate` is written
-- A second navigation to the same address within the worker's repeat window
-  (five seconds) of the last recorded one, reloads excepted — dropped as a
-  repeat, a genuine re-navigation the user asked for dropped with it; a
-  departure (core CP-18)
-- A browser-chrome navigation the server or the page redirected — the
-  committed navigation carries a redirect qualifier and the handler skips it,
-  so a typed address the site redirects records no `navigate`; a departure
-  (core CP-18)
-- A navigation into an internal scheme (`chrome://`, `chrome-extension://`,
-  `about:`), a typed address among them — the worker skips those schemes for
-  every navigation, whatever its transition type, before any proxy is
-  considered
-- `window.open()` detection uses a timing window (see `capture-timing.js`)
-- A tab the user opened (Ctrl+T, Ctrl+N, Ctrl+Shift+T) within 500 ms after an
-  in-page action — no `context_open` written, the tab being taken for a
-  page-opened one; a departure (core CP-18)
-- `window.close()` detection uses a timing window on programmatic tabs
-- The close, within 2000 ms after an in-page action, of a tab the user opened
-  within 500 ms after an in-page action — not written, the tab being in the
-  programmatic set; a departure (core CP-18)
-- The user's close (Ctrl+W or the tab's X), within 2000 ms after an in-page
-  action, of a tab a page opened — not written, the close being taken for the
-  page's `window.close()`; a departure (core CP-18)
-- A click or right-click whose picked element is the body or the document
-  element — not written; a departure (core CP-18)
-- A context menu asked for with no press of the right button and no key (a
-  long press on a touch screen): written as a `right_click` at the browser's
-  request for the menu, with the modifiers and held keys of that moment; a
-  departure (core CP-18)
-- A click on a `label` inside a closed shadow root — written twice, both
-  against the shadow host: the label's click and the click the browser sends
-  on to its control, since the closed root hides the label from the recorder;
-  a departure (core CP-18)
-- A click that carries no pointer and reaches the page outside a written
-  key's events (an activation an assistive technology sends, for example) —
-  written as a `click` with the coordinates its event carries, though no
-  pointer was at that point; a departure (core CP-18). Two such clicks are
-  not written. One is a click on a native `select` that carries neither a pointer nor a click count, whoever sent it, an activation an assistive technology sends to a `select` included. The other is the next item's
-- A click that carries no click count, on whatever element, within 50 ms after the `change` of a `select` — not written, taken for an effect of the choice just made; an activation that carries no click count, made in that time (one an assistive technology sends, for example), is dropped with it; a departure (core CP-18)
-- A value entered with no key pressed in the field since it took focus (a
-  paste from the context menu, a drop, an autofill) — its `type` is written
-  when the browser commits it, which can follow a key pressed after
-  it; a departure (core CP-18)
-- A key whose press also scrolls (an arrow key, or Space on a focused
-  element it does not activate, a link for example) — written as the `key`
-  and, where the scroll clears the floor (core CP-16), as a `scroll` too: one
-  press, two actions; a departure (core CP-18), and one from the desktop,
-  whose `scroll` comes from wheel input only (core CP-19;
-  [docent#710](https://github.com/Arsarneq/docent/issues/710))
-- Text a page inserts in a field between a key the input method took there
-  and the next key press — taken for that key's text, so what the field holds
-  is written as an entry the person made, also where the key itself entered
-  nothing; the browser's events do not tell the two inserts apart; a
-  departure (core CP-18)
-- The same text pasted over itself with no paste key (from a menu) —
-  written, the browser naming the paste, where the desktop, which knows a
-  paste by its key or by a click on an element described as a menu item,
-  writes none where it saw neither (the desktop capture document lists the
-  cases), and where the desktop, after a click on a menu item that pasted
-  nothing, writes a repeated report of the field's value as a `type`, the
-  extension writes none; a departure from the desktop (core CP-19;
-  [docent#751](https://github.com/Arsarneq/docent/issues/751))
-- A value set again, by other means than typing, composing or pasting, to
-  the entry last written for the field since it took the focus or, where
-  none was, to what it held at focus (text dragged onto itself, for example)
-  — not written; a departure (core CP-18)
-- A `type` on an input or textarea when a button or input marked
-  `type="submit"` in the same form was pressed, with any mouse button, within
-  100 ms of the change, or of the field losing the focus where the browser
-  sends no change — not written (a `<button>` with no `type` attribute
-  does not trigger the skip); a departure (core CP-18;
-  [docent#223](https://github.com/Arsarneq/docent/issues/223)), and one from
-  the desktop, which writes the `type` ahead of the click (core CP-19;
-  [docent#710](https://github.com/Arsarneq/docent/issues/710))
-- The first activation of a tab opened in the background, when no tab was
-  created after it — not written; a departure (core CP-18)
-- The activation of a tab with no address — not written; a departure
-  (core CP-18)
-- The activation of a `chrome://` or `chrome-extension://` tab — not written,
-  the internal schemes being outside the surface as for a typed address
-- A Tab-focus of a password field — not written; a departure (core CP-11)
-- A Tab focus move onto an element other than an input, a textarea or a
-  contenteditable host (a button, a link or a select, for example) — no
-  `focus` is written; the Tab `key` is written against the element it left; a
-  departure (core CP-18), and one from the desktop, which writes the `focus` (core CP-19;
-  [docent#710](https://github.com/Arsarneq/docent/issues/710))
-- Scroll gestures are debounced and coalesced with a sub-threshold discard —
-  the shared rule in
-  [core CP-16](../../../architecture/system/capture-principles.md#capture-surface);
-  the quantity here is the change in the scrolled container's offset in the
-  document's layout pixels — read today from the first scroll event's target
-  to the last event's, so the first event's own movement is left out and a
-  sequence that moves across containers subtracts two targets' offsets, a
-  departure ([docent#251](https://github.com/Arsarneq/docent/issues/251)) — and the floor is declared as
-  `SCROLL_MIN_DISTANCE_PX` in `lib/capture-timing.js` and applied inline in
-  the content script
-- Actions performed during a [storage-pressure pause](#storage-pressure) are
-  not captured
-- A middle-button click — the recorder listens for no `auxclick`, so the click
-  is not recorded; a tab it opens arrives as a `context_open` with no action
-  behind it; the desktop records the click, so this is a departure (core CP-19;
-  [docent#707](https://github.com/Arsarneq/docent/issues/707))
-- A pointer drag that is not HTML5 drag-and-drop (a slider, a splitter, a text
-  selection) — recorded as the click its release produces, not as a
-  `drag_start`/`drop` pair, which the desktop records; a departure (core CP-19;
-  [docent#707](https://github.com/Arsarneq/docent/issues/707))
-- Moving between two browser windows — the worker listens for no
-  `windows.onFocusChanged`, so the switch records no `context_switch`, which
-  the desktop records between its windows; a departure (core CP-19;
-  [docent#707](https://github.com/Arsarneq/docent/issues/707))
-- Closing a whole browser window — the tab-removal listener skips tabs removed
-  by a window close, so no `context_close` is recorded, which the desktop
-  records for a window the person closes; a departure (core CP-19;
-  [docent#707](https://github.com/Arsarneq/docent/issues/707))
-- A file chosen without a trusted click on the input within the 10 s before
-  the change — a click the page scripted on the input, or a choice made
-  later — no `file_upload` is recorded; a departure (core CP-18). The click
-  the browser derives from Enter or Space on the input counts as that trusted
-  click, so a chooser opened from the keyboard records its `file_upload`
-- Input in a page between its navigation and the completion of its load — the
-  recorder is injected as the frame finishes loading (ECP-2), so an action
-  taken while the page is still loading is not captured; ECP-5's readiness
-  bound runs from that load completion; the desktop records input in a window
-  that is still starting, so this is a departure (core CP-19;
-  [docent#710](https://github.com/Arsarneq/docent/issues/710))
-- Input in a page or frame the browser does not let the extension inject (the
-  browser decides which: the Chrome Web Store, a PDF in the built-in viewer, a
-  `file://` page while file access is off and a host an enterprise policy
-  blocks, for example) — not captured; a browser-chrome navigation into it
-  still is
-- A link followed in a page the extension cannot inject — the click reaches no
-  recorder and the worker skips the `link` navigation as an in-page effect, so
-  neither is written; a departure (core CP-18)
-- A value committed in an input, textarea or select inside a shadow root —
-  `change` does not cross the shadow boundary to the recorder's `document`
-  listener, so no `type` or `select` is written; the desktop records a
-  field's `type` wherever the field sits, so this is a departure (core CP-19;
-  [docent#710](https://github.com/Arsarneq/docent/issues/710))
-- Typing in a frame that does not answer the worker's request to end it within
-  500 ms (its page is busy). At a pointer press in another frame, its entry is
-  stored behind the `click` of that press. At a step commit and at a stop, its
-  entry is no part of the step committed or the recording stopped: the frame
-  writes it when it gets to the request, and it is stored where capture is on
-  again by then (in the next step, after the panel's commit or a pause and a
-  resume) and dropped where capture is still off. The worker logs a warning
-  naming the frames. The desktop writes the `type` in place in each of these
-  cases; a departure (core CP-18; core CP-19,
-  [docent#710](https://github.com/Arsarneq/docent/issues/710))
-- Typing not yet written when capture is turned off by another route than a
-  stop (a project created or opened, a recording opened, the active project
-  or recording deleted) — no frame is asked. The entry of a `contenteditable`
-  host is not written; the entry of a field is written into the next capture
-  if the field is still being typed into when its typing ends there; a
-  departure (core CP-18)
-- Actions in a tab after a service-worker suspension, once one frame of that
-  tab has registered again and the frame acted in has not — the tab's registry
-  entry exists, so no lazy reseed runs (ECP-3), and the frame-trust gate drops
-  the actions until that frame registers again (as it finishes a load, or
-  when its reinjected recorder reports ready) or the next record-start; a
-  departure (core CP-18)
-- Editing in a contenteditable host whose attribute is neither `""` nor
-  lower-case `true` (`plaintext-only` or `TRUE`, for example), or in a host
-  inside a shadow root — not taken for a contenteditable host, so no `type` is
-  written; a departure (core CP-18)
-- Editing in a contenteditable host whose text exceeds 500 characters —
-  captured with a caveat: the `type` value is cut at 500 characters with no
-  mark of the cut ([docent#238](https://github.com/Arsarneq/docent/issues/238));
-  a departure (core CP-18)
+- Back/forward between same-document entries (an SPA's history) is not written: only a back/forward that loads another document writes a `navigate` (ECP-7).
+- Back/forward that moves only an embedded frame's document writes no `navigate`: only a tab's main-frame navigations are written.
+- A second navigation to the same address within five seconds of the last recorded one in any tab, reloads excepted, is dropped as a repeat, and a re-navigation the user asked for with it. A departure (core CP-18; [docent#850](https://github.com/Arsarneq/docent/issues/850)).
+- A browser-chrome navigation the browser marks as redirected by the server or the page writes no `navigate`, so a typed address the site redirects records none. A departure (core CP-18; [docent#850](https://github.com/Arsarneq/docent/issues/850)).
+- A navigation into an internal scheme (exactly `chrome://`, `chrome-extension://` and `about:`), a typed address among them, is not written: the internal schemes are outside the surface.
+- A tab the user opened (Ctrl+T, Ctrl+N or Ctrl+Shift+T, for example) within 500 ms after an in-page action writes no `context_open`: the tab is taken for a page-opened one. A departure (core CP-18; [docent#851](https://github.com/Arsarneq/docent/issues/851)).
+- The close, within 2000 ms after an in-page action, of a tab the user opened within 500 ms after an in-page action is not written: the tab is taken for a page-opened one. A departure (core CP-18; [docent#851](https://github.com/Arsarneq/docent/issues/851)).
+- The user's close (Ctrl+W or the tab's X), within 2000 ms after an in-page action, of a tab a page opened is not written: the close is taken for the page's `window.close()`. A departure (core CP-18; [docent#851](https://github.com/Arsarneq/docent/issues/851)).
+- A click or right-click whose picked element is the body or the document element is not written. A departure (core CP-18; [docent#852](https://github.com/Arsarneq/docent/issues/852)).
+- A context menu asked for with no press of the right button and no key (a long press on a touch screen) is written as a `right_click` at the browser's request for the menu, with the modifiers and held keys of that moment. A departure (core CP-18; [docent#852](https://github.com/Arsarneq/docent/issues/852)).
+- A click on a `label` inside a closed shadow root is written twice, both against the shadow host: the label's click and the click the browser sends on to its control, since the closed root hides the label from the recorder. A departure (core CP-18; [docent#852](https://github.com/Arsarneq/docent/issues/852)).
+- A click that carries no pointer and reaches the page outside a written key's events (an activation an assistive technology sends, for example) is written as a `click` with the coordinates its event carries, though no pointer was at that point. A departure (core CP-18; [docent#852](https://github.com/Arsarneq/docent/issues/852)). Two such clicks are not written: one on a native `select` that carries neither a pointer nor a click count, whoever sent it (an activation an assistive technology sends included), and the next entry's.
+- A click that carries no click count, on whatever element, within 50 ms after the `change` of a `select` is not written: it is taken for an effect of the choice just made, and an activation that carries no click count, made in that time (one an assistive technology sends, for example), is dropped with it. A departure (core CP-18; [docent#852](https://github.com/Arsarneq/docent/issues/852)).
+- A value entered with no key pressed in the field since it took focus (a paste from the context menu, a drop, an autofill) has its `type` written when the browser commits it, which can follow a key pressed after it. A departure (core CP-18; [docent#853](https://github.com/Arsarneq/docent/issues/853)).
+- A key whose press also scrolls (an arrow key, or Space on a focused element it does not activate, a link for example) is written as the `key` and, where the scroll clears the floor (core CP-16), as a `scroll` too: one press, two actions. A departure (core CP-18), and one from the desktop, whose `scroll` comes from wheel input only (core CP-19; [docent#710](https://github.com/Arsarneq/docent/issues/710)).
+- Text a page inserts in a field between a key the input method took there and the next key press is taken for that key's text, so what the field holds is written as an entry the person made, also where the key itself entered nothing: the browser's events do not tell the two inserts apart. A departure (core CP-18; [docent#847](https://github.com/Arsarneq/docent/issues/847)).
+- The same text pasted over itself with no paste key (from a menu) is written, the browser naming the paste. The desktop, which knows a paste by its key or by a click on an element described as a menu item, writes none where it saw neither (DCP-13 lists the cases); and where the desktop, after a click on a menu item that pasted nothing, writes a repeated report of the field's value as a `type`, the extension writes none. A departure from the desktop (core CP-19; [docent#751](https://github.com/Arsarneq/docent/issues/751)).
+- A value set again, by other means than typing, composing or pasting, to the entry last written for the field since it took the focus or, where none was, to what it held at focus (text dragged onto itself, for example) is not written. A departure (core CP-18; [docent#853](https://github.com/Arsarneq/docent/issues/853)).
+- A `type` on an input or textarea is not written when a button or input marked `type="submit"` in the same form was pressed, with any mouse button, within 100 ms of the change, or of the field losing the focus where the browser sends no change (a `<button>` with no `type` attribute does not trigger the skip). A departure (core CP-18; [docent#223](https://github.com/Arsarneq/docent/issues/223)), and one from the desktop, which writes the `type` ahead of the click (core CP-19; [docent#710](https://github.com/Arsarneq/docent/issues/710)).
+- The first activation of a tab opened in the background, when no tab was created after it, is not written. A departure (core CP-18; [docent#851](https://github.com/Arsarneq/docent/issues/851)).
+- The activation of a tab with no address is not written. A departure (core CP-18; [docent#851](https://github.com/Arsarneq/docent/issues/851)).
+- The activation of a `chrome://` or `chrome-extension://` tab is not written: these schemes are outside the surface. An `about:` tab's activation is written.
+- A Tab-focus of a password field is not written. A departure (core CP-11; [docent#849](https://github.com/Arsarneq/docent/issues/849)).
+- A Tab focus move onto an element other than an input, a textarea or a contenteditable host (a button, a link or a select, for example) writes no `focus`; the Tab `key` is written against the element it left. A departure (core CP-18), and one from the desktop, which writes the `focus` (core CP-19; [docent#710](https://github.com/Arsarneq/docent/issues/710)).
+- A scroll follows [core CP-16](../../../architecture/system/capture-principles.md#capture-surface). The quantity here is the change in the scrolled container's offset in the document's layout pixels, and the floor is 200 (`SCROLL_MIN_DISTANCE_PX` in `lib/capture-timing.js`). The change is measured from the first scroll event to the last, so the first event's own movement is left out. A departure (core CP-18; [docent#251](https://github.com/Arsarneq/docent/issues/251)). A scroll that moves across containers gives the difference of two containers' offsets. A departure (core CP-18; [docent#863](https://github.com/Arsarneq/docent/issues/863)).
+- Actions performed during a [storage-pressure pause](#storage-pressure) are not captured.
+- A middle-button click is not recorded, though the browser reports it to the page; a tab it opens arrives as a `context_open` with no action behind it. The desktop records the click. A departure (core CP-19; [docent#707](https://github.com/Arsarneq/docent/issues/707)).
+- A press of a mouse's back or forward button writes no action of its own, as on the desktop (DCP-13); the back or forward it causes is written as a `navigate` (ECP-7).
+- A pointer drag that is not HTML5 drag-and-drop (a slider, a splitter, a text selection) is recorded as the click its release produces, not as a `drag_start`/`drop` pair, which the desktop records. A departure (core CP-19; [docent#707](https://github.com/Arsarneq/docent/issues/707)).
+- Moving between two browser windows records no `context_switch`, though the browser reports the switch; the desktop records one between its windows. A departure (core CP-19; [docent#707](https://github.com/Arsarneq/docent/issues/707)).
+- Closing a whole browser window records no `context_close`, though the browser reports each tab's removal; the desktop records one for a window the person closes. A departure (core CP-19; [docent#707](https://github.com/Arsarneq/docent/issues/707)).
+- A file chosen without a trusted click on the input within the 10 s before the change (a click the page scripted on the input, or a choice made later) records no `file_upload`. A departure (core CP-18; [docent#853](https://github.com/Arsarneq/docent/issues/853)). The click the browser derives from Enter or Space on the input counts as that trusted click, so a chooser opened from the keyboard records its `file_upload`.
+- Input in a page between its navigation and the completion of its load is not captured: the recorder is injected as the frame finishes loading (ECP-2). The desktop records input in a window that is still starting. A departure (core CP-19; [docent#710](https://github.com/Arsarneq/docent/issues/710)).
+- Input in a page or frame the browser does not let the extension inject (the browser decides which: the Chrome Web Store, a PDF in the built-in viewer, a `file://` page while file access is off and a host an enterprise policy blocks, for example) is not captured; a browser-chrome navigation into it still is.
+- A link followed in a page the extension cannot inject writes neither the click nor the `navigate`: the click reaches no recorder, and the navigation is taken for an in-page effect. A departure (core CP-18; [docent#850](https://github.com/Arsarneq/docent/issues/850)).
+- A value committed in an input, textarea or select inside a shadow root writes no `type` or `select`: `change` does not cross the shadow boundary. The desktop records a field's `type` wherever the field sits. A departure (core CP-19; [docent#710](https://github.com/Arsarneq/docent/issues/710)).
+- Typing in a frame whose page is busy for more than 500 ms is written out of place or lost. At a pointer press in another frame, its `type` is stored after that press's `click`. At a step commit and at a stop, it is no part of the step committed or the recording stopped: it goes into the next step where capture is on again when the page answers (after the panel's commit, or a pause and a resume), and is lost where capture is still off. The desktop writes the `type` in place in each of these cases. A departure (core CP-18, CP-19; [docent#710](https://github.com/Arsarneq/docent/issues/710)).
+- Typing not yet written when capture is turned off by another route than a stop (a project created or opened, a recording opened, the active project or recording deleted) is written late or not at all: the entry of a `contenteditable` host is not written, and the entry of a field is written into the next capture if the field is still being typed into when its typing ends there. A departure (core CP-18; [docent#848](https://github.com/Arsarneq/docent/issues/848)).
+- After the browser suspends the extension's worker, where another frame of the tab loads or has its recorder injected before any action comes from the tab, actions in the tab's other frames are dropped until the frame acted in loads again, has its recorder injected again, or the next record-start (ECP-3). A departure (core CP-18; [docent#854](https://github.com/Arsarneq/docent/issues/854)).
+- Editing in a contenteditable host whose attribute is neither `""` nor lower-case `true` (`plaintext-only` or `TRUE`, for example), or in a host inside a shadow root, writes no `type`: it is not taken for a contenteditable host. A departure (core CP-18; [docent#853](https://github.com/Arsarneq/docent/issues/853)).
+- Editing in a contenteditable host whose text exceeds 500 characters is captured with a caveat: the `type` value is cut at 500 characters with no mark of the cut. A departure (core CP-18; [docent#238](https://github.com/Arsarneq/docent/issues/238)).
