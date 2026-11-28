@@ -1562,14 +1562,61 @@ mod tests {
     }
 
     #[test]
-    fn regression_825_a_left_ctrl_pressed_within_altgr_is_ctrl_until_it_goes_up() {
+    fn regression_825_a_left_ctrl_released_within_altgr_ends_altgr_with_it() {
         // Case s: AltGr, Ctrl, then the Ctrl up while AltGr is held. Windows'
-        // state lets go of the left Ctrl with the person's.
+        // state lets go of the left Ctrl with the person's, and the program
+        // then gets the right Alt alone: Alt, no AltGr (the key that follows
+        // is named `e`, not `€`, as measured).
         let mut keyboard = Keyboard::on(true);
         keyboard.right_alt_down().ctrl_down();
         assert_eq!(keyboard.held(), held(true, false, true));
         keyboard.ctrl_up();
-        assert_eq!(keyboard.held(), held(false, false, true));
+        assert_eq!(keyboard.held(), held(false, true, false));
+        // The same with the Ctrl held before AltGr.
+        let mut keyboard = Keyboard::on(true);
+        keyboard.ctrl_down().right_alt_down();
+        assert_eq!(keyboard.held(), held(true, false, true));
+        keyboard.ctrl_up();
+        assert_eq!(keyboard.held(), held(false, true, false));
+    }
+
+    #[test]
+    fn regression_825_altgr_released_with_a_ctrl_still_held_is_the_keyboard_s_state() {
+        // AltGr, Ctrl, AltGr up, the Ctrl still held: whatever Windows' state
+        // then holds is written, no AltGr. By this model Windows' own Ctrl
+        // goes up with the right Alt and takes the left Ctrl's state with it
+        // (not measured; the real-input test reads the state itself).
+        let mut keyboard = Keyboard::on(true);
+        keyboard.right_alt_down().ctrl_down().right_alt_up();
+        let state = keyboard.state.contains(&VK_LCONTROL);
+        assert_eq!(keyboard.held(), held(state, false, false));
+        assert_eq!(keyboard.held(), held(false, false, false));
+    }
+
+    #[test]
+    fn regression_825_altgr_held_across_a_layout_change_is_what_windows_holds() {
+        // AltGr pressed on the Danish layout, Windows' own Ctrl in front of
+        // it, then the layout becomes US with the right Alt still held:
+        // Windows still holds its own Ctrl, so AltGr.
+        let mut keyboard = Keyboard::on(true);
+        keyboard.right_alt_down();
+        assert_eq!(keyboard.read().held(Some(false)), held(false, false, true));
+        // The right Alt pressed on the US layout, then the layout becomes
+        // Danish: no left Ctrl is down, so Alt.
+        let mut keyboard = Keyboard::on(false);
+        keyboard.right_alt_down();
+        assert_eq!(keyboard.read().held(Some(true)), held(false, true, false));
+    }
+
+    #[test]
+    fn regression_825_altgr_held_when_the_record_starts_on_a_layout_not_read_is_ctrl_and_alt() {
+        // AltGr alone held as the record starts, the layout's file not read:
+        // nothing says AltGr until Windows' own Ctrl is seen, and the
+        // keyboard's state is written.
+        let down = [VK_LCONTROL, VK_RMENU];
+        let record = CtrlAltKeys::seeded(|vk| down.contains(&vk));
+        let read = record.read(|vk| down.contains(&vk), 7);
+        assert_eq!(read.held(None), held(true, true, false));
     }
 
     #[test]
@@ -1626,11 +1673,6 @@ mod tests {
         keyboard.ctrl_down();
         keyboard.state.remove(&VK_LCONTROL);
         keyboard.right_alt_down();
-        assert_eq!(keyboard.held(), held(false, false, true));
-        // And where the record's Ctrl is stale while AltGr is down.
-        let mut keyboard = Keyboard::on(true);
-        keyboard.right_alt_down().ctrl_down();
-        keyboard.state.remove(&VK_LCONTROL);
         assert_eq!(keyboard.held(), held(false, false, true));
     }
 

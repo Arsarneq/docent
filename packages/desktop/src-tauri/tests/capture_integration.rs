@@ -4144,11 +4144,24 @@ mod alt_graph {
         E,
         /// A left click at the middle of the test window.
         Click,
+        /// The keyboard's state of the left Ctrl read and kept: with AltGr
+        /// held on a layout with AltGr, Windows holds its own left Ctrl down.
+        ReadLeftCtrl,
+    }
+
+    /// Whether the keyboard's state holds the left Ctrl down now.
+    fn left_ctrl_down() -> bool {
+        use docent_desktop_lib::capture::win32_bindings::GetAsyncKeyState;
+        /// The virtual-key code of the left Ctrl.
+        const VK_LCONTROL: i32 = 0xA2;
+        // SAFETY: a read of the keyboard's state for a key code.
+        unsafe { GetAsyncKeyState(VK_LCONTROL) < 0 }
     }
 
     /// Sends `steps` in order, a pause after each, and every key still down
-    /// at the end released.
-    fn send(enigo: &mut Enigo, window: &ResponsiveWindow, steps: &[Step]) {
+    /// at the end released. Returns what each [`Step::ReadLeftCtrl`] read.
+    fn send(enigo: &mut Enigo, window: &ResponsiveWindow, steps: &[Step]) -> Vec<bool> {
+        let mut reads = Vec::new();
         let (cx, cy) = window.center();
         enigo.move_mouse(cx, cy, Coordinate::Abs).unwrap();
         thread::sleep(Duration::from_millis(50));
@@ -4167,6 +4180,7 @@ mod alt_graph {
                     .key(enigo::Key::Other(VK_E), Direction::Click)
                     .unwrap(),
                 Step::Click => enigo.button(enigo::Button::Left, Direction::Click).unwrap(),
+                Step::ReadLeftCtrl => reads.push(left_ctrl_down()),
             }
             thread::sleep(Duration::from_millis(60));
         }
@@ -4175,11 +4189,14 @@ mod alt_graph {
             thread::sleep(Duration::from_millis(30));
         }
         thread::sleep(Duration::from_millis(150));
+        reads
     }
 
     /// Sends `steps` on layout `id` and asserts that each press of the E key
     /// was captured, in order, with its own `modifiers` of `want_keys`, and
-    /// each click with its own of `want_clicks`.
+    /// each click with its own of `want_clicks`. Every [`Step::ReadLeftCtrl`]
+    /// must find the left Ctrl down: each stands where AltGr is held on a
+    /// layout with AltGr, and Windows holds its own Ctrl with it.
     fn assert_each_press(
         id: &str,
         language: usize,
@@ -4189,9 +4206,14 @@ mod alt_graph {
         want_clicks: &[serde_json::Value],
     ) {
         let steps = steps.to_vec();
-        let events = capture_with_layout(id, language, title, move |enigo, window| {
-            send(enigo, window, &steps)
+        let mut reads = Vec::new();
+        let events = capture_with_layout(id, language, title, |enigo, window| {
+            reads = send(enigo, window, &steps)
         });
+        assert!(
+            reads.iter().all(|down| *down),
+            "Windows holds no left Ctrl of its own with the injected AltGr on layout {id}: {reads:?}"
+        );
         assert_eq!(
             e_presses(&events),
             want_keys,
@@ -4205,7 +4227,7 @@ mod alt_graph {
     }
 
     use enigo::Key::{LControl, LMenu, RMenu};
-    use Step::{Click, Down, Up, E};
+    use Step::{Click, Down, ReadLeftCtrl, Up, E};
 
     /// The Danish layout, which has AltGr.
     const DANISH: (&str, usize) = ("00000406", 0x0406);
@@ -4229,6 +4251,7 @@ mod alt_graph {
             "AltGr Keys",
             &[
                 Down(RMenu),
+                ReadLeftCtrl,
                 E,
                 Up(RMenu),
                 Down(LControl),
@@ -4274,7 +4297,9 @@ mod alt_graph {
     }
 
     // Regression: #825 — AltGr, a left Ctrl, E, the Ctrl released, E (case
-    // s): the Ctrl with AltGr at the first E, AltGr alone at the second.
+    // s): the Ctrl with AltGr at the first E; at the second Windows has let
+    // go of the left Ctrl with the person's, and the program gets the right
+    // Alt alone (the key is named `e`, not `€`): Alt, no AltGr.
     // https://github.com/Arsarneq/docent/issues/825
     #[test]
     #[serial]
@@ -4284,7 +4309,7 @@ mod alt_graph {
             DANISH.1,
             "AltGr Ctrl Up",
             &[Down(RMenu), Down(LControl), E, Up(LControl), E, Up(RMenu)],
-            &[expected(true, false, true), expected(false, false, true)],
+            &[expected(true, false, true), expected(false, true, false)],
             &[],
         );
     }
@@ -4302,6 +4327,7 @@ mod alt_graph {
             "AltGr Click",
             &[
                 Down(RMenu),
+                ReadLeftCtrl,
                 Click,
                 Up(RMenu),
                 Down(LControl),
@@ -4338,5 +4364,35 @@ mod alt_graph {
             &[expected(false, true, false), expected(true, true, false)],
             &[],
         );
+    }
+
+    // Regression: #825 — AltGr, a left Ctrl, AltGr released with the Ctrl
+    // still held, E: no AltGr, and `ctrl` is what Windows' state holds of the
+    // left Ctrl then, read here at that moment. Whether Windows' own Ctrl
+    // going up with the right Alt takes the held Ctrl's state with it is not
+    // measured; the test prints what it found.
+    // https://github.com/Arsarneq/docent/issues/825
+    #[test]
+    #[serial]
+    fn regression_825_altgr_released_with_a_ctrl_still_held_is_the_keyboard_s_state() {
+        let mut reads = Vec::new();
+        let events =
+            capture_with_layout(DANISH.0, DANISH.1, "AltGr Up Ctrl Held", |enigo, window| {
+                reads = send(
+                    enigo,
+                    window,
+                    &[
+                        Down(RMenu),
+                        Down(LControl),
+                        Up(RMenu),
+                        ReadLeftCtrl,
+                        E,
+                        Up(LControl),
+                    ],
+                )
+            });
+        let held = reads[0];
+        println!("left Ctrl held after AltGr's release, by Windows' state: {held}");
+        assert_eq!(e_presses(&events), vec![expected(held, false, false)]);
     }
 }
