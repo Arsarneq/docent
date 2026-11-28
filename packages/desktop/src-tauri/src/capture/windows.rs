@@ -633,6 +633,9 @@ pub struct WindowsCapture {
     barrier_counter: AtomicU64,
     /// The capture's timings, set at start and written as a block at stop.
     timings: Timings,
+    /// Where the timings' block goes in place of stderr, with the timings on
+    /// whatever the switch says. For tests.
+    timings_sink: Option<Sender<String>>,
 }
 
 impl WindowsCapture {
@@ -650,7 +653,17 @@ impl WindowsCapture {
             action_sender: None,
             barrier_counter: AtomicU64::new(0),
             timings: Timings::off(),
+            timings_sink: None,
         }
+    }
+}
+
+impl WindowsCapture {
+    /// Turns the capture timings on for the captures this layer starts, and
+    /// sends their blocks to `sink` in place of stderr. For tests.
+    #[doc(hidden)]
+    pub fn send_timings_to(&mut self, sink: Sender<String>) {
+        self.timings_sink = Some(sink);
     }
 }
 
@@ -897,7 +910,10 @@ impl CaptureLayer for WindowsCapture {
 
         self.active.store(true, Ordering::SeqCst);
         hook_diagnostics::reset();
-        self.timings = Timings::from_environment();
+        self.timings = match &self.timings_sink {
+            Some(sink) => Timings::sending_to(true, sink.clone()),
+            None => Timings::from_environment(),
+        };
         let excluded_pid = self.excluded_pid.clone();
 
         // Each worker signals here once it has finished its (possibly cold)
@@ -1166,7 +1182,9 @@ impl CaptureLayer for WindowsCapture {
         if let Some(line) = hook_diagnostics::snapshot().report() {
             eprintln!("{line}");
         }
-        // The capture timings, with every worker stopped.
+        // The capture timings, once the pool has shut down. A worker still
+        // busy after its join timed out is not waited for: what it measures
+        // from here on is in no block.
         self.timings.write_block();
         self.timings = Timings::off();
 

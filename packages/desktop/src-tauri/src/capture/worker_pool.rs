@@ -3640,15 +3640,10 @@ fn process_raw_event<B: AccessibilityBackend>(
         return;
     }
 
-    // Each keystroke and value change is measured while the timings are on;
-    // a value change is kept only where its value is taken unmasked.
+    // Each keystroke and value change is measured while the timings are on.
     state.timing = match raw.event_type {
         RawEventType::Keyboard => state.timings.start(Subject::Key),
-        RawEventType::ValueChange => {
-            let mut timing = state.timings.start(Subject::ValueChange);
-            timing.keep_only_with_a_value();
-            timing
-        }
+        RawEventType::ValueChange => state.timings.start(Subject::ValueChange),
         _ => Timing::default(),
     };
     state.timing.queued(raw.timestamp, current_timestamp_ms);
@@ -4216,10 +4211,14 @@ fn handle_value_change<B: AccessibilityBackend>(
             .get(&key_control)
             .and_then(|known| known.element.clone())
         else {
+            // Not described: left out of the timings, as its key was.
+            state.timing.leave_out();
             return false;
         };
         let is_password = element.element_type.as_deref() == Some("password");
         let value = if is_password {
+            // In a password field: left out of the timings, as its keys are.
+            state.timing.leave_out();
             PASSWORD_MASK.to_string()
         } else {
             let started = state.timing.mark();
@@ -4231,7 +4230,6 @@ fn handle_value_change<B: AccessibilityBackend>(
                     return false;
                 }
                 Some(value) => {
-                    state.timing.value_taken();
                     element.text = Some(value.clone());
                     value
                 }
@@ -4262,6 +4260,8 @@ fn handle_value_change<B: AccessibilityBackend>(
     // element, or the person had moved the focus): the value change has no
     // element to be the `type` of.
     if last_key.is_some_and(|k| k.mark.is_none()) {
+        // Not described: left out of the timings, as its key was.
+        state.timing.leave_out();
         keep_keys_of_dropped_value_change(pending, action_sender);
         return false;
     }
@@ -4272,7 +4272,7 @@ fn handle_value_change<B: AccessibilityBackend>(
         Some(k) if k.mark == Some(state.mark_seq) => {
             let started = state.timing.mark();
             let same = backend.focused_is_marked();
-            state.timing.took(Step::Confirm, started);
+            state.timing.took(Step::Describe, started);
             same
         }
         _ => None,
@@ -4292,6 +4292,8 @@ fn handle_value_change<B: AccessibilityBackend>(
     }) = described
     else {
         // The marked element changed or went; the last key no longer holds it.
+        // Not described: left out of the timings.
+        state.timing.leave_out();
         if let Some(k) = state.last_key.as_mut() {
             k.mark = None;
         }
@@ -4337,6 +4339,8 @@ fn handle_value_change<B: AccessibilityBackend>(
     }
     let is_password = element.element_type.as_deref() == Some("password");
     let value = if is_password {
+        // In a password field: left out of the timings, as its keys are.
+        state.timing.leave_out();
         PASSWORD_MASK.to_string()
     } else {
         // The value, never the text: the text of a field that holds nothing
@@ -4354,10 +4358,7 @@ fn handle_value_change<B: AccessibilityBackend>(
                 keep_keys_after_late_read(pending);
                 return false;
             }
-            Some(value) => {
-                state.timing.value_taken();
-                value
-            }
+            Some(value) => value,
             None => {
                 // The element has no value: no `type`.
                 keep_keys_of_dropped_value_change(pending, action_sender);
@@ -4827,7 +4828,7 @@ fn handle_keyboard<B: AccessibilityBackend>(
             && backend.focus_epoch() == raw.focus_epoch
             && backend.is_foreground_window(raw.window_handle);
         let confirmed = present_speaks.then(|| backend.focused_is_marked());
-        timing.took(Step::Confirm, started);
+        timing.took(Step::Describe, started);
         if confirmed == Some(Some(false)) {
             disproved = true;
             None
@@ -4941,10 +4942,7 @@ fn handle_keyboard<B: AccessibilityBackend>(
     let value_at_dead_key = if !dead {
         None
     } else if control != 0 {
-        let started = state.timing.mark();
-        let value = backend.control_value(control);
-        state.timing.took(Step::DeadKeyValue, started);
-        value
+        backend.control_value(control)
     } else if described_now {
         element.value.clone()
     } else {

@@ -1,17 +1,16 @@
 // Capture timings: how long the steps of the typing worker took, kept while
 // a capture runs with the capture timings switch on and written to stderr as
-// one block when the capture stops (docs/test/desktop-rust.md, Capture
-// timings). Off by default.
+// one block when the capture stops (docs/test/e2e/desktop.md, Running the
+// suite). Off by default.
 //
-// For each subject and each of its steps the block gives the largest and the
-// second largest duration seen, and for the looks ahead of any key how many
-// described a control and how many were skipped, by reason. It holds fixed
-// words and numbers only: what is kept is numbers and the enums below, so no
-// key, character, value, title or element can reach it. Its lines are the
-// same whatever was typed (a slot never filled holds [`UNSEEN`]). A masked
-// key, a Shift, Ctrl or Alt press, and a value change whose value is not taken
-// unmasked are not kept, so the block gives no count, order or rhythm of what
-// was typed.
+// For each subject and each of its steps the block gives the largest duration
+// measured, or [`UNSEEN`] where none was, and for the looks ahead of any key
+// how many ended each way. It holds fixed words and numbers only: what is kept
+// is numbers and the enums below, so no key, character, value, title or
+// element can reach it. Its lines are the same whatever was typed, and a step
+// shows only whether it was measured at all, never how many times or in what
+// order. A key or value change in a password field or in a field that could
+// not be described, and a press of Shift, Ctrl or Alt, are not measured.
 
 use std::collections::HashMap;
 use std::sync::{mpsc, Arc, Mutex};
@@ -48,15 +47,12 @@ pub enum Step {
     Window,
     /// The key settled on the control it was pressed in.
     Settle,
-    /// The check that the element remembered or marked is still the focused
-    /// one.
-    Confirm,
-    /// The description of the focused element, or the stand-in for none.
+    /// The focused element: the check that the element remembered or marked
+    /// is still the focused one, or its description, or the stand-in for
+    /// none.
     Describe,
     /// The key named by its layout.
     Name,
-    /// The field's value read at a dead key.
-    DeadKeyValue,
     /// The modifiers read.
     Modifiers,
     /// The held keys named.
@@ -90,10 +86,8 @@ const fn steps_of(subject: Subject) -> &'static [Step] {
             Step::Queue,
             Step::Window,
             Step::Settle,
-            Step::Confirm,
             Step::Describe,
             Step::Name,
-            Step::DeadKeyValue,
             Step::Modifiers,
             Step::Held,
             Step::Languages,
@@ -104,7 +98,6 @@ const fn steps_of(subject: Subject) -> &'static [Step] {
             Step::Queue,
             Step::Window,
             Step::Value,
-            Step::Confirm,
             Step::Describe,
             Step::Buffers,
             Step::Total,
@@ -165,10 +158,8 @@ const fn step_word(step: Step) -> &'static str {
         Step::Queue => "queue",
         Step::Window => "window",
         Step::Settle => "settle",
-        Step::Confirm => "confirm",
         Step::Describe => "describe",
         Step::Name => "name",
-        Step::DeadKeyValue => "dead-key-value",
         Step::Modifiers => "modifiers",
         Step::Held => "held",
         Step::Languages => "languages",
@@ -197,45 +188,31 @@ const fn look_words(look: Look) -> &'static str {
     }
 }
 
-/// What a capture has kept: the two largest durations of each subject's
-/// steps, and how many looks ahead ended each way.
+/// What a capture has kept: the largest duration of each subject's steps,
+/// and how many looks ahead ended each way.
 #[derive(Debug, Default)]
 struct Kept {
-    largest: HashMap<(Subject, Step), [Option<Duration>; 2]>,
+    largest: HashMap<(Subject, Step), Duration>,
     looks: [u64; LOOKS.len()],
 }
 
 impl Kept {
     fn note(&mut self, subject: Subject, step: Step, took: Duration) {
-        let slot = self.largest.entry((subject, step)).or_default();
-        match *slot {
-            [Some(first), _] if took <= first => {
-                if slot[1].is_none_or(|second| took > second) {
-                    slot[1] = Some(took);
-                }
-            }
-            [first, _] => *slot = [Some(took), first],
-        }
+        let largest = self.largest.entry((subject, step)).or_default();
+        *largest = (*largest).max(took);
     }
 
-    /// The block: a line per subject and step with its two largest
-    /// durations in ms to a tenth, then a line per way a look ended with its
-    /// count.
+    /// The block: a line per subject and step with its largest duration in
+    /// ms to a tenth, then a line per way a look ended with its count.
     fn block(&self) -> String {
         let mut lines = Vec::new();
         for subject in SUBJECTS {
             for &step in steps_of(subject) {
-                let [first, second] = self
-                    .largest
-                    .get(&(subject, step))
-                    .copied()
-                    .unwrap_or_default();
                 lines.push(format!(
-                    "capture-timings {} {} {} {}",
+                    "capture-timings {} {} {}",
                     subject_word(subject),
                     step_word(step),
-                    ms_or_unseen(first),
-                    ms_or_unseen(second)
+                    ms_or_unseen(self.largest.get(&(subject, step)).copied())
                 ));
             }
         }
@@ -298,6 +275,11 @@ impl Timings {
         }
     }
 
+    /// Whether the timings are on.
+    pub fn is_on(&self) -> bool {
+        self.kept.is_some()
+    }
+
     /// Starts measuring the handling of an event of `subject`; nothing is
     /// measured while the timings are off.
     pub fn start(&self, subject: Subject) -> Timing {
@@ -307,7 +289,6 @@ impl Timings {
             begun: Instant::now(),
             steps: Vec::new(),
             look: None,
-            wanted: true,
         }))
     }
 
@@ -343,8 +324,6 @@ struct Measuring {
     begun: Instant,
     steps: Vec<(Step, Duration)>,
     look: Option<Look>,
-    /// Whether [`Timing::keep`] keeps it.
-    wanted: bool,
 }
 
 impl Timing {
@@ -379,31 +358,17 @@ impl Timing {
         }
     }
 
-    /// Leaves the event out of the timings: one the recording masks or does
-    /// not write.
+    /// Leaves the event out of the timings: one in a password field or in a
+    /// field that could not be described, or a press the recording does not
+    /// write.
     pub fn leave_out(&mut self) {
         self.0 = None;
-    }
-
-    /// Keeps the event only once [`Timing::value_taken`] says its value was
-    /// taken unmasked: a value change masked or passed over is left out.
-    pub fn keep_only_with_a_value(&mut self) {
-        if let Some(measuring) = self.0.as_mut() {
-            measuring.wanted = false;
-        }
-    }
-
-    /// The event's value was taken unmasked.
-    pub fn value_taken(&mut self) {
-        if let Some(measuring) = self.0.as_mut() {
-            measuring.wanted = true;
-        }
     }
 
     /// Keeps what was measured, with the whole handling as its total: a step
     /// taken more than once counts once, with the time of all its takes.
     pub fn keep(self) {
-        let Some(measuring) = self.0.filter(|m| m.wanted) else {
+        let Some(measuring) = self.0 else {
             return;
         };
         let mut steps: Vec<(Step, Duration)> = Vec::new();
