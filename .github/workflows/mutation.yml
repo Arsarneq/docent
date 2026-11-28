@@ -142,7 +142,8 @@ jobs:
   # one its slice of that list: k is the shard's zero-based place in the matrix
   # and n the matrix's size, both read from the `strategy` context, so the
   # number of entries in `shard` below is the shard count and nothing else
-  # needs to change with it. fail-fast is off so every shard reports its own
+  # needs to change with it — while `shard` is the matrix's only dimension,
+  # since both values count every combination. fail-fast is off so every shard reports its own
   # slice whatever another one does. Every bound and step below applies per
   # shard.
   cargo-mutants-desktop:
@@ -226,7 +227,8 @@ jobs:
       # of the window it refreshes rather than comfortably inside it. Accepted as
       # written — the cost of landing outside it is the cold start above.
       #
-      # Every shard restores and, on a miss, saves this same key. The entries
+      # Every shard restores this same key and, on a miss in a run on main —
+      # the save's own gate below — saves it. The entries
       # are immutable: the first shard's save creates the entry, and the cache
       # action refuses the later shards' saves of that key as a concurrency
       # race it reports without failing the step. The shards build one lockfile,
@@ -315,10 +317,14 @@ jobs:
         run: |
           {
             echo "## cargo-mutants (desktop capture logic modules), shard $SHARD_INDEX/$SHARD_COUNT"
-            for f in caught missed timeout unviable; do
-              n=$(wc -l < "mutants.out/$f.txt" 2>/dev/null || echo 0)
-              echo "- $f: $n"
-            done
+            if [ -d mutants.out ]; then
+              for f in caught missed timeout unviable; do
+                n=$(wc -l < "mutants.out/$f.txt" 2>/dev/null || echo 0)
+                echo "- $f: $n"
+              done
+            else
+              echo "- no output: this shard ended before cargo-mutants wrote any"
+            fi
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload cargo-mutants output
