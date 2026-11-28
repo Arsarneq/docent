@@ -492,7 +492,7 @@ The desktop names a key from what Windows gives it:
 
 `modifiers` states the modifier keys held at the action, each `true` when its key was held: `ctrl`, `shift`, `alt`, `meta` and `alt_graph`. It is the same object on every action that carries it, and this rule holds on each of them.
 
-`alt_graph` is `true` when the AltGr key was held. `ctrl` and `alt` state only a Ctrl key and an Alt key the person held: Windows hands programs AltGr as a Ctrl and an Alt of its own, and those are not written as `ctrl` and `alt`. So:
+`alt_graph` is `true` when the AltGr key was held and the system held it as AltGr. `ctrl` and `alt` state a Ctrl and an Alt held, as the system holds them, save the Ctrl and the Alt that Windows hands programs for AltGr itself: those are not written as `ctrl` and `alt`. So:
 
 | The person holds                             | `ctrl`  | `alt`   | `alt_graph` |
 | -------------------------------------------- | ------- | ------- | ----------- |
@@ -504,7 +504,9 @@ The desktop names a key from what Windows gives it:
 
 Ctrl and Alt held without AltGr are written as Ctrl and Alt, also where the layout then enters the character AltGr would: Ctrl and Alt with E give `€` on the Danish layout, as AltGr with E does.
 
-Both platforms write the same for the same input, save where the browser gives the extension less with AltGr held; the extension capture document states what it then writes, as a departure (ECP-12, [#862](https://github.com/Arsarneq/docent/issues/862)). The desktop capture document states two cases where a left Ctrl held with AltGr is not written as held (DCP-13).
+On Windows the right Alt key is AltGr only while the Ctrl that Windows holds for it is down. Where that Ctrl has gone up with the key still held (a left Ctrl pressed and let go within AltGr takes it along), the program is given the key as an Alt, and so it is written: `alt` `true`, `alt_graph` `false`. Where AltGr is let go with a Ctrl still held, `ctrl` is written as Windows then holds it.
+
+Both platforms write the same for the same input, save where the browser gives the extension less with AltGr held; the extension capture document states what it then writes, as a departure (ECP-12, [#862](https://github.com/Arsarneq/docent/issues/862)). The desktop capture document states the cases where the desktop cannot know AltGr, or a left Ctrl held with it (DCP-13).
 
 A recording made before `alt_graph` existed carries none, and its `ctrl` and `alt` are not by this rule: for AltGr the desktop wrote both `true`, the same as for Ctrl and Alt held together, and the extension wrote what that departure states.
 
