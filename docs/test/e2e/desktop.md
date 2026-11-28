@@ -50,4 +50,13 @@ npm run test:e2e:desktop
 
 `DOCENT_DESKTOP_EXE` points the fixture at another build of the app.
 
-`DOCENT_CAPTURE_TIMINGS=1` in the app's environment turns on the capture timings. Each time a capture stops, the app writes one block to stderr: for each step of the typing worker, the largest and second largest duration in ms, and for the looks at the focused control ahead of any key, how many described it and how many were skipped, by reason. An app ended while it records writes none. A key written masked, a press of Shift, Ctrl or Alt, and a value change whose value is not written are not measured. A release build has no console, so the block is seen only where the launcher redirects the app's stderr. The block holds fixed words and numbers only, the words of [`timing_lines.rs`](../../../packages/desktop/src-tauri/src/capture/timing_lines.rs), and no count or order of what was typed; the switch is off by default and changes no action. The worker-pool tests `with_the_timing_switch_on_one_block_is_written_when_the_capture_stops`, `the_timing_block_has_one_shape_whatever_was_typed_into_a_password_field`, `a_timing_block_holds_only_fixed_words_numbers_and_the_placeholder`, `with_the_timing_switch_off_nothing_is_written_and_the_actions_are_the_same` and `a_look_ahead_at_a_gone_control_counts_under_gone` hold this; `npm run test:desktop:rust` runs them.
+`DOCENT_CAPTURE_TIMINGS=1` in the app's environment turns on the capture timings, which say how long the typing worker took over its steps:
+
+- Each time a capture stops, the app writes one block to stderr. An app ended while it records writes none, and an event still being handled at the stop is not in the block.
+- Each line is a step and its largest duration in ms, or `-` where none was measured, and the counts of the looks at the focused control ahead of any key, by how they ended. The words are those of [`timing_lines.rs`](../../../packages/desktop/src-tauri/src/capture/timing_lines.rs).
+- A key or value change in a password field or in a field that could not be described is not measured, and nor is a press of Shift, Ctrl or Alt.
+- The block shows whether at least one key and at least one value change were measured at each step, never how many nor in what order.
+- A release build has no console, so the block is seen only where the app's stderr is redirected. This suite's fixture does not keep it yet.
+- The switch is off by default and changes no action.
+
+The tests that hold this are in the [worker-pool, lifecycle and timing-switch rows](../desktop-rust.md#suite-layout) of the Rust tests. They read the block from a channel in place of stderr: the write to stderr itself is checked by no test.
