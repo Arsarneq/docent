@@ -56,7 +56,7 @@ npm run test:e2e:desktop
 - Each line is a step and its largest duration in ms, or `-` where none was measured, and the counts of the looks at the focused control ahead of any key, by how they ended. The words are those of [`timing_lines.rs`](../../../packages/desktop/src-tauri/src/capture/timing_lines.rs).
 - Every key and value change the typing worker handles is measured, in any field; a press of Shift, Ctrl or Alt is not.
 - The block shows whether at least one key and at least one value change took each step, never how many nor in what order, and this holds for a masked field too.
-- A release build has no console, so the block is seen only where the app's stderr is redirected. This suite's fixture does not keep it yet.
+- A release build has no console, so the block is seen only where the app's stderr is redirected, as this suite's fixture does into `app.log`. The suite's job does not set the switch.
 - The switch is off by default and changes no action.
 
 The tests that hold this are in the [worker-pool, lifecycle and timing-switch rows](../desktop-rust.md#suite-layout) of the Rust tests. They read the block from a channel in place of stderr: the write to stderr itself is checked by no test.
