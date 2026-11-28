@@ -8,6 +8,10 @@
 //
 // CLI: node plan.mjs <steps.json>  -> prints the event list as JSON.
 
+// chars presses and lets go of these itself for each character, which would
+// let go of one the steps hold down: Shift, Ctrl (either), Alt, AltGr.
+const CHAR_MODIFIERS = [0x10, 0x11, 0x12, 0xa5, 0xa3];
+
 const VK = {
   ctrl: 0x11,
   control: 0x11,
@@ -49,6 +53,7 @@ const VK = {
   oem_102: 0xe2,
   rctrl: 0xa3,
   numlock: 0x90,
+  capslock: 0x14,
   numpad_enter: 0x0d,
   numpad_divide: 0x6f,
   numpad_multiply: 0x6a,
@@ -82,6 +87,10 @@ const EXTENDED = new Set([
   'numlock',
 ]);
 for (let i = 1; i <= 12; i++) VK[`f${i}`] = 0x6f + i;
+// Two names are the same key when they give the same virtual key and the
+// same extended mark: ctrl and control are one key, enter and numpad_enter
+// two.
+const sameKey = (a, b) => VK[a] === VK[b] && EXTENDED.has(a) === EXTENDED.has(b);
 for (let c = 0x41; c <= 0x5a; c++) VK[String.fromCharCode(c + 32)] = c;
 for (let d = 0; d <= 9; d++) {
   VK[String(d)] = 0x30 + d;
@@ -89,6 +98,10 @@ for (let d = 0; d <= 9; d++) {
 }
 
 const hex = (n) => `0x${n.toString(16)}`;
+const vkEvent = (p, up, scan) =>
+  scan
+    ? { type: 'vk', vk: hex(VK[p]), up, scan: true, ext: EXTENDED.has(p) }
+    : { type: 'vk', vk: hex(VK[p]), up };
 
 // The fields each op takes besides its own. A step holds exactly one op.
 const FIELDS = {
@@ -97,6 +110,8 @@ const FIELDS = {
   click: ['button', 'count'],
   move: [],
   key: ['repeat', 'scan'],
+  down: ['scan'],
+  up: ['scan'],
   chars: ['scan'],
   text: [],
 };
@@ -133,6 +148,9 @@ export function plan(steps) {
   if (!Array.isArray(steps)) throw new Error('steps must be a JSON array');
   const events = [];
   let guard = null;
+  // Keys a down step pressed and no up step has let go yet, oldest first,
+  // with whether each went down by scan code.
+  const held = [];
   steps.forEach((step, i) => {
     const at = `step ${i}`;
     const needGuard = () => {
@@ -217,16 +235,32 @@ export function plan(steps) {
     if (step.scan && 'text' in step)
       throw new Error(`${at}: text is Unicode injection and has no scan code`);
     const scan = step.scan === true;
+    const ev = (p, up) => vkEvent(p, up, scan);
+    if ('down' in step || 'up' in step) {
+      const down = 'down' in step;
+      const p = String(step[down ? 'down' : 'up']).toLowerCase();
+      if (p.includes('+')) throw new Error(`${at}: ${down ? 'down' : 'up'} takes one key`);
+      if (!(p in VK)) throw new Error(`${at}: unknown key '${p}'`);
+      const i = held.findIndex((h) => sameKey(h.key, p));
+      if (down && i >= 0) throw new Error(`${at}: ${p} is already down`);
+      if (!down && i < 0) throw new Error(`${at}: ${p} is not down`);
+      if (!down && held[i].scan !== scan)
+        throw new Error(
+          `${at}: ${p} went down ${held[i].scan ? 'with' : 'without'} scan, so it goes up ${held[i].scan ? 'with' : 'without'} scan`,
+        );
+      needGuard();
+      events.push(ev(p, !down));
+      if (down) held.push({ key: p, scan });
+      else held.splice(i, 1);
+      return;
+    }
     if ('key' in step) {
       const parts = String(step.key).toLowerCase().split('+');
       const keys = parts.map((p) => {
         if (!(p in VK)) throw new Error(`${at}: unknown key '${p}'`);
+        if (held.some((h) => sameKey(h.key, p))) throw new Error(`${at}: ${p} is held down`);
         return p;
       });
-      const ev = (p, up) =>
-        scan
-          ? { type: 'vk', vk: hex(VK[p]), up, scan: true, ext: EXTENDED.has(p) }
-          : { type: 'vk', vk: hex(VK[p]), up };
       const repeat = step.repeat ?? 1;
       if (!Number.isInteger(repeat) || repeat < 1 || repeat > 100)
         throw new Error(`${at}: repeat takes 1 to 100`);
@@ -241,6 +275,11 @@ export function plan(steps) {
       const kind = 'chars' in step ? 'char' : 'unicode';
       const s = String(step.chars ?? step.text);
       if (!s) throw new Error(`${at}: empty text`);
+      const mod = kind === 'char' && held.find((h) => CHAR_MODIFIERS.includes(VK[h.key]));
+      if (mod)
+        throw new Error(
+          `${at}: chars presses Shift, Ctrl, Alt and AltGr itself, so it cannot run while ${mod.key} is held`,
+        );
       needGuard();
       for (const ch of s)
         events.push(scan ? { type: kind, char: ch, scan: true } : { type: kind, char: ch });
@@ -248,6 +287,11 @@ export function plan(steps) {
     }
     throw new Error(`${at}: unknown op ${JSON.stringify(Object.keys(step))}`);
   });
+  // A key the steps leave down is let go at the end, newest first, with no
+  // guard before it: a release never types, and a guard that stopped it would
+  // leave the key down.
+  for (const h of [...held].reverse())
+    events.push({ ...vkEvent(h.key, true, h.scan), release: true });
   return events;
 }
 

@@ -25,6 +25,37 @@ function Write-Log($line) {
   Add-Content -Path $Log -Value "$stamp $line" -Encoding UTF8
 }
 
+# Keys the run holds down, and the toggle keys it presses, are put back on
+# every way out, so a key left down or Caps Lock left on never reaches what
+# the machine does next. A toggle key pressed an odd number of times is
+# pressed once more; the driver counts its own presses, since a console
+# process's view of the keyboard's toggle state may be out of date.
+$script:held = [System.Collections.ArrayList]::new()
+$script:toggled = @{}
+function Stop-Run([int]$code) {
+  for ($i = $script:held.Count - 1; $i -ge 0; $i--) {
+    $k = $script:held[$i]
+    # The log write stays out of the try, and may fail on its own, so a log
+    # that cannot be written never stops the keys after this one going up.
+    $said = "release vk 0x$($k.vk.ToString('x')) on the way out"
+    try {
+      if ($k.scan) { [DriverInput]::VkScan($k.vk, $true, $k.ext) } else { [DriverInput]::Vk($k.vk, $true) }
+    } catch { $said = "release vk 0x$($k.vk.ToString('x')) failed: $($_.Exception.Message)" }
+    try { Write-Log $said } catch { }
+  }
+  $script:held.Clear()
+  foreach ($vk in @($script:toggled.Keys)) {
+    if ($script:toggled[$vk] % 2 -eq 0) { continue }
+    $said = "toggle 0x$($vk.ToString('x')) pressed once more, back to where the run found it"
+    try {
+      [DriverInput]::Vk([uint16]$vk, $false); [DriverInput]::Vk([uint16]$vk, $true)
+    } catch { $said = "toggle 0x$($vk.ToString('x')) not put back: $($_.Exception.Message)" }
+    try { Write-Log $said } catch { }
+  }
+  $script:toggled = @{}
+  exit $code
+}
+
 Add-Type -TypeDefinition @"
 using System;
 using System.Runtime.InteropServices;
@@ -298,7 +329,7 @@ function Resolve-Target($e) {
     Write-Log "target ${what}: $($found.Count) match(es); stopped"
     Write-TargetContext $e $AE $tops
     Write-Host "input-driver: $what matched $($found.Count) element(s) in the guard's windows; a mouse step needs exactly one, or an index"
-    exit 5
+    Stop-Run 5
   }
   $r = $found[$pick]
   Write-Log "target $what via $via rect=[$([int]$r.X),$([int]$r.Y),$([int]$r.Width)x$([int]$r.Height)] matches=$($found.Count)"
@@ -312,7 +343,7 @@ function Assert-Under($e, $x, $y) {
     $root = [DriverInput]::RootAt($x, $y); $hit = [DriverInput]::At($x, $y)
     Write-Log "guard MISMATCH at ($x,$y) wanted process=$($e.process) title=$($e.title) got process=$($w.process) title=$($w.title) root=$root class=$([Win32Find]::ClassOf($root)) hit=$hit class=$([Win32Find]::ClassOf($hit))"
     Write-Host "input-driver: the window under ($x,$y) is $($w.process) '$($w.title)', not the one the steps named; stopped"
-    exit 3
+    Stop-Run 3
   }
   return $w
 }
@@ -393,14 +424,21 @@ function Move-Pointer($e) {
   if ([Math]::Abs($c[0] - $x) -gt 2 -or [Math]::Abs($c[1] - $y) -gt 2) {
     Write-Log "pointer sent to ($x,$y) is at ($($c[0]),$($c[1])); stopped"
     Write-Host "input-driver: Windows took the pointer move to ($x,$y) and did not make it (the pointer is at $($c[0]),$($c[1])); stopped"
-    exit 4
+    Stop-Run 4
   }
   Write-Log "move ($x,$y) over process=$($w.process) title=$($w.title)"
   return @($x, $y)
 }
 
 # Anything that throws (Windows refusing SendInput, say) stops the run as 4.
-trap { Write-Log "error: $($_.Exception.Message)"; Write-Host "input-driver: $($_.Exception.Message)"; exit 4 }
+# Its own writes may fail too (a log that cannot be written is one way in), and
+# an error inside a trap is not caught by it, so they never stand between the
+# error and the clean-up.
+trap {
+  try { Write-Log "error: $($_.Exception.Message)" } catch { }
+  try { Write-Host "input-driver: $($_.Exception.Message)" } catch { }
+  Stop-Run 4
+}
 
 # Plan first: a refused steps file sends nothing.
 $json = & node (Join-Path $here 'plan.mjs') $Steps
@@ -422,15 +460,22 @@ foreach ($e in $events) {
       if (-not (Test-Guard $e $fg)) {
         Write-Log "guard MISMATCH wanted process=$($e.process) title=$($e.title) got process=$($fg.process) title=$($fg.title)"
         Write-Host "input-driver: the foreground window is $($fg.process) '$($fg.title)', not the one the steps named; stopped"
-        exit 3
+        Stop-Run 3
       }
       break
     }
     'sleep' { Write-Log "sleep $($e.ms)"; Start-Sleep -Milliseconds $e.ms; break }
     'vk' {
-      if ($e.scan) { [DriverInput]::VkScan([uint16][Convert]::ToInt32($e.vk, 16), [bool]$e.up, [bool]$e.ext) }
-      else { [DriverInput]::Vk([uint16][Convert]::ToInt32($e.vk, 16), [bool]$e.up) }
-      Write-Log "vk $($e.vk) $(if ($e.up) { 'up' } else { 'down' })$(if ($e.scan) { ' scan' + $(if ($e.ext) { ' ext' } else { '' }) } else { '' })"
+      $vk = [uint16][Convert]::ToInt32($e.vk, 16)
+      if ($e.scan) { [DriverInput]::VkScan($vk, [bool]$e.up, [bool]$e.ext) }
+      else { [DriverInput]::Vk($vk, [bool]$e.up) }
+      # Down before up, so a key is held from the moment it is sent.
+      if ($e.up) { foreach ($k in @($script:held | Where-Object { $_.vk -eq $vk })) { $script:held.Remove($k) } }
+      else {
+        [void]$script:held.Add([pscustomobject]@{ vk = $vk; scan = [bool]$e.scan; ext = [bool]$e.ext })
+        if ($vk -eq 0x14 -or $vk -eq 0x90) { $script:toggled[[int]$vk] = 1 + [int]$script:toggled[[int]$vk] }
+      }
+      Write-Log "vk $($e.vk) $(if ($e.up) { 'up' } else { 'down' })$(if ($e.scan) { ' scan' + $(if ($e.ext) { ' ext' } else { '' }) } else { '' })$(if ($e.release) { ' release' } else { '' })"
       Start-Sleep -Milliseconds $GapMs
       break
     }
@@ -439,7 +484,7 @@ foreach ($e in $events) {
       if ($s.Length -ne 1 -or -not [DriverInput]::Char($s[0], [bool]$e.scan)) {
         Write-Log "char U+$(([int][char]$s[0]).ToString('X4')) is not on the layout; stopped"
         Write-Host "input-driver: '$s' has no key on this layout; use a text step for it"
-        exit 4
+        Stop-Run 4
       }
       Write-Log "char U+$(([int][char]$s[0]).ToString('X4'))"
       Start-Sleep -Milliseconds $GapMs
@@ -467,8 +512,8 @@ foreach ($e in $events) {
       Write-Log "click $($e.button) x$($e.count) at ($($pt[0]),$($pt[1]))"
       break
     }
-    default { Write-Log "unknown event $($e.type)"; exit 4 }
+    default { Write-Log "unknown event $($e.type)"; Stop-Run 4 }
   }
 }
 Write-Log 'done'
-exit 0
+Stop-Run 0
