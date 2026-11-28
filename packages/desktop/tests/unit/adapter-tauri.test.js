@@ -830,19 +830,6 @@ describe('stopWithCompleteness()', () => {
     assert.equal(actions[0]._seq, undefined, '_seq should be stripped after commit');
   });
 
-  it('asks the stop to throw the capture timings away only when told the take is thrown away', async () => {
-    mockInvoke.mock.mockImplementation(async (cmd) => {
-      if (cmd === 'stop_capture') return { barrier_id: 0, wedged_workers: 0 };
-      return undefined;
-    });
-    await stopWithCompleteness();
-    await stopWithCompleteness({ discardTimings: true });
-    const stops = mockInvoke.mock.calls.filter((c) => c.arguments[0] === 'stop_capture');
-    assert.equal(stops.length, 2);
-    assert.equal(stops[0].arguments[1]?.discardTimings, undefined, 'a plain stop keeps them');
-    assert.deepEqual(stops[1].arguments[1], { discardTimings: true });
-  });
-
   it('collects immediately when stop reports no active capture (barrier_id 0)', async () => {
     mockInvoke.mock.mockImplementation(async (cmd) => {
       if (cmd === 'stop_capture') return { barrier_id: 0, wedged_workers: 0 };

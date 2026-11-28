@@ -694,10 +694,9 @@ mod tests {
         excluded_pid: Option<u32>,
         included_pid: Option<u32>,
         barrier_calls: u32,
-        /// Stops that threw the capture's timings away.
-        stops_discarding_timings: u32,
-        /// Throw-aways of the running capture's timings.
-        timings_discards: u32,
+        /// What the panel last told the layer about measuring the capture
+        /// timings.
+        timings_measuring: Option<bool>,
     }
 
     struct MockCapture {
@@ -733,6 +732,10 @@ mod tests {
             Ok(())
         }
 
+        fn set_timings_measuring(&mut self, measuring: bool) {
+            self.rec.lock().unwrap().timings_measuring = Some(measuring);
+        }
+
         fn stop(&mut self) -> Result<BarrierReport, CaptureError> {
             if self.fail_stop {
                 return Err(CaptureError::Platform("mock stop failure".into()));
@@ -748,15 +751,6 @@ mod tests {
                 wedged_workers: self.barrier_wedged,
                 completion: BarrierCompletion::MarkerOrdered,
             })
-        }
-
-        fn stop_discarding_timings(&mut self) -> Result<BarrierReport, CaptureError> {
-            self.rec.lock().unwrap().stops_discarding_timings += 1;
-            self.stop()
-        }
-
-        fn discard_timings(&mut self) {
-            self.rec.lock().unwrap().timings_discards += 1;
         }
 
         fn is_active(&self) -> bool {
@@ -873,7 +867,7 @@ mod tests {
         rec.lock().unwrap().started = true;
         let cap = mutex(mock);
 
-        let report = stop_capture_impl(&cap, false).unwrap();
+        let report = stop_capture_impl(&cap).unwrap();
 
         assert!(rec.lock().unwrap().stopped);
         // stop fuses the commit flush barrier: it runs one and reports its id so
@@ -890,7 +884,7 @@ mod tests {
         rec.lock().unwrap().started = true;
         let cap = mutex(mock);
 
-        let report = stop_capture_impl(&cap, false).unwrap();
+        let report = stop_capture_impl(&cap).unwrap();
 
         assert_eq!(report.wedged_workers, 3);
     }
@@ -901,7 +895,7 @@ mod tests {
         rec.lock().unwrap().started = true;
         let cap = mutex(mock);
 
-        let report = stop_capture_impl(&cap, false).unwrap();
+        let report = stop_capture_impl(&cap).unwrap();
 
         // The truthful-completion contract: callers read how the barrier
         // completed from the report itself, so the command must pass the
@@ -933,43 +927,29 @@ mod tests {
         mock.fail_stop = true;
         let cap = mutex(mock);
 
-        let result = stop_capture_impl(&cap, false);
+        let result = stop_capture_impl(&cap);
 
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("mock stop failure"));
     }
 
-    /// A stop told the take is thrown away stops the layer through the stop
-    /// that throws its timings away; any other stop through the plain one.
+    /// Telling the capture whether to measure its timings reaches the layer
+    /// both ways, and neither starts nor stops it.
     #[test]
-    fn stop_capture_throws_the_timings_away_only_when_told() {
-        for discard in [false, true] {
+    fn set_capture_timings_measuring_reaches_the_layer() {
+        for measuring in [false, true] {
             let (mock, rec) = MockCapture::new();
-            rec.lock().unwrap().started = true;
             let cap = mutex(mock);
 
-            let report = stop_capture_impl(&cap, discard).unwrap();
+            set_capture_timings_measuring_impl(&cap, measuring).unwrap();
 
             let rec = rec.lock().unwrap();
-            assert!(rec.stopped, "the layer stops either way");
-            assert_eq!(report.barrier_id, 1, "the stop runs its barrier either way");
-            assert_eq!(rec.stops_discarding_timings, u32::from(discard));
+            assert_eq!(rec.timings_measuring, Some(measuring));
+            assert!(
+                !rec.started && !rec.stopped,
+                "the capture is left as it was"
+            );
         }
-    }
-
-    /// Throwing the running capture's timings away reaches the layer and
-    /// leaves the capture running.
-    #[test]
-    fn discard_capture_timings_throws_the_layers_timings_away() {
-        let (mock, rec) = MockCapture::new();
-        rec.lock().unwrap().started = true;
-        let cap = mutex(mock);
-
-        discard_capture_timings_impl(&cap).unwrap();
-
-        let rec = rec.lock().unwrap();
-        assert_eq!(rec.timings_discards, 1);
-        assert!(!rec.stopped, "the capture keeps running");
     }
 
     // ── list_windows_impl ───────────────────────────────────────────────────

@@ -617,6 +617,16 @@ impl WorkerTestHarness {
         backend: impl AccessibilityBackend,
         timings: docent_desktop_lib::capture::timing_lines::Timings,
     ) -> Self {
+        Self::timed_after(backend, timings, |_| {})
+    }
+
+    /// A worker whose timings are kept in `timings`, started once `before`
+    /// has sent it what waits in its queue as it starts.
+    fn timed_after(
+        backend: impl AccessibilityBackend,
+        timings: docent_desktop_lib::capture::timing_lines::Timings,
+        before: impl FnOnce(&Self),
+    ) -> Self {
         let (event_tx, event_rx) = mpsc::channel::<WorkerMessage>();
         let (action_tx, action_rx) = mpsc::channel::<ActionEvent>();
         let queue_len = Arc::new(AtomicU64::new(0));
@@ -627,7 +637,16 @@ impl WorkerTestHarness {
 
         let pending = Arc::new(Mutex::new(PendingBuffers::default()));
         let worker_pending = Arc::clone(&pending);
-        let thread = thread::spawn(move || {
+        let mut harness = Self {
+            pending: Arc::clone(&pending),
+            event_tx,
+            action_rx,
+            _queue_len: Arc::clone(&queue_len),
+            _excluded_pid: excluded_pid,
+            thread: None,
+        };
+        before(&harness);
+        harness.thread = Some(thread::spawn(move || {
             worker_loop_with_timings(
                 0,
                 backend,
@@ -639,16 +658,8 @@ impl WorkerTestHarness {
                 None,
                 timings,
             );
-        });
-
-        Self {
-            pending,
-            event_tx,
-            action_rx,
-            _queue_len: queue_len,
-            _excluded_pid: excluded_pid,
-            thread: Some(thread),
-        }
+        }));
+        harness
     }
 
     /// Send a raw event to the worker.
@@ -11000,50 +11011,137 @@ fn late_reads_and_reads_in_time_give_one_shape() {
     assert_eq!(shape_of(&block(2)), shape_of(&block(1)));
 }
 
-/// Throwing a capture's timings away drops what was kept so far, and what is
-/// measured after is kept: a thrown-away take is in no block.
-#[test]
-fn timings_thrown_away_are_in_no_block() {
+/// The lines of the block for the steps of keys, or of value changes,
+/// filled where one was measured.
+fn steps_filled(block: &str, subject: &str) -> Vec<bool> {
+    let prefix = format!("capture-timings {subject} ");
+    block
+        .lines()
+        .filter(|l| l.starts_with(&prefix))
+        .map(|l| !l.ends_with(" -"))
+        .collect()
+}
+
+/// Whether a key and a value change were each measured, in the one block
+/// a capture wrote at its stop; `None` where it wrote none.
+fn measured_in(blocks: &[String]) -> Option<(bool, bool)> {
+    assert!(
+        blocks.len() <= 1,
+        "at most one block at a stop, got {blocks:?}"
+    );
+    blocks.first().map(|block| {
+        (
+            steps_filled(block, "key").contains(&true),
+            steps_filled(block, "value-change").contains(&true),
+        )
+    })
+}
+
+/// Runs a typing worker with timings on, held from the start where
+/// `held_at_start` says, has `drive` type into the dialog with the
+/// timings at hand, and stops it. Returns the blocks written at the stop.
+fn held_capture(
+    held_at_start: bool,
+    drive: impl FnOnce(&WorkerTestHarness, &docent_desktop_lib::capture::timing_lines::Timings),
+) -> Vec<String> {
     use docent_desktop_lib::capture::timing_lines::Timings;
-    let step_lines = |block: &str, filled: bool| {
-        block
-            .lines()
-            .filter(|l| {
-                l.starts_with("capture-timings key ")
-                    || l.starts_with("capture-timings value-change ")
-            })
-            .all(|l| l.ends_with(" -") != filled)
-    };
-    for typed_after in [false, true] {
+    let (tx, rx) = mpsc::channel();
+    let timings = Timings::sending_to(true, tx).with_measuring(!held_at_start);
+    let (backend, _scene, _) = MovingFocusBackend::new(file_name_field(""));
+    let harness = WorkerTestHarness::timed(backend, timings.clone());
+    drive(&harness, &timings);
+    thread::sleep(Duration::from_millis(300));
+    harness.shutdown();
+    timings.write_block();
+    rx.try_iter().collect()
+}
+
+/// Types a key and waits for the worker to handle it.
+fn typed_key(harness: &WorkerTestHarness, seq: u64) {
+    harness.send_event(in_dialog(layout_key(seq, now_ms(), 0x41)));
+    thread::sleep(Duration::from_millis(300));
+}
+
+/// Reports a value change and waits for the worker to handle it.
+fn changed_value(harness: &WorkerTestHarness, seq: u64) {
+    harness.send_event(in_dialog(value_change(seq, now_ms(), DIALOG)));
+    thread::sleep(Duration::from_millis(300));
+}
+
+/// A capture held from its start to its stop, as a re-record's take is
+/// (a pause during it, a commit of it), measures nothing and writes no
+/// block.
+#[test]
+fn a_capture_held_throughout_writes_no_block() {
+    let blocks = held_capture(true, |harness, _| {
+        typed_key(harness, 1);
+        changed_value(harness, 2);
+    });
+    assert_eq!(measured_in(&blocks), None, "got {blocks:?}");
+}
+
+/// Held while it runs, a capture keeps what it measured before and
+/// measures nothing after: the block at its stop holds only what came
+/// before.
+#[test]
+fn a_capture_held_while_it_runs_keeps_what_came_before() {
+    let blocks = held_capture(false, |harness, timings| {
+        typed_key(harness, 1);
+        timings.set_measuring(false);
+        changed_value(harness, 2);
+    });
+    assert_eq!(measured_in(&blocks), Some((true, false)), "got {blocks:?}");
+}
+
+/// Measuring again while it runs, as a re-record cancelled while
+/// recording leaves its capture running, a capture measures what comes
+/// after and nothing before.
+#[test]
+fn a_capture_measuring_again_while_it_runs_measures_what_comes_after() {
+    let blocks = held_capture(true, |harness, timings| {
+        typed_key(harness, 1);
+        timings.set_measuring(true);
+        changed_value(harness, 2);
+    });
+    assert_eq!(measured_in(&blocks), Some((false, true)), "got {blocks:?}");
+}
+
+/// An event that waits in the worker's queue while the capture is held,
+/// and is handled once it measures again, is measured: a key of a
+/// re-record's take handled after the re-record ended is in the block.
+#[test]
+fn an_event_handled_after_measuring_again_is_measured() {
+    use docent_desktop_lib::capture::timing_lines::Timings;
+    let (tx, rx) = mpsc::channel();
+    let timings = Timings::sending_to(true, tx).with_measuring(false);
+    let (backend, _scene, _) = MovingFocusBackend::new(file_name_field(""));
+    let harness = WorkerTestHarness::timed_after(backend, timings.clone(), |queued| {
+        queued.send_event(in_dialog(layout_key(1, now_ms(), 0x41)));
+        timings.set_measuring(true);
+    });
+    thread::sleep(Duration::from_millis(300));
+    harness.shutdown();
+    timings.write_block();
+    let blocks: Vec<String> = rx.try_iter().collect();
+    assert_eq!(measured_in(&blocks), Some((true, false)), "got {blocks:?}");
+}
+
+/// With the timings off, holding them or measuring again changes
+/// nothing: no block either way.
+#[test]
+fn timings_off_stay_off_held_or_not() {
+    use docent_desktop_lib::capture::timing_lines::Timings;
+    for measuring in [false, true] {
         let (tx, rx) = mpsc::channel();
-        let timings = Timings::sending_to(true, tx);
+        let timings = Timings::sending_to(false, tx).with_measuring(!measuring);
         let (backend, _scene, _) = MovingFocusBackend::new(file_name_field(""));
         let harness = WorkerTestHarness::timed(backend, timings.clone());
-        harness.send_event(in_dialog(layout_key(1, now_ms(), 0x41)));
-        harness.send_event(in_dialog(value_change(2, now_ms(), DIALOG)));
-        thread::sleep(Duration::from_millis(300));
-        timings.discard();
-        if typed_after {
-            harness.send_event(in_dialog(layout_key(3, now_ms(), 0x0D))); // Enter
-        }
-        thread::sleep(Duration::from_millis(300));
+        typed_key(&harness, 1);
+        timings.set_measuring(measuring);
+        changed_value(&harness, 2);
         harness.shutdown();
         timings.write_block();
-        let blocks: Vec<String> = rx.try_iter().collect();
-        assert_eq!(blocks.len(), 1, "one block at the stop, got {blocks:?}");
-        let key_total = blocks[0]
-            .lines()
-            .find(|l| l.starts_with("capture-timings key total "))
-            .unwrap();
-        if typed_after {
-            assert!(!key_total.ends_with(" -"), "kept after: {:?}", blocks[0]);
-        } else {
-            assert!(
-                step_lines(&blocks[0], false),
-                "all thrown away: {:?}",
-                blocks[0]
-            );
-        }
+        assert_eq!(rx.try_iter().count(), 0, "no block with the timings off");
     }
 }
 
