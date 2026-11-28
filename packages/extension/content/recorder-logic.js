@@ -542,6 +542,26 @@ export function isShortcut(modifiers, altEntersCharacters) {
 }
 
 /**
+ * The modifiers held at a trusted key, mouse or drag event (#239), each as the
+ * event reports it; `alt_graph` is the browser's AltGraph state (#825).
+ * Whether a key is a shortcut is read from Ctrl, Alt and Meta alone
+ * (`isShortcut`).
+ *
+ * @param {{ctrlKey: boolean, shiftKey: boolean, altKey: boolean, metaKey: boolean,
+ *   getModifierState(key: string): boolean}} e — the event
+ * @returns {{ctrl: boolean, shift: boolean, alt: boolean, meta: boolean, alt_graph: boolean}}
+ */
+export function modifiersOf(e) {
+  return {
+    ctrl: e.ctrlKey,
+    shift: e.shiftKey,
+    alt: e.altKey,
+    meta: e.metaKey,
+    alt_graph: e.getModifierState('AltGraph'),
+  };
+}
+
+/**
  * The `autocomplete` tokens and the name pattern of a sensitive element: a
  * copy of the shared rule's (`shared/lib/field-sensitivity.js`), which a
  * content script cannot import. A test holds the two equal.

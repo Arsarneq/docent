@@ -522,6 +522,29 @@ describe('_insertOrdered redacts sensitive field values', () => {
     assert.deepEqual(shape(), [`type ${SENSITIVE_MASK}`, 'key Enter', `type ${SENSITIVE_MASK}`]);
   });
 
+  // Regression: #825 — AltGr is written as `alt_graph`, and `ctrl` and `alt`
+  // state only a Ctrl or an Alt held beside it. A character entered with AltGr
+  // and a held Ctrl or Alt is no shortcut: on a sensitive field it is the
+  // field's masked `type`, never a `key` naming the character.
+  // https://github.com/Arsarneq/docent/issues/825
+  it('regression_825_a_character_entered_with_altgr_on_a_sensitive_field_is_masked', () => {
+    insertOrdered(keyOn(cardField(), '\u20ac', 1, { alt_graph: true })); // AltGr
+    insertOrdered(keyOn(cardField(), '\u20ac', 2, { ctrl: true, alt_graph: true })); // Ctrl and AltGr
+    insertOrdered(keyOn(cardField(), '\u20ac', 3, { alt: true, alt_graph: true })); // Alt and AltGr
+    insertOrdered(keyOn(cardField(), '\u20ac', 4, { ctrl: true, alt: true })); // Ctrl and Alt
+    assert.deepEqual(shape(), [`type ${SENSITIVE_MASK}`]);
+  });
+
+  // Regression: #825 — the right Alt on a layout with no AltGr is a plain
+  // Alt, and Ctrl or Alt alone is a shortcut whatever `alt_graph` says.
+  // https://github.com/Arsarneq/docent/issues/825
+  it('regression_825_ctrl_or_alt_without_altgr_stays_a_shortcut_key', () => {
+    insertOrdered(keyOn(cardField(), 'v', 1, { ctrl: true, alt_graph: false }));
+    insertOrdered(keyOn(cardField(), 'f', 2, { alt: true, alt_graph: false }));
+    insertOrdered(keyOn(cardField(), 'd', 3, { meta: true, alt_graph: true }));
+    assert.deepEqual(shape(), ['key v', 'key f', 'key d']);
+  });
+
   it('keeps control keys and shortcuts on a sensitive field as keys', () => {
     insertOrdered(keyOn(cardField(), 'Enter', 1));
     insertOrdered(keyOn(cardField(), 'Backspace', 2));

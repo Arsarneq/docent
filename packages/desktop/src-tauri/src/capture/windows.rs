@@ -62,11 +62,11 @@ use super::win32_bindings::{
     KBDLLHOOKSTRUCT, KEY_READ, LCID, LLKHF_EXTENDED, LOCALE_ALLOW_NEUTRAL_NAMES,
     LOCALE_NAME_MAX_LENGTH, LPARAM, LRESULT, MAPVK_VK_TO_CHAR, MSG, MSLLHOOKSTRUCT,
     MUI_LANGUAGE_NAME, OBJID_WINDOW, PM_NOREMOVE, POINT, PROPERTYID, RRF_RT_REG_DWORD,
-    RRF_RT_REG_SZ, SMTO_ABORTIFHUNG, SMTO_BLOCK, SM_CXDOUBLECLK, SM_CYDOUBLECLK, UIA_HWND,
-    VK_CONTROL, VK_LWIN, VK_MENU, VK_RWIN, VK_SHIFT, VT_EMPTY, WH_KEYBOARD_LL, WH_MOUSE_LL,
-    WINEVENT_OUTOFCONTEXT, WM_APP, WM_IME_CONTROL, WM_KEYDOWN, WM_LBUTTONDOWN, WM_LBUTTONUP,
-    WM_MBUTTONDOWN, WM_MOUSEHWHEEL, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_NULL, WM_QUIT, WM_RBUTTONDOWN,
-    WM_SYSKEYDOWN, WM_USER, WPARAM, WS_CHILD,
+    RRF_RT_REG_SZ, SMTO_ABORTIFHUNG, SMTO_BLOCK, SM_CXDOUBLECLK, SM_CYDOUBLECLK, UIA_HWND, VK_LWIN,
+    VK_RWIN, VK_SHIFT, VT_EMPTY, WH_KEYBOARD_LL, WH_MOUSE_LL, WINEVENT_OUTOFCONTEXT, WM_APP,
+    WM_IME_CONTROL, WM_KEYDOWN, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MOUSEHWHEEL,
+    WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_NULL, WM_QUIT, WM_RBUTTONDOWN, WM_SYSKEYDOWN, WM_USER, WPARAM,
+    WS_CHILD,
 };
 use super::win32_bindings::{RtlGetVersion, ToUnicodeEx, OSVERSIONINFOW};
 use windows_core::{Error, Interface, BOOL, BSTR, PWSTR};
@@ -543,6 +543,14 @@ thread_local! {
     /// key-down for a key already in it is a press key repeat generated.
     static INPUT_HELD_KEYS: std::cell::RefCell<super::held_keys::HeldKeys> =
         const { std::cell::RefCell::new(super::held_keys::HeldKeys::new()) };
+
+    /// Whose left Ctrl is down, the person's or Windows' own for AltGr, as
+    /// the keyboard hook saw the left Ctrl and the right Alt go down and up
+    /// (seeded from the keyboard's state when the hook is installed;
+    /// docent#825): what an action's `modifiers` states of Ctrl, Alt and
+    /// AltGr is written from it ([`input_modifiers`]).
+    static INPUT_CTRL_ALT_KEYS: std::cell::Cell<super::held_keys::CtrlAltKeys> =
+        const { std::cell::Cell::new(super::held_keys::CtrlAltKeys::new()) };
 
     /// Timestamp of the most recent low-level keyboard event only.
     /// Used specifically for value-change correlation — mouse clicks should not
@@ -1318,7 +1326,15 @@ fn input_thread_main(
             return Err(CaptureError::HookFailed(format!("WH_KEYBOARD_LL: {e}")));
         }
         ll_hooks.push(kb_hook);
-        // A key already held now is a held key at its next key-down.
+        // A key already held now is a held key at its next key-down, and a
+        // left Ctrl or right Alt held now is in the record of whose left
+        // Ctrl is down.
+        INPUT_CTRL_ALT_KEYS.with(|keys| {
+            keys.set(super::held_keys::CtrlAltKeys::seeded(|vk| {
+                // SAFETY: as below.
+                unsafe { GetAsyncKeyState(vk as i32) < 0 }
+            }))
+        });
         INPUT_HELD_KEYS.with(|held| {
             *held.borrow_mut() = super::held_keys::HeldKeys::seeded(|vk| {
                 // SAFETY: GetAsyncKeyState takes any virtual-key code and
@@ -2041,6 +2057,7 @@ unsafe fn input_win_event_handle(
                 process_id,
                 key_code: 0,
                 modifiers: (false, false, false, false),
+                ctrl_alt_read: None,
                 scroll_delta: 0.0,
                 callback_params: [id_object as i64, id_child as i64, 0, 0],
                 key_value: 0,
@@ -2087,6 +2104,7 @@ unsafe fn input_win_event_handle(
                 process_id,
                 key_code: 0,
                 modifiers: (false, false, false, false),
+                ctrl_alt_read: None,
                 scroll_delta: 0.0,
                 callback_params: [id_object as i64, id_child as i64, 0, 0],
                 key_value: 0,
@@ -2155,6 +2173,7 @@ unsafe fn input_win_event_handle(
                         process_id,
                         key_code: 0,
                         modifiers: (false, false, false, false),
+                        ctrl_alt_read: None,
                         scroll_delta: 0.0,
                         callback_params: [id_object as i64, id_child as i64, 0, 0],
                         key_value: 0,
@@ -2201,6 +2220,7 @@ unsafe fn input_win_event_handle(
                 process_id,
                 key_code: 0,
                 modifiers: (false, false, false, false),
+                ctrl_alt_read: None,
                 scroll_delta: 0.0,
                 // The event's number among the focus events dispatched,
                 // counted here, where the event is sure to be sent.
@@ -2267,6 +2287,7 @@ unsafe fn input_win_event_handle(
                 process_id,
                 key_code: 0,
                 modifiers: (false, false, false, false),
+                ctrl_alt_read: None,
                 scroll_delta: 0.0,
                 callback_params: [id_object as i64, id_child as i64, 0, 0],
                 key_value: 0,
@@ -2337,6 +2358,7 @@ unsafe fn input_win_event_handle(
                 process_id,
                 key_code: 0,
                 modifiers: (false, false, false, false),
+                ctrl_alt_read: None,
                 scroll_delta: 0.0,
                 callback_params: [id_object as i64, id_child as i64, 0, 0],
                 key_value: 0,
@@ -2423,6 +2445,7 @@ unsafe fn input_press_switch(point_hwnd: HWND, fg_hwnd: HWND, timestamp: u64) {
         process_id: clicked_pid,
         key_code: 0,
         modifiers: (false, false, false, false),
+        ctrl_alt_read: None,
         scroll_delta: 0.0,
         callback_params: [0, 0, 0, 0],
         key_value: 0,
@@ -2558,7 +2581,7 @@ unsafe fn input_mouse_ll_handle(n_code: i32, w_param: WPARAM, l_param: LPARAM) {
                         // drag start states what was held when the pointer
                         // first passed the threshold, the drop what is held
                         // now.
-                        let (down_modifiers, down_held) = INPUT_DRAG_START_KEYS
+                        let ((down_modifiers, down_ctrl_alt), down_held) = INPUT_DRAG_START_KEYS
                             .with(|k| k.borrow_mut().at_release(|| input_keys_held()));
                         input_dispatch_raw_event(RawEvent {
                             event_type: RawEventType::DragStart { source_coords },
@@ -2570,6 +2593,7 @@ unsafe fn input_mouse_ll_handle(n_code: i32, w_param: WPARAM, l_param: LPARAM) {
                             process_id: pid,
                             key_code: 0,
                             modifiers: down_modifiers,
+                            ctrl_alt_read: Some(down_ctrl_alt),
                             scroll_delta: 0.0,
                             callback_params: [0, 0, 0, 0],
                             key_value: 0,
@@ -2582,6 +2606,7 @@ unsafe fn input_mouse_ll_handle(n_code: i32, w_param: WPARAM, l_param: LPARAM) {
                             window_title: None,
                         });
 
+                        let (modifiers, ctrl_alt_read) = input_modifiers_foreground();
                         input_dispatch_raw_event(RawEvent {
                             event_type: RawEventType::Drop { source_coords },
                             sequence_id: 0,
@@ -2591,7 +2616,8 @@ unsafe fn input_mouse_ll_handle(n_code: i32, w_param: WPARAM, l_param: LPARAM) {
                             window_handle,
                             process_id: pid,
                             key_code: 0,
-                            modifiers: get_modifier_state(),
+                            modifiers,
+                            ctrl_alt_read: Some(ctrl_alt_read),
                             scroll_delta: 0.0,
                             callback_params: [0, 0, 0, 0],
                             key_value: 0,
@@ -2608,6 +2634,7 @@ unsafe fn input_mouse_ll_handle(n_code: i32, w_param: WPARAM, l_param: LPARAM) {
                         // the window is still alive, within the budget.
                         let pre_element = input_pre_capture_element(pid, pt.x, pt.y);
                         let double = left_press.is_some_and(double_click_completed_by);
+                        let (modifiers, ctrl_alt_read) = input_modifiers_foreground();
                         input_dispatch_raw_event(RawEvent {
                             event_type: RawEventType::Click,
                             sequence_id: 0,
@@ -2617,7 +2644,8 @@ unsafe fn input_mouse_ll_handle(n_code: i32, w_param: WPARAM, l_param: LPARAM) {
                             window_handle,
                             process_id: pid,
                             key_code: 0,
-                            modifiers: get_modifier_state(),
+                            modifiers,
+                            ctrl_alt_read: Some(ctrl_alt_read),
                             scroll_delta: 0.0,
                             callback_params: [
                                 if double {
@@ -2659,6 +2687,7 @@ unsafe fn input_mouse_ll_handle(n_code: i32, w_param: WPARAM, l_param: LPARAM) {
                         process_id: pid,
                         key_code: 0,
                         modifiers: (false, false, false, false),
+                        ctrl_alt_read: None,
                         scroll_delta: delta,
                         callback_params: [0, 0, 0, 0],
                         key_value: 0,
@@ -2684,6 +2713,7 @@ unsafe fn input_mouse_ll_handle(n_code: i32, w_param: WPARAM, l_param: LPARAM) {
                         process_id: pid,
                         key_code: 0,
                         modifiers: (false, false, false, false),
+                        ctrl_alt_read: None,
                         scroll_delta: delta,
                         callback_params: [1, 0, 0, 0], // 1 = horizontal axis
                         key_value: 0,
@@ -2709,6 +2739,7 @@ unsafe fn input_mouse_ll_handle(n_code: i32, w_param: WPARAM, l_param: LPARAM) {
                         // switch goes before the press, as a left press's.
                         input_press_switch(point_hwnd, fg_hwnd, timestamp);
                         let pre_element = input_pre_capture_element(pid, pt.x, pt.y);
+                        let (modifiers, ctrl_alt_read) = input_modifiers_foreground();
                         input_dispatch_raw_event(RawEvent {
                             event_type,
                             sequence_id: 0,
@@ -2718,7 +2749,8 @@ unsafe fn input_mouse_ll_handle(n_code: i32, w_param: WPARAM, l_param: LPARAM) {
                             window_handle,
                             process_id: pid,
                             key_code: 0,
-                            modifiers: get_modifier_state(),
+                            modifiers,
+                            ctrl_alt_read: Some(ctrl_alt_read),
                             scroll_delta: 0.0,
                             callback_params: [down_dispatch_click_mark(msg), 0, 0, 0],
                             key_value: 0,
@@ -2748,7 +2780,7 @@ unsafe fn input_mouse_ll_handle(n_code: i32, w_param: WPARAM, l_param: LPARAM) {
 /// states them.
 unsafe fn input_keys_held() -> super::held_keys::KeysHeld {
     (
-        get_modifier_state(),
+        input_modifiers_foreground(),
         INPUT_HELD_KEYS.with(|held| held.borrow().dispatched_down(None)),
     )
 }
@@ -2805,6 +2837,21 @@ unsafe extern "system" fn input_keyboard_ll_proc(
                 |vk| GetAsyncKeyState(vk as i32) < 0,
             )
         });
+        // Whose left Ctrl went down or up: Windows' own for AltGr carries
+        // the simulated mark in its scan code, and at a right Alt key-down
+        // with none in front of it the left Ctrl down is the person's
+        // (docent#825). The keyboard's state does not hold this key yet, so
+        // it says what was down before it.
+        INPUT_CTRL_ALT_KEYS.with(|keys| {
+            let mut record = keys.get();
+            record.on_hook_message(
+                w_param.0 as u32,
+                kb_struct.vkCode,
+                kb_struct.scanCode,
+                |vk| GetAsyncKeyState(vk as i32) < 0,
+            );
+            keys.set(record);
+        });
     }
 
     if n_code >= 0 && input_is_active() {
@@ -2817,7 +2864,7 @@ unsafe extern "system" fn input_keyboard_ll_proc(
             let thread_id = GetWindowThreadProcessId(hwnd, Some(&mut pid));
             let excluded = input_get_excluded_pid();
             let foreground_kept = input_should_keep_event_cached(pid, excluded, hwnd);
-            let modifiers = get_modifier_state();
+            let (modifiers, ctrl_alt_read) = input_modifiers(thread_id);
             // Which window the key is attributed to (DCP-14): a key the
             // system acts on, not the foreground window (the Windows key,
             // Ctrl+Esc, Alt+Tab, for example: `system_takes_key`), is kept
@@ -2894,6 +2941,7 @@ unsafe extern "system" fn input_keyboard_ll_proc(
                     process_id,
                     key_code: kb_struct.vkCode,
                     modifiers,
+                    ctrl_alt_read: Some(ctrl_alt_read),
                     scroll_delta: 0.0,
                     // The scan code: for a VK_PACKET keystroke it is the
                     // injected UTF-16 code unit the worker names the key by
@@ -3417,7 +3465,14 @@ fn system_directory() -> Option<std::path::PathBuf> {
 /// ([`super::layout_file::is_layout_file_name`]), and no more than
 /// [`MOST_LAYOUT_FILE_BYTES`] are read. The error says why no list was read.
 fn read_layout_list(layout: i64) -> Result<super::layout_file::Compositions, String> {
-    use super::layout_file::{compositions_in, is_layout_file_name, layout_key_of, LayoutKey};
+    let bytes = read_layout_file(layout)?;
+    super::layout_file::compositions_in(&bytes).map_err(|e| format!("its file: {e}"))
+}
+
+/// The bytes of the file of layout `layout`, found and read as
+/// [`read_layout_list`] states. The error says why none were read.
+fn read_layout_file(layout: i64) -> Result<Vec<u8>, String> {
+    use super::layout_file::{is_layout_file_name, layout_key_of, LayoutKey};
     use std::io::Read;
     let key = match layout_key_of(layout).ok_or("no layout")? {
         LayoutKey::Named(name) => name,
@@ -3444,7 +3499,59 @@ fn read_layout_list(layout: i64) -> Result<super::layout_file::Compositions, Str
     if bytes.len() as u64 > MOST_LAYOUT_FILE_BYTES {
         return Err("its file is too long".to_string());
     }
-    compositions_in(&bytes).map_err(|e| format!("its file: {e}"))
+    Ok(bytes)
+}
+
+/// Whether the layouts asked so far make the right Alt AltGr, as their files
+/// state it ([`super::layout_file::alt_gr_in`]); none for a layout whose file
+/// could not be read. Shared by the workers; as many are kept as tables.
+static LAYOUT_ALT_GR: Mutex<Vec<(isize, Option<bool>)>> = Mutex::new(Vec::new());
+
+/// Whether layout `layout` (a layout handle) makes the right Alt AltGr, read
+/// from the layout's file the first time the layout is asked about
+/// (docent#825). `None` where the file could not be read: the log says once
+/// for the layout why.
+///
+/// Called by a worker, never on the keyboard hook.
+fn layout_alt_gr(layout: i64) -> Option<bool> {
+    if layout == 0 {
+        return None;
+    }
+    let id = layout as isize;
+    let kept = || {
+        LAYOUT_ALT_GR
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+            .find(|(kept, _)| *kept == id)
+            .map(|(_, alt_gr)| *alt_gr)
+    };
+    if let Some(alt_gr) = kept() {
+        return alt_gr;
+    }
+    let read = read_layout_file(layout).and_then(|bytes| {
+        super::layout_file::alt_gr_in(&bytes).map_err(|e| format!("its file: {e}"))
+    });
+    let alt_gr = match read {
+        Ok(alt_gr) => Some(alt_gr),
+        Err(why) => {
+            eprintln!(
+                "[WindowsCapture] Whether keyboard layout {:08X} has AltGr was not read \
+                 ({why}): on this layout AltGr is known only by the Ctrl Windows sends \
+                 with it.",
+                layout as u32
+            );
+            None
+        }
+    };
+    let mut kept = LAYOUT_ALT_GR.lock().unwrap_or_else(|e| e.into_inner());
+    if !kept.iter().any(|(k, _)| *k == id) {
+        if kept.len() == LAYOUT_TABLES_KEPT {
+            kept.remove(0);
+        }
+        kept.push((id, alt_gr));
+    }
+    alt_gr
 }
 
 /// Take the answers of every keyboard layout loaded now, once for the
@@ -4486,12 +4593,44 @@ pub(crate) fn current_timestamp_ms() -> u64 {
         .as_millis() as u64
 }
 
-pub(crate) unsafe fn get_modifier_state() -> (bool, bool, bool, bool) {
-    let ctrl = GetAsyncKeyState(VK_CONTROL) < 0;
+/// The modifiers held now, from one read of each modifier key's state
+/// (docent#825): `(ctrl, shift, alt, meta)` as the system holds them, AltGr
+/// counted as Ctrl and Alt together, which every verdict on a key reads
+/// (`RawEvent::modifiers`); and beside it what a worker writes an action's
+/// `modifiers` from: the same key states, the keyboard hook's record of whose
+/// left Ctrl is down, and the keyboard layout of thread `thread_id` (the
+/// foreground window's). Read on the Input_Thread.
+unsafe fn input_modifiers(thread_id: u32) -> super::held_keys::ModifiersHeld {
+    use super::held_keys::{VK_CONTROL, VK_LCONTROL, VK_LMENU, VK_MENU, VK_RCONTROL, VK_RMENU};
+    // Thread 0 would ask for this thread's own layout, not the window's.
+    let layout = if thread_id == 0 {
+        0
+    } else {
+        GetKeyboardLayout(thread_id).0 as isize as i64
+    };
+    let down = |vk: u32| GetAsyncKeyState(vk as i32) < 0;
+    let keys = [
+        VK_CONTROL,
+        VK_LCONTROL,
+        VK_RCONTROL,
+        VK_MENU,
+        VK_LMENU,
+        VK_RMENU,
+    ]
+    .map(|vk| (vk, down(vk)));
+    let read = INPUT_CTRL_ALT_KEYS.with(|record| record.get()).read(
+        |vk| keys.iter().any(|&(key, is_down)| key == vk && is_down),
+        layout,
+    );
     let shift = GetAsyncKeyState(VK_SHIFT) < 0;
-    let alt = GetAsyncKeyState(VK_MENU) < 0;
     let meta = GetAsyncKeyState(VK_LWIN) < 0 || GetAsyncKeyState(VK_RWIN) < 0;
-    (ctrl, shift, alt, meta)
+    ((read.ctrl, shift, read.alt, meta), read)
+}
+
+/// [`input_modifiers`] with the layout of the foreground window's thread
+/// now, for a pointer action.
+unsafe fn input_modifiers_foreground() -> super::held_keys::ModifiersHeld {
+    input_modifiers(GetWindowThreadProcessId(GetForegroundWindow(), None))
 }
 
 // ---------------------------------------------------------------------------
@@ -4777,6 +4916,10 @@ impl AccessibilityBackend for WindowsAccessibilityBackend {
         base: char,
     ) -> Result<Option<super::layout_file::Composed>, NoList> {
         layout_composed(layout, accent, base)
+    }
+
+    fn layout_alt_gr(&self, layout: i64) -> Option<bool> {
+        layout_alt_gr(layout)
     }
 
     fn process_id_of(&self, window_handle: i64) -> u32 {
@@ -5094,6 +5237,30 @@ mod tests {
         alt: true,
         ..PLAIN
     };
+
+    // Regression: #825 — whether a layout makes the right Alt AltGr is read
+    // from the layout's own file: the Danish layout's flags hold AltGr, the
+    // US layout's do not. A wrong place in the tables reads another version
+    // and gives no answer, so `Some` proves the place too.
+    // https://github.com/Arsarneq/docent/issues/825
+    #[test]
+    #[serial_test::serial(danish_layout)]
+    fn regression_825_the_danish_layout_has_altgr_and_the_us_layout_has_none() {
+        let danish = LoadedLayout::load("00000406", 0x0406);
+        assert_eq!(
+            super::layout_alt_gr(danish.hkl.0 as isize as i64),
+            Some(true)
+        );
+        let us = LoadedLayout::load("00000409", 0x0409);
+        assert_eq!(super::layout_alt_gr(us.hkl.0 as isize as i64), Some(false));
+        // The German layout has AltGr too.
+        let german = LoadedLayout::load("00000407", 0x0407);
+        assert_eq!(
+            super::layout_alt_gr(german.hkl.0 as isize as i64),
+            Some(true)
+        );
+        assert_eq!(super::layout_alt_gr(0), None);
+    }
 
     // Regression: #717 — the desktop named a key by its code, where the
     // extension names what the press means on the layout.
@@ -6416,6 +6583,7 @@ mod tests {
                     shift: false,
                     alt: false,
                     meta: false,
+                    alt_graph: false,
                 },
                 repeat: false,
                 code: None,

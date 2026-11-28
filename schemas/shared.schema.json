@@ -658,6 +658,10 @@
         },
         "meta": {
           "type": "boolean"
+        },
+        "alt_graph": {
+          "type": "boolean",
+          "description": "Whether AltGr was held at the action, as the system held it: the session format's Modifiers section states when a held AltGr key is not AltGr to the system. Absent in a recording made before the field existed."
         }
       }
     },

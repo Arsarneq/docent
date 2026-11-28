@@ -325,6 +325,7 @@ mod tests {
             shift: false,
             alt: false,
             meta: false,
+            alt_graph: false,
         }
     }
 
@@ -460,6 +461,7 @@ mod tests {
             shift: false,
             alt: false,
             meta: false,
+            alt_graph: false,
         };
         let event = NativeEvent::Keyboard {
             key: "Enter".to_string(),
