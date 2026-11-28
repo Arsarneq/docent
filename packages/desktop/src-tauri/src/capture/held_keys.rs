@@ -1542,7 +1542,18 @@ mod tests {
             self.read().held(Some(self.alt_gr))
         }
         fn read(&self) -> CtrlAltRead {
-            self.record.read(|vk| self.state.contains(&vk), 7)
+            let state: Vec<u32> = self.state.iter().copied().collect();
+            self.record.read(windows_state(&state), 7)
+        }
+    }
+
+    /// The keyboard's state with the keys `down` down, as Windows holds it:
+    /// the generic Ctrl and Alt codes down while a left or right one is.
+    fn windows_state(down: &[u32]) -> impl Fn(u32) -> bool + '_ {
+        move |vk| match vk {
+            VK_CONTROL => down.iter().any(|k| [VK_LCONTROL, VK_RCONTROL].contains(k)),
+            VK_MENU => down.iter().any(|k| [VK_LMENU, VK_RMENU].contains(k)),
+            _ => down.contains(&vk),
         }
     }
 
@@ -1634,8 +1645,8 @@ mod tests {
         // nothing says AltGr until Windows' own Ctrl is seen, and the
         // keyboard's state is written.
         let down = [VK_LCONTROL, VK_RMENU];
-        let record = CtrlAltKeys::seeded(|vk| down.contains(&vk));
-        let read = record.read(|vk| down.contains(&vk), 7);
+        let record = CtrlAltKeys::seeded(windows_state(&down));
+        let read = record.read(windows_state(&down), 7);
         assert_eq!(read.held(None), held(true, true, false));
     }
 
@@ -1709,6 +1720,20 @@ mod tests {
     }
 
     #[test]
+    fn regression_825_the_written_modifiers_and_the_verdicts_input_are_the_same_values() {
+        // A left Ctrl or a left Alt down in the keyboard's state with the
+        // generic code up: the system's Ctrl or Alt is the generic code's, as
+        // every verdict on a key reads it, and is written so, no AltGr.
+        let record = CtrlAltKeys::new();
+        let ctrl = record.read(|vk| vk == VK_LCONTROL, 7);
+        assert!(!ctrl.ctrl);
+        assert_eq!(ctrl.held(Some(true)), held(false, false, false));
+        let alt = record.read(|vk| vk == VK_LMENU, 7);
+        assert!(!alt.alt);
+        assert_eq!(alt.held(Some(true)), held(false, false, false));
+    }
+
+    #[test]
     fn regression_825_a_stale_record_leaves_ctrl_and_alt_as_the_keyboard_holds_them() {
         // AltGr went down, its key-ups never handed to the hook; then a left
         // Ctrl and a left Alt held: the keyboard's state is written, no AltGr
@@ -1728,8 +1753,8 @@ mod tests {
         // right Alt. Whose the left Ctrl is cannot be known here, and is
         // written as Windows' own (SEEDED_LEFT_CTRL_WITH_ALT_GR).
         let down = [VK_LCONTROL, VK_RMENU];
-        let record = CtrlAltKeys::seeded(|vk| down.contains(&vk));
-        let read = record.read(|vk| down.contains(&vk), 7);
+        let record = CtrlAltKeys::seeded(windows_state(&down));
+        let read = record.read(windows_state(&down), 7);
         assert_eq!(read.person_left_ctrl, PersonLeftCtrl::NotKnown);
         assert_eq!(
             read.held(Some(true)),
@@ -1742,9 +1767,9 @@ mod tests {
     #[test]
     fn regression_825_a_ctrl_or_altgr_alone_held_when_the_record_starts_is_known() {
         let ctrl = [VK_LCONTROL];
-        let record = CtrlAltKeys::seeded(|vk| ctrl.contains(&vk));
+        let record = CtrlAltKeys::seeded(windows_state(&ctrl));
         assert_eq!(
-            record.read(|vk| ctrl.contains(&vk), 7).person_left_ctrl,
+            record.read(windows_state(&ctrl), 7).person_left_ctrl,
             PersonLeftCtrl::Known(true)
         );
         // A not-known Ctrl is known again at the next left Ctrl key-up or
