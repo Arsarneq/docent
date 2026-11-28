@@ -426,11 +426,13 @@ machine, including live-capture behaviour at the boundary.
   not written, no event reaching the recorder. The desktop's keyboard hook is
   handed such a key and writes it; the difference comes from the platforms
   themselves (core CP-19)
-- A Ctrl or an Alt held together with AltGr at a key press: written as `ctrl`
-  false and `alt` false, where the desktop writes the held one true, the
-  browser reporting neither at such a press (measured with Ctrl, AltGr and E,
-  and with Alt, AltGr and E, on the Danish layout, in Chrome on Windows). A
-  departure (core CP-19)
+- A Ctrl or an Alt held together with AltGr
+  ([#862](https://github.com/Arsarneq/docent/issues/862)): at a key press both
+  are written `false`; at a pointer action `ctrl` is written `true`, whether
+  or not a Ctrl is held, and an Alt held with AltGr `false`. The desktop
+  writes each as the person held it. The extension writes what the browser
+  reports at the action, and these are what Chrome on Windows reported on the
+  Danish layout. A departure (core CP-19)
 - Arrow keys in the open list of a native `<select>` are swallowed by the
   browser before the recorder's listeners see them; on a closed `<select>`
   each arrow key reaches the page and is written as the `key`, and the option
