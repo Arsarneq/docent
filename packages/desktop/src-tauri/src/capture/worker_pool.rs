@@ -4211,14 +4211,10 @@ fn handle_value_change<B: AccessibilityBackend>(
             .get(&key_control)
             .and_then(|known| known.element.clone())
         else {
-            // Not described: left out of the timings, as its key was.
-            state.timing.leave_out();
             return false;
         };
         let is_password = element.element_type.as_deref() == Some("password");
         let value = if is_password {
-            // In a password field: left out of the timings, as its keys are.
-            state.timing.leave_out();
             PASSWORD_MASK.to_string()
         } else {
             let started = state.timing.mark();
@@ -4260,8 +4256,6 @@ fn handle_value_change<B: AccessibilityBackend>(
     // element, or the person had moved the focus): the value change has no
     // element to be the `type` of.
     if last_key.is_some_and(|k| k.mark.is_none()) {
-        // Not described: left out of the timings, as its key was.
-        state.timing.leave_out();
         keep_keys_of_dropped_value_change(pending, action_sender);
         return false;
     }
@@ -4292,8 +4286,6 @@ fn handle_value_change<B: AccessibilityBackend>(
     }) = described
     else {
         // The marked element changed or went; the last key no longer holds it.
-        // Not described: left out of the timings.
-        state.timing.leave_out();
         if let Some(k) = state.last_key.as_mut() {
             k.mark = None;
         }
@@ -4339,8 +4331,6 @@ fn handle_value_change<B: AccessibilityBackend>(
     }
     let is_password = element.element_type.as_deref() == Some("password");
     let value = if is_password {
-        // In a password field: left out of the timings, as its keys are.
-        state.timing.leave_out();
         PASSWORD_MASK.to_string()
     } else {
         // The value, never the text: the text of a field that holds nothing
@@ -4730,7 +4720,8 @@ fn handle_keyboard<B: AccessibilityBackend>(
     // The empty name is given by the key's code alone, whatever its layout.
     if is_modifier_only_key(&key_name(raw)) {
         // It gives nothing on any layout, and leaves an accent waiting. The
-        // recording writes nothing for it, and the timings leave it out.
+        // recording writes nothing for it, and the timings leave it out: its
+        // trace would be new.
         state.named_presses.note(raw.sequence_id, None);
         state.timing.leave_out();
         return;
@@ -4911,9 +4902,8 @@ fn handle_keyboard<B: AccessibilityBackend>(
     if (element.element_type.as_deref() == Some("password") || unknowable)
         && enters_text_in_password_field(raw, &key)
     {
-        // A masked key is left out of the timings.
-        state.timing.leave_out();
         state.last_value = Some(LastValue::of(context_id, &element, PASSWORD_MASK));
+        let started = state.timing.mark();
         let mut buffers = lock_buffers(pending);
         // Keys still buffered were typed into another control, one that
         // reported no value change; write them before this type starts, so no
@@ -4929,6 +4919,8 @@ fn handle_keyboard<B: AccessibilityBackend>(
             context_id,
             window_rect,
         );
+        drop(buffers);
+        state.timing.took(Step::Buffers, started);
         return;
     }
 
@@ -4942,7 +4934,11 @@ fn handle_keyboard<B: AccessibilityBackend>(
     let value_at_dead_key = if !dead {
         None
     } else if control != 0 {
-        backend.control_value(control)
+        // Part of naming the dead key: what its accent may join.
+        let started = state.timing.mark();
+        let value = backend.control_value(control);
+        state.timing.took(Step::Name, started);
+        value
     } else if described_now {
         element.value.clone()
     } else {

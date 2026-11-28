@@ -754,8 +754,12 @@
     },
     {
       "path": "packages/desktop/src-tauri/src/capture/windows.rs",
-      "reason": "the desktop Windows provider decides when context lifecycle actions are emitted, so it owes the session-format doc on top of its capture-area governance; declared single-source (its governing set stated here as its covering areas' whole doc sets plus that one doc) so the pointer to the format doc does not resolve at area granularity and drag the format-contract area's other docs onto it — the amplification the sync re-cut terminated on the shared chokepoints. The per-platform schemas remain authoritative for field semantics.",
-      "governed-by": ["area:desktop-windows/capture", "docs/technical/session-format.md"]
+      "reason": "the desktop Windows provider decides when context lifecycle actions are emitted, so it owes the session-format doc on top of its capture-area governance; declared single-source (its governing set stated here as its covering areas' whole doc sets plus that one doc) so the pointer to the format doc does not resolve at area granularity and drag the format-contract area's other docs onto it — the amplification the sync re-cut terminated on the shared chokepoints. The per-platform schemas remain authoritative for field semantics. It also holds part of the capture timings that the desktop end-to-end suite's doc states, which it owes too.",
+      "governed-by": [
+        "area:desktop-windows/capture",
+        "docs/technical/session-format.md",
+        "docs/test/e2e/desktop.md"
+      ]
     },
     {
       "path": "packages/desktop/src-tauri/src/capture/timing_lines.rs",
@@ -764,8 +768,12 @@
     },
     {
       "path": "packages/desktop/src-tauri/src/capture/worker_pool.rs",
-      "reason": "the desktop worker pool assigns each captured action's ordering and fields as it enters the stream, so it owes the session-format doc on top of its capture-area governance; declared single-source (its governing set stated here as its covering areas' whole doc sets plus that one doc) so the pointer to the format doc does not resolve at area granularity and drag the format-contract area's other docs onto it — the amplification the sync re-cut terminated on the shared chokepoints. The per-platform schemas remain authoritative for field semantics.",
-      "governed-by": ["area:desktop-windows/capture", "docs/technical/session-format.md"]
+      "reason": "the desktop worker pool assigns each captured action's ordering and fields as it enters the stream, so it owes the session-format doc on top of its capture-area governance; declared single-source (its governing set stated here as its covering areas' whole doc sets plus that one doc) so the pointer to the format doc does not resolve at area granularity and drag the format-contract area's other docs onto it — the amplification the sync re-cut terminated on the shared chokepoints. The per-platform schemas remain authoritative for field semantics. It also holds part of the capture timings that the desktop end-to-end suite's doc states, which it owes too.",
+      "governed-by": [
+        "area:desktop-windows/capture",
+        "docs/technical/session-format.md",
+        "docs/test/e2e/desktop.md"
+      ]
     },
     {
       "path": "packages/desktop/src-tauri/src/commands.rs",
@@ -925,12 +933,13 @@
     },
     {
       "path": "packages/desktop/src-tauri/tests/worker_pool_test.rs",
-      "reason": "The worker-pool property and truth-lock binary — sequence numbering, shortest-queue dispatch, sticky and drag-pair routing, and the dead-worker drain rescues, alongside end-to-end action truth-locks over the same pipeline. The Windows capture doctrine's ordering row names its flush-barrier tests among that row's existing guards (DCP-2) and the worker-delivery row names its respawn and shutdown drains among that row's (DCP-12), the redaction row names its cases for a keystroke that names no element (DCP-11), the description row names its preferred-languages case (DCP-15) and the keystroke-element row its cases for the element a keystroke and a value change are recorded on (DCP-16), while the drag-classification row's own unit stays intended and names this binary for the right-button path's downstream half alone (DCP-10); the pipeline document orients on the stages it drives, the retired desktop manual history names it among its replacements, and the suite orientation lists it.",
+      "reason": "The worker-pool property and truth-lock binary — sequence numbering, shortest-queue dispatch, sticky and drag-pair routing, and the dead-worker drain rescues, alongside end-to-end action truth-locks over the same pipeline. The Windows capture doctrine's ordering row names its flush-barrier tests among that row's existing guards (DCP-2) and the worker-delivery row names its respawn and shutdown drains among that row's (DCP-12), the redaction row names its cases for a keystroke that names no element (DCP-11), the description row names its preferred-languages case (DCP-15) and the keystroke-element row its cases for the element a keystroke and a value change are recorded on (DCP-16), while the drag-classification row's own unit stays intended and names this binary for the right-button path's downstream half alone (DCP-10); the pipeline document orients on the stages it drives, the retired desktop manual history names it among its replacements, the desktop end-to-end suite's doc states the capture timings its timing cases hold, and the suite orientation lists it.",
       "governed-by": [
         "docs/architecture/application/desktop/windows/capture-principles.md",
         "docs/architecture/application/desktop/windows/capture-pipeline.md",
         "docs/test/manual/windows.md",
-        "docs/test/desktop-rust.md"
+        "docs/test/desktop-rust.md",
+        "docs/test/e2e/desktop.md"
       ]
     },
     {

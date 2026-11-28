@@ -633,8 +633,7 @@ pub struct WindowsCapture {
     barrier_counter: AtomicU64,
     /// The capture's timings, set at start and written as a block at stop.
     timings: Timings,
-    /// Where the timings' block goes in place of stderr, with the timings on
-    /// whatever the switch says. For tests.
+    /// Where the timings' block goes in place of stderr. For tests.
     timings_sink: Option<Sender<String>>,
 }
 
@@ -659,8 +658,9 @@ impl WindowsCapture {
 }
 
 impl WindowsCapture {
-    /// Turns the capture timings on for the captures this layer starts, and
-    /// sends their blocks to `sink` in place of stderr. For tests.
+    /// Sends the capture timings' blocks of the captures this layer starts
+    /// to `sink` in place of stderr; the switch still turns them on. For
+    /// tests.
     #[doc(hidden)]
     pub fn send_timings_to(&mut self, sink: Sender<String>) {
         self.timings_sink = Some(sink);
@@ -910,10 +910,10 @@ impl CaptureLayer for WindowsCapture {
 
         self.active.store(true, Ordering::SeqCst);
         hook_diagnostics::reset();
-        self.timings = match &self.timings_sink {
-            Some(sink) => Timings::sending_to(true, sink.clone()),
-            None => Timings::from_environment(),
-        };
+        self.timings = Timings::from_environment();
+        if let Some(sink) = &self.timings_sink {
+            self.timings = Timings::sending_to(self.timings.is_on(), sink.clone());
+        }
         let excluded_pid = self.excluded_pid.clone();
 
         // Each worker signals here once it has finished its (possibly cold)

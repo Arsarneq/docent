@@ -7,10 +7,11 @@
 // measured, or [`UNSEEN`] where none was, and for the looks ahead of any key
 // how many ended each way. It holds fixed words and numbers only: what is kept
 // is numbers and the enums below, so no key, character, value, title or
-// element can reach it. Its lines are the same whatever was typed, and a step
-// shows only whether it was measured at all, never how many times or in what
-// order. A key or value change in a password field or in a field that could
-// not be described, and a press of Shift, Ctrl or Alt, are not measured.
+// element can reach it. Every key and value change the typing worker handles
+// is measured, in any field; a press of Shift, Ctrl or Alt is not, since the
+// recording writes nothing for it. So a step's line shows only whether at
+// least one event took that step, never how many nor in what order, which
+// holds for a masked field too.
 
 use std::collections::HashMap;
 use std::sync::{mpsc, Arc, Mutex};
@@ -49,9 +50,11 @@ pub enum Step {
     Settle,
     /// The focused element: the check that the element remembered or marked
     /// is still the focused one, or its description, or the stand-in for
-    /// none.
+    /// none. On the path through the focus a value change's value is read
+    /// inside the description.
     Describe,
-    /// The key named by its layout.
+    /// The key named by its layout, and at a dead key the value of its field
+    /// read from its control.
     Name,
     /// The modifiers read.
     Modifiers,
@@ -61,7 +64,8 @@ pub enum Step {
     Languages,
     /// The held actions: the lock, the flushes and the sends.
     Buffers,
-    /// The value read for a value change.
+    /// The value read from the control for a value change. On the path
+    /// through the focus the value is read inside [`Step::Describe`].
     Value,
     /// The focus count read.
     FocusCount,
@@ -358,9 +362,8 @@ impl Timing {
         }
     }
 
-    /// Leaves the event out of the timings: one in a password field or in a
-    /// field that could not be described, or a press the recording does not
-    /// write.
+    /// Leaves the event out of the timings: a press of Shift, Ctrl or Alt,
+    /// which the recording does not write.
     pub fn leave_out(&mut self) {
         self.0 = None;
     }
