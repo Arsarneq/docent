@@ -286,9 +286,16 @@ const _NON_TEXT_CONTROL_TAGS = new Set([
   'TabItem',
 ]);
 
+// The shortcut modifiers are Meta, Ctrl held without Alt or AltGr, and Alt
+// held without Ctrl or AltGr: AltGr, and Ctrl and Alt held together, enter
+// characters of the layout. `ctrl` and `alt` state only a Ctrl and an Alt the
+// person held beside AltGr (`alt_graph`), so a character entered with AltGr
+// and a held Ctrl or Alt is no shortcut (docent#825). The native layer's
+// typing rule reads the same verdict from the keys as Windows holds them,
+// AltGr counted as Ctrl and Alt together.
 function _keyEntersText(action) {
-  const { ctrl = false, alt = false, meta = false } = action.modifiers || {};
-  if (meta || ctrl !== alt) return false;
+  const { ctrl = false, alt = false, meta = false, alt_graph = false } = action.modifiers || {};
+  if (meta || (!alt_graph && ctrl !== alt)) return false;
   const key = action.key;
   if (typeof key !== 'string' || key === '') return false;
   return !_NON_TEXT_KEY_NAMES.has(key) && !/^F\d+$/.test(key);
