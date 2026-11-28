@@ -70,14 +70,20 @@ fn arb_element() -> impl Strategy<Value = ElementDescription> {
 
 /// Strategy for `Modifiers`.
 fn arb_modifiers() -> impl Strategy<Value = Modifiers> {
-    (any::<bool>(), any::<bool>(), any::<bool>(), any::<bool>()).prop_map(
-        |(ctrl, shift, alt, meta)| Modifiers {
+    (
+        any::<bool>(),
+        any::<bool>(),
+        any::<bool>(),
+        any::<bool>(),
+        any::<bool>(),
+    )
+        .prop_map(|(ctrl, shift, alt, meta, alt_graph)| Modifiers {
             ctrl,
             shift,
             alt,
             meta,
-        },
-    )
+            alt_graph,
+        })
 }
 
 /// Strategy for `CaptureMode`.

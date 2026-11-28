@@ -246,7 +246,7 @@ The extension knows fewer keys to be down than the desktop does (the `key` row).
 | In another recorded frame of the same tab                                              | Ahead of the action's own keys, until its release or the start of a drag, also where a press in a recorded frame moved the focus since    |
 | In a document the focus then left in any other way than by a press in a recorded frame | No                                                                                                                                        |
 
-The modifiers held at an action are exact wherever they were pressed: `modifiers` carries them. The cases where a key held in another frame is missing or a released key is named are departures ECP-12 lists.
+The modifiers held at an action are exact wherever they were pressed, save a Ctrl or an Alt held with AltGr (ECP-12): `modifiers` carries them. The cases where a key held in another frame is missing or a released key is named are departures ECP-12 lists.
 
 ---
 
@@ -396,6 +396,7 @@ machine, including live-capture behaviour at the boundary.
   - the key was released in its frame at about the moment of the action;
   - a press in another frame took the focus, and the browser reported the focus leaving first.
 - A released key can be named in one case: the focus goes to the browser's own interface and comes back by a press in another frame while the page of the frame that held the key, in a process of its own, hangs the whole time and then answers that press in time. A departure (core CP-18, CP-19; [docent#782](https://github.com/Arsarneq/docent/issues/782)).
+- A Ctrl or an Alt held together with AltGr is not written as the person held it: at a key press both are written `false`, and at a pointer action `ctrl` is written `true`, whether or not a Ctrl is held, and an Alt held with AltGr `false`. The desktop writes each as the person held it. The extension writes what the browser reports at the action, and these are what Chrome on Windows reported on the Danish layout. Reported there too: after a left Ctrl is let go with AltGr still held, the next action is written `alt_graph` `true` and `alt` `false`, where the program is given the key as an Alt and the desktop writes `alt` `true`, `alt_graph` `false`. A departure (core CP-19; [docent#862](https://github.com/Arsarneq/docent/issues/862)).
 
 - Back/forward between same-document entries (an SPA's history) is not written: only a back/forward that loads another document writes a `navigate` (ECP-7).
 - Back/forward that moves only an embedded frame's document writes no `navigate`: only a tab's main-frame navigations are written.

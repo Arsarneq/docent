@@ -32,6 +32,7 @@ import {
   PART_ENTRY_INPUT_TYPES,
   keyPressKind,
   isShortcut,
+  modifiersOf,
   isSensitiveElement,
   takesNoTypedText,
   NON_TEXT_TAGS,
@@ -887,6 +888,87 @@ describe('isShortcut', () => {
     assert.equal(isShortcut(held(false, true, false), false), true);
     assert.equal(isShortcut(held(false, true, false), true), false);
   });
+
+  // docent#825: `alt_graph` states AltGr beside the other modifiers; whether a
+  // key is a shortcut is read from Ctrl, Alt and Meta as before.
+  it('regression_825_altgr_held_leaves_the_shortcut_verdict_as_it_was', () => {
+    const either = [false, true];
+    for (const ctrl of either) {
+      for (const alt of either) {
+        for (const meta of either) {
+          for (const altEntersCharacters of either) {
+            const without = held(ctrl, alt, meta);
+            for (const alt_graph of either) {
+              assert.equal(
+                isShortcut({ ...without, alt_graph }, altEntersCharacters),
+                isShortcut(without, altEntersCharacters),
+                JSON.stringify({ without, alt_graph, altEntersCharacters }),
+              );
+            }
+          }
+        }
+      }
+    }
+    // AltGr as the browser reports it at a key press: Ctrl and Alt not held.
+    for (const altEntersCharacters of either) {
+      assert.equal(
+        isShortcut({ ...held(false, false, false), alt_graph: true }, altEntersCharacters),
+        false,
+      );
+    }
+  });
+});
+
+describe('modifiersOf', () => {
+  // docent#825: the modifiers of an action are the event's own, AltGr among
+  // them as the browser reports its state.
+  const event = ({ ctrl = false, shift = false, alt = false, meta = false, altGraph = false }) => {
+    const asked = [];
+    return {
+      asked,
+      ctrlKey: ctrl,
+      shiftKey: shift,
+      altKey: alt,
+      metaKey: meta,
+      getModifierState(name) {
+        asked.push(name);
+        return name === 'AltGraph' ? altGraph : false;
+      },
+    };
+  };
+
+  it('regression_825_alt_graph_is_the_browser_s_altgraph_state', () => {
+    const e = event({ altGraph: true });
+    assert.deepEqual(modifiersOf(e), {
+      ctrl: false,
+      shift: false,
+      alt: false,
+      meta: false,
+      alt_graph: true,
+    });
+    assert.deepEqual(e.asked, ['AltGraph']);
+    assert.equal(modifiersOf(event({})).alt_graph, false);
+  });
+
+  it('regression_825_ctrl_and_alt_are_written_as_the_event_reports_them_beside_alt_graph', () => {
+    // Nothing is taken from or added to what the event reports.
+    const either = [false, true];
+    for (const ctrl of either) {
+      for (const shift of either) {
+        for (const alt of either) {
+          for (const meta of either) {
+            for (const altGraph of either) {
+              assert.deepEqual(
+                modifiersOf(event({ ctrl, shift, alt, meta, altGraph })),
+                { ctrl, shift, alt, meta, alt_graph: altGraph },
+                JSON.stringify({ ctrl, shift, alt, meta, altGraph }),
+              );
+            }
+          }
+        }
+      }
+    }
+  });
 });
 
 describe('isSensitiveElement', () => {
@@ -986,8 +1068,14 @@ describe('takesNoTypedText', () => {
     for (const ctrl of either) {
       for (const alt of either) {
         for (const meta of either) {
-          for (const altEntersCharacters of either) {
-            const modifiers = { ctrl, alt, meta, shift: false };
+          for (const [altEntersCharacters, alt_graph] of [
+            [false, false],
+            [false, true],
+            [true, false],
+            [true, true],
+          ]) {
+            // docent#825: with AltGr held too.
+            const modifiers = { ctrl, alt, meta, shift: false, alt_graph };
             assert.equal(
               keyEntersText({ type: 'key', key: 'a', modifiers }, altEntersCharacters),
               !isShortcut(modifiers, altEntersCharacters),

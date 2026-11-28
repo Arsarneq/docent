@@ -391,7 +391,7 @@ the per-platform meaning.
 
 ### The `key` action
 
-The shortcut modifiers are Meta, Ctrl without Alt, and Alt without Ctrl (Ctrl and Alt held together is AltGr, which enters characters of the layout). On the extension running on a Mac, Alt alone is the Option key, which enters characters, and is no shortcut modifier.
+The shortcut modifiers are Meta, Ctrl held without Alt or AltGr, and Alt held without Ctrl or AltGr (AltGr, and Ctrl and Alt held together, enter characters of the layout). On the extension running on a Mac, Alt alone is the Option key, which enters characters, and is no shortcut modifier.
 
 The first row that fits, from the top, decides what is written for a press:
 
@@ -413,7 +413,7 @@ Some presses are written differently on one platform:
 
 **`key`** names the press as [Key names](#key-names) states, the same on both platforms but for the departures the desktop capture document lists (DCP-13).
 
-**`modifiers`** is `{ctrl, shift, alt, meta}`.
+**`modifiers`** is the modifier keys held, as [Modifiers](#modifiers) states.
 
 **`repeat`** is true on a press the platform's key repeat generated while the key was held down and false on the press itself. Both platforms write it on every `key`; on the desktop a press of a key already down is a repeat.
 
@@ -558,6 +558,28 @@ The desktop names a key from what Windows gives it:
   layout's file is never loaded or run. The desktop capture document lists
   what is written where the list cannot be read, and where the name differs
   from the extension's (DCP-13).
+
+### Modifiers
+
+`modifiers` states the modifier keys held at the action, each `true` when its key was held: `ctrl`, `shift`, `alt`, `meta` and `alt_graph`. It is the same object on every action that carries it, and this rule holds on each of them.
+
+`alt_graph` is `true` when the AltGr key was held and the system held it as AltGr. `ctrl` and `alt` state a Ctrl and an Alt held, as the system holds them, save the Ctrl and the Alt that Windows hands programs for AltGr itself: those are not written as `ctrl` and `alt`. So:
+
+| The person holds                             | `ctrl`  | `alt`   | `alt_graph` |
+| -------------------------------------------- | ------- | ------- | ----------- |
+| AltGr                                        | `false` | `false` | `true`      |
+| Ctrl and AltGr                               | `true`  | `false` | `true`      |
+| Alt and AltGr                                | `false` | `true`  | `true`      |
+| Ctrl and Alt                                 | `true`  | `true`  | `false`     |
+| The right Alt key, on a layout with no AltGr | `false` | `true`  | `false`     |
+
+Ctrl and Alt held without AltGr are written as Ctrl and Alt, also where the layout then enters the character AltGr would: Ctrl and Alt with E give `€` on the Danish layout, as AltGr with E does.
+
+On Windows the right Alt key is AltGr only while the Ctrl that Windows holds for it is down. A key Windows took as AltGr when it was pressed stays AltGr while that holds, also where the layout changes under it. Where that Ctrl has gone up with the key still held (a left Ctrl pressed and let go within AltGr takes it along), the program is given the key as an Alt, and so it is written: `alt` `true`, `alt_graph` `false`. Where AltGr is let go with a Ctrl still held, `ctrl` is written as Windows then holds it.
+
+Both platforms write the same for the same input, save where the browser gives the extension less with AltGr held; the extension capture document states what it then writes, as a departure (ECP-12, [#862](https://github.com/Arsarneq/docent/issues/862)). The desktop capture document states the cases where the desktop cannot know AltGr, or a left Ctrl held with it (DCP-13).
+
+A recording made before `alt_graph` existed carries none, and its `ctrl` and `alt` are not by this rule: for AltGr the desktop wrote both `true`, the same as for Ctrl and Alt held together, and the extension wrote what that departure states.
 
 ### Extension only
 

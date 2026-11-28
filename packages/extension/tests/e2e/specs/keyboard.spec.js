@@ -2433,7 +2433,13 @@ test.describe('Keyboard activation', () => {
 
     const actions = await getPendingActions(serviceWorker);
     expect(summary(actions)).toEqual([['key', 'Space', false, '#btn']]);
-    expect(actions[0].modifiers).toEqual({ ctrl: false, shift: false, alt: false, meta: false });
+    expect(actions[0].modifiers).toEqual({
+      ctrl: false,
+      shift: false,
+      alt: false,
+      meta: false,
+      alt_graph: false,
+    });
     expect(await testPage.evaluate(() => window.activations)).toBe(1);
   });
 

@@ -27,7 +27,8 @@
                 "ctrl": false,
                 "shift": false,
                 "alt": false,
-                "meta": false
+                "meta": false,
+                "alt_graph": false
               },
               "held_keys": [],
               "element": {
@@ -86,7 +87,8 @@
                 "ctrl": false,
                 "shift": false,
                 "alt": false,
-                "meta": false
+                "meta": false,
+                "alt_graph": false
               },
               "held_keys": [],
               "element": {

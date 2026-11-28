@@ -145,7 +145,7 @@ test.describe('Ctrl+Enter on a link', () => {
     expect(key).toMatchObject({
       key: 'Enter',
       repeat: false,
-      modifiers: { ctrl: true, shift: false, alt: false, meta: false },
+      modifiers: { ctrl: true, shift: false, alt: false, meta: false, alt_graph: false },
     });
     expect(key.element.selector).toBe('#link');
     // The click the browser derives from the key is the key's effect.

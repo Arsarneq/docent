@@ -98,8 +98,21 @@ pub struct RawEvent {
     pub process_id: u32,
     /// Virtual key code (keyboard events).
     pub key_code: u32,
-    /// Modifier key state: (ctrl, shift, alt, meta).
+    /// Modifier key state: (ctrl, shift, alt, meta), as the system holds the
+    /// keys: AltGr counted as Ctrl and Alt together, which is how Windows
+    /// hands it to programs and how a layout is asked what a key gives. Every
+    /// verdict on a keystroke reads it (a shortcut or typing, the key's name,
+    /// masking, a key the system takes); an action's `modifiers` is written
+    /// from `ctrl_alt_read` where it was read ([`modifiers_of`]).
     pub modifiers: (bool, bool, bool, bool),
+    /// What the Input_Thread read of the Ctrl and Alt keys at the event, from
+    /// which a worker writes an action's `modifiers` once it knows whether
+    /// the layout read makes the right Alt AltGr
+    /// ([`super::held_keys::CtrlAltRead`],
+    /// [`AccessibilityBackend::layout_alt_gr`]); `None` where the platform
+    /// read nothing of them, and then `modifiers` is written as it is, with
+    /// no AltGr.
+    pub ctrl_alt_read: Option<super::held_keys::CtrlAltRead>,
     /// Wheel delta for scroll events, fed unconverted into [`RawScrollEvent`]
     /// (which states its units and sign); the axis is `callback_params[0]`
     /// (1 = horizontal).
@@ -1641,6 +1654,15 @@ pub trait AccessibilityBackend: Send + 'static {
         0
     }
 
+    /// Whether keyboard layout `layout` (a layout handle, as
+    /// [`super::held_keys::CtrlAltRead::layout`] holds it) makes the right
+    /// Alt AltGr, as the layout's own file states it. `None` where that
+    /// cannot be read (no layout, a platform with no such read, a file that
+    /// is not in the form read).
+    fn layout_alt_gr(&self, _layout: i64) -> Option<bool> {
+        None
+    }
+
     /// What keyboard layout `layout` lists for `accent` and `base` together:
     /// the one character a program enters for a key that gives `base`,
     /// pressed behind a dead key with that accent, or an accent that waits in
@@ -1927,13 +1949,27 @@ fn with_key_values<B: AccessibilityBackend>(raw: &RawEvent, backend: &B) -> Opti
     Some(filled)
 }
 
-/// The modifier keys held at a raw event, as its action states them.
-fn modifiers_of(raw: &RawEvent) -> Modifiers {
+/// The modifier keys held at a raw event, as its action states them: AltGr as
+/// `alt_graph`, and `ctrl` and `alt` only for a Ctrl and an Alt the person
+/// held, where the platform read the Ctrl and Alt keys
+/// (`RawEvent::ctrl_alt_read`); whether the layout read makes the right Alt
+/// AltGr is asked of `backend`.
+fn modifiers_of<B: AccessibilityBackend>(raw: &RawEvent, backend: &B) -> Modifiers {
+    let (ctrl, shift, alt, meta) = raw.modifiers;
+    let held = raw.ctrl_alt_read.map_or(
+        super::held_keys::CtrlAltHeld {
+            ctrl,
+            alt,
+            alt_graph: false,
+        },
+        |read| read.held(backend.layout_alt_gr(read.layout)),
+    );
     Modifiers {
-        ctrl: raw.modifiers.0,
-        shift: raw.modifiers.1,
-        alt: raw.modifiers.2,
-        meta: raw.modifiers.3,
+        ctrl: held.ctrl,
+        shift,
+        alt: held.alt,
+        meta,
+        alt_graph: held.alt_graph,
     }
 }
 
@@ -3865,7 +3901,7 @@ fn handle_click<B: AccessibilityBackend>(
         ActionPayload::RightClick {
             x: screen_x,
             y: screen_y,
-            modifiers: modifiers_of(raw),
+            modifiers: modifiers_of(raw, backend),
             held: held_at(raw, backend, presses),
             element: element_desc.clone(),
         }
@@ -3873,7 +3909,7 @@ fn handle_click<B: AccessibilityBackend>(
         ActionPayload::Click {
             x: screen_x,
             y: screen_y,
-            modifiers: modifiers_of(raw),
+            modifiers: modifiers_of(raw, backend),
             held: held_at(raw, backend, presses),
             element: element_desc.clone(),
         }
@@ -4606,7 +4642,7 @@ fn handle_keyboard<B: AccessibilityBackend>(
             sequence_id: Some(raw.sequence_id),
             payload: ActionPayload::Key {
                 key,
-                modifiers: modifiers_of(raw),
+                modifiers: modifiers_of(raw, backend),
                 code: physical_key_of(raw),
                 input_method: input_method_at(raw),
                 repeat: is_repeat(raw),
@@ -4774,7 +4810,7 @@ fn handle_keyboard<B: AccessibilityBackend>(
         sequence_id: Some(raw.sequence_id),
         payload: ActionPayload::Key {
             key: key.clone(),
-            modifiers: modifiers_of(raw),
+            modifiers: modifiers_of(raw, backend),
             repeat: is_repeat(raw),
             code: physical_key_of(raw),
             input_method: input_method_at(raw),
@@ -4941,7 +4977,7 @@ fn handle_drag_start<B: AccessibilityBackend>(
         preferred_languages: preferred_languages(),
         sequence_id: Some(raw.sequence_id),
         payload: ActionPayload::DragStart {
-            modifiers: modifiers_of(raw),
+            modifiers: modifiers_of(raw, backend),
             held: held_at(raw, backend, presses),
             element,
         },
@@ -4979,7 +5015,7 @@ fn handle_drop<B: AccessibilityBackend>(
         payload: ActionPayload::Drop {
             x: raw.screen_x as f64,
             y: raw.screen_y as f64,
-            modifiers: modifiers_of(raw),
+            modifiers: modifiers_of(raw, backend),
             held: held_at(raw, backend, presses),
             element,
             source_element,
@@ -5120,6 +5156,7 @@ pub fn switch_before_event(
         process_id,
         key_code: 0,
         modifiers: (false, false, false, false),
+        ctrl_alt_read: None,
         scroll_delta: 0.0,
         callback_params: [0, 0, 0, mark],
         key_value: 0,
@@ -5192,6 +5229,7 @@ mod tests {
                     shift: false,
                     alt: false,
                     meta: false,
+                    alt_graph: false,
                 },
                 repeat: false,
                 code: None,
@@ -5451,6 +5489,7 @@ mod tests {
             process_id: 1,
             key_code: 0x41,
             modifiers: (false, false, false, false),
+            ctrl_alt_read: None,
             scroll_delta: 0.0,
             callback_params: [0; 4],
             key_value: 0,
@@ -5647,6 +5686,7 @@ mod tests {
             process_id: 1,
             key_code,
             modifiers: (false, false, false, false),
+            ctrl_alt_read: None,
             scroll_delta: 0.0,
             callback_params: [0; 4],
             key_value: 0,
@@ -5914,6 +5954,10 @@ mod tests {
     const ACUTE: char = '\u{b4}';
 
     impl AccessibilityBackend for ProbeBackend {
+        fn layout_alt_gr(&self, layout: i64) -> Option<bool> {
+            (layout == PROBE_LAYOUT).then_some(true)
+        }
+
         fn key_value(
             &self,
             layout: i64,
@@ -6077,6 +6121,7 @@ mod tests {
             process_id: 1,
             key_code,
             modifiers: (false, false, false, false),
+            ctrl_alt_read: None,
             scroll_delta: 0.0,
             callback_params: [0; 4],
             key_value: 0,
@@ -6102,6 +6147,7 @@ mod tests {
             process_id: 1,
             key_code: 0,
             modifiers: (false, false, false, false),
+            ctrl_alt_read: None,
             scroll_delta: 0.0,
             callback_params: [0; 4],
             key_value: 0,
@@ -6207,6 +6253,71 @@ mod tests {
                 ("Meta".to_string(), false, false, space_held.clone()),
                 ("e".to_string(), true, false, space_held.clone()),
                 ("e".to_string(), true, true, space_held),
+            ]
+        );
+    }
+
+    // Regression: #825 — the desktop wrote AltGr as Ctrl and Alt.
+    // https://github.com/Arsarneq/docent/issues/825
+    #[test]
+    fn regression_825_a_key_states_alt_graph_and_the_ctrl_and_alt_the_person_held() {
+        use crate::capture::held_keys::{CtrlAltRead, PersonLeftCtrl};
+        let (mut pool, rx) = pool_with_probe_backend(false, false);
+        // The keyboard's state at each: the left Ctrl and the right Alt down
+        // (AltGr alone, or a left Ctrl held before AltGr), the left Ctrl and
+        // the left Alt down. On the probe's layout, which has AltGr.
+        let read = |person_left_ctrl, windows_ctrl_for_right_alt, right_alt: bool| CtrlAltRead {
+            ctrl: true,
+            alt: true,
+            left_ctrl: true,
+            right_ctrl: false,
+            left_alt: !right_alt,
+            right_alt,
+            person_left_ctrl: PersonLeftCtrl::Known(person_left_ctrl),
+            windows_ctrl_for_right_alt,
+            layout: PROBE_LAYOUT,
+        };
+        // AltGr with E; a left Ctrl, then AltGr, with E (Windows sends no Ctrl
+        // of its own); Ctrl and Alt with E. Last, a key with nothing read of
+        // the Ctrl and Alt keys: written as the system holds them.
+        let cases = [
+            Some(read(false, true, true)),
+            Some(read(true, false, true)),
+            Some(read(true, false, false)),
+            None,
+        ];
+        for (i, case) in cases.iter().enumerate() {
+            let mut e =
+                layout_key_raw_event(0x45, Some(LayoutAnswer::Char('\u{20ac}')), i as u64 + 1);
+            e.modifiers = (true, false, true, false);
+            e.ctrl_alt_read = *case;
+            pool.dispatch(e);
+        }
+        thread::sleep(Duration::from_millis(100));
+        pool.shutdown_with_timeout(Duration::from_secs(5));
+
+        let stated: Vec<_> = drain_events(&rx)
+            .into_iter()
+            .filter_map(|e| match e.payload {
+                ActionPayload::Key { key, modifiers, .. } => Some((key, modifiers)),
+                _ => None,
+            })
+            .collect();
+        let m = |ctrl, alt, alt_graph| Modifiers {
+            ctrl,
+            shift: false,
+            alt,
+            meta: false,
+            alt_graph,
+        };
+        let euro = "\u{20ac}".to_string();
+        assert_eq!(
+            stated,
+            vec![
+                (euro.clone(), m(false, false, true)),
+                (euro.clone(), m(true, false, true)),
+                (euro.clone(), m(true, true, false)),
+                (euro, m(true, true, false)),
             ]
         );
     }
