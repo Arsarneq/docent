@@ -456,9 +456,9 @@ use std::thread;
 use std::time::Duration;
 
 use docent_desktop_lib::capture::worker_pool::{
-    dispatch_introducing, focus_names_a_part, key_number_param, worker_loop, AccessibilityBackend,
-    ContextIntroductions, ContextsIntroducedAt, ControlLook, ControlNature, PartFocusNote,
-    PendingBuffers, FOCUS_EPOCH_PERSON_STEP,
+    dispatch_introducing, focus_names_a_part, key_number_param, worker_loop,
+    worker_loop_with_timings, AccessibilityBackend, ContextIntroductions, ContextsIntroducedAt,
+    ControlLook, ControlNature, PartFocusNote, PendingBuffers, FOCUS_EPOCH_PERSON_STEP,
 };
 use docent_desktop_lib::capture::{
     ActionPayload, CaptureError, CaptureMode, ElementDescription, Modifiers,
@@ -606,6 +606,17 @@ struct WorkerTestHarness {
 
 impl WorkerTestHarness {
     fn new(backend: impl AccessibilityBackend) -> Self {
+        Self::timed(
+            backend,
+            docent_desktop_lib::capture::timing_lines::Timings::off(),
+        )
+    }
+
+    /// A worker whose timings are kept in `timings`.
+    fn timed(
+        backend: impl AccessibilityBackend,
+        timings: docent_desktop_lib::capture::timing_lines::Timings,
+    ) -> Self {
         let (event_tx, event_rx) = mpsc::channel::<WorkerMessage>();
         let (action_tx, action_rx) = mpsc::channel::<ActionEvent>();
         let queue_len = Arc::new(AtomicU64::new(0));
@@ -617,7 +628,7 @@ impl WorkerTestHarness {
         let pending = Arc::new(Mutex::new(PendingBuffers::default()));
         let worker_pending = Arc::clone(&pending);
         let thread = thread::spawn(move || {
-            worker_loop(
+            worker_loop_with_timings(
                 0,
                 backend,
                 event_rx,
@@ -626,6 +637,7 @@ impl WorkerTestHarness {
                 ep,
                 worker_pending,
                 None,
+                timings,
             );
         });
 
@@ -10540,13 +10552,13 @@ fn a_value_reported_again_while_only_a_dead_key_waits_is_no_second_type() {
 }
 
 // ---------------------------------------------------------------------------
-// Timing lines (the capture timings switch)
+// Capture timings (the switch that keeps the longest durations)
 // ---------------------------------------------------------------------------
 
-/// The words a timing line may hold beside numbers, written out here as the
-/// oracle the lines are held to.
+/// The words a block of capture timings may hold beside numbers and the
+/// placeholder, written out here as the oracle the block is held to.
 const TIMING_WORDS: &[&str] = &[
-    "capture-timing",
+    "capture-timings",
     "key",
     "value-change",
     "look-ahead",
@@ -10559,18 +10571,28 @@ const TIMING_WORDS: &[&str] = &[
     "dead-key-value",
     "modifiers",
     "held",
+    "languages",
+    "buffers",
     "value",
+    "focus-count",
+    "focused-control",
+    "root",
+    "process",
     "answer",
+    "title",
+    "total",
+    "described",
     "skipped",
     "no-focus-count",
     "no-focused-control",
     "known",
     "own-process",
     "no-answer",
+    "gone",
 ];
 
-/// Whether a token is a duration or a running number: digits, and at most
-/// one dot between digits.
+/// Whether a token is a duration or a count: digits, and at most one dot
+/// between digits.
 fn is_number_token(token: &str) -> bool {
     let mut parts = token.split('.');
     let whole = parts.next().unwrap_or("");
@@ -10581,126 +10603,158 @@ fn is_number_token(token: &str) -> bool {
         && tenths.is_none_or(|t| !t.is_empty() && t.chars().all(|c| c.is_ascii_digit()))
 }
 
-/// Holds `line` to the closed alphabet: its first word the line's label, its
-/// second the subject, its third the running number, and every other token
-/// a fixed word or a number, separated by single spaces.
-fn assert_timing_line_closed(line: &str) {
-    let tokens: Vec<&str> = line.split(' ').collect();
-    assert_eq!(tokens.first(), Some(&"capture-timing"), "{line:?}");
-    assert!(
-        matches!(
-            tokens.get(1),
-            Some(&"key") | Some(&"value-change") | Some(&"look-ahead")
-        ),
-        "{line:?}"
-    );
-    assert!(
-        tokens.get(2).is_some_and(|t| is_number_token(t)),
-        "{line:?}"
-    );
-    for token in &tokens {
-        assert!(
-            TIMING_WORDS.contains(token) || is_number_token(token),
-            "token {token:?} of {line:?} is no fixed word and no number"
-        );
-    }
-}
-
-/// Serialises the tests that turn the process-wide timing switch on, so a
-/// test that holds it off sees no line another test asked for.
-static TIMING_SWITCH: Mutex<()> = Mutex::new(());
-
-/// Runs `drive` with the timing switch set to `on` and the lines sent to a
-/// channel; returns the lines written.
-fn timing_lines_with(on: bool, drive: impl FnOnce()) -> Vec<String> {
-    use docent_desktop_lib::capture::timing_lines as timings;
-    let (tx, rx) = mpsc::channel();
-    timings::send_lines_to(Some(tx));
-    timings::set_switch(on);
-    drive();
-    timings::set_switch(false);
-    timings::send_lines_to(None);
-    rx.try_iter().collect()
-}
-
-/// Every line the formatter can make, from each subject, each step and each
-/// reason a look ahead is skipped, holds only fixed words and numbers.
-#[test]
-fn a_timing_line_holds_only_fixed_words_and_numbers() {
-    use docent_desktop_lib::capture::timing_lines::{format_line, Line, Skipped, Step, Subject};
-    let steps = [
-        Step::Queue,
-        Step::Window,
-        Step::Settle,
-        Step::Confirm,
-        Step::Describe,
-        Step::Name,
-        Step::DeadKeyValue,
-        Step::Modifiers,
-        Step::Held,
-        Step::Value,
-        Step::Answer,
-    ];
-    let durations = [
-        Duration::ZERO,
-        Duration::from_micros(49),
-        Duration::from_micros(18_250),
-        Duration::from_secs(3_600),
-    ];
-    let skipped = [
-        None,
-        Some(Skipped::NoFocusCount),
-        Some(Skipped::NoFocusedControl),
-        Some(Skipped::Known),
-        Some(Skipped::OwnProcess),
-        Some(Skipped::NoAnswer),
-    ];
-    for subject in [Subject::Key, Subject::ValueChange, Subject::LookAhead] {
-        for (i, skip) in skipped.iter().enumerate() {
-            let line = Line {
-                subject,
-                number: u64::MAX - i as u64,
-                steps: steps
-                    .iter()
-                    .zip(durations.iter().cycle())
-                    .map(|(step, d)| (*step, *d))
-                    .collect(),
-                skipped: *skip,
-            };
-            assert_timing_line_closed(&format_line(&line));
+/// Holds `block` to the closed alphabet: every line starts with the block's
+/// label, and every token is a fixed word, a number or the placeholder `-`,
+/// separated by single spaces.
+fn assert_block_closed(block: &str) {
+    for line in block.lines() {
+        assert!(line.starts_with("capture-timings "), "{line:?}");
+        for token in line.split(' ') {
+            assert!(
+                TIMING_WORDS.contains(&token) || is_number_token(token) || token == "-",
+                "token {token:?} of {line:?} is no fixed word, no number and no placeholder"
+            );
         }
     }
-    // Each fixed word of a step and a reason is in the line it names.
-    let line = format_line(&Line {
-        subject: Subject::LookAhead,
-        number: 7,
-        steps: vec![(Step::Answer, Duration::from_micros(51_400))],
-        skipped: Some(Skipped::NoAnswer),
-    });
-    assert_eq!(
-        line,
-        "capture-timing look-ahead 7 answer 51.4 skipped no-answer"
-    );
 }
 
-/// With the switch on, the lines written for keys and value changes in a
-/// password field and in an edit field holding distinctive text hold only
-/// fixed words and numbers: no key, no character, no value, no element.
+/// `block` with every number made `0`: what is left is its shape.
+fn shape_of(block: &str) -> String {
+    block
+        .lines()
+        .map(|line| {
+            line.split(' ')
+                .map(|t| if is_number_token(t) { "0" } else { t })
+                .collect::<Vec<_>>()
+                .join(" ")
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// `block` with every number and placeholder left out: its labels.
+fn labels_of(block: &str) -> String {
+    block
+        .lines()
+        .map(|line| {
+            line.split(' ')
+                .filter(|t| !is_number_token(t) && *t != "-")
+                .collect::<Vec<_>>()
+                .join(" ")
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// Runs a typing worker on `backend` with timings kept as `on` says and
+/// written to a channel, has `drive` send it messages, and stops it. Returns
+/// what was written while the worker ran, and what was written when the
+/// capture stopped.
+fn timed_capture(
+    on: bool,
+    backend: impl AccessibilityBackend,
+    drive: impl FnOnce(&WorkerTestHarness),
+) -> (Vec<String>, Vec<String>, Vec<ActionEvent>) {
+    use docent_desktop_lib::capture::timing_lines::Timings;
+    let (tx, rx) = mpsc::channel();
+    let timings = Timings::sending_to(on, tx);
+    let harness = WorkerTestHarness::timed(backend, timings.clone());
+    drive(&harness);
+    thread::sleep(Duration::from_millis(300));
+    let actions = harness.shutdown();
+    let while_running = rx.try_iter().collect();
+    timings.write_block();
+    (while_running, rx.try_iter().collect(), actions)
+}
+
+/// Types `characters` characters into a password field, each behind a Shift
+/// press where `shifted`, then Enter; returns the one block written when the
+/// capture stopped.
+fn password_block(characters: u64, shifted: bool) -> String {
+    let gate = closed_gate();
+    open_gate(&gate);
+    let (_, mut at_stop, _) = timed_capture(true, TypingBackend::password(&gate), |harness| {
+        harness.event_tx.send(WorkerMessage::LookAtFocus).unwrap();
+        let t = now_ms();
+        let mut seq = 0;
+        for i in 0..characters {
+            if shifted {
+                seq += 1;
+                harness.send_event(layout_key(seq, t + seq, 0x10)); // Shift
+            }
+            seq += 1;
+            let mut key = layout_key(seq, t + seq, 0x41 + i as u32);
+            if shifted {
+                key.modifiers = (false, true, false, false);
+            }
+            harness.send_event(key);
+            seq += 1;
+            harness.send_event(value_change(seq, t + seq, 1234));
+        }
+        seq += 1;
+        harness.send_event(layout_key(seq, t + seq, 0x0D)); // Enter
+    });
+    assert_eq!(at_stop.len(), 1, "one block at the stop, got {at_stop:?}");
+    at_stop.remove(0)
+}
+
+/// With the switch on nothing is written while the capture runs, and one
+/// block is written when it stops.
 #[test]
-fn timing_lines_of_keys_and_value_changes_carry_no_text() {
-    let _serial = TIMING_SWITCH.lock().unwrap_or_else(|e| e.into_inner());
+fn with_the_timing_switch_on_one_block_is_written_when_the_capture_stops() {
+    let gate = closed_gate();
+    open_gate(&gate);
+    let (while_running, at_stop, _) =
+        timed_capture(true, TypingBackend::edit(&gate, "ab"), |harness| {
+            harness.event_tx.send(WorkerMessage::LookAtFocus).unwrap();
+            let t = now_ms();
+            harness.send_event(layout_key(1, t, 0x41));
+            harness.send_event(layout_key(2, t + 1, 0x42));
+            harness.send_event(value_change(3, t + 5, 1234));
+            harness.send_event(layout_key(4, t + 6, 0x0D)); // Enter
+        });
+    assert_eq!(
+        while_running,
+        Vec::<String>::new(),
+        "nothing is written while the capture runs"
+    );
+    assert_eq!(at_stop.len(), 1, "one block at the stop, got {at_stop:?}");
+}
+
+/// Typing a different number of characters into a password field, with or
+/// without Shift, gives blocks of one shape: the block shows no count of what
+/// was typed.
+#[test]
+fn the_timing_block_has_one_shape_whatever_was_typed_into_a_password_field() {
+    let shapes = [
+        shape_of(&password_block(1, false)),
+        shape_of(&password_block(4, false)),
+        shape_of(&password_block(1, true)),
+        shape_of(&password_block(4, true)),
+    ];
+    for shape in &shapes[1..] {
+        assert_eq!(shape, &shapes[0]);
+    }
+}
+
+/// The block holds only fixed words, numbers and the placeholder, whatever
+/// was typed and wherever, and its labels are the same with nothing typed: no
+/// key, no character, no value, no element reaches it.
+#[test]
+fn a_timing_block_holds_only_fixed_words_numbers_and_the_placeholder() {
     const SECRET: &str = "Hunter2Secret";
-    let mut lines = Vec::new();
-    for password in [true, false] {
-        lines.extend(timing_lines_with(true, || {
-            let gate = closed_gate();
-            open_gate(&gate);
-            let backend = if password {
-                TypingBackend::password(&gate)
-            } else {
-                TypingBackend::edit(&gate, SECRET)
-            };
-            let harness = WorkerTestHarness::new(backend);
+    let mut blocks = Vec::new();
+    for backend in ["password", "edit", "none"] {
+        let gate = closed_gate();
+        open_gate(&gate);
+        let typing = match backend {
+            "password" => TypingBackend::password(&gate),
+            _ => TypingBackend::edit(&gate, SECRET),
+        };
+        let (_, at_stop, _) = timed_capture(true, typing, |harness| {
+            if backend == "none" {
+                return;
+            }
             harness.event_tx.send(WorkerMessage::LookAtFocus).unwrap();
             let t = now_ms();
             for (i, c) in "HUNTER".chars().enumerate() {
@@ -10708,70 +10762,98 @@ fn timing_lines_of_keys_and_value_changes_carry_no_text() {
             }
             harness.send_event(value_change(20, t + 10, 1234));
             harness.send_event(layout_key(21, t + 11, 0x0D)); // Enter
-            thread::sleep(Duration::from_millis(300));
-            let _ = harness.shutdown();
-        }));
+        });
+        assert_eq!(at_stop.len(), 1, "one block at the stop, got {at_stop:?}");
+        blocks.push(at_stop[0].clone());
     }
-    for subject in ["key", "value-change", "look-ahead"] {
-        assert!(
-            lines.iter().any(|l| l.split(' ').nth(1) == Some(subject)),
-            "a {subject} line is written, got {lines:?}"
-        );
-    }
-    for line in &lines {
-        assert_timing_line_closed(line);
+    for block in &blocks {
+        assert_block_closed(block);
         for text in [
             SECRET, "HUNTER", "Hunter", "Field", "Edit", "Enter", "\u{2022}",
         ] {
-            assert!(!line.contains(text), "{line:?} holds {text:?}");
+            assert!(!block.contains(text), "{block:?} holds {text:?}");
         }
+        assert_eq!(labels_of(block), labels_of(&blocks[2]), "{block:?}");
     }
+    assert!(
+        blocks[1]
+            .lines()
+            .any(|l| l.starts_with("capture-timings key total ") && !l.ends_with(" - -")),
+        "the keys typed are timed: {:?}",
+        blocks[1]
+    );
 }
 
 /// With the switch off nothing is written, and the actions are the same as
-/// with it on: the lines read the worker's steps and change none of them.
+/// with it on: the timings read the worker's steps and change none of them.
 /// `described_after_ms` is measured afresh in each run, so it is left out of
 /// the comparison.
 #[test]
 fn with_the_timing_switch_off_nothing_is_written_and_the_actions_are_the_same() {
-    let _serial = TIMING_SWITCH.lock().unwrap_or_else(|e| e.into_inner());
     let run = |on: bool| {
-        let mut actions = Vec::new();
-        let lines = timing_lines_with(on, || {
-            let gate = closed_gate();
-            open_gate(&gate);
-            let harness = WorkerTestHarness::new(TypingBackend::edit(&gate, "ab"));
-            harness.event_tx.send(WorkerMessage::LookAtFocus).unwrap();
-            let t = 1_000_000;
-            harness.send_event(layout_key(1, t, 0x41));
-            harness.send_event(layout_key(2, t + 1, 0x42));
-            harness.send_event(value_change(3, t + 5, 1234));
-            harness.send_event(layout_key(4, t + 6, 0x0D)); // Enter
-            thread::sleep(Duration::from_millis(300));
-            actions = harness
-                .shutdown()
-                .iter()
-                .map(|a| {
-                    let mut written = serde_json::to_value(a).unwrap();
-                    if let Some(element) = written.get_mut("element") {
-                        element["described_after_ms"] = serde_json::Value::Null;
-                    }
-                    written
-                })
-                .collect::<Vec<_>>();
-        });
-        (lines, actions)
+        let gate = closed_gate();
+        open_gate(&gate);
+        let (while_running, at_stop, actions) =
+            timed_capture(on, TypingBackend::edit(&gate, "ab"), |harness| {
+                harness.event_tx.send(WorkerMessage::LookAtFocus).unwrap();
+                let t = 1_000_000;
+                harness.send_event(layout_key(1, t, 0x41));
+                harness.send_event(layout_key(2, t + 1, 0x42));
+                harness.send_event(value_change(3, t + 5, 1234));
+                harness.send_event(layout_key(4, t + 6, 0x0D)); // Enter
+            });
+        let actions = actions
+            .iter()
+            .map(|a| {
+                let mut written = serde_json::to_value(a).unwrap();
+                if let Some(element) = written.get_mut("element") {
+                    element["described_after_ms"] = serde_json::Value::Null;
+                }
+                written
+            })
+            .collect::<Vec<_>>();
+        let written: Vec<String> = while_running.into_iter().chain(at_stop).collect();
+        (written, actions)
     };
-    let (off_lines, off_actions) = run(false);
-    let (on_lines, on_actions) = run(true);
+    let (off_written, off_actions) = run(false);
+    let (on_written, on_actions) = run(true);
     assert_eq!(
-        off_lines,
+        off_written,
         Vec::<String>::new(),
-        "with the switch off no line is written"
+        "with the switch off nothing is written"
     );
-    assert!(!on_lines.is_empty(), "with the switch on lines are written");
+    assert!(
+        !on_written.is_empty(),
+        "with the switch on a block is written"
+    );
     assert_eq!(
         on_actions, off_actions,
         "the actions do not depend on the switch"
+    );
+}
+
+/// A look ahead at a control that is gone by the time it is described counts
+/// under `gone`, not as a control described.
+#[test]
+fn a_look_ahead_at_a_gone_control_counts_under_gone() {
+    let (backend, _scene, _queries, _controls) = MovingFocusBackend::with_controls(
+        save_button_focused(),
+        Controls {
+            focused: 999,
+            ..field_controls("c")
+        },
+    );
+    let (_, at_stop, _) = timed_capture(true, backend, |harness| {
+        harness.event_tx.send(WorkerMessage::LookAtFocus).unwrap();
+    });
+    assert_eq!(at_stop.len(), 1, "one block at the stop, got {at_stop:?}");
+    let lines: Vec<&str> = at_stop[0].lines().collect();
+    assert!(
+        lines.contains(&"capture-timings look-ahead skipped gone 1"),
+        "{lines:?}"
+    );
+    assert!(
+        lines.contains(&"capture-timings look-ahead described 0"),
+        "{lines:?}"
     );
 }
