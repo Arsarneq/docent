@@ -160,7 +160,13 @@
       "doc": "docs/architecture/system/capture-principles.md",
       "clause": "CP-19",
       "tag": "judgment-only",
-      "justification": "Judgment at review: whether a change to what one platform records leaves the other platform recording the same input differently reads both platforms' capture paths side by side, and whether a remaining difference comes from the platforms themselves (an input one platform's events never deliver, a fact no interface of the platform lets the layer read at any moment from the input until its action is written, with the missing interface and what was tried named, a quantity that is each platform's own) or is a departure is a reading no check decides. The platforms' capture documents and the session-format rows state the departures, each beside its issue, and the review reads a change against them: a difference they do not state is a new departure."
+      "justification": "Judgment at review: whether a change to what one platform records leaves the other platform recording the same input differently reads both platforms' capture paths side by side, and whether a remaining difference comes from the platforms themselves (an input one platform's events never deliver, a fact no interface open to the layer under CP-20 lets it read at any moment from the input until its action is written, with the missing interface and what was tried named, a quantity that is each platform's own) or is a departure is a reading no check decides. The platforms' capture documents and the session-format rows state the departures, each beside its issue, and the review reads a change against them: a difference they do not state is a new departure."
+    },
+    {
+      "doc": "docs/architecture/system/capture-principles.md",
+      "clause": "CP-20",
+      "tag": "check-exists",
+      "check-ref": "The desktop half is pinned by packages/desktop/src-tauri/tests/passive_observer_test.rs, which reads every Rust source file of the desktop application and fails on a call that loads code into another process, starts a thread in one or writes into one's memory, and on a Windows hook of any kind but the two low-level ones, which run in Docent's own process. The extension half is the browser's own: an extension's scripts run where the manifest places them, and packages/extension/manifest.json is read at review."
     },
     {
       "doc": "docs/technical/locator-resolution.md",

@@ -286,7 +286,7 @@
         },
         "input_method_open": {
           "type": "boolean",
-          "description": "Whether an input method (the system's own entry of composed text, as for Japanese, Chinese or Korean) was on for the control that held the keyboard focus, as read at the press, before the key took effect. Absent where the capture layer did not read it; the session-format document states which do, and when."
+          "description": "Whether an input method (the system's own entry of composed text, as for Japanese, Chinese or Korean) was on for the control that held the keyboard focus, as read at the press, before the key took effect. Where it is true the desktop writes `key` as `Unidentified`: it cannot read whether the input method took the key. Absent where the capture layer did not read it; the session-format document states which do, and when."
         },
         "input_method_conversion_mode": {
           "type": "integer",

@@ -437,7 +437,9 @@ Some presses are written differently on one platform:
 
 The five highest bits, the four Windows reserves among them, are not written.
 
-An input method that is on can take a key press for a text it composes, and the desktop cannot observe whether it did ([docent#237](https://github.com/Arsarneq/docent/issues/237) holds the measurement); the two fields say only that one was on and in which mode. The conversion mode is written only beside the open status. Both are absent:
+An input method that is on can take a key press for a text it composes. Only code inside the program is told whether it did, and the desktop runs none there (core CP-20; the desktop capture document's DCP-13 holds the measurements). So a press at which the desktop read an input method as on (`input_method_open` true) is written with `key` `Unidentified`, whatever the key, Enter, Tab, an arrow or a shortcut among them: nothing says whether the program got the key or the input method took it. Its `code` still names the physical key.
+
+Where the state was not read the key keeps its name, and nothing says that no input method was on. The conversion mode is written only beside the open status. Both are absent:
 
 - where the focused control had no input-method window;
 - where that window gave no answer within `min(20 ms, hook timeout / 8)` (the system's low-level hook timeout, in whole ms; under 8 ms that is 0 and nothing is read; DCP-19), or refused the read (as Windows lets a program running with higher rights refuse a message);
@@ -473,6 +475,8 @@ UI Events `key` values. `held_keys` names a key the same way.
 | A dead key                                             | `Dead`                                            |
 | The key pressed behind a dead key                      | The one character the two make: `é`, not `e`      |
 | A key the rows above give no name                      | `Unidentified`                                    |
+
+On the desktop a key pressed while an input method was read as on is `Unidentified` whatever the rows give it ([The `key` action](#the-key-action) states why).
 
 A key that gives no character with the modifiers held (Ctrl with A) is named
 by trying, in order:
