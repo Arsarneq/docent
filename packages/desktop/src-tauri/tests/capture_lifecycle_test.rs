@@ -223,3 +223,33 @@ fn rapid_restart_cycles_are_bounded_and_consistent() {
         );
     }
 }
+
+/// With the capture timings on, a capture writes nothing while it runs and
+/// one block when it stops, once its worker pool has shut down; a stop of a
+/// capture already stopped writes none.
+#[test]
+#[serial]
+fn a_capture_with_timings_writes_one_block_when_it_stops() {
+    let (tx, _rx) = channel();
+    let (blocks_tx, blocks) = mpsc::channel::<String>();
+    let mut capture = WindowsCapture::new();
+    capture.send_timings_to(blocks_tx);
+
+    capture.start(tx).expect("start should succeed");
+    std::thread::sleep(Duration::from_millis(200));
+    assert_eq!(
+        blocks.try_iter().count(),
+        0,
+        "nothing is written while the capture runs"
+    );
+    capture.stop().expect("stop should succeed");
+    let written: Vec<String> = blocks.try_iter().collect();
+    assert_eq!(written.len(), 1, "one block at the stop, got {written:?}");
+    assert!(
+        written[0].starts_with("capture-timings "),
+        "{:?}",
+        written[0]
+    );
+    capture.stop().expect("a second stop is a no-op");
+    assert_eq!(blocks.try_iter().count(), 0, "a second stop writes none");
+}
