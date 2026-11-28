@@ -4650,3 +4650,366 @@ mod generic_modifier_codes {
         );
     }
 }
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// THE FIRST READS OF A FRESHLY STARTED PROGRAM (a measurement)
+// How long the first UI Automation reads of a freshly started Notepad take, in
+// a process that has made no UI Automation call before them: creating the
+// client, the description of the focused control the worker makes, the value
+// read beside it, and the control's window text read by its handle. Then the
+// same against a second fresh Notepad, with the client warm. The measurement
+// runs in a process of its own, this test binary started again, so no other
+// test has made a UI Automation call in it; that process writes to the job's
+// own output, so the numbers show on a passing run. Timings only are printed.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+mod first_reads_of_a_fresh_program {
+    use super::*;
+    use docent_desktop_lib::capture::win32_bindings::{
+        CUIAutomation, CoCreateInstance, CoInitializeEx, CoUninitialize, EnumWindows,
+        GetForegroundWindow, GetGUIThreadInfo, GetWindowThreadProcessId, IUIAutomation,
+        IsWindowVisible, PostMessageW, SendInput, SendMessageTimeoutW, SetForegroundWindow,
+        CLSCTX_ALL, COINIT_MULTITHREADED, GUITHREADINFO, INPUT, INPUT_0, INPUT_KEYBOARD,
+        KEYBDINPUT, KEYEVENTF_KEYUP, LPARAM, SMTO_ABORTIFHUNG, WM_CLOSE, WM_GETTEXT,
+        WM_GETTEXTLENGTH, WPARAM,
+    };
+    use docent_desktop_lib::capture::windows::WindowsAccessibilityBackend;
+    use docent_desktop_lib::capture::worker_pool::{AccessibilityBackend, ControlLook};
+    use std::process::{Command, Stdio};
+
+    /// Set in the environment of the process the measurement runs in.
+    const MEASURING: &str = "DOCENT_MEASURE_FIRST_READS";
+    /// The measurement's own test, as the test binary names it.
+    const MEASUREMENT: &str = "first_reads_of_a_fresh_program::measured_in_a_process_of_its_own";
+    /// How long a window text read may wait for the program.
+    const TEXT_READ_TIMEOUT_MS: u32 = 5_000;
+
+    /// Milliseconds from `from` to `to`, to a tenth.
+    fn ms(from: Instant, to: Instant) -> String {
+        format!(
+            "{:.1}",
+            to.saturating_duration_since(from).as_secs_f64() * 1000.0
+        )
+    }
+
+    /// The first visible top-level window of process `pid`, waited for up to
+    /// `timeout`.
+    fn window_of(pid: u32, timeout: Duration) -> Option<HWND> {
+        unsafe extern "system" fn each(hwnd: HWND, param: LPARAM) -> windows_core::BOOL {
+            // SAFETY: `param` points at the search below for the whole call.
+            let search = unsafe { &mut *(param.0 as *mut (u32, HWND)) };
+            let mut owner = 0u32;
+            // SAFETY: reads of a window handle the system hands the callback.
+            unsafe {
+                GetWindowThreadProcessId(hwnd, Some(&mut owner));
+                if owner == search.0 && IsWindowVisible(hwnd).as_bool() {
+                    search.1 = hwnd;
+                    return false.into();
+                }
+            }
+            true.into()
+        }
+        let start = Instant::now();
+        while start.elapsed() < timeout {
+            let mut search = (pid, HWND::default());
+            // SAFETY: the callback reads `search` only during the call.
+            unsafe {
+                let _ = EnumWindows(Some(each), LPARAM(&mut search as *mut _ as isize));
+            }
+            if !search.1 .0.is_null() {
+                return Some(search.1);
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+        None
+    }
+
+    /// Brings `hwnd` to the front: a press of an unassigned key first, which
+    /// lets this process set the foreground, then `SetForegroundWindow`.
+    /// Whether it is in front within two seconds.
+    fn bring_to_front(hwnd: HWND) -> bool {
+        let key = |up: bool| INPUT {
+            r#type: INPUT_KEYBOARD as u32,
+            Anonymous: INPUT_0 {
+                ki: KEYBDINPUT {
+                    wVk: 0x88,
+                    wScan: 0,
+                    dwFlags: if up { KEYEVENTF_KEYUP as u32 } else { 0 },
+                    time: 0,
+                    dwExtraInfo: 0,
+                },
+            },
+        };
+        let start = Instant::now();
+        // SAFETY: two well-formed keyboard inputs; a window handle the system
+        // gave.
+        unsafe {
+            let _ = SendInput(
+                &[key(false), key(true)],
+                std::mem::size_of::<INPUT>() as i32,
+            );
+            let _ = SetForegroundWindow(hwnd);
+            while start.elapsed() < Duration::from_secs(2) {
+                if GetForegroundWindow() == hwnd {
+                    return true;
+                }
+                thread::sleep(Duration::from_millis(10));
+            }
+        }
+        false
+    }
+
+    /// The control that holds the keyboard focus in `hwnd`'s thread, by the
+    /// window system's own record, waited for up to two seconds.
+    fn focused_control_of(hwnd: HWND) -> i64 {
+        let start = Instant::now();
+        while start.elapsed() < Duration::from_secs(2) {
+            let mut info = GUITHREADINFO {
+                cbSize: std::mem::size_of::<GUITHREADINFO>() as u32,
+                ..Default::default()
+            };
+            // SAFETY: a read into a struct of its declared size.
+            let control = unsafe {
+                if GetGUIThreadInfo(GetWindowThreadProcessId(hwnd, None), &mut info).as_bool() {
+                    info.hwndFocus.0 as i64
+                } else {
+                    0
+                }
+            };
+            if control != 0 {
+                return control;
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+        0
+    }
+
+    /// A UI Automation client created on a thread of its own: how long the
+    /// creation took, and whether it was created.
+    fn create_client() -> (String, bool) {
+        thread::spawn(|| {
+            // SAFETY: COM set up, used and taken down on this thread.
+            unsafe {
+                let _ = CoInitializeEx(None, COINIT_MULTITHREADED as u32);
+                let start = Instant::now();
+                let client =
+                    CoCreateInstance::<_, IUIAutomation>(&CUIAutomation, None, CLSCTX_ALL as u32);
+                let took = ms(start, Instant::now());
+                let created = client.is_ok();
+                drop(client);
+                CoUninitialize();
+                (took, created)
+            }
+        })
+        .join()
+        .unwrap()
+    }
+
+    /// One round against a freshly started Notepad; its lines of the table.
+    fn round(name: &str) -> Vec<String> {
+        let mut lines = vec![format!("{name}:")];
+        let spawned = Instant::now();
+        let mut notepad = Command::new("notepad.exe")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("Notepad starts");
+        let window = window_of(notepad.id(), Duration::from_secs(15));
+        let Some(window) = window else {
+            let _ = notepad.kill();
+            panic!("{name}: no window of the Notepad started within 15 s");
+        };
+        lines.push(format!(
+            "  notepad window after start: {}",
+            ms(spawned, Instant::now())
+        ));
+        lines.push(format!("  notepad in front: {}", bring_to_front(window)));
+        let control = focused_control_of(window);
+        lines.push(format!("  focused control found: {}", control != 0));
+
+        let (create, created) = create_client();
+        lines.push(format!(
+            "  (a) creating the client: {create} (created: {created})"
+        ));
+
+        // The worker: its backend, then the same description twice. It says
+        // when the first one starts.
+        let (started_tx, started_rx) = mpsc::channel::<()>();
+        let describer = thread::spawn(move || {
+            let mut backend = WindowsAccessibilityBackend::new();
+            let init_start = Instant::now();
+            let init_ok = backend.init().is_ok();
+            let init = ms(init_start, Instant::now());
+            let first_start = Instant::now();
+            let _ = started_tx.send(());
+            let first = backend.describe_control(control);
+            let first_end = Instant::now();
+            let second = backend.describe_control(control);
+            let second_end = Instant::now();
+            backend.cleanup();
+            let kind = |look: &ControlLook| match look {
+                ControlLook::Own(_) => "own",
+                ControlLook::Shared => "shared",
+                ControlLook::Gone => "gone",
+            };
+            (
+                init,
+                init_ok,
+                first_start,
+                first_end,
+                kind(&first),
+                second_end,
+                kind(&second),
+            )
+        });
+
+        // The value reader: a client of its own, made ready before the
+        // description starts, then the worker's value read of the control.
+        let (go_value_tx, go_value_rx) = mpsc::channel::<()>();
+        let (value_ready_tx, value_ready_rx) = mpsc::channel::<(String, bool)>();
+        let value_reader = thread::spawn(move || {
+            let mut backend = WindowsAccessibilityBackend::new();
+            let init_start = Instant::now();
+            let init_ok = backend.init().is_ok();
+            let _ = value_ready_tx.send((ms(init_start, Instant::now()), init_ok));
+            let _ = go_value_rx.recv();
+            let start = Instant::now();
+            let value = backend.control_value(control);
+            let end = Instant::now();
+            backend.cleanup();
+            (start, end, value.is_some())
+        });
+        let (value_init, value_init_ok) = value_ready_rx.recv().unwrap();
+
+        // The window text reader: the control's text by its handle.
+        let (go_text_tx, go_text_rx) = mpsc::channel::<()>();
+        let text_reader = thread::spawn(move || {
+            let _ = go_text_rx.recv();
+            let hwnd = HWND(control as *mut _);
+            let start = Instant::now();
+            let mut length = 0usize;
+            // SAFETY: bounded sends to a window handle; the buffer is as long
+            // as the length asked for, and its contents are not looked at.
+            let (length_answered, length_end, text_answered, text_end) = unsafe {
+                let answered = SendMessageTimeoutW(
+                    hwnd,
+                    WM_GETTEXTLENGTH as u32,
+                    WPARAM(0),
+                    LPARAM(0),
+                    SMTO_ABORTIFHUNG as u32,
+                    TEXT_READ_TIMEOUT_MS,
+                    Some(&mut length),
+                )
+                .0 != 0;
+                let length_end = Instant::now();
+                let mut buffer = vec![0u16; length + 1];
+                let text = SendMessageTimeoutW(
+                    hwnd,
+                    WM_GETTEXT as u32,
+                    WPARAM(buffer.len()),
+                    LPARAM(buffer.as_mut_ptr() as isize),
+                    SMTO_ABORTIFHUNG as u32,
+                    TEXT_READ_TIMEOUT_MS,
+                    None,
+                )
+                .0 != 0;
+                buffer.fill(0);
+                (answered, length_end, text, Instant::now())
+            };
+            (start, length_answered, length_end, text_answered, text_end)
+        });
+
+        // Both reads start as the first description does.
+        started_rx.recv().unwrap();
+        let _ = go_value_tx.send(());
+        let _ = go_text_tx.send(());
+
+        let (init, init_ok, first_start, first_end, first_kind, second_end, second_kind) =
+            describer.join().unwrap();
+        let (value_start, value_end, value_some) = value_reader.join().unwrap();
+        let (text_start, length_answered, length_end, text_answered, text_end) =
+            text_reader.join().unwrap();
+
+        lines.push(format!(
+            "  worker backend init: {init} (ok: {init_ok}); value reader init: {value_init} (ok: {value_init_ok})"
+        ));
+        lines.push(format!(
+            "  (b) first description: {} ({first_kind})",
+            ms(first_start, first_end)
+        ));
+        lines.push(format!(
+            "  (b) second description: {} ({second_kind})",
+            ms(first_end, second_end)
+        ));
+        lines.push(format!(
+            "  (c) value read through UI Automation: started {} after (b), took {}, gave a value: {value_some}, ended before (b)'s first: {}",
+            ms(first_start, value_start),
+            ms(value_start, value_end),
+            value_end < first_end
+        ));
+        lines.push(format!(
+            "  (d) window text by handle: started {} after (b), length {} (answered: {length_answered}), text {} (answered: {text_answered}), ended before (b)'s first: {}",
+            ms(first_start, text_start),
+            ms(text_start, length_end),
+            ms(length_end, text_end),
+            text_end < first_end
+        ));
+
+        // Notepad was not typed into: it closes without asking to save.
+        // SAFETY: a message posted to the window the system gave.
+        unsafe {
+            let _ = PostMessageW(Some(window), WM_CLOSE as u32, WPARAM(0), LPARAM(0));
+        }
+        let closing = Instant::now();
+        while notepad.try_wait().ok().flatten().is_none() {
+            if closing.elapsed() > Duration::from_secs(5) {
+                let _ = notepad.kill();
+                let _ = notepad.wait();
+                lines.push("  notepad did not close on WM_CLOSE: ended".to_string());
+                break;
+            }
+            thread::sleep(Duration::from_millis(20));
+        }
+        lines
+    }
+
+    /// Starts this test binary again, running the measurement alone, with its
+    /// output going straight to this job's output, and requires it to pass.
+    #[test]
+    #[serial]
+    fn the_first_reads_of_a_freshly_started_program_are_measured() {
+        let status = Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--ignored",
+                "--exact",
+                MEASUREMENT,
+                "--nocapture",
+                "--test-threads=1",
+            ])
+            .env(MEASURING, "1")
+            .stdout(Stdio::inherit())
+            .stderr(Stdio::inherit())
+            .status()
+            .expect("the test binary starts again");
+        assert!(
+            status.success(),
+            "the measurement in a process of its own failed: {status}"
+        );
+    }
+
+    /// The measurement itself, run only by the test above in a process that
+    /// has made no UI Automation call before it.
+    #[test]
+    #[ignore = "run in a process of its own by the_first_reads_of_a_freshly_started_program_are_measured"]
+    fn measured_in_a_process_of_its_own() {
+        if std::env::var_os(MEASURING).is_none() {
+            return;
+        }
+        let mut lines = vec!["first reads of a freshly started program, in ms".to_string()];
+        lines.extend(round(
+            "round 1: no UI Automation client in this process yet, Notepad fresh",
+        ));
+        lines.extend(round("round 2: client warm, a second Notepad fresh"));
+        println!("{}", lines.join("\n"));
+    }
+}
