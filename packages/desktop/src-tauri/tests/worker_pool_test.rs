@@ -10601,23 +10601,49 @@ fn is_number_token(token: &str) -> bool {
         && tenths.is_none_or(|t| !t.is_empty() && t.chars().all(|c| c.is_ascii_digit()))
 }
 
-/// Holds `block` to the closed alphabet: every line starts with the block's
-/// label, and every token is a fixed word, a number or the placeholder `-`,
-/// separated by single spaces.
+/// The words naming a subject, a step and a look's ending in a block of
+/// capture timings.
+const TIMING_SUBJECTS: &[&str] = &["key", "value-change", "look-ahead"];
+const TIMING_SKIP_REASONS: &[&str] = &[
+    "no-focus-count",
+    "no-focused-control",
+    "known",
+    "own-process",
+    "no-answer",
+    "gone",
+];
+
+/// Holds `block` to its line format: a step line is
+/// `capture-timings <subject> <step> <ms or ->`, a look line is
+/// `capture-timings look-ahead described <count>` or
+/// `capture-timings look-ahead skipped <reason> <count>`, and nothing else.
 fn assert_block_closed(block: &str) {
+    let is_count = |t: &str| !t.is_empty() && t.chars().all(|c| c.is_ascii_digit());
     for line in block.lines() {
-        assert!(line.starts_with("capture-timings "), "{line:?}");
-        for token in line.split(' ') {
-            assert!(
-                TIMING_WORDS.contains(&token) || is_number_token(token) || token == "-",
-                "token {token:?} of {line:?} is no fixed word, no number and no placeholder"
-            );
-        }
+        let tokens: Vec<&str> = line.split(' ').collect();
+        let well_formed = match tokens.as_slice() {
+            ["capture-timings", "look-ahead", "described", count] => is_count(count),
+            ["capture-timings", "look-ahead", "skipped", reason, count] => {
+                TIMING_SKIP_REASONS.contains(reason) && is_count(count)
+            }
+            ["capture-timings", subject, step, value] => {
+                TIMING_SUBJECTS.contains(subject)
+                    && TIMING_WORDS.contains(step)
+                    && !TIMING_SUBJECTS.contains(step)
+                    && !["capture-timings", "described", "skipped"].contains(step)
+                    && !TIMING_SKIP_REASONS.contains(step)
+                    && (is_number_token(value) || *value == "-")
+            }
+            _ => false,
+        };
+        assert!(well_formed, "{line:?} is no line of the block's format");
     }
 }
 
-/// `block` with every number made `0`: what is left is its shape.
+/// `block`, held to its line format, with every number made `0`: what is
+/// left is its shape.
 fn shape_of(block: &str) -> String {
+    assert_block_closed(block);
     block
         .lines()
         .map(|line| {
@@ -10665,63 +10691,119 @@ fn timed_capture(
     (while_running, rx.try_iter().collect(), actions)
 }
 
-/// Types `characters` characters into a password field, each behind a Shift
-/// press where `shifted`, then Enter where `enter`; returns the one block
-/// written when the capture stopped.
-fn password_block(characters: u64, shifted: bool, enter: bool) -> String {
-    let gate = closed_gate();
-    open_gate(&gate);
-    let (_, mut at_stop, _) = timed_capture(true, TypingBackend::password(&gate), |harness| {
-        harness.event_tx.send(WorkerMessage::LookAtFocus).unwrap();
+/// The one block written when a capture on `backend` of `drive` stopped.
+fn block_of(backend: impl AccessibilityBackend, drive: impl FnOnce(&WorkerTestHarness)) -> String {
+    let (_, mut at_stop, _) = timed_capture(true, backend, drive);
+    assert_eq!(at_stop.len(), 1, "one block at the stop, got {at_stop:?}");
+    at_stop.remove(0)
+}
+
+/// The kind of field typed into.
+#[derive(Clone, Copy, Debug)]
+enum TypedField {
+    /// A normal edit field.
+    Edit,
+    /// A field the recording masks.
+    Masked,
+    /// A field that cannot be described.
+    Undescribed,
+}
+
+/// How the worker finds the field's element.
+#[derive(Clone, Copy, Debug)]
+enum TypedPath {
+    /// By asking for the focused element.
+    Focus,
+    /// By the control the key was pressed in.
+    Control,
+}
+
+/// The dialog's file-name field as `field` makes it.
+fn typed_field_element(field: TypedField) -> ElementDescription {
+    let mut element = scene_element("Edit", "Dialog > Edit:File name", Some(""));
+    if matches!(field, TypedField::Masked) {
+        element.element_type = Some("password".to_string());
+    }
+    element
+}
+
+/// What is typed: how many characters, each behind a Shift press where
+/// `shifted`, after a dead key where `dead`, then Enter where `enter`.
+#[derive(Clone, Copy, Debug)]
+struct Typed {
+    characters: u64,
+    shifted: bool,
+    dead: bool,
+    enter: bool,
+}
+
+/// The one block written when `typed` was typed into `field`, found by
+/// `path`, each key followed by the value change it caused.
+fn typing_block(field: TypedField, path: TypedPath, typed: Typed) -> String {
+    let undescribed = matches!(field, TypedField::Undescribed);
+    let mut backend = match path {
+        TypedPath::Focus => {
+            MovingFocusBackend::new(FocusScene {
+                epoch: 1,
+                foreground: DIALOG,
+                element: typed_field_element(field),
+            })
+            .0
+        }
+        TypedPath::Control => {
+            let own = if undescribed {
+                HashMap::new()
+            } else {
+                HashMap::from([(FIELD, typed_field_element(field))])
+            };
+            MovingFocusBackend::with_controls(
+                save_button_focused(),
+                Controls {
+                    focused: FIELD,
+                    own,
+                    ..Default::default()
+                },
+            )
+            .0
+        }
+    };
+    backend.fails = undescribed;
+    let in_place = move |raw: RawEvent| match path {
+        TypedPath::Focus => in_dialog(raw),
+        TypedPath::Control => in_field(raw),
+    };
+    let change = move |seq: u64, t: u64| match path {
+        TypedPath::Focus => in_dialog(value_change(seq, t, DIALOG)),
+        TypedPath::Control => control_value_change(seq, t, FIELD),
+    };
+    block_of(backend, |harness| {
         let t = now_ms();
         let mut seq = 0;
-        for i in 0..characters {
-            if shifted {
+        if typed.dead {
+            seq += 1;
+            let mut dead = dead_key(seq);
+            if matches!(path, TypedPath::Control) {
+                dead.callback_params[1] = FIELD;
+            }
+            harness.send_event(dead);
+        }
+        for i in 0..typed.characters {
+            if typed.shifted {
                 seq += 1;
-                harness.send_event(layout_key(seq, t + seq, 0x10)); // Shift
+                harness.send_event(in_place(layout_key(seq, t + seq, 0x10))); // Shift
             }
             seq += 1;
             let mut key = layout_key(seq, t + seq, 0x41 + i as u32);
-            if shifted {
+            if typed.shifted {
                 key.modifiers = (false, true, false, false);
             }
-            harness.send_event(key);
+            harness.send_event(in_place(key));
             seq += 1;
-            harness.send_event(value_change(seq, t + seq, 1234));
+            harness.send_event(change(seq, t + seq));
         }
-        if enter {
+        if typed.enter {
             seq += 1;
-            harness.send_event(layout_key(seq, t + seq, 0x0D)); // Enter
-        }
-    });
-    assert_eq!(at_stop.len(), 1, "one block at the stop, got {at_stop:?}");
-    at_stop.remove(0)
-}
-
-/// The one block written when a capture of `drive` in the dialog's file-name
-/// field, a normal edit field, stopped.
-fn edit_field_block(drive: impl FnOnce(&WorkerTestHarness, &Arc<Mutex<FocusScene>>)) -> String {
-    let (backend, scene, _) = MovingFocusBackend::new(file_name_field(""));
-    let (_, mut at_stop, _) = timed_capture(true, backend, |harness| drive(harness, &scene));
-    assert_eq!(at_stop.len(), 1, "one block at the stop, got {at_stop:?}");
-    at_stop.remove(0)
-}
-
-/// Types `characters` characters into the file-name field, each key
-/// followed by the value change it caused.
-fn edit_field_typing_block(characters: u64) -> String {
-    edit_field_block(|harness, scene| {
-        let mut text = String::new();
-        for i in 0..characters {
-            text.push(char::from(b'a' + i as u8));
-            {
-                let mut scene = scene.lock().unwrap();
-                scene.element.text = Some(text.clone());
-                scene.element.value = Some(text.clone());
-            }
-            harness.send_event(in_dialog(layout_key(2 * i + 1, now_ms(), 0x41 + i as u32)));
-            harness.send_event(in_dialog(value_change(2 * i + 2, now_ms(), DIALOG)));
-            thread::sleep(Duration::from_millis(50));
+            harness.send_event(in_place(layout_key(seq, t + seq, 0x0D))); // Enter
         }
     })
 }
@@ -10749,68 +10831,133 @@ fn with_the_timing_switch_on_one_block_is_written_when_the_capture_stops() {
     assert_eq!(at_stop.len(), 1, "one block at the stop, got {at_stop:?}");
 }
 
-/// Typing a different number of characters into a password field, with or
-/// without Shift, gives blocks of one shape: the block shows no count of what
-/// was typed.
+/// A line with a token more than its format, a count among them, fails the
+/// format check and so every shape.
 #[test]
-fn the_timing_block_has_one_shape_whatever_was_typed_into_a_password_field() {
-    let shapes = [
-        shape_of(&password_block(1, false, true)),
-        shape_of(&password_block(4, false, true)),
-        shape_of(&password_block(1, true, true)),
-        shape_of(&password_block(4, true, true)),
+fn a_timing_line_with_a_count_fails_the_block_checks() {
+    let lines = [
+        "capture-timings key queue 0.0 3",
+        "capture-timings key queue 3 0.0",
+        "capture-timings look-ahead described 1 2",
+        "capture-timings look-ahead skipped gone 1 2",
+        "capture-timings key described 1",
+        "capture-timings key queue",
     ];
-    for shape in &shapes[1..] {
-        assert_eq!(shape, &shapes[0]);
+    for line in lines {
+        let closed = std::panic::catch_unwind(|| assert_block_closed(line));
+        assert!(closed.is_err(), "{line:?} passes the format check");
+        let shaped = std::panic::catch_unwind(|| shape_of(line));
+        assert!(shaped.is_err(), "{line:?} has a shape");
     }
+    assert_block_closed("capture-timings key queue 0.0\ncapture-timings look-ahead skipped gone 1");
 }
 
-/// Keys and value changes in a password field are not measured: a capture
-/// of password typing alone leaves every key and value-change step unseen.
+/// Typing into a field gives blocks of one shape for one character or four,
+/// with or without Shift and a dead key, in a normal edit field, a masked
+/// field and a field that cannot be described, and whether the field is
+/// found by its control or by the focus: a step shows only whether it was
+/// taken at all, never how many times or for what.
 #[test]
-fn keys_and_value_changes_in_a_password_field_are_not_measured() {
-    for shifted in [false, true] {
-        let block = password_block(4, shifted, false);
-        for line in block.lines().filter(|l| {
-            l.starts_with("capture-timings key ") || l.starts_with("capture-timings value-change ")
-        }) {
-            assert!(line.ends_with(" -"), "{line:?} of {block:?}");
+fn the_timing_block_has_one_shape_whatever_was_typed_into_any_field() {
+    let typings = [
+        Typed {
+            characters: 1,
+            shifted: false,
+            dead: false,
+            enter: true,
+        },
+        Typed {
+            characters: 4,
+            shifted: false,
+            dead: false,
+            enter: true,
+        },
+        Typed {
+            characters: 1,
+            shifted: true,
+            dead: false,
+            enter: true,
+        },
+        Typed {
+            characters: 4,
+            shifted: true,
+            dead: false,
+            enter: true,
+        },
+        Typed {
+            characters: 1,
+            shifted: false,
+            dead: true,
+            enter: true,
+        },
+        Typed {
+            characters: 4,
+            shifted: true,
+            dead: true,
+            enter: true,
+        },
+    ];
+    for field in [
+        TypedField::Edit,
+        TypedField::Masked,
+        TypedField::Undescribed,
+    ] {
+        for path in [TypedPath::Focus, TypedPath::Control] {
+            let first = shape_of(&typing_block(field, path, typings[0]));
+            for typed in &typings[1..] {
+                assert_eq!(
+                    shape_of(&typing_block(field, path, *typed)),
+                    first,
+                    "{field:?} by {path:?}, {typed:?}"
+                );
+            }
         }
     }
 }
 
-/// The block of typing into a normal edit field has one shape for one
-/// character and for four: a step shows only whether it was measured at
-/// all, never how many times.
+/// Every key and value change typed is measured, in a masked field as in
+/// any other.
 #[test]
-fn the_timing_block_has_one_shape_for_one_or_four_characters_typed_into_an_edit_field() {
-    assert_eq!(
-        shape_of(&edit_field_typing_block(1)),
-        shape_of(&edit_field_typing_block(4))
-    );
+fn keys_and_value_changes_typed_into_a_masked_field_are_measured() {
+    for path in [TypedPath::Focus, TypedPath::Control] {
+        let typed = Typed {
+            characters: 2,
+            shifted: false,
+            dead: false,
+            enter: false,
+        };
+        let block = typing_block(TypedField::Masked, path, typed);
+        for subject in ["key", "value-change"] {
+            let label = format!("capture-timings {subject} total ");
+            let total = block.lines().find(|l| l.starts_with(&label));
+            assert!(
+                total.is_some_and(|l| !l.ends_with(" -")),
+                "{subject} by {path:?}: {block:?}"
+            );
+        }
+    }
 }
 
-/// A dead key typed into a normal edit field leaves the block's shape as
-/// typing without one: nothing shows an accented character was typed.
+/// A press of Shift, Ctrl or Alt alone is not measured: the recording writes
+/// nothing for it.
 #[test]
-fn the_timing_block_has_one_shape_with_and_without_a_dead_key() {
-    let typed = |dead: bool| {
-        edit_field_block(|harness, scene| {
-            if dead {
-                harness.send_event(dead_key(1));
-                thread::sleep(Duration::from_millis(100));
-            }
-            harness.send_event(in_dialog(layout_key(2, now_ms(), 0x45)));
-            let text = if dead { "\u{e9}" } else { "e" };
-            {
-                let mut scene = scene.lock().unwrap();
-                scene.element.text = Some(text.to_string());
-                scene.element.value = Some(text.to_string());
-            }
-            harness.send_event(in_dialog(value_change(3, now_ms(), DIALOG)));
-        })
-    };
-    assert_eq!(shape_of(&typed(true)), shape_of(&typed(false)));
+fn a_press_of_shift_ctrl_or_alt_alone_is_not_measured() {
+    let (backend, _scene, _) = MovingFocusBackend::new(file_name_field(""));
+    let block = block_of(backend, |harness| {
+        let t = now_ms();
+        for (i, code) in [0x10, 0x11, 0x12, 0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5]
+            .into_iter()
+            .enumerate()
+        {
+            harness.send_event(in_dialog(layout_key(i as u64 + 1, t + i as u64, code)));
+        }
+    });
+    for line in block
+        .lines()
+        .filter(|l| l.starts_with("capture-timings key "))
+    {
+        assert!(line.ends_with(" -"), "{line:?} of {block:?}");
+    }
 }
 
 /// A value read after a later key of its window was dispatched is not taken,
@@ -10819,19 +10966,39 @@ fn the_timing_block_has_one_shape_with_and_without_a_dead_key() {
 fn a_value_change_read_too_late_in_an_edit_field_is_measured() {
     let (backend, _scene, _queries, _controls) =
         MovingFocusBackend::with_controls(save_button_focused(), field_with_reads(&[("a", 2)]));
-    let (_, at_stop, _) = timed_capture(true, backend, |harness| {
+    let block = block_of(backend, |harness| {
         let t = now_ms();
         harness.send_event(numbered_in_field(packet_key(1, t, u16::from(b'a')), 1));
         harness.send_event(control_value_change(2, t + 1, FIELD));
     });
-    assert_eq!(at_stop.len(), 1, "one block at the stop, got {at_stop:?}");
     for step in ["value", "total"] {
         let label = format!("capture-timings value-change {step} ");
-        let line = at_stop[0].lines().find(|l| l.starts_with(&label));
+        let line = block.lines().find(|l| l.starts_with(&label));
         assert!(
             line.is_some_and(|l| !l.ends_with(" -")),
-            "{step} measured: {:?}",
-            at_stop[0]
+            "{step} measured: {block:?}"
+        );
+    }
+}
+
+/// A value change whose description gives no element (its window was left
+/// before the worker got to it) is measured: a description that fails slowly
+/// shows under `describe`.
+#[test]
+fn a_value_change_whose_description_gives_no_element_is_measured() {
+    let (backend, scene, _) = MovingFocusBackend::new(file_name_field(""));
+    let block = block_of(backend, |harness| {
+        harness.send_event(in_dialog(layout_key(1, now_ms(), 0x41)));
+        thread::sleep(Duration::from_millis(100));
+        scene.lock().unwrap().foreground = OTHER_WINDOW;
+        harness.send_event(in_dialog(value_change(2, now_ms(), DIALOG)));
+    });
+    for step in ["describe", "total"] {
+        let label = format!("capture-timings value-change {step} ");
+        let line = block.lines().find(|l| l.starts_with(&label));
+        assert!(
+            line.is_some_and(|l| !l.ends_with(" -")),
+            "{step} measured: {block:?}"
         );
     }
 }
@@ -10843,11 +11010,11 @@ fn a_value_change_read_too_late_in_an_edit_field_is_measured() {
 fn a_timing_block_holds_only_fixed_words_numbers_and_the_placeholder() {
     const SECRET: &str = "Hunter2Secret";
     let mut blocks = Vec::new();
-    for backend in ["password", "edit", "none"] {
+    for backend in ["masked", "edit", "none"] {
         let gate = closed_gate();
         open_gate(&gate);
         let typing = match backend {
-            "password" => TypingBackend::password(&gate),
+            "masked" => TypingBackend::password(&gate),
             _ => TypingBackend::edit(&gate, SECRET),
         };
         let (_, at_stop, _) = timed_capture(true, typing, |harness| {
