@@ -671,11 +671,10 @@ pub const SEEDED_LEFT_CTRL_WITH_ALT_GR: bool = false;
 /// ([`CtrlAltRead::held`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CtrlAltRead {
-    /// The keyboard's state holds a Ctrl down: the generic Ctrl code, the
-    /// left or the right one. The system's `ctrl`, which every verdict on a
-    /// key reads.
+    /// The keyboard's state holds the generic Ctrl code down: the system's
+    /// `ctrl`, which every verdict on a key reads.
     pub ctrl: bool,
-    /// The same for Alt: the generic Alt code, the left or the right one.
+    /// The same for Alt: the generic Alt code.
     pub alt: bool,
     /// The keyboard's state holds the left Ctrl down.
     pub left_ctrl: bool,
@@ -842,8 +841,8 @@ impl CtrlAltKeys {
         let (left_ctrl, right_ctrl) = (is_down(VK_LCONTROL), is_down(VK_RCONTROL));
         let (left_alt, right_alt) = (is_down(VK_LMENU), is_down(VK_RMENU));
         CtrlAltRead {
-            ctrl: is_down(VK_CONTROL) || left_ctrl || right_ctrl,
-            alt: is_down(VK_MENU) || left_alt || right_alt,
+            ctrl: is_down(VK_CONTROL),
+            alt: is_down(VK_MENU),
             left_ctrl,
             right_ctrl,
             left_alt,
@@ -1708,18 +1707,6 @@ mod tests {
     }
 
     #[test]
-    fn regression_825_a_ctrl_or_alt_down_by_the_generic_code_alone_is_written() {
-        // The keyboard's state holds the generic Ctrl or Alt code down and
-        // neither left nor right one: the system's Ctrl or Alt, written as
-        // every verdict on a key reads it.
-        let record = CtrlAltKeys::new();
-        let ctrl = record.read(|vk| vk == VK_CONTROL, 7);
-        assert_eq!(ctrl.held(Some(true)), held(true, false, false));
-        let alt = record.read(|vk| vk == VK_MENU, 7);
-        assert_eq!(alt.held(Some(true)), held(false, true, false));
-    }
-
-    #[test]
     fn regression_825_the_written_modifiers_and_the_verdicts_input_are_the_same_values() {
         // A left Ctrl or a left Alt down in the keyboard's state with the
         // generic code up: the system's Ctrl or Alt is the generic code's, as
@@ -1731,6 +1718,12 @@ mod tests {
         let alt = record.read(|vk| vk == VK_LMENU, 7);
         assert!(!alt.alt);
         assert_eq!(alt.held(Some(true)), held(false, false, false));
+        // And the generic code down with neither left nor right one: written
+        // as held.
+        let ctrl = record.read(|vk| vk == VK_CONTROL, 7);
+        assert_eq!(ctrl.held(Some(true)), held(true, false, false));
+        let alt = record.read(|vk| vk == VK_MENU, 7);
+        assert_eq!(alt.held(Some(true)), held(false, true, false));
     }
 
     #[test]
