@@ -210,6 +210,7 @@ half of the extension is documented in
 | `naming.property.test.js` | Extension actions carry the platform-neutral naming and capture mode the extension schema contract states, each type one the composed extension schema declares. |
 | `navigation-logic.test.js` | The navigation and tab-creation capture decisions across transition types and timing states, and a static-source guard that the worker's listeners decide through the module. |
 | `panel.test.js` | The send gate in the panel, run against the shipped send-gate module: button state, recording selection and the confirmation summary; the cancel path is simulated. |
+| `passive-observer.test.js` | The recorder takes no part in the page (core CP-20): the extension places only the recorder in a page, and the recorder makes no listed call or assignment that cancels or stops a page's event or writes to the page, but the `dragover` of docent#881. |
 | `project-export.test.js` | The panel's export build, run against the shipped module: the project open in the panel asked for by its id, the stamped document, and failures answered in-band. |
 | `recorder-logic.test.js` | The extracted content-script logic (selectors, locators, element description, the key-press decision with its shortcut modifiers, the sensitive-element and no-typed-text rules held equal to the worker's, part-by-part fields, the scroll decision) and the recorder's scroll literals. |
 | `recorder-mirror-parity.test.js` | The recorder's two copies of the capture logic stay textually identical under the mechanical transformation. |
