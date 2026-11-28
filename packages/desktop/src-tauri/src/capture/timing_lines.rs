@@ -4,14 +4,16 @@
 // suite). Off by default.
 //
 // For each subject and each of its steps the block gives the largest duration
-// measured, or [`UNSEEN`] where none was, and for the looks ahead of any key
-// how many ended each way. It holds fixed words and numbers only: what is kept
-// is numbers and the enums below, so no key, character, value, title or
-// element can reach it. Every key and value change the typing worker handles
-// is measured, in any field; a press of Shift, Ctrl or Alt is not, since the
-// recording writes nothing for it. So a step's line shows only whether at
-// least one event took that step, never how many nor in what order, which
-// holds for a masked field too.
+// measured within the handling of one event, or [`UNSEEN`] where none was,
+// and for the looks ahead of any key how many ended each way. No step depends
+// on when the person's events arrived. The block holds fixed words and
+// numbers only: what is kept is numbers and the enums below, so no key,
+// character, value, title or element can reach it. Every key and value change
+// of a recorded window is measured, in any field; a press of Shift, Ctrl or
+// Alt alone is not, since a recording holds nothing for it. So a step's line
+// shows only whether at least one event took that step, never how many, in
+// what order or how far apart. A masked field shows as masked, by which steps
+// are filled, as it does in a recording.
 
 use std::collections::HashMap;
 use std::sync::{mpsc, Arc, Mutex};
@@ -42,8 +44,6 @@ const SUBJECTS: [Subject; 3] = [Subject::Key, Subject::ValueChange, Subject::Loo
 /// program, and the whole of the handling.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Step {
-    /// From the hook's stamp to the worker taking the event, in whole ms.
-    Queue,
     /// The event's window: its root and its rectangle.
     Window,
     /// The key settled on the control it was pressed in.
@@ -87,7 +87,6 @@ pub enum Step {
 const fn steps_of(subject: Subject) -> &'static [Step] {
     match subject {
         Subject::Key => &[
-            Step::Queue,
             Step::Window,
             Step::Settle,
             Step::Describe,
@@ -99,7 +98,6 @@ const fn steps_of(subject: Subject) -> &'static [Step] {
             Step::Total,
         ],
         Subject::ValueChange => &[
-            Step::Queue,
             Step::Window,
             Step::Value,
             Step::Describe,
@@ -159,7 +157,6 @@ const fn subject_word(subject: Subject) -> &'static str {
 
 const fn step_word(step: Step) -> &'static str {
     match step {
-        Step::Queue => "queue",
         Step::Window => "window",
         Step::Settle => "settle",
         Step::Describe => "describe",
@@ -331,18 +328,6 @@ struct Measuring {
 }
 
 impl Timing {
-    /// Notes the time from the hook's stamp, `stamped_ms`, to `now_ms`, both
-    /// in ms since the epoch, as the time in the queue. `now_ms` is asked
-    /// only where the handling is measured.
-    pub fn queued(&mut self, stamped_ms: u64, now_ms: impl FnOnce() -> u64) {
-        if let Some(measuring) = self.0.as_mut() {
-            let waited = now_ms().saturating_sub(stamped_ms);
-            measuring
-                .steps
-                .push((Step::Queue, Duration::from_millis(waited)));
-        }
-    }
-
     /// The moment a step starts, where the handling is measured.
     pub fn mark(&self) -> Option<Instant> {
         self.0.as_ref().map(|_| Instant::now())
@@ -362,8 +347,8 @@ impl Timing {
         }
     }
 
-    /// Leaves the event out of the timings: a press of Shift, Ctrl or Alt,
-    /// which the recording does not write.
+    /// Leaves the event out of the timings: one a recording holds nothing
+    /// for, a press of Shift, Ctrl or Alt alone.
     pub fn leave_out(&mut self) {
         self.0 = None;
     }

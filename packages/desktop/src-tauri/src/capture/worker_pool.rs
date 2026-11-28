@@ -3646,7 +3646,6 @@ fn process_raw_event<B: AccessibilityBackend>(
         RawEventType::ValueChange => state.timings.start(Subject::ValueChange),
         _ => Timing::default(),
     };
-    state.timing.queued(raw.timestamp, current_timestamp_ms);
     let window_started = state.timing.mark();
 
     // Resolve context_id from the root window handle.
@@ -4222,7 +4221,7 @@ fn handle_value_change<B: AccessibilityBackend>(
             state.timing.took(Step::Value, started);
             match read {
                 Some(_) if !read_in_time(last_key, backend) => {
-                    keep_keys_after_late_read(pending);
+                    in_buffers(&mut state.timing, || keep_keys_after_late_read(pending));
                     return false;
                 }
                 Some(value) => {
@@ -4231,7 +4230,9 @@ fn handle_value_change<B: AccessibilityBackend>(
                 }
                 None => {
                     // The control is gone or gives no value: no `type`.
-                    keep_keys_of_dropped_value_change(pending, action_sender);
+                    in_buffers(&mut state.timing, || {
+                        keep_keys_of_dropped_value_change(pending, action_sender)
+                    });
                     return false;
                 }
             }
@@ -4256,7 +4257,9 @@ fn handle_value_change<B: AccessibilityBackend>(
     // element, or the person had moved the focus): the value change has no
     // element to be the `type` of.
     if last_key.is_some_and(|k| k.mark.is_none()) {
-        keep_keys_of_dropped_value_change(pending, action_sender);
+        in_buffers(&mut state.timing, || {
+            keep_keys_of_dropped_value_change(pending, action_sender)
+        });
         return false;
     }
     // Identity first, where the key's element is still the marked one: a
@@ -4272,7 +4275,9 @@ fn handle_value_change<B: AccessibilityBackend>(
         _ => None,
     };
     if same_as_key == Some(false) {
-        keep_keys_of_dropped_value_change(pending, action_sender);
+        in_buffers(&mut state.timing, || {
+            keep_keys_of_dropped_value_change(pending, action_sender)
+        });
         return false;
     }
     let key_field = last_key.map(|k| (k.selector.clone(), k.place.clone()));
@@ -4289,7 +4294,9 @@ fn handle_value_change<B: AccessibilityBackend>(
         if let Some(k) = state.last_key.as_mut() {
             k.mark = None;
         }
-        keep_keys_of_dropped_value_change(pending, action_sender);
+        in_buffers(&mut state.timing, || {
+            keep_keys_of_dropped_value_change(pending, action_sender)
+        });
         return false;
     };
     if same_as_key.is_none()
@@ -4299,7 +4306,9 @@ fn handle_value_change<B: AccessibilityBackend>(
         if let Some(k) = state.last_key.as_mut() {
             k.mark = None;
         }
-        keep_keys_of_dropped_value_change(pending, action_sender);
+        in_buffers(&mut state.timing, || {
+            keep_keys_of_dropped_value_change(pending, action_sender)
+        });
         return false;
     }
     // The element was just marked again: the last key's element is the marked
@@ -4345,13 +4354,15 @@ fn handle_value_change<B: AccessibilityBackend>(
                     backend,
                 ) =>
             {
-                keep_keys_after_late_read(pending);
+                in_buffers(&mut state.timing, || keep_keys_after_late_read(pending));
                 return false;
             }
             Some(value) => value,
             None => {
                 // The element has no value: no `type`.
-                keep_keys_of_dropped_value_change(pending, action_sender);
+                in_buffers(&mut state.timing, || {
+                    keep_keys_of_dropped_value_change(pending, action_sender)
+                });
                 return false;
             }
         }
@@ -4478,6 +4489,14 @@ fn read_in_time<B: AccessibilityBackend>(last_key: Option<&LastKey>, backend: &B
 /// A value read too late is not taken: the pending `type` keeps the last
 /// value read in time, and the keys buffered now are the keys after it, to
 /// be written as keys unless a value read in time supersedes them.
+/// Runs `keep`, a keeping of the held actions, timed under
+/// [`Step::Buffers`].
+fn in_buffers(timing: &mut Timing, keep: impl FnOnce()) {
+    let started = timing.mark();
+    keep();
+    timing.took(Step::Buffers, started);
+}
+
 fn keep_keys_after_late_read(pending: &SharedPendingBuffers) {
     let mut buffers = lock_buffers(pending);
     buffers.keys_after_type = buffers.pending_keys.len();
