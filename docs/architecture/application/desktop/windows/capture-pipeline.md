@@ -4,7 +4,8 @@ How a Windows input event becomes a committed action: the delivery pipeline behi
 
 - how the pre-capture budget is computed, what it buys and the cap on describers (DCP-1);
 - why the commit's flush barrier waits as it does (DCP-2);
-- what a recording holds where capture start is slow or fails.
+- what a recording holds where capture start is slow or fails;
+- the timing lines, which say how long each step of the typing worker took.
 
 [The capture seam](../capture-seam.md) documents the cross-platform boundary the pipeline sits behind.
 
@@ -70,6 +71,10 @@ What a person who starts a recording gets where a part is slow or fails:
 | The hooks are not in place after 30 s                                                                                                                                              | The recording begins with a warning, and what the person does before the hooks are in place is not recorded |
 | No further worker finishes initializing its accessibility client for 30 s                                                                                                          | The recording begins with a warning, and its first events may be missing                                    |
 | The click pre-capture is not ready, or could not be started                                                                                                                        | The recording begins with a warning. DCP-13 states what a click then gets                                   |
+
+## Timing lines
+
+With the environment variable `DOCENT_CAPTURE_TIMINGS` set to `1` when a capture starts, the typing worker writes a line to stderr for each key and each value change it handles, and for each look at the focused control ahead of any key: how long each step took and, for a look that described nothing, why. A line holds only a fixed label, a running number and each step's duration, named by a fixed word, for example `capture-timing key 3 queue 2.0 window 0.1 settle 0.0 describe 18.2 name 0.1 modifiers 0.0 held 0.0`; the switch is off by default and changes no action.
 
 ## Where the code is
 
