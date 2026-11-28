@@ -107,9 +107,26 @@ fn start_capture_impl(
 }
 
 /// Core logic for `stop_capture` — testable without a Tauri runtime.
-fn stop_capture_impl(capture: &CaptureMutex) -> Result<BarrierReport, String> {
+/// `discard_timings` stops for a take that is thrown away, whose capture
+/// timings are written in no block.
+fn stop_capture_impl(
+    capture: &CaptureMutex,
+    discard_timings: bool,
+) -> Result<BarrierReport, String> {
     let mut capture = lock_capture(capture)?;
-    capture.stop().map_err(|e: CaptureError| e.to_string())
+    let stopped = if discard_timings {
+        capture.stop_discarding_timings()
+    } else {
+        capture.stop()
+    };
+    stopped.map_err(|e: CaptureError| e.to_string())
+}
+
+/// Core logic for `discard_capture_timings`, testable without a Tauri
+/// runtime.
+fn discard_capture_timings_impl(capture: &CaptureMutex) -> Result<(), String> {
+    lock_capture(capture)?.discard_timings();
+    Ok(())
 }
 
 /// Core logic for `list_windows` — testable without a Tauri runtime.
@@ -137,10 +154,22 @@ pub fn start_capture(state: State<'_, AppState>, pid: Option<u32>) -> Result<(),
 /// Returns the barrier report `{ barrier_id, wedged_workers, completion }`;
 /// the frontend waits for the matching `barrier_complete` sentinel on the
 /// `capture:action` stream so a committed step captures every drained action.
-/// `barrier_id` is `0` when no capture was active.
+/// `barrier_id` is `0` when no capture was active. `discard_timings` is set
+/// for a take that is thrown away: the capture timings are written in no
+/// block.
 #[tauri::command]
-pub fn stop_capture(state: State<'_, AppState>) -> Result<BarrierReport, String> {
-    stop_capture_impl(&state.capture)
+pub fn stop_capture(
+    state: State<'_, AppState>,
+    discard_timings: Option<bool>,
+) -> Result<BarrierReport, String> {
+    stop_capture_impl(&state.capture, discard_timings.unwrap_or(false))
+}
+
+/// Throw away the capture timings the running capture has kept so far, for
+/// a take that is thrown away while the capture keeps running.
+#[tauri::command]
+pub fn discard_capture_timings(state: State<'_, AppState>) -> Result<(), String> {
+    discard_capture_timings_impl(&state.capture)
 }
 
 /// List visible windows for target application selection.

@@ -1191,6 +1191,15 @@ impl CaptureLayer for WindowsCapture {
         Ok(report)
     }
 
+    fn stop_discarding_timings(&mut self) -> Result<BarrierReport, CaptureError> {
+        self.timings = Timings::off();
+        self.stop()
+    }
+
+    fn discard_timings(&mut self) {
+        self.timings.discard();
+    }
+
     fn is_active(&self) -> bool {
         self.active.load(Ordering::SeqCst)
     }

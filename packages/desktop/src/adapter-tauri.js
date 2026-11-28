@@ -518,8 +518,10 @@ async function _completeBarrier(report) {
 // returns the barrier report this waits on, per DCP-2. This is the completeness
 // path for a commit while recording, and for leaving the recording view while a
 // step is being re-recorded (so what the stop drains is discarded with it).
-async function stopWithCompleteness() {
-  await _completeBarrier(await invoke('stop_capture'));
+// `{ discardTimings: true }` stops for a take that is thrown away: the
+// capture timings are written in no block.
+async function stopWithCompleteness(args) {
+  await _completeBarrier(await invoke('stop_capture', args));
 }
 
 // The completeness path for a commit while capture is NOT active (a commit

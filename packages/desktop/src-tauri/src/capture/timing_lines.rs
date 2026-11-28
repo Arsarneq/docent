@@ -289,6 +289,14 @@ impl Timings {
         }))
     }
 
+    /// Throws away what has been kept so far; what is measured after is
+    /// kept. Nothing while the timings are off.
+    pub fn discard(&self) {
+        if let Some(kept) = &self.kept {
+            *kept.lock().unwrap_or_else(|e| e.into_inner()) = Kept::default();
+        }
+    }
+
     /// Writes the block, once the capture has stopped. Nothing while the
     /// timings are off. A failed write is dropped: a closed stderr must not
     /// stop the capture's teardown.

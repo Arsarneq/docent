@@ -630,12 +630,12 @@ function updateBreadcrumb(viewKey) {
  * Stop capture on a breadcrumb's way out of the recording view. While a
  * re-record is active the stop waits for what it drains (DCP-2: those actions
  * arrive apart from the stop's result), so the discard that follows also
- * discards them.
+ * discards them, and the take's capture timings are thrown away with it.
  */
 async function stopCaptureToLeave() {
   if (!isRecording) return;
   if (rerecordLogicalId !== null) {
-    await stopWithCompleteness();
+    await stopWithCompleteness({ discardTimings: true });
   } else {
     await invoke('stop_capture');
   }
@@ -1374,9 +1374,12 @@ btnRerecordCancel.addEventListener('click', async () => {
   adapter.clearPendingActions();
   pendingCount = 0;
 
+  // The take is thrown away, and its capture timings with it.
   if (!wasRecordingBefore) {
-    await invoke('stop_capture');
+    await invoke('stop_capture', { discardTimings: true });
     isRecording = false;
+  } else {
+    await invoke('discard_capture_timings');
   }
   updateRecordingUI();
   updateCommitButton();
