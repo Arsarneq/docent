@@ -35,12 +35,12 @@ inventoried, with its local command, in
 [the lint table](ci.md#the-lint-and-freshness-gates), which
 is the one home of that list. In short:
 
-| When you                 | You                                                                                                                                    | Held by                                                                  |
-| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| Add or move a doc        | Link it from the documentation map and give it a home in the area map                                                                  | `lint:links`, `lint:reachability`, `lint:area-map`                       |
-| Add a code file          | Make it resolve to an area of the area map, in the same PR                                                                             | `lint:area-map`                                                          |
-| Mint a clause            | Mark it with a stable id, give it a registry row, state the preamble, and keep the paths its row cites governed by its doc             | `lint:clause-registry`, `lint:clause-preamble`, `lint:clause-governance` |
-| Write or change a clause | State a rule in one clause and cite that clause from any other, and keep each paragraph, list item and table row within the word limit | `lint:clause-form`                                                       |
+| When you                 | You                                                                                                                        | Held by                                                                  |
+| ------------------------ | -------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| Add or move a doc        | Link it from the documentation map and give it a home in the area map                                                      | `lint:links`, `lint:reachability`, `lint:area-map`                       |
+| Add a code file          | Make it resolve to an area of the area map, in the same PR                                                                 | `lint:area-map`                                                          |
+| Mint a clause            | Mark it with a stable id, give it a registry row, state the preamble, and keep the paths its row cites governed by its doc | `lint:clause-registry`, `lint:clause-preamble`, `lint:clause-governance` |
+| Write or change a clause | State a rule in one clause and cite that clause from any other                                                             | `lint:clause-form`                                                       |
 
 The detail for each:
 
@@ -111,7 +111,7 @@ The detail for each:
     - A rule is stated in one clause. Another clause that needs it cites that clause by its id.
     - Within a document, a departure or an open case is linked to its issue from one clause. A case that holds on two platforms is linked once in each platform's document, on that platform's exception list.
     - A sentence two platform documents both need is stated in the cross-platform clause, and each platform clause cites that clause.
-    - A paragraph, a list item or a table row holds at most 150 words. A longer one is split into paragraphs or a list. The limit is on one unit, never on how much a clause or a document says.
+    - A paragraph, a list item or a table row that grows is answered in review ([Writing docs](#writing-docs-pick-the-form-before-the-sentence)).
     - A red is fixed in the clause. No entry is added to the list of admitted cases.
   - **Words before and after.** A pull request shows, for each document that holds clauses, the words it held at the base and the words it holds now ([`scripts/report-clause-doc-words.js`](../../scripts/report-clause-doc-words.js), in the `lint` job's log and summary). The numbers are shown and never a gate: how long a document should be depends on what it has to say. The pull request's reviewer reads the table and asks of each row that grew whether the added words state the change's rule or restate, explain or record something else. Growth the reviewer does not accept is a review finding, recorded with the review's other findings in the pull request's change record, and the row passes when no such finding is open.
   - **Lists.** A list inside a clause's scope — bulleted, numbered, a table's
@@ -172,4 +172,4 @@ This list is open. A cut that takes away something the reader needs is a meaning
 
 Cutting the steps is a cut only where every outcome they produced is still stated as what the person does and what the file holds. A registry row then names as checked by no case only an outcome a clause states.
 
-The pull request's reviewer names each touched passage that fails this, with its line, as a review finding recorded in the pull request's change record, and the rule passes when no such finding is open. For a document that holds clauses, Words before and after (above) shows the count. A Covers cell of a test guide has no length limit: on a pull request the [Test inventories](ci.md#the-lint-and-freshness-gates) check lists, without failing, each Covers cell of a registered suite inventory that grew in place (a new, moved or renamed row, or a row under a renamed section or guide, is not listed), and the reviewer answers each in the change record: a finding as above, or "needed by the reader" with the reason.
+The pull request's reviewer names each touched passage that fails this, with its line, as a review finding recorded in the pull request's change record, and the rule passes when no such finding is open. For a document that holds clauses, Words before and after (above) shows the count. A Covers cell of a test guide and a paragraph, list item or table row of a clause have no length limit. On a pull request two checks of the [lint table](ci.md#the-lint-and-freshness-gates) list, without failing, what grew since the base branch: Test inventories lists each Covers cell of a registered suite inventory that grew in place (a new, moved or renamed row, or a row under a renamed section or guide, is not listed), and Clause form lists each paragraph, list item or table row of a clause that grew or was added (its row states what it does not see). The reviewer answers each listed passage in the change record: a finding as above, or "needed by the reader" with the reason.

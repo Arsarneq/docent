@@ -1,14 +1,15 @@
 /**
  * check-clause-form.test.js — Unit tests for the clause-form check
- * (scripts/check-clause-form.js): a rule has one home, and a clause is written
- * in units a reader can take in. The suite drives the verdicts through `main`
- * over an injected registry, injected documents and an injected baseline — an
- * issue linked from two clauses, a run of words standing in two clauses and a
- * unit over the word limit each red naming the clauses, a baseline entry
- * admits exactly the case it names, a baseline entry the tree no longer needs
- * reds until it is removed or lowered, and an unreadable document or a baseline
- * out of shape is the machinery verdict — and a real-tree case holds the
- * committed documents and the committed baseline to passing.
+ * (scripts/check-clause-form.js): a rule has one home, and a unit of a
+ * clause that grew is listed for review. The suite drives the verdicts through
+ * `main` over an injected registry, injected documents and an injected baseline
+ * — an issue linked from two clauses and a run of words standing in two clauses
+ * each red naming the clauses, a baseline entry admits exactly the case it
+ * names, a baseline entry the tree no longer needs reds until it is removed,
+ * a unit of any length passes and its growth since the base is listed without
+ * failing, and an unreadable document or a baseline out of shape is the
+ * machinery verdict — and a real-tree case holds the committed documents and
+ * the committed baseline to passing.
  */
 
 import { describe, it } from 'node:test';
@@ -18,19 +19,19 @@ import { join, resolve } from 'node:path';
 import {
   BASELINE_PATH,
   RUN_WORDS,
-  UNIT_WORD_LIMIT,
   clauseUnits,
   clauseWords,
   issueLinks,
   main,
 } from '../../../../scripts/check-clause-form.js';
-import { REGISTRY_PATH } from '../../../../scripts/governance-data.js';
+import { GROWTH_ANSWER, REGISTRY_PATH, summaryCell } from '../../../../scripts/governance-data.js';
 
 const ROOT = resolve(import.meta.dirname, '..', '..', '..', '..');
 const DOC_A = 'docs/a.md';
 const DOC_B = 'docs/b.md';
 const ISSUE = (n) => `[docent#${n}](https://github.com/Arsarneq/docent/issues/${n})`;
-const EMPTY = { 'issue-homes': {}, 'shared-text': [], 'long-units': {} };
+const EMPTY = { 'issue-homes': {}, 'shared-text': [] };
+const BASE_REF = 'origin/main';
 const SEE = `Fix the clause; do not add an entry to ${BASELINE_PATH}. scripts/check-clause-form.js holds the rules.`;
 const ONE_DOC = { 'AA-1': DOC_A, 'AA-2': DOC_A };
 
@@ -48,11 +49,14 @@ const registry = (rows) =>
  * @param {Record<string, string | Error>} tree.docs document path → text, or the read's error
  * @param {object | string} [tree.baseline] the baseline, or its raw text
  * @param {object | string | null} [tree.base] the baseline at the base commit, its raw text, or null when the base holds none; absent when the run has no base
- * @returns {{ code: number, out: string[], err: string[] }}
+ * @param {Record<string, string>} [tree.baseDocs] document path → its text at the base commit; a path it lacks is a document the base does not hold. Given without `base`, the base holds no baseline
+ * @returns {{ code: number, out: string[], err: string[], summary: string[] }}
  */
-function run({ rows, docs, baseline = EMPTY, base }) {
+function run({ rows, docs, baseline = EMPTY, base, baseDocs }) {
   const out = [];
   const err = [];
+  const summary = [];
+  const hasBase = base !== undefined || baseDocs !== undefined;
   const files = {
     ...docs,
     [REGISTRY_PATH]: registry(rows),
@@ -64,18 +68,19 @@ function run({ rows, docs, baseline = EMPTY, base }) {
       if (files[path] instanceof Error) throw files[path];
       return files[path];
     },
-    readBaseFile:
-      base === undefined
-        ? undefined
-        : (path) => {
-            assert.equal(path, BASELINE_PATH);
-            if (base === null) return null;
-            return typeof base === 'string' ? base : JSON.stringify(base);
-          },
+    readBaseFile: !hasBase
+      ? undefined
+      : (path) => {
+          if (path !== BASELINE_PATH) return baseDocs?.[path] ?? null;
+          if (base === null || base === undefined) return null;
+          return typeof base === 'string' ? base : JSON.stringify(base);
+        },
+    baseRef: hasBase ? BASE_REF : undefined,
     log: (line) => out.push(line),
     error: (line) => err.push(line),
+    summary: (markdown) => summary.push(markdown),
   });
-  return { code, out, err };
+  return { code, out, err, summary };
 }
 
 const TWO = { 'AA-1': DOC_A, 'BB-1': DOC_B };
@@ -92,7 +97,7 @@ describe('main — one home for a linked issue', () => {
     assert.equal(code, 0);
     assert.deepEqual(err, []);
     assert.deepEqual(out, [
-      `✓ 2 clause(s) in 2 document(s): no issue linked from two clauses of one document, no run of ${RUN_WORDS} words standing in two clauses and no unit over ${UNIT_WORD_LIMIT} words, beyond the 0 case(s) ${BASELINE_PATH} lists.`,
+      `✓ 2 clause(s) in 2 document(s): no issue linked from two clauses of one document and no run of ${RUN_WORDS} words standing in two clauses, beyond the 0 case(s) ${BASELINE_PATH} lists.`,
     ]);
   });
 
@@ -267,72 +272,236 @@ describe('main — one home for a run of words', () => {
   });
 });
 
-describe('main — units a reader can take in', () => {
-  const over = words(UNIT_WORD_LIMIT + 1, 'w');
-  const at = words(UNIT_WORD_LIMIT, 'w');
-
-  it(`a paragraph over ${UNIT_WORD_LIMIT} words reds naming the clause and how it opens`, () => {
-    const { code, err } = run({
+describe('main — a unit of any length passes', () => {
+  it('a paragraph of 500 words passes, and without a base no note is printed', () => {
+    const { code, out, err, summary } = run({
       rows: { 'AA-1': DOC_A },
-      docs: { [DOC_A]: `**AA-1.** Short lead.\n\n${over}\n` },
-    });
-    assert.equal(code, 1);
-    assert.equal(
-      err[0],
-      `✗ AA-1 (${DOC_A}) holds 1 unit(s) over ${UNIT_WORD_LIMIT} words (a paragraph, a list item or a table row) — split it into paragraphs or a list; the longest runs ${UNIT_WORD_LIMIT + 1} words and opens "w0 w1 w2 w3 w4 w5"`,
-    );
-  });
-
-  it(`a paragraph of exactly ${UNIT_WORD_LIMIT} words passes`, () => {
-    const { code } = run({
-      rows: { 'AA-1': DOC_A },
-      docs: { [DOC_A]: `**AA-1.** Short lead.\n\n${at}\n` },
+      docs: { [DOC_A]: `**AA-1.** Short lead.\n\n${words(500, 'w')}\n` },
     });
     assert.equal(code, 0);
+    assert.deepEqual(err, []);
+    assert.equal(out.length, 1);
+    assert.match(out[0], /^✓ 1 clause\(s\) in 1 document\(s\)/);
+    assert.deepEqual(summary, []);
   });
+});
 
-  it('each list item and each table row is a unit of its own', () => {
-    const item = words(UNIT_WORD_LIMIT - 10, 'i');
-    const doc = `**AA-1.** Lead:\n\n- ${item}\n- ${item}\n\n| a | b |\n| --- | --- |\n| ${item} | x |\n| ${item} | y |\n`;
-    assert.equal(run({ rows: { 'AA-1': DOC_A }, docs: { [DOC_A]: doc } }).code, 0);
-    assert.equal(clauseUnits(doc).length, 6);
-  });
+describe('main — the units of a clause that grew since the base', () => {
+  const rows = { 'AA-1': DOC_A, 'AA-2': DOC_A, 'BB-1': DOC_B };
+  const docA = (one, two) => `# A\n\nPreamble.\n\n**AA-1.** Lead.\n\n${one}\n\n**AA-2.** ${two}\n`;
+  const docB = (text) => `**BB-1.** ${text}\n`;
+  const UNIT = 'a unit (a paragraph, a list item or a table row)';
+  const NONE = `note: no unit of a clause grew since ${BASE_REF}.`;
+  const heading = (count) =>
+    `note: ${count} unit(s) of a clause grew since ${BASE_REF}. ${GROWTH_ANSWER}`;
+  const grew = (line, was, now, doc = DOC_A, clause = 'AA-1') =>
+    `  ${doc}:${line}: ${clause}: ${UNIT} grew from ${was} to ${now} words`;
+  const one = (now, base, doc = DOC_A) =>
+    run({ rows: { 'AA-1': doc }, docs: { [doc]: now }, baseDocs: { [doc]: base } });
+  /** A clause of a lead and three paragraphs, on lines 1, 3, 5 and 7. */
+  const three = (a, b, c) => `**AA-1.** Lead.\n\n${a}\n\n${b}\n\n${c}\n`;
 
-  it('the baseline admits the count it states, reds above it, and reds below it until lowered', () => {
-    const rows = { 'AA-1': DOC_A };
-    const baseline = { ...EMPTY, 'long-units': { 'AA-1': 1 } };
-    assert.equal(
-      run({ rows, docs: { [DOC_A]: `**AA-1.** Lead.\n\n${over}\n` }, baseline }).code,
-      0,
-    );
-    const two = run({
+  // A marker such as **BB-1.** counts as two words of its paragraph.
+  it('lists each grown unit as doc:line: with both counts, and passes', () => {
+    const { code, out, err } = run({
       rows,
-      docs: { [DOC_A]: `**AA-1.** Lead.\n\n${over}\n\n${over}\n` },
-      baseline,
+      docs: { [DOC_A]: docA(words(30, 'w'), words(9, 'x')), [DOC_B]: docB(words(12, 'y')) },
+      baseDocs: { [DOC_A]: docA(words(20, 'w'), words(9, 'x')), [DOC_B]: docB(words(11, 'y')) },
     });
-    assert.equal(two.code, 1);
-    assert.match(
-      two.err[0],
-      /^✗ AA-1 \(docs\/a\.md\) holds 2 unit\(s\) over 150 words .* where scripts\/clause-form-baseline\.json admits 1 — /,
+    assert.equal(code, 0);
+    assert.deepEqual(err, []);
+    assert.deepEqual(out.slice(0, 3), [
+      heading(2),
+      grew(7, 20, 30),
+      grew(1, 13, 14, DOC_B, 'BB-1'),
+    ]);
+    assert.match(out[3], /^✓ 3 clause\(s\) in 2 document\(s\)/);
+    assert.equal(out.length, 4);
+  });
+
+  it('says so when no unit grew, so the log shows the clauses were compared', () => {
+    const docs = { [DOC_A]: docA(words(20, 'w'), words(9, 'x')), [DOC_B]: docB(words(11, 'y')) };
+    const { code, out, summary } = run({ rows, docs, baseDocs: docs });
+    assert.equal(code, 0);
+    assert.equal(out[0], NONE);
+    assert.equal(out.length, 2);
+    assert.deepEqual(summary, []);
+  });
+
+  it('a unit that is not the longest is listed when it grew', () => {
+    const doc = (second) => `**AA-1.** Lead.\n\n${words(300, 'w')}\n\n- ${second}\n- Short.\n`;
+    const { out } = one(doc(words(294, 'x')), doc(words(104, 'x')));
+    assert.deepEqual(out.slice(0, 2), [heading(1), grew(5, 104, 294)]);
+  });
+
+  it('a cut in one unit does not hide growth in another that shares no word with it', () => {
+    const { out } = one(
+      three(words(150, 'a'), words(30, 'b'), words(90, 'c')),
+      three(words(150, 'a'), words(100, 'b'), words(40, 'c')),
     );
-    const none = run({ rows, docs: { [DOC_A]: '**AA-1.** Lead.\n' }, baseline });
-    assert.equal(none.code, 1);
+    assert.deepEqual(out.slice(0, 2), [heading(1), grew(7, 40, 90)]);
+    assert.equal(out.length, 3);
+  });
+
+  it('the grown unit is the one named, not a unit that shrank to its earlier length', () => {
+    const { out } = one(
+      three(words(82, 'a'), words(120, 'b'), 'End.'),
+      three(words(122, 'a'), words(80, 'b'), 'End.'),
+    );
+    assert.deepEqual(out.slice(0, 2), [heading(1), grew(5, 80, 120)]);
+    assert.equal(out.length, 3);
+  });
+
+  it('a unit replaced by other words, and an added unit, are listed as grown from 0', () => {
+    const replaced = one(
+      `**AA-1.** Lead.\n\n- ${words(9, 'x')}\n- ${words(9, 'new')}\n`,
+      `**AA-1.** Lead.\n\n- ${words(9, 'x')}\n- ${words(9, 'old')}\n`,
+    );
+    assert.deepEqual(replaced.out.slice(0, 2), [heading(1), grew(4, 0, 9)]);
+    const added = one(
+      `**AA-1.** Lead.\n\n${words(20, 'w')}\n\nNew one.\n`,
+      `**AA-1.** Lead.\n\n${words(20, 'w')}\n`,
+    );
+    assert.deepEqual(added.out.slice(0, 2), [heading(1), grew(5, 0, 2)]);
+  });
+
+  it('every grown unit of a clause gets a line', () => {
+    const { out } = one(
+      three(words(12, 'a'), words(25, 'b'), 'End.'),
+      three(words(10, 'a'), words(20, 'b'), 'End.'),
+    );
+    assert.deepEqual(out.slice(0, 3), [heading(2), grew(3, 10, 12), grew(5, 20, 25)]);
+  });
+
+  it('an added unit that shares words with the units beside it is still listed as added', () => {
+    const base = '**AA-1.** Lead.\n\nThe cat sat on the mat today and stayed there.\n';
+    const { out } = one(`${base}\nThe dog sat on the mat.\n`, base);
+    assert.deepEqual(out.slice(0, 2), [heading(1), grew(5, 0, 6)]);
+    assert.equal(out.length, 3);
+  });
+
+  it('a base unit is the match of one unit, so of a unit split in two the part that shares fewer words with it is listed as added', () => {
+    const { out } = one(
+      `**AA-1.** Lead.\n\n${words(12, 'w')}\n\n${words(8, 'x')}\n`,
+      `**AA-1.** Lead.\n\n${words(12, 'w')} ${words(8, 'x')}\n`,
+    );
+    assert.deepEqual(out.slice(0, 2), [heading(1), grew(5, 0, 8)]);
+  });
+
+  it('a unit written over a unit that left is compared with that unit', () => {
+    const doc = (item) => `**AA-1.** Lead.\n\n- ${words(9, 'x')}\n- ${item}\n`;
+    assert.equal(one(doc('the gate stays shut'), doc('the gate is open at night')).out[0], NONE);
+    const longer = one(doc('the gate stays shut from dusk to dawn'), doc('the gate is open'));
+    assert.deepEqual(longer.out.slice(0, 2), [heading(1), grew(4, 4, 8)]);
+  });
+
+  it('not seen: a unit that grew beside a cut unit, when it shares more words with the cut unit’s earlier text than with its own', () => {
+    const lead = '**AA-1.** The recorder keeps the file.';
+    const base = [
+      lead,
+      'When the person stops the recording, the application writes the file to the folder the person chose, and the file holds each step in the order the person took it, so that the person can read the steps and see what the recording holds.',
+      'The file is never changed after that.',
+    ].join('\n\n');
+    const now = [
+      lead,
+      'The application writes the file when the recording stops.',
+      'The file is never changed after that, and when the person opens the folder the application shows the file and each step in the order the person took it, so that the person can see what the file holds.',
+    ].join('\n\n');
+    // The third paragraph grew from 7 to 39 words, and the list names the cut paragraph instead.
+    const { out } = one(`${now}\n`, `${base}\n`);
+    assert.deepEqual(out.slice(0, 2), [heading(1), grew(3, 7, 9)]);
+    assert.equal(out.length, 3);
+  });
+
+  it('a unit sharing as many words with two base units is compared with the longer', () => {
+    const base = `**AA-1.** Lead.\n\n${words(10, 'w')}\n\n${words(10, 'w')} ${words(10, 'x')}\n`;
+    // 12 words, 10 of them in both base units: against the 20-word unit it did not grow.
+    assert.equal(one(`**AA-1.** Lead.\n\n${words(10, 'w')} more words\n`, base).out[0], NONE);
+  });
+
+  it('a word counts as shared as many times as both units hold it', () => {
+    // "go go go" shares two words with "go go" and one with "go on now".
+    const { out } = one(
+      '**AA-1.** Lead.\n\n- go go go\n',
+      '**AA-1.** Lead.\n\n- go on now\n- go go\n',
+    );
+    assert.deepEqual(out.slice(0, 2), [heading(1), grew(3, 2, 3)]);
+  });
+
+  it('a unit that shrank, a unit that left and the same words in another order are not listed', () => {
+    const base = `**AA-1.** Lead.\n\n${words(20, 'w')}\n\n- ${words(9, 'x')}\n`;
+    const shrank = `**AA-1.** Lead.\n\n${words(19, 'w')}\n\n- ${words(9, 'x')}\n`;
+    const turned = `**AA-1.** Lead.\n\n${words(20, 'w').split(' ').reverse().join(' ')}\n\n- ${words(9, 'x')}\n`;
+    assert.equal(one(shrank, base).out[0], NONE);
+    assert.equal(one(`**AA-1.** Lead.\n\n${words(20, 'w')}\n`, base).out[0], NONE);
+    assert.equal(one(turned, base).out[0], NONE);
+  });
+
+  it('a clause the base does not hold in that document is not listed', () => {
+    const docs = { [DOC_A]: docA(words(30, 'w'), words(9, 'x')), [DOC_B]: docB(words(40, 'y')) };
+    // The base holds neither document.
+    assert.equal(run({ rows, docs, baseDocs: {} }).out[0], NONE);
+    // The base holds the documents without these clauses' markers.
+    const bare = { [DOC_A]: '# A\n\nPreamble.\n', [DOC_B]: `**AA-1.** ${words(5, 'w')}\n` };
+    assert.equal(run({ rows, docs, baseDocs: bare }).out[0], NONE);
+  });
+
+  it('a marker inside a fenced block is not the clause, now or at the base', () => {
+    const fence =
+      '```text\n**AA-1.** An example of a marker, with many more words than the clause.\n```\n\n';
+    const { out } = one(
+      `${fence}**AA-1.** ${words(8, 'w')}\n`,
+      `${fence}**AA-1.** ${words(5, 'w')}\n`,
+    );
+    assert.equal(out[1], grew(5, 7, 10));
+  });
+
+  it('the list is printed beside a problem, and the problem still reds', () => {
+    const shared = words(RUN_WORDS, 'same');
+    const { code, out, err } = run({
+      rows: TWO,
+      docs: { [DOC_A]: `**AA-1.** First ${shared} here.\n`, [DOC_B]: docB(`Second ${shared}.`) },
+      baseDocs: { [DOC_A]: '**AA-1.** First.\n', [DOC_B]: docB(`Second ${shared}.`) },
+    });
+    assert.equal(code, 1);
+    assert.deepEqual(out, [heading(1), grew(1, 3, RUN_WORDS + 4)]);
+    assert.match(err[0], /^✗ AA-1 \(docs\/a\.md\) and BB-1 \(docs\/b\.md\) both state/);
+  });
+
+  it('the grown units go to the job summary as a table, a pipe and a backslash in a name escaped', () => {
+    const odd = 'docs/a|b\\c.md';
+    const { summary } = one(
+      `Top.\n\n**AA-1.** ${words(8, 'w')}\n`,
+      `Top.\n\n**AA-1.** ${words(5, 'w')}\n`,
+      odd,
+    );
+    assert.deepEqual(summary, [
+      [
+        `### Units of a clause that grew since ${BASE_REF}`,
+        '',
+        GROWTH_ANSWER,
+        '',
+        '| Document | Line | Clause | Before | Now |',
+        '| --- | --- | --- | --- | --- |',
+        '| `docs/a\\|b\\\\c.md` | 3 | AA-1 | 7 | 10 |',
+        '',
+      ].join('\n'),
+    ]);
+  });
+});
+
+describe('what the two growth lists share', () => {
+  it('the answer names who answers a list and where the rule stands', () => {
     assert.equal(
-      none.err[0],
-      `✗ ${BASELINE_PATH} admits 1 unit(s) over ${UNIT_WORD_LIMIT} words in AA-1, and it holds 0 now — remove the entry`,
+      GROWTH_ANSWER,
+      "This does not fail: the pull request's reviewer answers each (docs/guides/docs-governance.md, Writing docs).",
     );
   });
 
-  it('a count that fell but not to zero asks for the entry to be lowered', () => {
-    const { err } = run({
-      rows: { 'AA-1': DOC_A },
-      docs: { [DOC_A]: `**AA-1.** Lead.\n\n${over}\n` },
-      baseline: { ...EMPTY, 'long-units': { 'AA-1': 2 } },
-    });
-    assert.equal(
-      err[0],
-      `✗ ${BASELINE_PATH} admits 2 unit(s) over ${UNIT_WORD_LIMIT} words in AA-1, and it holds 1 now — lower the entry to 1`,
-    );
+  it('summaryCell escapes a backslash and then a pipe, and writes other values as text', () => {
+    assert.equal(summaryCell('a|b'), 'a\\|b');
+    assert.equal(summaryCell('a\\|b'), 'a\\\\\\|b');
+    assert.equal(summaryCell(12), '12');
   });
 });
 
@@ -361,7 +530,7 @@ describe('main — refusals on the check’s own inputs', () => {
     const { code, err } = run({
       rows,
       docs,
-      baseline: { ...EMPTY, 'long-units': { 'ZZ-9': 1 } },
+      baseline: { ...EMPTY, 'shared-text': ['AA-1|ZZ-9'] },
     });
     assert.equal(code, 1);
     assert.equal(
@@ -430,9 +599,6 @@ describe('main — the baseline is held to its shape and to what the tree needs'
   const withBaseline = (part) => run({ rows, docs, baseline: { ...EMPTY, ...part } });
 
   it('an entry of the wrong type is the machinery verdict, never a pass', () => {
-    assert.equal(withBaseline({ 'long-units': { 'AA-1': 'many' } }).code, 2);
-    assert.equal(withBaseline({ 'long-units': { 'AA-1': 1.5 } }).code, 2);
-    assert.equal(withBaseline({ 'long-units': null }).code, 2);
     assert.equal(withBaseline({ 'issue-homes': { 7: 'AA-1 BB-1' } }).code, 2);
     assert.equal(withBaseline({ 'issue-homes': { 7: ['AA-1', 2] } }).code, 2);
     assert.equal(withBaseline({ 'shared-text': {} }).code, 2);
@@ -445,12 +611,6 @@ describe('main — the baseline is held to its shape and to what the tree needs'
     assert.equal(
       one.err[0],
       `✗ ${BASELINE_PATH} lists docent#7 for one clause, which admits nothing — remove the entry`,
-    );
-    const zero = withBaseline({ 'long-units': { 'AA-1': 0 } });
-    assert.equal(zero.code, 1);
-    assert.equal(
-      zero.err[0],
-      `✗ ${BASELINE_PATH} admits 0 unit(s) over ${UNIT_WORD_LIMIT} words in AA-1, which admits nothing — remove the entry`,
     );
   });
 
@@ -465,30 +625,18 @@ describe('main — the baseline is held to its shape and to what the tree needs'
       `✗ ${BASELINE_PATH} lists BB-1|AA-1, and a pair is written with its two clauses in order — write it AA-1|BB-1`,
     );
   });
-
-  it('the longest of several long units is the one quoted', () => {
-    const { err } = run({
-      rows: { 'AA-1': DOC_A },
-      docs: {
-        [DOC_A]: `**AA-1.** Lead.\n\n${words(UNIT_WORD_LIMIT + 1, 'a')}\n\n${words(UNIT_WORD_LIMIT + 9, 'b')}\n`,
-      },
-    });
-    assert.match(err[0], /the longest runs 159 words and opens "b0 b1 b2 b3 b4 b5"$/);
-  });
 });
 
 describe('main — the baseline admits no more than the base it is compared with', () => {
-  const long = (stem) => words(UNIT_WORD_LIMIT + 1, stem);
   const shared = words(RUN_WORDS, 'same');
   const rows = { ...ONE_DOC, 'BB-1': DOC_B };
   const docs = {
-    [DOC_A]: `**AA-1.** First ${shared}, see ${ISSUE(7)}.\n\n**AA-2.** ${long('a')}, see ${ISSUE(7)}.\n`,
+    [DOC_A]: `**AA-1.** First ${shared}, see ${ISSUE(7)}.\n\n**AA-2.** Again, see ${ISSUE(7)}.\n`,
     [DOC_B]: `**BB-1.** Second ${shared}.\n`,
   };
   const baseline = {
     'issue-homes': { 7: ['AA-1', 'AA-2'] },
     'shared-text': ['AA-1|BB-1'],
-    'long-units': { 'AA-2': 1 },
   };
 
   it('a baseline equal to the base passes, and so does one that admits less', () => {
@@ -496,9 +644,13 @@ describe('main — the baseline admits no more than the base it is compared with
     const wider = {
       'issue-homes': { 7: ['AA-1', 'AA-2'], 9: ['AA-1', 'AA-2'] },
       'shared-text': ['AA-1|BB-1', 'AA-2|BB-1'],
-      'long-units': { 'AA-2': 3 },
     };
     assert.equal(run({ rows, docs, baseline, base: wider }).code, 0);
+  });
+
+  it('a base baseline that still holds a list this check no longer reads is compared on the two it reads', () => {
+    const older = { ...baseline, 'long-units': { 'AA-2': 1 } };
+    assert.equal(run({ rows, docs, baseline, base: older }).code, 0);
   });
 
   it('a pair the base does not list reds though the baseline lists it', () => {
@@ -511,18 +663,12 @@ describe('main — the baseline admits no more than the base it is compared with
     assert.equal(err[1], `\n1 problem. ${SEE}`);
   });
 
-  it('a clause the base does not list under an issue, and a count above the base, each red the same way', () => {
+  it('a clause the base does not list under an issue reds the same way', () => {
     const issue = run({ rows, docs, baseline, base: { ...baseline, 'issue-homes': {} } });
     assert.equal(issue.code, 1);
     assert.equal(
       issue.err[0],
       `✗ ${BASELINE_PATH} lists docent#7 for AA-1, AA-2, which the base does not — the list only shrinks: fix the clause and take the new entry out`,
-    );
-    const units = run({ rows, docs, baseline, base: { ...baseline, 'long-units': {} } });
-    assert.equal(units.code, 1);
-    assert.equal(
-      units.err[0],
-      `✗ ${BASELINE_PATH} admits 1 unit(s) over ${UNIT_WORD_LIMIT} words in AA-2 where the base admits 0 — the list only shrinks: fix the clause and take the new entry out`,
     );
   });
 
@@ -530,11 +676,10 @@ describe('main — the baseline admits no more than the base it is compared with
     const other = {
       'issue-homes': { 9: ['AA-1', 'AA-2'] },
       'shared-text': ['AA-2|BB-1'],
-      'long-units': { 'BB-1': 1 },
     };
     const { code, err } = run({ rows, docs, baseline, base: other });
     assert.equal(code, 1);
-    assert.equal(err.filter((line) => line.includes('the list only shrinks')).length, 3);
+    assert.equal(err.filter((line) => line.includes('the list only shrinks')).length, 2);
   });
 
   it('a base that holds no baseline is not compared', () => {
@@ -574,6 +719,13 @@ describe('the readers', () => {
       ['5', '7', '8'],
     );
     assert.deepEqual([...issueLinks('Another repository: https://github.com/x/y/issues/9')], []);
+  });
+
+  it('clauseUnits reads each list item and each table row as a unit of its own', () => {
+    assert.deepEqual(
+      clauseUnits('**AA-1.** Lead:\n\n- One.\n- Two.\n\n| a | b |\n| --- | --- |\n| c | d |\n'),
+      ['**AA-1.** Lead:', 'One.', 'Two.', '| a | b |', '| c | d |'],
+    );
   });
 
   it('clauseUnits reads `1)` items apart and keeps an item with its indented continuation', () => {

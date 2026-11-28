@@ -56,7 +56,7 @@ machinery under `scripts/`.
 | `check-capture-surface.test.js` | The capture-surface admission test: both platforms' closed enumerations, the scanned population and the admission list keyed over it, and the extractors' refusals. |
 | `check-ci-filter.test.js` | The CI path-filter admission test: the test workflow's filter split, the held-flag holdings maps held to their filters both ways, and the script closure each heavy job gates on. |
 | `check-clause-governance.test.js` | The clause-governance check: a file a clause cites owes the clause's document under the area map, with recorded exceptions keyed by the citation. |
-| `check-clause-form.test.js` | The clause-form check: one home per rule and clause unit length, over an injected registry, documents and baseline. |
+| `check-clause-form.test.js` | The clause-form check: one home per rule and grown clause units, over an injected registry, documents and baseline. |
 | `check-clause-preamble.test.js` | The clause-preamble admission test: the canonical paragraph, its computed per-document variables, and the lowercase-keyword allowlist. |
 | `check-clause-registry.test.js` | The clause-registry parity check: clause markers and `docs/clause-registry.json` rows agree, and each row's grammar, citations and test cases resolve. |
 | `check-cli-smoke.test.js` | End-to-end smoke tests that a check-script wrapper runs green over the committed tree, and the harness locks over the `child-env.js` helpers and the git-environment preload. |
