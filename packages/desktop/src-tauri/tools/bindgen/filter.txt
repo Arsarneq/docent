@@ -70,6 +70,8 @@ Windows.Win32.HKL
 Windows.Win32.HMENU
 Windows.Win32.HWINEVENTHOOK
 Windows.Win32.HWND
+Windows.Win32.INPUT
+Windows.Win32.INPUT_KEYBOARD
 Windows.Win32.INVALID_HANDLE_VALUE
 Windows.Win32.IRawElementProviderFragment
 Windows.Win32.IRawElementProviderFragmentRoot
@@ -86,6 +88,8 @@ Windows.Win32.InternalGetWindowText
 Windows.Win32.IsWindow
 Windows.Win32.IsWindowVisible
 Windows.Win32.KBDLLHOOKSTRUCT
+Windows.Win32.KEYBDINPUT
+Windows.Win32.KEYEVENTF_KEYUP
 Windows.Win32.KEY_READ
 Windows.Win32.KLF_NOTELLSHELL
 Windows.Win32.LBS_NOTIFY
@@ -153,6 +157,7 @@ Windows.Win32.SW_RESTORE
 Windows.Win32.SW_SHOW
 Windows.Win32.S_OK
 Windows.Win32.ScrollWindow
+Windows.Win32.SendInput
 Windows.Win32.SendMessageTimeoutW
 Windows.Win32.SendMessageW
 Windows.Win32.SetForegroundWindow
