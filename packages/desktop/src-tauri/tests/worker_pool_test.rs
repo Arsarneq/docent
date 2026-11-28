@@ -2882,6 +2882,61 @@ fn modifier_only_keys_produce_no_events() {
     );
 }
 
+/// Regression: a Shift, Ctrl or Alt press the hook was handed by its generic
+/// code (`VK_SHIFT`, `VK_CONTROL`, `VK_MENU`), as a program sending input by
+/// virtual-key code alone may send it, was written as a `key` named `Shift`,
+/// `Control` or `Alt`, and ended the typing in the field; a press of Shift,
+/// Ctrl or Alt is no `key` by whichever code it comes (DCP-9, DCP-13), in an
+/// edit field and in a password field alike.
+#[test]
+fn regression_noissue_a_shift_ctrl_or_alt_press_by_its_generic_code_is_no_key() {
+    let presses = [
+        (0x10, (false, true, false, false)),
+        (0x11, (true, false, false, false)),
+        (0x12, (false, false, true, false)),
+    ];
+    for (vk, modifiers) in presses {
+        let press = |seq: u64, timestamp: u64| {
+            let mut raw = layout_key(seq, timestamp, vk);
+            raw.modifiers = modifiers;
+            raw
+        };
+
+        // An edit field: A, the press, B, and the value they made.
+        let gate = closed_gate();
+        open_gate(&gate);
+        let harness = WorkerTestHarness::new(TypingBackend::edit(&gate, "ab"));
+        let t = now_ms();
+        harness.send_event(layout_key(1, t, 0x41));
+        harness.send_event(press(2, t + 1));
+        harness.send_event(layout_key(3, t + 2, 0x42));
+        harness.send_event(value_change(4, t + 6, 1234));
+        thread::sleep(Duration::from_millis(900));
+        let events = harness.shutdown();
+        assert_eq!(
+            types_and_keys(&events),
+            vec!["type ab"],
+            "vk {vk:#x} in an edit field: one `type` and no `key`, got {events:?}"
+        );
+
+        // A password field: P, the press, W.
+        let gate = closed_gate();
+        open_gate(&gate);
+        let harness = WorkerTestHarness::new(TypingBackend::password(&gate));
+        let t = now_ms();
+        harness.send_event(layout_key(1, t, 0x50));
+        harness.send_event(press(2, t + 1));
+        harness.send_event(layout_key(3, t + 2, 0x57));
+        thread::sleep(Duration::from_millis(900));
+        let events = harness.shutdown();
+        assert_eq!(
+            types_and_keys(&events),
+            vec!["type ••••••••"],
+            "vk {vk:#x} in a password field: one masked `type` and no `key`, got {events:?}"
+        );
+    }
+}
+
 /// Test: Win+L key combo — the L key with meta modifier IS captured as a key
 /// event (our code doesn't suppress it). The actual suppression of Win+L
 /// happens at the OS kernel level — the low-level hook never receives it.
@@ -3777,16 +3832,8 @@ fn regression_noissue_enter_right_behind_typing_in_a_password_field_writes_no_ch
 
     // The typing, then the control key, and nothing after it: the value change
     // finds the masked type already recorded for the field.
-    let kinds: Vec<String> = events
-        .iter()
-        .filter_map(|e| match &e.payload {
-            ActionPayload::Type { value, .. } => Some(format!("type {value}")),
-            ActionPayload::Key { key, .. } => Some(format!("key {key}")),
-            _ => None,
-        })
-        .collect();
     assert_eq!(
-        kinds,
+        types_and_keys(&events),
         vec!["type ••••••••", "key Enter"],
         "the typing is one masked type ahead of the control key, got {events:?}"
     );
@@ -6173,16 +6220,8 @@ fn regression_744_a_dead_key_behind_typed_text_is_written_behind_the_type() {
         }
         events.extend(harness.shutdown());
 
-        let written: Vec<String> = events
-            .iter()
-            .filter_map(|e| match &e.payload {
-                ActionPayload::Type { value, .. } => Some(format!("type {value}")),
-                ActionPayload::Key { key, .. } => Some(format!("key {key}")),
-                _ => None,
-            })
-            .collect();
         assert_eq!(
-            written,
+            types_and_keys(&events),
             vec!["type c", "key Dead"],
             "{ender}: got {events:?}"
         );

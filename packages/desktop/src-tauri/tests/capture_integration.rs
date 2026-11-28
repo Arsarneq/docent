@@ -4074,7 +4074,7 @@ mod alt_graph {
     }
 
     /// The `modifiers` an action states, as the file holds them.
-    fn modifiers_of(event: &ActionEvent) -> serde_json::Value {
+    pub(super) fn modifiers_of(event: &ActionEvent) -> serde_json::Value {
         serde_json::to_value(event).unwrap()["modifiers"].clone()
     }
 
@@ -4091,7 +4091,7 @@ mod alt_graph {
 
     /// Runs `drive` against a test window with layout `id` active and
     /// returns what was captured.
-    fn capture_with_layout(
+    pub(super) fn capture_with_layout(
         id: &str,
         language: usize,
         title: &str,
@@ -4231,7 +4231,7 @@ mod alt_graph {
     /// The Danish layout, which has AltGr.
     const DANISH: (&str, usize) = ("00000406", 0x0406);
     /// The US layout, which has none.
-    const US: (&str, usize) = ("00000409", 0x0409);
+    pub(super) const US: (&str, usize) = ("00000409", 0x0409);
 
     // Regression: #825 — the desktop wrote AltGr as Ctrl and Alt, the same as
     // a Ctrl and an Alt the person held.
@@ -4393,5 +4393,260 @@ mod alt_graph {
         let held = reads[0];
         println!("left Ctrl held after AltGr's release, by Windows' state: {held}");
         assert_eq!(e_presses(&events), vec![expected(held, false, false)]);
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SHIFT, CTRL AND ALT SENT BY THEIR GENERIC CODES
+// A program that sends input (an on-screen keyboard, a remote-desktop client,
+// an automation tool) can send Shift, Ctrl and Alt by their generic
+// virtual-key codes, `VK_SHIFT`, `VK_CONTROL` and `VK_MENU`, with no scan
+// code. A press of Shift, Ctrl or Alt is written as no `key` (DCP-9, DCP-13),
+// and a key pressed while one is held states it in its `modifiers`. These
+// tests send that input with `SendInput` itself, since enigo fills in a scan
+// code. A low-level keyboard hook of their own must be handed a key-down for
+// each press, by one of its key's codes, and the codes it was handed are
+// reported.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+mod generic_modifier_codes {
+    use super::alt_graph::{capture_with_layout, modifiers_of, US};
+    use super::*;
+    use docent_desktop_lib::capture::win32_bindings::{
+        CallNextHookEx, GetCurrentThreadId, GetMessageW, PeekMessageW, PostThreadMessageW,
+        SendInput, SetWindowsHookExW, UnhookWindowsHookEx, INPUT, INPUT_0, INPUT_KEYBOARD,
+        KBDLLHOOKSTRUCT, KEYBDINPUT, KEYEVENTF_KEYUP, LLKHF_INJECTED, LPARAM, LRESULT, MSG,
+        PM_NOREMOVE, WH_KEYBOARD_LL, WM_KEYDOWN, WM_QUIT, WM_SYSKEYDOWN, WPARAM,
+    };
+    use std::sync::Mutex;
+
+    /// The virtual-key code of the E key.
+    const VK_E: u32 = 0x45;
+
+    /// One message a low-level keyboard hook was handed: the message, the
+    /// virtual-key code, the scan code and the flags.
+    #[derive(Debug, Clone, Copy)]
+    struct Handed {
+        message: u32,
+        vk: u32,
+        scan: u32,
+        flags: u32,
+    }
+
+    /// What the observing hook kept, in order.
+    static HANDED: Mutex<Vec<Handed>> = Mutex::new(Vec::new());
+
+    /// Whether the observing hook keeps a message: an injected one, of a key
+    /// the test sends or a code the system may hand for it (Shift, Ctrl or Alt
+    /// by their generic, left or right codes, and E).
+    fn kept(vk: u32, flags: u32) -> bool {
+        flags & LLKHF_INJECTED as u32 != 0 && matches!(vk, 0x10..=0x12 | 0xA0..=0xA5 | VK_E)
+    }
+
+    /// The observing hook: it keeps the messages [`kept`] admits and passes
+    /// every message on.
+    unsafe extern "system" fn observe(code: i32, w_param: WPARAM, l_param: LPARAM) -> LRESULT {
+        if code >= 0 {
+            // SAFETY: a low-level keyboard hook's `lParam` points at the
+            // message's `KBDLLHOOKSTRUCT` for the length of the call.
+            let k = unsafe { &*(l_param.0 as *const KBDLLHOOKSTRUCT) };
+            if kept(k.vkCode, k.flags) {
+                if let Ok(mut handed) = HANDED.lock() {
+                    handed.push(Handed {
+                        message: w_param.0 as u32,
+                        vk: k.vkCode,
+                        scan: k.scanCode,
+                        flags: k.flags,
+                    });
+                }
+            }
+        }
+        // SAFETY: the arguments the hook was called with.
+        unsafe { CallNextHookEx(None, code, w_param, l_param) }
+    }
+
+    /// A low-level keyboard hook of the test's own, on a thread that pumps
+    /// messages, which keeps the injected messages of the test's keys the
+    /// system hands it until it is dropped.
+    struct Observer {
+        thread_id: u32,
+        handle: Option<thread::JoinHandle<()>>,
+    }
+
+    impl Observer {
+        fn start() -> Self {
+            HANDED.lock().unwrap().clear();
+            let (ready_tx, ready_rx) = mpsc::channel();
+            let handle = thread::spawn(move || {
+                // SAFETY: the hook is installed, pumped and removed on this
+                // thread; the message buffer outlives every call.
+                unsafe {
+                    let mut msg = MSG::default();
+                    // Gives the thread its message queue before its id is
+                    // handed out, so the WM_QUIT posted to it is kept.
+                    let _ = PeekMessageW(&mut msg, None, 0, 0, PM_NOREMOVE as u32);
+                    let hook = SetWindowsHookExW(WH_KEYBOARD_LL, Some(observe), None, 0);
+                    let _ = ready_tx.send((GetCurrentThreadId(), !hook.0.is_null()));
+                    while GetMessageW(&mut msg, None, 0, 0).as_bool() {}
+                    if !hook.0.is_null() {
+                        let _ = UnhookWindowsHookEx(hook);
+                    }
+                }
+            });
+            let (thread_id, hooked) = ready_rx
+                .recv_timeout(Duration::from_secs(5))
+                .expect("the observing hook's thread starts");
+            assert!(hooked, "the observing low-level keyboard hook is installed");
+            Observer {
+                thread_id,
+                handle: Some(handle),
+            }
+        }
+
+        /// Stops the hook and returns what it kept.
+        fn stop(mut self) -> Vec<Handed> {
+            self.quit();
+            HANDED.lock().unwrap().clone()
+        }
+
+        fn quit(&mut self) {
+            if let Some(handle) = self.handle.take() {
+                // SAFETY: posting WM_QUIT to the hook's own thread.
+                unsafe {
+                    let _ =
+                        PostThreadMessageW(self.thread_id, WM_QUIT as u32, WPARAM(0), LPARAM(0));
+                }
+                let _ = handle.join();
+            }
+        }
+    }
+
+    impl Drop for Observer {
+        fn drop(&mut self) {
+            self.quit();
+        }
+    }
+
+    /// Sends one key-down or key-up by virtual-key code `vk`, with no scan
+    /// code and no flag but the key-up's.
+    fn send_by_code_alone(vk: u16, up: bool) {
+        let input = INPUT {
+            r#type: INPUT_KEYBOARD as u32,
+            Anonymous: INPUT_0 {
+                ki: KEYBDINPUT {
+                    wVk: vk,
+                    wScan: 0,
+                    dwFlags: if up { KEYEVENTF_KEYUP as u32 } else { 0 },
+                    time: 0,
+                    dwExtraInfo: 0,
+                },
+            },
+        };
+        // SAFETY: one well-formed keyboard input, of its own size.
+        let sent = unsafe { SendInput(&[input], std::mem::size_of::<INPUT>() as i32) };
+        assert_eq!(sent, 1, "SendInput takes the key {vk:#x} (up: {up})");
+    }
+
+    /// The `key` actions among `events`, each as its key name, its `code` and
+    /// its `modifiers`, for an assertion and for the failure message.
+    fn keys_of(events: &[ActionEvent]) -> Vec<(String, Option<String>, serde_json::Value)> {
+        events
+            .iter()
+            .filter_map(|e| match &e.payload {
+                ActionPayload::Key { key, code, .. } => {
+                    Some((key.clone(), code.map(str::to_string), modifiers_of(e)))
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// What `modifiers` must hold with exactly one of Ctrl, Shift and Alt.
+    fn only(ctrl: bool, shift: bool, alt: bool) -> serde_json::Value {
+        serde_json::json!({
+            "ctrl": ctrl,
+            "shift": shift,
+            "alt": alt,
+            "meta": false,
+            "alt_graph": false,
+        })
+    }
+
+    /// Shift, Ctrl and Alt, each sent by its generic code with no scan code,
+    /// held while E is pressed and released: the observing hook is handed a
+    /// key-down of the modifier by one of its codes, generic, left or right,
+    /// the file holds no `key` for the modifier, and the E's `key` states it.
+    /// Which of its codes the hook is handed is not held to. The failure
+    /// message gives, per modifier, the codes the observing hook was handed
+    /// and the `key` actions captured.
+    #[test]
+    #[serial]
+    fn a_generic_shift_ctrl_or_alt_code_is_no_key_and_the_letter_states_it() {
+        let cases: [(&str, u16, [u32; 3], serde_json::Value); 3] = [
+            ("Shift", 0x10, [0x10, 0xA0, 0xA1], only(false, true, false)),
+            ("Ctrl", 0x11, [0x11, 0xA2, 0xA3], only(true, false, false)),
+            ("Alt", 0x12, [0x12, 0xA4, 0xA5], only(false, false, true)),
+        ];
+        let mut report = Vec::new();
+        let mut held_to = true;
+        for (name, vk, codes, want) in cases {
+            let observer = Observer::start();
+            let events = capture_with_layout(
+                US.0,
+                US.1,
+                &format!("Generic {name} Code"),
+                |enigo, window| {
+                    let (cx, cy) = window.center();
+                    enigo.move_mouse(cx, cy, Coordinate::Abs).unwrap();
+                    thread::sleep(Duration::from_millis(50));
+                    send_by_code_alone(vk, false);
+                    thread::sleep(Duration::from_millis(60));
+                    enigo
+                        .key(enigo::Key::Other(VK_E), Direction::Click)
+                        .unwrap();
+                    thread::sleep(Duration::from_millis(60));
+                    send_by_code_alone(vk, true);
+                    thread::sleep(Duration::from_millis(150));
+                },
+            );
+            let handed = observer.stop();
+            let pressed = handed.iter().any(|h| {
+                (h.message == WM_KEYDOWN as u32 || h.message == WM_SYSKEYDOWN as u32)
+                    && codes.contains(&h.vk)
+            });
+            if !pressed {
+                held_to = false;
+            }
+            let keys = keys_of(&events);
+            // The E's name is the layout's for the key with the modifier held,
+            // so only its `code` and its `modifiers` are held to.
+            let written: Vec<_> = keys
+                .iter()
+                .map(|(_, c, m)| (c.clone(), m.clone()))
+                .collect();
+            if written != [(Some("KeyE".to_string()), want)] {
+                held_to = false;
+            }
+            let handed: Vec<String> = handed
+                .iter()
+                .map(|h| {
+                    format!(
+                        "msg {:#06x} vk {:#04x} scan {:#x} flags {:#x}",
+                        h.message, h.vk, h.scan, h.flags
+                    )
+                })
+                .collect();
+            report.push(format!(
+                "{name} (sent as vk {vk:#04x}, scan 0):\n  hook handed a key-down of the key: {pressed}\n  hook handed: {handed:#?}\n  key actions: {keys:?}"
+            ));
+        }
+        let report = report.join("\n");
+        println!("{report}");
+        assert!(
+            held_to,
+            "a press of Shift, Ctrl or Alt by its generic code reaches a low-level keyboard \
+             hook as a key-down by one of its key's codes, is written as no `key`, and the E \
+             pressed while it is held is one `key` stating it in `modifiers`:\n{report}"
+        );
     }
 }

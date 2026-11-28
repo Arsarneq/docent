@@ -604,6 +604,11 @@ pub unsafe fn ScrollWindow(
     }
 }
 #[inline]
+pub unsafe fn SendInput(pinputs: &[INPUT], cbsize: i32) -> u32 {
+    windows_core::link!("user32.dll" "system" fn SendInput(cinputs : u32, pinputs : *const INPUT, cbsize : i32) -> u32);
+    unsafe { SendInput(pinputs.len().try_into().unwrap(), pinputs.as_ptr(), cbsize) }
+}
+#[inline]
 pub unsafe fn SendMessageTimeoutW(
     hwnd: HWND,
     msg: u32,
@@ -877,6 +882,13 @@ pub const GW_OWNER: i32 = 4;
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub struct HANDLE(pub *mut core::ffi::c_void);
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct HARDWAREINPUT {
+    pub uMsg: u32,
+    pub wParamL: u16,
+    pub wParamH: u16,
+}
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub struct HBRUSH(pub *mut core::ffi::c_void);
@@ -961,6 +973,30 @@ pub struct IDispatch_Vtbl {
     GetIDsOfNames: usize,
     Invoke: usize,
 }
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct INPUT {
+    pub r#type: u32,
+    pub Anonymous: INPUT_0,
+}
+impl Default for INPUT {
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub union INPUT_0 {
+    pub mi: MOUSEINPUT,
+    pub ki: KEYBDINPUT,
+    pub hi: HARDWAREINPUT,
+}
+impl Default for INPUT_0 {
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+pub const INPUT_KEYBOARD: i32 = 1;
 pub const INVALID_HANDLE_VALUE: HANDLE = HANDLE(-1 as _);
 windows_core::imp::define_interface!(
     IRawElementProviderFragment,
@@ -4567,6 +4603,16 @@ pub struct KBDLLHOOKSTRUCT {
     pub time: u32,
     pub dwExtraInfo: usize,
 }
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct KEYBDINPUT {
+    pub wVk: u16,
+    pub wScan: u16,
+    pub dwFlags: u32,
+    pub time: u32,
+    pub dwExtraInfo: usize,
+}
+pub const KEYEVENTF_KEYUP: i32 = 2;
 pub const KEY_READ: i32 = 131097;
 pub const KLF_NOTELLSHELL: i32 = 128;
 pub const LBS_NOTIFY: i32 = 1;
@@ -4574,6 +4620,7 @@ pub const LBS_NOTIFY: i32 = 1;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub struct LCID(pub u32);
 pub const LLKHF_EXTENDED: i32 = 1;
+pub const LLKHF_INJECTED: i32 = 16;
 pub const LOCALE_ALLOW_NEUTRAL_NAMES: i32 = 134217728;
 pub const LOCALE_NAME_MAX_LENGTH: i32 = 85;
 #[repr(transparent)]
@@ -4590,6 +4637,16 @@ pub struct LRESULT(pub isize);
 pub struct LSTATUS(pub i32);
 pub const MAPVK_VK_TO_CHAR: i32 = 2;
 pub const MAPVK_VSC_TO_VK: i32 = 1;
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct MOUSEINPUT {
+    pub dx: i32,
+    pub dy: i32,
+    pub mouseData: u32,
+    pub dwFlags: u32,
+    pub time: u32,
+    pub dwExtraInfo: usize,
+}
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct MSG {

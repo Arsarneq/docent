@@ -32,7 +32,7 @@ Tests live in two places:
 
 **Property-based tests** use [`proptest`](https://docs.rs/proptest) (the convention set in the [contributing guide](../../.github/CONTRIBUTING.md#rust)). Most of the unit binaries above state their contract as `proptest!` properties over generated inputs. `worker_pool_test.proptest-regressions` is proptest's committed regression-seed file (inputs that once falsified a property, replayed on every run) and stays in the repository. proptest only appends to such a file: a `*.proptest-regressions` file beside an integration test, or a `.txt` file under a `proptest-regressions/` directory for a test in the crate's source tree (the lint below holds both layouts), so each seed line in such a file carries a dated review note after proptest's own text (`# reviewed <YYYY-MM-DD>: <why kept>`), which proptest does not read. A seed a run leaves behind arrives without one, and the [`check-proptest-seeds.js`](../../scripts/check-proptest-seeds.js) lint (`npm run lint:proptest-seeds`) reds until the seed is kept with a note or deleted.
 
-The suites that synthesize real OS input (`capture_integration.rs`, `corpus_capture.rs`, `file_dialog_test.rs`) drive the `enigo` crate and are `#[serial]`. They share the machine's input layer, run one at a time, and expect the keyboard and mouse to be left alone while they run.
+The suites that synthesize real OS input (`capture_integration.rs`, `corpus_capture.rs`, `file_dialog_test.rs`) drive the `enigo` crate, or Windows' `SendInput` itself where a test needs a key sent in a way the crate does not send it, and are `#[serial]`. They share the machine's input layer, run one at a time, and expect the keyboard and mouse to be left alone while they run.
 
 ## Running the suite
 
