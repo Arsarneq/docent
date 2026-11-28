@@ -658,6 +658,10 @@
         },
         "meta": {
           "type": "boolean"
+        },
+        "alt_graph": {
+          "type": "boolean",
+          "description": "Whether the AltGr key was held at the action. Absent in a recording made before the field existed."
         }
       }
     },

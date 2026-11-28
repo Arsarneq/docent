@@ -419,6 +419,49 @@ describe('Schema validation: extension language facts (docent#142)', () => {
   });
 });
 
+describe('Schema validation: extension modifiers (docent#825)', () => {
+  const none = { ctrl: false, shift: false, alt: false, meta: false };
+  const withModifiers = (modifiers) =>
+    buildExtensionExport([
+      {
+        type: 'key',
+        timestamp: Date.now(),
+        capture_mode: 'dom',
+        context_id: 12345,
+        key: '€',
+        code: 'KeyE',
+        repeat: false,
+        modifiers,
+        held_keys: [],
+        element: {
+          tag: 'INPUT',
+          id: 'q',
+          name: null,
+          role: null,
+          type: 'text',
+          text: null,
+          selector: '#q',
+        },
+      },
+    ]);
+
+  it('regression_825_accepts_alt_graph_held_and_not_held', () => {
+    for (const alt_graph of [true, false]) {
+      const data = withModifiers({ ...none, alt_graph });
+      assert.ok(validateExtension(data), `Failed:\n${formatErrors(validateExtension)}`);
+    }
+  });
+
+  it('regression_825_accepts_modifiers_without_alt_graph_(older_recordings)', () => {
+    const data = withModifiers(none);
+    assert.ok(validateExtension(data), `Failed:\n${formatErrors(validateExtension)}`);
+  });
+
+  it('regression_825_rejects_a_non_boolean_alt_graph', () => {
+    assert.ok(!validateExtension(withModifiers({ ...none, alt_graph: 1 })));
+  });
+});
+
 describe('Schema validation: extension negative tests', () => {
   it('rejects missing project field', () => {
     const valid = validateExtension({ recordings: [] });
