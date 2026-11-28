@@ -112,6 +112,16 @@ fn stop_capture_impl(capture: &CaptureMutex) -> Result<BarrierReport, String> {
     capture.stop().map_err(|e: CaptureError| e.to_string())
 }
 
+/// Core logic for `set_capture_timings_measuring`, testable without a Tauri
+/// runtime.
+fn set_capture_timings_measuring_impl(
+    capture: &CaptureMutex,
+    measuring: bool,
+) -> Result<(), String> {
+    lock_capture(capture)?.set_timings_measuring(measuring);
+    Ok(())
+}
+
 /// Core logic for `list_windows` — testable without a Tauri runtime.
 fn list_windows_impl(capture: &CaptureMutex) -> Result<Vec<WindowInfo>, String> {
     let capture = lock_capture(capture)?;
@@ -141,6 +151,17 @@ pub fn start_capture(state: State<'_, AppState>, pid: Option<u32>) -> Result<(),
 #[tauri::command]
 pub fn stop_capture(state: State<'_, AppState>) -> Result<BarrierReport, String> {
     stop_capture_impl(&state.capture)
+}
+
+/// Tell the capture whether to measure its timings: not while a re-record
+/// is open. It holds for the running capture and for every capture started
+/// after, until told otherwise.
+#[tauri::command]
+pub fn set_capture_timings_measuring(
+    state: State<'_, AppState>,
+    measuring: bool,
+) -> Result<(), String> {
+    set_capture_timings_measuring_impl(&state.capture, measuring)
 }
 
 /// List visible windows for target application selection.
@@ -665,6 +686,9 @@ mod tests {
         excluded_pid: Option<u32>,
         included_pid: Option<u32>,
         barrier_calls: u32,
+        /// What the panel last told the layer about measuring the capture
+        /// timings.
+        timings_measuring: Option<bool>,
     }
 
     struct MockCapture {
@@ -698,6 +722,10 @@ mod tests {
             }
             self.rec.lock().unwrap().started = true;
             Ok(())
+        }
+
+        fn set_timings_measuring(&mut self, measuring: bool) {
+            self.rec.lock().unwrap().timings_measuring = Some(measuring);
         }
 
         fn stop(&mut self) -> Result<BarrierReport, CaptureError> {
@@ -895,6 +923,25 @@ mod tests {
 
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("mock stop failure"));
+    }
+
+    /// Telling the capture whether to measure its timings reaches the layer
+    /// both ways, and neither starts nor stops it.
+    #[test]
+    fn set_capture_timings_measuring_reaches_the_layer() {
+        for measuring in [false, true] {
+            let (mock, rec) = MockCapture::new();
+            let cap = mutex(mock);
+
+            set_capture_timings_measuring_impl(&cap, measuring).unwrap();
+
+            let rec = rec.lock().unwrap();
+            assert_eq!(rec.timings_measuring, Some(measuring));
+            assert!(
+                !rec.started && !rec.stopped,
+                "the capture is left as it was"
+            );
+        }
     }
 
     // ── list_windows_impl ───────────────────────────────────────────────────

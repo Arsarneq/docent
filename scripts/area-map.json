@@ -754,13 +754,26 @@
     },
     {
       "path": "packages/desktop/src-tauri/src/capture/windows.rs",
-      "reason": "the desktop Windows provider decides when context lifecycle actions are emitted, so it owes the session-format doc on top of its capture-area governance; declared single-source (its governing set stated here as its covering areas' whole doc sets plus that one doc) so the pointer to the format doc does not resolve at area granularity and drag the format-contract area's other docs onto it — the amplification the sync re-cut terminated on the shared chokepoints. The per-platform schemas remain authoritative for field semantics.",
-      "governed-by": ["area:desktop-windows/capture", "docs/technical/session-format.md"]
+      "reason": "the desktop Windows provider decides when context lifecycle actions are emitted, and turns the capture timings on at start and writes their block at stop, so it owes the session-format doc and the desktop end-to-end suite's doc, which states the timings, on top of its capture-area governance; declared single-source (its governing set stated here as its covering areas' whole doc sets plus those two docs) so the pointers to those docs do not resolve at area granularity and drag the format-contract and end-to-end areas' other docs onto it — the amplification the sync re-cut terminated on the shared chokepoints. The per-platform schemas remain authoritative for field semantics.",
+      "governed-by": [
+        "area:desktop-windows/capture",
+        "docs/technical/session-format.md",
+        "docs/test/e2e/desktop.md"
+      ]
+    },
+    {
+      "path": "packages/desktop/src-tauri/src/capture/timing_lines.rs",
+      "reason": "the capture timings switch, its block and the words the block holds are stated in the desktop end-to-end suite's doc, where a person running the suite turns them on, so the file owes that doc on top of its capture-area governance; declared single-source (its governing set stated here as its covering area's whole doc set plus that one doc) so the doc does not resolve at area granularity and drag the end-to-end areas' other docs onto it.",
+      "governed-by": ["area:desktop-windows/capture", "docs/test/e2e/desktop.md"]
     },
     {
       "path": "packages/desktop/src-tauri/src/capture/worker_pool.rs",
-      "reason": "the desktop worker pool assigns each captured action's ordering and fields as it enters the stream, so it owes the session-format doc on top of its capture-area governance; declared single-source (its governing set stated here as its covering areas' whole doc sets plus that one doc) so the pointer to the format doc does not resolve at area granularity and drag the format-contract area's other docs onto it — the amplification the sync re-cut terminated on the shared chokepoints. The per-platform schemas remain authoritative for field semantics.",
-      "governed-by": ["area:desktop-windows/capture", "docs/technical/session-format.md"]
+      "reason": "the desktop worker pool assigns each captured action's ordering and fields as it enters the stream, and measures the steps the capture timings report, so it owes the session-format doc and the desktop end-to-end suite's doc, which states the timings, on top of its capture-area governance; declared single-source (its governing set stated here as its covering areas' whole doc sets plus those two docs) so the pointers to those docs do not resolve at area granularity and drag the format-contract and end-to-end areas' other docs onto it — the amplification the sync re-cut terminated on the shared chokepoints. The per-platform schemas remain authoritative for field semantics.",
+      "governed-by": [
+        "area:desktop-windows/capture",
+        "docs/technical/session-format.md",
+        "docs/test/e2e/desktop.md"
+      ]
     },
     {
       "path": "packages/desktop/src-tauri/src/commands.rs",
@@ -869,13 +882,19 @@
     },
     {
       "path": "packages/desktop/src-tauri/tests/capture_lifecycle_test.rs",
-      "reason": "The capture-layer lifecycle contract binary — idempotent start, no-op stop, the active-state transitions, bounded restart, and the commit flush barrier's sentinel on the action stream — driven entirely through the seam's trait obligations. The capture-seam document states those obligations, the Windows capture principles own the barrier and the stop drains it asserts (DCP-2, DCP-12), and the suite orientation lists it.",
+      "reason": "The capture-layer lifecycle contract binary — idempotent start, no-op stop, the active-state transitions, bounded restart, the commit flush barrier's sentinel on the action stream, and the one block of capture timings a stop writes, none for a capture held from its start to its stop — driven entirely through the seam's trait obligations. The capture-seam document states those obligations, the Windows capture principles own the barrier and the stop drains it asserts (DCP-2, DCP-12), the desktop end-to-end suite's doc states the capture timings, and the suite orientation lists it.",
       "governed-by": [
         "docs/architecture/application/desktop/capture-seam.md",
         "docs/architecture/application/desktop/windows/capture-principles.md",
         "docs/architecture/application/desktop/windows/capture-pipeline.md",
-        "docs/test/desktop-rust.md"
+        "docs/test/desktop-rust.md",
+        "docs/test/e2e/desktop.md"
       ]
+    },
+    {
+      "path": "packages/desktop/src-tauri/tests/timing_switch_test.rs",
+      "reason": "The capture timings switch read from the environment: on only where the variable is 1. The desktop end-to-end suite's doc states the switch, and the suite orientation lists the binary.",
+      "governed-by": ["docs/test/e2e/desktop.md", "docs/test/desktop-rust.md"]
     },
     {
       "path": "packages/desktop/src-tauri/tests/commands_test.rs",
@@ -914,12 +933,13 @@
     },
     {
       "path": "packages/desktop/src-tauri/tests/worker_pool_test.rs",
-      "reason": "The worker-pool property and truth-lock binary — sequence numbering, shortest-queue dispatch, sticky and drag-pair routing, and the dead-worker drain rescues, alongside end-to-end action truth-locks over the same pipeline. The Windows capture doctrine's ordering row names its flush-barrier tests among that row's existing guards (DCP-2) and the worker-delivery row names its respawn and shutdown drains among that row's (DCP-12), the redaction row names its cases for a keystroke that names no element (DCP-11), the description row names its preferred-languages case (DCP-15) and the keystroke-element row its cases for the element a keystroke and a value change are recorded on (DCP-16), while the drag-classification row's own unit stays intended and names this binary for the right-button path's downstream half alone (DCP-10); the pipeline document orients on the stages it drives, the retired desktop manual history names it among its replacements, and the suite orientation lists it.",
+      "reason": "The worker-pool property and truth-lock binary — sequence numbering, shortest-queue dispatch, sticky and drag-pair routing, the dead-worker drain rescues, and the capture timings, alongside end-to-end action truth-locks over the same pipeline. The Windows capture doctrine's ordering row names its flush-barrier tests among that row's existing guards (DCP-2) and the worker-delivery row names its respawn and shutdown drains among that row's (DCP-12), the redaction row names its cases for a keystroke that names no element (DCP-11), the description row names its preferred-languages case (DCP-15) and the keystroke-element row its cases for the element a keystroke and a value change are recorded on (DCP-16), while the drag-classification row's own unit stays intended and names this binary for the right-button path's downstream half alone (DCP-10); the pipeline document orients on the stages it drives, the retired desktop manual history names it among its replacements, the desktop end-to-end suite's doc states the capture timings its timing cases hold, and the suite orientation lists it.",
       "governed-by": [
         "docs/architecture/application/desktop/windows/capture-principles.md",
         "docs/architecture/application/desktop/windows/capture-pipeline.md",
         "docs/test/manual/windows.md",
-        "docs/test/desktop-rust.md"
+        "docs/test/desktop-rust.md",
+        "docs/test/e2e/desktop.md"
       ]
     },
     {

@@ -456,9 +456,9 @@ use std::thread;
 use std::time::Duration;
 
 use docent_desktop_lib::capture::worker_pool::{
-    dispatch_introducing, focus_names_a_part, key_number_param, worker_loop, AccessibilityBackend,
-    ContextIntroductions, ContextsIntroducedAt, ControlLook, ControlNature, PartFocusNote,
-    PendingBuffers, FOCUS_EPOCH_PERSON_STEP,
+    dispatch_introducing, focus_names_a_part, key_number_param, worker_loop,
+    worker_loop_with_timings, AccessibilityBackend, ContextIntroductions, ContextsIntroducedAt,
+    ControlLook, ControlNature, PartFocusNote, PendingBuffers, FOCUS_EPOCH_PERSON_STEP,
 };
 use docent_desktop_lib::capture::{
     ActionPayload, CaptureError, CaptureMode, ElementDescription, Modifiers,
@@ -606,6 +606,27 @@ struct WorkerTestHarness {
 
 impl WorkerTestHarness {
     fn new(backend: impl AccessibilityBackend) -> Self {
+        Self::timed(
+            backend,
+            docent_desktop_lib::capture::timing_lines::Timings::off(),
+        )
+    }
+
+    /// A worker whose timings are kept in `timings`.
+    fn timed(
+        backend: impl AccessibilityBackend,
+        timings: docent_desktop_lib::capture::timing_lines::Timings,
+    ) -> Self {
+        Self::timed_after(backend, timings, |_| {})
+    }
+
+    /// A worker whose timings are kept in `timings`, started once `before`
+    /// has sent it what waits in its queue as it starts.
+    fn timed_after(
+        backend: impl AccessibilityBackend,
+        timings: docent_desktop_lib::capture::timing_lines::Timings,
+        before: impl FnOnce(&Self),
+    ) -> Self {
         let (event_tx, event_rx) = mpsc::channel::<WorkerMessage>();
         let (action_tx, action_rx) = mpsc::channel::<ActionEvent>();
         let queue_len = Arc::new(AtomicU64::new(0));
@@ -616,8 +637,17 @@ impl WorkerTestHarness {
 
         let pending = Arc::new(Mutex::new(PendingBuffers::default()));
         let worker_pending = Arc::clone(&pending);
-        let thread = thread::spawn(move || {
-            worker_loop(
+        let mut harness = Self {
+            pending: Arc::clone(&pending),
+            event_tx,
+            action_rx,
+            _queue_len: Arc::clone(&queue_len),
+            _excluded_pid: excluded_pid,
+            thread: None,
+        };
+        before(&harness);
+        harness.thread = Some(thread::spawn(move || {
+            worker_loop_with_timings(
                 0,
                 backend,
                 event_rx,
@@ -626,17 +656,10 @@ impl WorkerTestHarness {
                 ep,
                 worker_pending,
                 None,
+                timings,
             );
-        });
-
-        Self {
-            pending,
-            event_tx,
-            action_rx,
-            _queue_len: queue_len,
-            _excluded_pid: excluded_pid,
-            thread: Some(thread),
-        }
+        }));
+        harness
     }
 
     /// Send a raw event to the worker.
@@ -10536,5 +10559,731 @@ fn a_value_reported_again_while_only_a_dead_key_waits_is_no_second_type() {
     assert_eq!(
         types_and_keys(&harness.shutdown()),
         vec!["type c", "key Dead"]
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Capture timings (the switch that keeps the longest durations)
+// ---------------------------------------------------------------------------
+
+/// The words a block of capture timings may hold beside numbers and the
+/// placeholder, written out here as the oracle the block is held to.
+const TIMING_WORDS: &[&str] = &[
+    "capture-timings",
+    "key",
+    "value-change",
+    "look-ahead",
+    "window",
+    "settle",
+    "describe",
+    "name",
+    "modifiers",
+    "held",
+    "languages",
+    "buffers",
+    "value",
+    "focus-count",
+    "focused-control",
+    "root",
+    "process",
+    "answer",
+    "title",
+    "total",
+    "described",
+    "skipped",
+    "no-focus-count",
+    "no-focused-control",
+    "known",
+    "own-process",
+    "no-answer",
+    "gone",
+];
+
+/// Whether a token is a duration or a count: digits, and at most one dot
+/// between digits.
+fn is_number_token(token: &str) -> bool {
+    let mut parts = token.split('.');
+    let whole = parts.next().unwrap_or("");
+    let tenths = parts.next();
+    parts.next().is_none()
+        && !whole.is_empty()
+        && whole.chars().all(|c| c.is_ascii_digit())
+        && tenths.is_none_or(|t| !t.is_empty() && t.chars().all(|c| c.is_ascii_digit()))
+}
+
+/// The words naming a subject, a step and a look's ending in a block of
+/// capture timings.
+const TIMING_SUBJECTS: &[&str] = &["key", "value-change", "look-ahead"];
+const TIMING_SKIP_REASONS: &[&str] = &[
+    "no-focus-count",
+    "no-focused-control",
+    "known",
+    "own-process",
+    "no-answer",
+    "gone",
+];
+
+/// Holds `block` to its line format: a step line is
+/// `capture-timings <subject> <step> <ms or ->`, a look line is
+/// `capture-timings look-ahead described <count>` or
+/// `capture-timings look-ahead skipped <reason> <count>`, and nothing else.
+fn assert_block_closed(block: &str) {
+    let is_count = |t: &str| !t.is_empty() && t.chars().all(|c| c.is_ascii_digit());
+    for line in block.lines() {
+        let tokens: Vec<&str> = line.split(' ').collect();
+        let well_formed = match tokens.as_slice() {
+            ["capture-timings", "look-ahead", "described", count] => is_count(count),
+            ["capture-timings", "look-ahead", "skipped", reason, count] => {
+                TIMING_SKIP_REASONS.contains(reason) && is_count(count)
+            }
+            ["capture-timings", subject, step, value] => {
+                TIMING_SUBJECTS.contains(subject)
+                    && TIMING_WORDS.contains(step)
+                    && !TIMING_SUBJECTS.contains(step)
+                    && !["capture-timings", "described", "skipped"].contains(step)
+                    && !TIMING_SKIP_REASONS.contains(step)
+                    && (is_number_token(value) || *value == "-")
+            }
+            _ => false,
+        };
+        assert!(well_formed, "{line:?} is no line of the block's format");
+    }
+}
+
+/// `block`, held to its line format, with every number made `0`: what is
+/// left is its shape.
+fn shape_of(block: &str) -> String {
+    assert_block_closed(block);
+    block
+        .lines()
+        .map(|line| {
+            line.split(' ')
+                .map(|t| if is_number_token(t) { "0" } else { t })
+                .collect::<Vec<_>>()
+                .join(" ")
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// `block` with every number and placeholder left out: its labels.
+fn labels_of(block: &str) -> String {
+    block
+        .lines()
+        .map(|line| {
+            line.split(' ')
+                .filter(|t| !is_number_token(t) && *t != "-")
+                .collect::<Vec<_>>()
+                .join(" ")
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// Runs a typing worker on `backend` with timings kept as `on` says and
+/// written to a channel, has `drive` send it messages, and stops it. Returns
+/// what was written while the worker ran, and what was written when the
+/// capture stopped.
+fn timed_capture(
+    on: bool,
+    backend: impl AccessibilityBackend,
+    drive: impl FnOnce(&WorkerTestHarness),
+) -> (Vec<String>, Vec<String>, Vec<ActionEvent>) {
+    use docent_desktop_lib::capture::timing_lines::Timings;
+    let (tx, rx) = mpsc::channel();
+    let timings = Timings::sending_to(on, tx);
+    let harness = WorkerTestHarness::timed(backend, timings.clone());
+    drive(&harness);
+    thread::sleep(Duration::from_millis(300));
+    let actions = harness.shutdown();
+    let while_running = rx.try_iter().collect();
+    timings.write_block();
+    (while_running, rx.try_iter().collect(), actions)
+}
+
+/// The one block written when a capture on `backend` of `drive` stopped.
+fn block_of(backend: impl AccessibilityBackend, drive: impl FnOnce(&WorkerTestHarness)) -> String {
+    let (_, mut at_stop, _) = timed_capture(true, backend, drive);
+    assert_eq!(at_stop.len(), 1, "one block at the stop, got {at_stop:?}");
+    at_stop.remove(0)
+}
+
+/// The kind of field typed into.
+#[derive(Clone, Copy, Debug)]
+enum TypedField {
+    /// A normal edit field.
+    Edit,
+    /// A field the recording masks.
+    Masked,
+    /// A field that cannot be described.
+    Undescribed,
+}
+
+/// How the worker finds the field's element.
+#[derive(Clone, Copy, Debug)]
+enum TypedPath {
+    /// By asking for the focused element.
+    Focus,
+    /// By the control the key was pressed in.
+    Control,
+}
+
+/// The dialog's file-name field as `field` makes it.
+fn typed_field_element(field: TypedField) -> ElementDescription {
+    let mut element = scene_element("Edit", "Dialog > Edit:File name", Some(""));
+    if matches!(field, TypedField::Masked) {
+        element.element_type = Some("password".to_string());
+    }
+    element
+}
+
+/// What is typed: how many characters, each behind a Shift press where
+/// `shifted`, after a dead key where `dead`, then Enter where `enter`.
+#[derive(Clone, Copy, Debug)]
+struct Typed {
+    characters: u64,
+    shifted: bool,
+    dead: bool,
+    enter: bool,
+}
+
+/// The one block written when `typed` was typed into `field`, found by
+/// `path`, each key followed by the value change it caused.
+fn typing_block(field: TypedField, path: TypedPath, typed: Typed) -> String {
+    let undescribed = matches!(field, TypedField::Undescribed);
+    let mut backend = match path {
+        TypedPath::Focus => {
+            MovingFocusBackend::new(FocusScene {
+                epoch: 1,
+                foreground: DIALOG,
+                element: typed_field_element(field),
+            })
+            .0
+        }
+        TypedPath::Control => {
+            let own = if undescribed {
+                HashMap::new()
+            } else {
+                HashMap::from([(FIELD, typed_field_element(field))])
+            };
+            MovingFocusBackend::with_controls(
+                save_button_focused(),
+                Controls {
+                    focused: FIELD,
+                    own,
+                    ..Default::default()
+                },
+            )
+            .0
+        }
+    };
+    backend.fails = undescribed;
+    let in_place = move |raw: RawEvent| match path {
+        TypedPath::Focus => in_dialog(raw),
+        TypedPath::Control => in_field(raw),
+    };
+    let change = move |seq: u64, t: u64| match path {
+        TypedPath::Focus => in_dialog(value_change(seq, t, DIALOG)),
+        TypedPath::Control => control_value_change(seq, t, FIELD),
+    };
+    block_of(backend, |harness| {
+        let t = now_ms();
+        let mut seq = 0;
+        if typed.dead {
+            seq += 1;
+            let mut dead = dead_key(seq);
+            if matches!(path, TypedPath::Control) {
+                dead.callback_params[1] = FIELD;
+            }
+            harness.send_event(dead);
+        }
+        for i in 0..typed.characters {
+            if typed.shifted {
+                seq += 1;
+                harness.send_event(in_place(layout_key(seq, t + seq, 0x10))); // Shift
+            }
+            seq += 1;
+            let mut key = layout_key(seq, t + seq, 0x41 + i as u32);
+            if typed.shifted {
+                key.modifiers = (false, true, false, false);
+            }
+            harness.send_event(in_place(key));
+            seq += 1;
+            harness.send_event(change(seq, t + seq));
+        }
+        if typed.enter {
+            seq += 1;
+            harness.send_event(in_place(layout_key(seq, t + seq, 0x0D))); // Enter
+        }
+    })
+}
+
+/// With the switch on nothing is written while the capture runs, and one
+/// block is written when it stops.
+#[test]
+fn with_the_timing_switch_on_one_block_is_written_when_the_capture_stops() {
+    let gate = closed_gate();
+    open_gate(&gate);
+    let (while_running, at_stop, _) =
+        timed_capture(true, TypingBackend::edit(&gate, "ab"), |harness| {
+            harness.event_tx.send(WorkerMessage::LookAtFocus).unwrap();
+            let t = now_ms();
+            harness.send_event(layout_key(1, t, 0x41));
+            harness.send_event(layout_key(2, t + 1, 0x42));
+            harness.send_event(value_change(3, t + 5, 1234));
+            harness.send_event(layout_key(4, t + 6, 0x0D)); // Enter
+        });
+    assert_eq!(
+        while_running,
+        Vec::<String>::new(),
+        "nothing is written while the capture runs"
+    );
+    assert_eq!(at_stop.len(), 1, "one block at the stop, got {at_stop:?}");
+}
+
+/// A line with a token more than its format, a count among them, fails the
+/// format check and so every shape.
+#[test]
+fn a_timing_line_with_a_count_fails_the_block_checks() {
+    let lines = [
+        "capture-timings key settle 0.0 3",
+        "capture-timings key settle 3 0.0",
+        "capture-timings look-ahead described 1 2",
+        "capture-timings look-ahead skipped gone 1 2",
+        "capture-timings key described 1",
+        "capture-timings key settle",
+    ];
+    for line in lines {
+        let closed = std::panic::catch_unwind(|| assert_block_closed(line));
+        assert!(closed.is_err(), "{line:?} passes the format check");
+        let shaped = std::panic::catch_unwind(|| shape_of(line));
+        assert!(shaped.is_err(), "{line:?} has a shape");
+    }
+    assert_block_closed(
+        "capture-timings key settle 0.0\ncapture-timings look-ahead skipped gone 1",
+    );
+}
+
+/// Typing one character or four, with or without Shift and a dead key, gives
+/// the same block for each field and each path: a normal edit field, a
+/// masked field and a field that cannot be described, each found by its
+/// control and by the focus. A step shows only whether it was taken at all,
+/// never how many times or for what.
+#[test]
+fn the_timing_block_has_one_shape_whatever_was_typed_into_any_field() {
+    let typings = [
+        Typed {
+            characters: 1,
+            shifted: false,
+            dead: false,
+            enter: true,
+        },
+        Typed {
+            characters: 4,
+            shifted: false,
+            dead: false,
+            enter: true,
+        },
+        Typed {
+            characters: 1,
+            shifted: true,
+            dead: false,
+            enter: true,
+        },
+        Typed {
+            characters: 4,
+            shifted: true,
+            dead: false,
+            enter: true,
+        },
+        Typed {
+            characters: 1,
+            shifted: false,
+            dead: true,
+            enter: true,
+        },
+        Typed {
+            characters: 4,
+            shifted: true,
+            dead: true,
+            enter: true,
+        },
+    ];
+    for field in [
+        TypedField::Edit,
+        TypedField::Masked,
+        TypedField::Undescribed,
+    ] {
+        for path in [TypedPath::Focus, TypedPath::Control] {
+            let first = shape_of(&typing_block(field, path, typings[0]));
+            for typed in &typings[1..] {
+                assert_eq!(
+                    shape_of(&typing_block(field, path, *typed)),
+                    first,
+                    "{field:?} by {path:?}, {typed:?}"
+                );
+            }
+        }
+    }
+}
+
+/// Every key and value change typed is measured, in a masked field as in
+/// any other.
+#[test]
+fn keys_and_value_changes_typed_into_a_masked_field_are_measured() {
+    for path in [TypedPath::Focus, TypedPath::Control] {
+        let typed = Typed {
+            characters: 2,
+            shifted: false,
+            dead: false,
+            enter: false,
+        };
+        let block = typing_block(TypedField::Masked, path, typed);
+        for subject in ["key", "value-change"] {
+            let label = format!("capture-timings {subject} total ");
+            let total = block.lines().find(|l| l.starts_with(&label));
+            assert!(
+                total.is_some_and(|l| !l.ends_with(" -")),
+                "{subject} by {path:?}: {block:?}"
+            );
+        }
+    }
+}
+
+/// A press of Shift, Ctrl or Alt alone is not measured: the recording writes
+/// nothing for it.
+#[test]
+fn a_press_of_shift_ctrl_or_alt_alone_is_not_measured() {
+    let (backend, _scene, _) = MovingFocusBackend::new(file_name_field(""));
+    let block = block_of(backend, |harness| {
+        let t = now_ms();
+        for (i, code) in [0x10, 0x11, 0x12, 0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5]
+            .into_iter()
+            .enumerate()
+        {
+            harness.send_event(in_dialog(layout_key(i as u64 + 1, t + i as u64, code)));
+        }
+    });
+    for line in block
+        .lines()
+        .filter(|l| l.starts_with("capture-timings key "))
+    {
+        assert!(line.ends_with(" -"), "{line:?} of {block:?}");
+    }
+}
+
+/// A value read after a later key of its window was dispatched is not taken,
+/// and its value change is measured all the same: a slow read shows.
+#[test]
+fn a_value_change_read_too_late_in_an_edit_field_is_measured() {
+    let (backend, _scene, _queries, _controls) =
+        MovingFocusBackend::with_controls(save_button_focused(), field_with_reads(&[("a", 2)]));
+    let block = block_of(backend, |harness| {
+        let t = now_ms();
+        harness.send_event(numbered_in_field(packet_key(1, t, u16::from(b'a')), 1));
+        harness.send_event(control_value_change(2, t + 1, FIELD));
+    });
+    for step in ["value", "total"] {
+        let label = format!("capture-timings value-change {step} ");
+        let line = block.lines().find(|l| l.starts_with(&label));
+        assert!(
+            line.is_some_and(|l| !l.ends_with(" -")),
+            "{step} measured: {block:?}"
+        );
+    }
+}
+
+/// A capture whose value reads were all overtaken by a later key gives the
+/// block of one whose reads all came in time: a late read shows nowhere.
+#[test]
+fn late_reads_and_reads_in_time_give_one_shape() {
+    let block = |latest_key: u64| {
+        let (backend, _scene, _queries, _controls) = MovingFocusBackend::with_controls(
+            save_button_focused(),
+            field_with_reads(&[("a", latest_key)]),
+        );
+        block_of(backend, |harness| {
+            let t = now_ms();
+            harness.send_event(numbered_in_field(packet_key(1, t, u16::from(b'a')), 1));
+            harness.send_event(control_value_change(2, t + 1, FIELD));
+        })
+    };
+    assert_eq!(shape_of(&block(2)), shape_of(&block(1)));
+}
+
+/// The lines of the block for the steps of keys, or of value changes,
+/// filled where one was measured.
+fn steps_filled(block: &str, subject: &str) -> Vec<bool> {
+    let prefix = format!("capture-timings {subject} ");
+    block
+        .lines()
+        .filter(|l| l.starts_with(&prefix))
+        .map(|l| !l.ends_with(" -"))
+        .collect()
+}
+
+/// Whether a key and a value change were each measured, in the one block
+/// a capture wrote at its stop; `None` where it wrote none.
+fn measured_in(blocks: &[String]) -> Option<(bool, bool)> {
+    assert!(
+        blocks.len() <= 1,
+        "at most one block at a stop, got {blocks:?}"
+    );
+    blocks.first().map(|block| {
+        (
+            steps_filled(block, "key").contains(&true),
+            steps_filled(block, "value-change").contains(&true),
+        )
+    })
+}
+
+/// Runs a typing worker with timings on, held from the start where
+/// `held_at_start` says, has `drive` type into the dialog with the
+/// timings at hand, and stops it. Returns the blocks written at the stop.
+fn held_capture(
+    held_at_start: bool,
+    drive: impl FnOnce(&WorkerTestHarness, &docent_desktop_lib::capture::timing_lines::Timings),
+) -> Vec<String> {
+    use docent_desktop_lib::capture::timing_lines::Timings;
+    let (tx, rx) = mpsc::channel();
+    let timings = Timings::sending_to(true, tx).with_measuring(!held_at_start);
+    let (backend, _scene, _) = MovingFocusBackend::new(file_name_field(""));
+    let harness = WorkerTestHarness::timed(backend, timings.clone());
+    drive(&harness, &timings);
+    thread::sleep(Duration::from_millis(300));
+    harness.shutdown();
+    timings.write_block();
+    rx.try_iter().collect()
+}
+
+/// Types a key and waits for the worker to handle it.
+fn typed_key(harness: &WorkerTestHarness, seq: u64) {
+    harness.send_event(in_dialog(layout_key(seq, now_ms(), 0x41)));
+    thread::sleep(Duration::from_millis(300));
+}
+
+/// Reports a value change and waits for the worker to handle it.
+fn changed_value(harness: &WorkerTestHarness, seq: u64) {
+    harness.send_event(in_dialog(value_change(seq, now_ms(), DIALOG)));
+    thread::sleep(Duration::from_millis(300));
+}
+
+/// A capture held from its start to its stop, as a re-record's take is
+/// (a pause during it, a commit of it), measures nothing and writes no
+/// block.
+#[test]
+fn a_capture_held_throughout_writes_no_block() {
+    let blocks = held_capture(true, |harness, _| {
+        typed_key(harness, 1);
+        changed_value(harness, 2);
+    });
+    assert_eq!(measured_in(&blocks), None, "got {blocks:?}");
+}
+
+/// Held while it runs, a capture keeps what it measured before and
+/// measures nothing after: the block at its stop holds only what came
+/// before.
+#[test]
+fn a_capture_held_while_it_runs_keeps_what_came_before() {
+    let blocks = held_capture(false, |harness, timings| {
+        typed_key(harness, 1);
+        timings.set_measuring(false);
+        changed_value(harness, 2);
+    });
+    assert_eq!(measured_in(&blocks), Some((true, false)), "got {blocks:?}");
+}
+
+/// Measuring again while it runs, as a re-record cancelled while
+/// recording leaves its capture running, a capture measures what comes
+/// after and nothing before.
+#[test]
+fn a_capture_measuring_again_while_it_runs_measures_what_comes_after() {
+    let blocks = held_capture(true, |harness, timings| {
+        typed_key(harness, 1);
+        timings.set_measuring(true);
+        changed_value(harness, 2);
+    });
+    assert_eq!(measured_in(&blocks), Some((false, true)), "got {blocks:?}");
+}
+
+/// An event that waits in the worker's queue while the capture is held,
+/// and is handled once it measures again, is measured: a key of a
+/// re-record's take handled after the re-record ended is in the block.
+#[test]
+fn an_event_handled_after_measuring_again_is_measured() {
+    use docent_desktop_lib::capture::timing_lines::Timings;
+    let (tx, rx) = mpsc::channel();
+    let timings = Timings::sending_to(true, tx).with_measuring(false);
+    let (backend, _scene, _) = MovingFocusBackend::new(file_name_field(""));
+    let harness = WorkerTestHarness::timed_after(backend, timings.clone(), |queued| {
+        queued.send_event(in_dialog(layout_key(1, now_ms(), 0x41)));
+        timings.set_measuring(true);
+    });
+    thread::sleep(Duration::from_millis(300));
+    harness.shutdown();
+    timings.write_block();
+    let blocks: Vec<String> = rx.try_iter().collect();
+    assert_eq!(measured_in(&blocks), Some((true, false)), "got {blocks:?}");
+}
+
+/// With the timings off, holding them or measuring again changes
+/// nothing: no block either way.
+#[test]
+fn timings_off_stay_off_held_or_not() {
+    use docent_desktop_lib::capture::timing_lines::Timings;
+    for measuring in [false, true] {
+        let (tx, rx) = mpsc::channel();
+        let timings = Timings::sending_to(false, tx).with_measuring(!measuring);
+        let (backend, _scene, _) = MovingFocusBackend::new(file_name_field(""));
+        let harness = WorkerTestHarness::timed(backend, timings.clone());
+        typed_key(&harness, 1);
+        timings.set_measuring(measuring);
+        changed_value(&harness, 2);
+        harness.shutdown();
+        timings.write_block();
+        assert_eq!(rx.try_iter().count(), 0, "no block with the timings off");
+    }
+}
+
+/// A value change whose description gives no element (its window was left
+/// before the worker got to it) is measured: a description that fails slowly
+/// shows under `describe`.
+#[test]
+fn a_value_change_whose_description_gives_no_element_is_measured() {
+    let (backend, scene, _) = MovingFocusBackend::new(file_name_field(""));
+    let block = block_of(backend, |harness| {
+        harness.send_event(in_dialog(layout_key(1, now_ms(), 0x41)));
+        thread::sleep(Duration::from_millis(100));
+        scene.lock().unwrap().foreground = OTHER_WINDOW;
+        harness.send_event(in_dialog(value_change(2, now_ms(), DIALOG)));
+    });
+    for step in ["describe", "total"] {
+        let label = format!("capture-timings value-change {step} ");
+        let line = block.lines().find(|l| l.starts_with(&label));
+        assert!(
+            line.is_some_and(|l| !l.ends_with(" -")),
+            "{step} measured: {block:?}"
+        );
+    }
+}
+
+/// The block holds only fixed words, numbers and the placeholder, whatever
+/// was typed and wherever, and its labels are the same with nothing typed: no
+/// key, no character, no value, no element reaches it.
+#[test]
+fn a_timing_block_holds_only_fixed_words_numbers_and_the_placeholder() {
+    const SECRET: &str = "Hunter2Secret";
+    let mut blocks = Vec::new();
+    for backend in ["masked", "edit", "none"] {
+        let gate = closed_gate();
+        open_gate(&gate);
+        let typing = match backend {
+            "masked" => TypingBackend::password(&gate),
+            _ => TypingBackend::edit(&gate, SECRET),
+        };
+        let (_, at_stop, _) = timed_capture(true, typing, |harness| {
+            if backend == "none" {
+                return;
+            }
+            harness.event_tx.send(WorkerMessage::LookAtFocus).unwrap();
+            let t = now_ms();
+            for (i, c) in "HUNTER".chars().enumerate() {
+                harness.send_event(layout_key(i as u64 + 1, t + i as u64, c as u32));
+            }
+            harness.send_event(value_change(20, t + 10, 1234));
+            harness.send_event(layout_key(21, t + 11, 0x0D)); // Enter
+        });
+        assert_eq!(at_stop.len(), 1, "one block at the stop, got {at_stop:?}");
+        blocks.push(at_stop[0].clone());
+    }
+    for block in &blocks {
+        assert_block_closed(block);
+        for text in [
+            SECRET, "HUNTER", "Hunter", "Field", "Edit", "Enter", "\u{2022}",
+        ] {
+            assert!(!block.contains(text), "{block:?} holds {text:?}");
+        }
+        assert_eq!(labels_of(block), labels_of(&blocks[2]), "{block:?}");
+    }
+    assert!(
+        blocks[1]
+            .lines()
+            .any(|l| l.starts_with("capture-timings key total ") && !l.ends_with(" -")),
+        "the keys typed are timed: {:?}",
+        blocks[1]
+    );
+}
+
+/// With the switch off nothing is written, and the actions are the same as
+/// with it on: the timings read the worker's steps and change none of them.
+/// `described_after_ms` is measured afresh in each run, so it is left out of
+/// the comparison.
+#[test]
+fn with_the_timing_switch_off_nothing_is_written_and_the_actions_are_the_same() {
+    let run = |on: bool| {
+        let gate = closed_gate();
+        open_gate(&gate);
+        let (while_running, at_stop, actions) =
+            timed_capture(on, TypingBackend::edit(&gate, "ab"), |harness| {
+                harness.event_tx.send(WorkerMessage::LookAtFocus).unwrap();
+                let t = 1_000_000;
+                harness.send_event(layout_key(1, t, 0x41));
+                harness.send_event(layout_key(2, t + 1, 0x42));
+                harness.send_event(value_change(3, t + 5, 1234));
+                harness.send_event(layout_key(4, t + 6, 0x0D)); // Enter
+            });
+        let actions = actions
+            .iter()
+            .map(|a| {
+                let mut written = serde_json::to_value(a).unwrap();
+                if let Some(element) = written.get_mut("element") {
+                    element["described_after_ms"] = serde_json::Value::Null;
+                }
+                written
+            })
+            .collect::<Vec<_>>();
+        let written: Vec<String> = while_running.into_iter().chain(at_stop).collect();
+        (written, actions)
+    };
+    let (off_written, off_actions) = run(false);
+    let (on_written, on_actions) = run(true);
+    assert_eq!(
+        off_written,
+        Vec::<String>::new(),
+        "with the switch off nothing is written"
+    );
+    assert!(
+        !on_written.is_empty(),
+        "with the switch on a block is written"
+    );
+    assert_eq!(
+        on_actions, off_actions,
+        "the actions do not depend on the switch"
+    );
+}
+
+/// A look ahead at a control that is gone by the time it is described counts
+/// under `gone`, not as a control described.
+#[test]
+fn a_look_ahead_at_a_gone_control_counts_under_gone() {
+    let (backend, _scene, _queries, _controls) = MovingFocusBackend::with_controls(
+        save_button_focused(),
+        Controls {
+            focused: 999,
+            ..field_controls("c")
+        },
+    );
+    let (_, at_stop, _) = timed_capture(true, backend, |harness| {
+        harness.event_tx.send(WorkerMessage::LookAtFocus).unwrap();
+    });
+    assert_eq!(at_stop.len(), 1, "one block at the stop, got {at_stop:?}");
+    let lines: Vec<&str> = at_stop[0].lines().collect();
+    assert!(
+        lines.contains(&"capture-timings look-ahead skipped gone 1"),
+        "{lines:?}"
+    );
+    assert!(
+        lines.contains(&"capture-timings look-ahead described 0"),
+        "{lines:?}"
     );
 }

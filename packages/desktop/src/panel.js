@@ -872,7 +872,7 @@ btnNewRecordingCreate.addEventListener('click', async () => {
   activeSteps = [];
   isRecording = true;
   adapter.clearPendingActions();
-  await invoke('start_capture', { pid: null });
+  await startPlainCapture();
   enterRecordingView();
 });
 
@@ -1088,8 +1088,11 @@ btnToggleRecording.addEventListener('click', async () => {
   if (isRecording) {
     await invoke('stop_capture');
     isRecording = false;
-  } else {
+  } else if (rerecordLogicalId !== null) {
     await invoke('start_capture', { pid: null });
+    isRecording = true;
+  } else {
+    await startPlainCapture();
     isRecording = true;
   }
   updateRecordingUI();
@@ -1190,7 +1193,7 @@ async function commitStepSimple(logicalId) {
     endRerecord();
 
     if (wasRecording) {
-      await invoke('start_capture', { pid: null });
+      await startPlainCapture();
       isRecording = true;
     }
     updateRecordingUI();
@@ -1275,7 +1278,7 @@ async function commitStep(inputEl, source, logicalId) {
     endRerecord();
 
     if (wasRecording) {
-      await invoke('start_capture', { pid: null });
+      await startPlainCapture();
       isRecording = true;
     }
     updateRecordingUI();
@@ -1336,11 +1339,23 @@ async function openRerecord(step) {
     narrationInput.value = step.narration;
   }
 
-  // Start fresh capture for re-recording
+  // Start fresh capture for re-recording. Its take is hidden by the
+  // recording, so no capture timings are measured while the re-record is open.
+  await invoke('set_capture_timings_measuring', { measuring: false });
   await invoke('start_capture', { pid: null });
   isRecording = true;
   updateRecordingUI();
   updateCommitButton();
+}
+
+/**
+ * Start a capture that is not a re-record's. No capture timings are measured
+ * while a re-record is open, so the capture is told to measure first: the hold
+ * a re-record set never outlasts the next such start.
+ */
+async function startPlainCapture() {
+  await invoke('set_capture_timings_measuring', { measuring: true });
+  await invoke('start_capture', { pid: null });
 }
 
 /**
@@ -1377,6 +1392,9 @@ btnRerecordCancel.addEventListener('click', async () => {
   if (!wasRecordingBefore) {
     await invoke('stop_capture');
     isRecording = false;
+  } else {
+    // The capture keeps running as the recording's own: it measures again.
+    await invoke('set_capture_timings_measuring', { measuring: true });
   }
   updateRecordingUI();
   updateCommitButton();
