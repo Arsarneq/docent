@@ -665,6 +665,10 @@ mod tests {
         excluded_pid: Option<u32>,
         included_pid: Option<u32>,
         barrier_calls: u32,
+        /// Stops that threw the capture's timings away.
+        stops_discarding_timings: u32,
+        /// Throw-aways of the running capture's timings.
+        timings_discards: u32,
     }
 
     struct MockCapture {
@@ -715,6 +719,15 @@ mod tests {
                 wedged_workers: self.barrier_wedged,
                 completion: BarrierCompletion::MarkerOrdered,
             })
+        }
+
+        fn stop_discarding_timings(&mut self) -> Result<BarrierReport, CaptureError> {
+            self.rec.lock().unwrap().stops_discarding_timings += 1;
+            self.stop()
+        }
+
+        fn discard_timings(&mut self) {
+            self.rec.lock().unwrap().timings_discards += 1;
         }
 
         fn is_active(&self) -> bool {
@@ -831,7 +844,7 @@ mod tests {
         rec.lock().unwrap().started = true;
         let cap = mutex(mock);
 
-        let report = stop_capture_impl(&cap).unwrap();
+        let report = stop_capture_impl(&cap, false).unwrap();
 
         assert!(rec.lock().unwrap().stopped);
         // stop fuses the commit flush barrier: it runs one and reports its id so
@@ -848,7 +861,7 @@ mod tests {
         rec.lock().unwrap().started = true;
         let cap = mutex(mock);
 
-        let report = stop_capture_impl(&cap).unwrap();
+        let report = stop_capture_impl(&cap, false).unwrap();
 
         assert_eq!(report.wedged_workers, 3);
     }
@@ -859,7 +872,7 @@ mod tests {
         rec.lock().unwrap().started = true;
         let cap = mutex(mock);
 
-        let report = stop_capture_impl(&cap).unwrap();
+        let report = stop_capture_impl(&cap, false).unwrap();
 
         // The truthful-completion contract: callers read how the barrier
         // completed from the report itself, so the command must pass the
@@ -891,10 +904,43 @@ mod tests {
         mock.fail_stop = true;
         let cap = mutex(mock);
 
-        let result = stop_capture_impl(&cap);
+        let result = stop_capture_impl(&cap, false);
 
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("mock stop failure"));
+    }
+
+    /// A stop told the take is thrown away stops the layer through the stop
+    /// that throws its timings away; any other stop through the plain one.
+    #[test]
+    fn stop_capture_throws_the_timings_away_only_when_told() {
+        for discard in [false, true] {
+            let (mock, rec) = MockCapture::new();
+            rec.lock().unwrap().started = true;
+            let cap = mutex(mock);
+
+            let report = stop_capture_impl(&cap, discard).unwrap();
+
+            let rec = rec.lock().unwrap();
+            assert!(rec.stopped, "the layer stops either way");
+            assert_eq!(report.barrier_id, 1, "the stop runs its barrier either way");
+            assert_eq!(rec.stops_discarding_timings, u32::from(discard));
+        }
+    }
+
+    /// Throwing the running capture's timings away reaches the layer and
+    /// leaves the capture running.
+    #[test]
+    fn discard_capture_timings_throws_the_layers_timings_away() {
+        let (mock, rec) = MockCapture::new();
+        rec.lock().unwrap().started = true;
+        let cap = mutex(mock);
+
+        discard_capture_timings_impl(&cap).unwrap();
+
+        let rec = rec.lock().unwrap();
+        assert_eq!(rec.timings_discards, 1);
+        assert!(!rec.stopped, "the capture keeps running");
     }
 
     // ── list_windows_impl ───────────────────────────────────────────────────

@@ -232,6 +232,7 @@ const CANONICAL_COMMANDS = [
   'save_state',
   'start_capture',
   'stop_capture',
+  'discard_capture_timings',
   'commit_barrier',
   'list_windows',
   'set_target_pid',
@@ -326,6 +327,7 @@ ${overrideEntries}
             _savedState = args.data;
             return;
           case 'start_capture': return;
+          case 'discard_capture_timings': return;
           // Both flush commands report the zero barrier the backend returns when
           // no capture was active, so no barrier engages and the adapter collects
           // what is already pending. A spec that drives the stop-path flush

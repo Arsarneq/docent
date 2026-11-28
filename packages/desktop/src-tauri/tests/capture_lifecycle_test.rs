@@ -302,3 +302,36 @@ fn a_capture_with_the_timings_switch_unset_writes_no_block() {
         );
     });
 }
+
+/// A stop that throws the take away writes no block, and what that capture
+/// measured is in no later block: the next capture writes its own.
+#[test]
+#[serial]
+fn a_stop_that_throws_the_take_away_writes_no_block() {
+    with_timings_switch(Some("1"), || {
+        let (blocks_tx, blocks) = mpsc::channel::<String>();
+        let mut capture = WindowsCapture::new();
+        capture.send_timings_to(blocks_tx);
+
+        let (tx, _rx) = channel();
+        capture.start(tx).expect("start should succeed");
+        capture
+            .stop_discarding_timings()
+            .expect("stop should succeed");
+        assert!(!capture.is_active(), "the stop stops the capture");
+        assert_eq!(
+            blocks.try_iter().count(),
+            0,
+            "no block for a take thrown away"
+        );
+
+        let (tx, _rx) = channel();
+        capture.start(tx).expect("a fresh start should succeed");
+        capture.stop().expect("stop should succeed");
+        assert_eq!(
+            blocks.try_iter().count(),
+            1,
+            "the next capture writes its own block"
+        );
+    });
+}

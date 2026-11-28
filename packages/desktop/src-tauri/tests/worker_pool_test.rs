@@ -11000,6 +11000,53 @@ fn late_reads_and_reads_in_time_give_one_shape() {
     assert_eq!(shape_of(&block(2)), shape_of(&block(1)));
 }
 
+/// Throwing a capture's timings away drops what was kept so far, and what is
+/// measured after is kept: a thrown-away take is in no block.
+#[test]
+fn timings_thrown_away_are_in_no_block() {
+    use docent_desktop_lib::capture::timing_lines::Timings;
+    let step_lines = |block: &str, filled: bool| {
+        block
+            .lines()
+            .filter(|l| {
+                l.starts_with("capture-timings key ")
+                    || l.starts_with("capture-timings value-change ")
+            })
+            .all(|l| l.ends_with(" -") != filled)
+    };
+    for typed_after in [false, true] {
+        let (tx, rx) = mpsc::channel();
+        let timings = Timings::sending_to(true, tx);
+        let (backend, _scene, _) = MovingFocusBackend::new(file_name_field(""));
+        let harness = WorkerTestHarness::timed(backend, timings.clone());
+        harness.send_event(in_dialog(layout_key(1, now_ms(), 0x41)));
+        harness.send_event(in_dialog(value_change(2, now_ms(), DIALOG)));
+        thread::sleep(Duration::from_millis(300));
+        timings.discard();
+        if typed_after {
+            harness.send_event(in_dialog(layout_key(3, now_ms(), 0x0D))); // Enter
+        }
+        thread::sleep(Duration::from_millis(300));
+        harness.shutdown();
+        timings.write_block();
+        let blocks: Vec<String> = rx.try_iter().collect();
+        assert_eq!(blocks.len(), 1, "one block at the stop, got {blocks:?}");
+        let key_total = blocks[0]
+            .lines()
+            .find(|l| l.starts_with("capture-timings key total "))
+            .unwrap();
+        if typed_after {
+            assert!(!key_total.ends_with(" -"), "kept after: {:?}", blocks[0]);
+        } else {
+            assert!(
+                step_lines(&blocks[0], false),
+                "all thrown away: {:?}",
+                blocks[0]
+            );
+        }
+    }
+}
+
 /// A value change whose description gives no element (its window was left
 /// before the worker got to it) is measured: a description that fails slowly
 /// shows under `describe`.
