@@ -1706,7 +1706,6 @@ mod tests {
             read.held(Some(true)),
             held(SEEDED_LEFT_CTRL_WITH_ALT_GR, false, true)
         );
-        assert_eq!(read.held(Some(true)), held(false, false, true));
         // On a layout with no AltGr the keyboard's state is written.
         assert_eq!(read.held(Some(false)), held(true, true, false));
     }

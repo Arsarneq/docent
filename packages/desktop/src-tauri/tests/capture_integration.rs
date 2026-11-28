@@ -4151,11 +4151,10 @@ mod alt_graph {
 
     /// Whether the keyboard's state holds the left Ctrl down now.
     fn left_ctrl_down() -> bool {
+        use docent_desktop_lib::capture::held_keys::VK_LCONTROL;
         use docent_desktop_lib::capture::win32_bindings::GetAsyncKeyState;
-        /// The virtual-key code of the left Ctrl.
-        const VK_LCONTROL: i32 = 0xA2;
         // SAFETY: a read of the keyboard's state for a key code.
-        unsafe { GetAsyncKeyState(VK_LCONTROL) < 0 }
+        unsafe { GetAsyncKeyState(VK_LCONTROL as i32) < 0 }
     }
 
     /// Sends `steps` in order, a pause after each, and every key still down
