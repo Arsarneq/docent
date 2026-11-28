@@ -3571,39 +3571,82 @@ fn regression_237_a_key_whose_input_method_was_not_read_leaves_the_fields_out() 
     );
 }
 
-/// The input method read rides beside the layout character and the repeat
-/// mark, and changes neither: a repeated punctuation key keeps its name and
-/// its repeat.
+/// The name, repeat mark and `code` of each key action written, as the file
+/// states them.
+fn keys_as_written(events: &[ActionEvent]) -> Vec<(String, bool, Option<String>)> {
+    events
+        .iter()
+        .map(|e| serde_json::to_value(e).unwrap())
+        .filter(|v| v["type"] == "key")
+        .map(|v| {
+            (
+                v["key"].as_str().unwrap().to_string(),
+                v["repeat"].as_bool().unwrap(),
+                v.get("code").and_then(|c| c.as_str()).map(str::to_string),
+            )
+        })
+        .collect()
+}
+
+/// A repeated press of the Enter key (scan code 0x1C) at which `state` was
+/// read of the input method.
+fn enter_with_input_method(state: Option<InputMethodState>) -> RawEvent {
+    let mut enter = layout_key(1, now_ms(), 0x0D);
+    enter.callback_params[0] = 0x1C | input_method_param(state);
+    enter.callback_params[3] = KEY_REPEAT_PARAM;
+    enter
+}
+
+/// A key pressed where an input method was read as on is `Unidentified`:
+/// whether the input method took it cannot be read. Its physical key and its
+/// repeat mark are facts of the press and stay.
 #[test]
-fn regression_237_the_input_method_read_leaves_the_key_name_and_the_repeat_mark() {
+fn regression_237_a_key_pressed_with_an_input_method_on_is_unidentified() {
     let harness = WorkerTestHarness::new(MockBackend::new());
-    let mut plus = gives(layout_key(1, now_ms(), 0xBB), '+');
-    plus.modifiers = (true, false, false, false);
-    plus.callback_params[3] = i64::from(u32::from('+')) | KEY_REPEAT_PARAM;
-    plus.callback_params[0] |= input_method_param(Some(InputMethodState {
+    harness.send_event(enter_with_input_method(Some(InputMethodState {
         open: true,
-        conversion_mode: Some(0x07FF_FFFF),
-    }));
-    harness.send_event(plus);
+        conversion_mode: Some(9),
+    })));
     thread::sleep(Duration::from_millis(100));
     let events = harness.shutdown();
 
-    let named: Vec<(String, bool)> = events
-        .iter()
-        .filter_map(|e| match &e.payload {
-            ActionPayload::Key { key, repeat, .. } => Some((key.clone(), *repeat)),
-            _ => None,
-        })
-        .collect();
-    assert_eq!(named, vec![("+".to_string(), true)], "got {events:?}");
     assert_eq!(
-        input_method_fields_of(&events),
-        (
-            Some(serde_json::json!(true)),
-            Some(serde_json::json!(0x07FF_FFFF))
-        ),
+        keys_as_written(&events),
+        vec![("Unidentified".to_string(), true, Some("Enter".to_string()))],
         "got {events:?}"
     );
+    assert_eq!(
+        input_method_fields_of(&events),
+        (Some(serde_json::json!(true)), Some(serde_json::json!(9))),
+        "got {events:?}"
+    );
+}
+
+/// A key keeps its name where the input method was read as off, and where
+/// nothing was read of it.
+#[test]
+fn regression_237_a_key_keeps_its_name_where_no_input_method_was_read_as_on() {
+    for (name, state) in [
+        (
+            "read as off",
+            Some(InputMethodState {
+                open: false,
+                conversion_mode: Some(0x19),
+            }),
+        ),
+        ("not read", None),
+    ] {
+        let harness = WorkerTestHarness::new(MockBackend::new());
+        harness.send_event(enter_with_input_method(state));
+        thread::sleep(Duration::from_millis(100));
+        let events = harness.shutdown();
+
+        assert_eq!(
+            keys_as_written(&events),
+            vec![("Enter".to_string(), true, Some("Enter".to_string()))],
+            "{name}: got {events:?}"
+        );
+    }
 }
 
 /// What the keyboard hook reads from a US layout for a key pressed with no
@@ -3859,6 +3902,58 @@ fn regression_noissue_enter_right_behind_typing_in_a_password_field_writes_no_ch
         types_and_keys(&events),
         vec!["type ••••••••", "key Enter"],
         "the typing is one masked type ahead of the control key, got {events:?}"
+    );
+}
+
+/// In a password field with an input method read as on, which presses are
+/// text is decided by the key's own name: a letter joins the masked `type`,
+/// and Enter stays a `key`, written `Unidentified`.
+#[test]
+fn regression_237_in_a_password_field_with_an_input_method_on_enter_stays_a_key() {
+    let gate = closed_gate();
+    open_gate(&gate);
+    let harness = WorkerTestHarness::new(TypingBackend::password(&gate));
+    let on = input_method_param(Some(InputMethodState {
+        open: true,
+        conversion_mode: Some(9),
+    }));
+
+    let t = now_ms();
+    let mut letter = layout_key(1, t, 0x50); // P
+    letter.callback_params[0] |= on;
+    harness.send_event(letter);
+    let mut enter = layout_key(2, t + 1, 0x0D);
+    enter.callback_params[0] |= on;
+    harness.send_event(enter);
+
+    thread::sleep(Duration::from_millis(900));
+    let events = harness.shutdown();
+
+    assert_eq!(
+        types_and_keys(&events),
+        vec!["type ••••••••", "key Unidentified"],
+        "got {events:?}"
+    );
+}
+
+/// A typing key pressed with an input method read as on, into a control that
+/// reports no value change for it, is written as a key and is `Unidentified`.
+#[test]
+fn regression_237_a_typing_key_with_an_input_method_on_and_no_value_change_is_unidentified() {
+    let harness = WorkerTestHarness::new(MockBackend::new());
+    let mut letter = layout_key(1, now_ms(), 0x4E); // N
+    letter.callback_params[0] |= input_method_param(Some(InputMethodState {
+        open: true,
+        conversion_mode: Some(9),
+    }));
+    harness.send_event(letter);
+    thread::sleep(Duration::from_millis(900));
+    let events = harness.shutdown();
+
+    assert_eq!(
+        types_and_keys(&events),
+        vec!["key Unidentified"],
+        "got {events:?}"
     );
 }
 
@@ -9379,8 +9474,30 @@ fn held_presses(keys: &[(u32, u32, u64)]) -> Vec<HeldPress> {
             key_value: 0,
             layout: 0,
             held: 0,
+            input_method_on: false,
         })
         .collect()
+}
+
+/// A key that is held, pressed where an input method was read as on, is
+/// named `Unidentified` among the held keys, as its own `key` action names it.
+#[test]
+fn regression_237_a_held_key_pressed_with_an_input_method_on_is_unidentified() {
+    let harness = WorkerTestHarness::new(MockBackend::new());
+    let mut click = make_raw_event(RawEventType::Click, 100);
+    click.sequence_id = 3;
+    click.timestamp = now_ms();
+    click.held = held_presses(&[(0x0D, 0x1C, 1), (0x20, 0x39, 2)]);
+    click.held[0].input_method_on = true;
+    harness.send_event(click);
+    thread::sleep(Duration::from_millis(300));
+    let events = harness.shutdown();
+
+    let held: Vec<HeldKeysAtAction> = held_statements_of(&events)
+        .into_iter()
+        .map(|(_, _, held)| held)
+        .collect();
+    assert_eq!(held, vec![stated(&["Unidentified", "Space"], &[1, 2])]);
 }
 
 /// What an action states about held keys: `(names, key-downs)`.

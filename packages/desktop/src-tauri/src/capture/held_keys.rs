@@ -309,6 +309,9 @@ pub struct HeldPress {
     /// The modifiers and the Caps Lock state of that key-down, as a layout
     /// is asked with them ([`super::key_value::Held::index`]).
     pub held: u8,
+    /// Whether an input method was read as on at that key-down: the key is
+    /// then named `Unidentified`, as its own `key` action names it.
+    pub input_method_on: bool,
 }
 
 /// The keys that are down.
@@ -333,6 +336,11 @@ pub struct HeldKeys {
     held_at_press: [u8; KEYS],
     /// Per key code, the keyboard layout read at that key-down.
     layouts: [i64; KEYS],
+    /// One bit per key code whose dispatched key-down read an input method
+    /// as on ([`HeldPress::input_method_on`]).
+    input_method_on: [u64; KEYS / 64],
+    /// The same for each injected character of `packets`.
+    packet_input_method_on: [bool; PACKET_SLOTS],
 }
 
 /// The modifier keys: an action states them as its modifiers, never among
@@ -364,6 +372,8 @@ impl HeldKeys {
             packet_dispatched: [0; PACKET_SLOTS],
             held_at_press: [0; KEYS],
             layouts: [0; KEYS],
+            input_method_on: [0; KEYS / 64],
+            packet_input_method_on: [false; PACKET_SLOTS],
         }
     }
 
@@ -473,12 +483,12 @@ impl HeldKeys {
     /// event `sequence_id`. Kept for a key that has none yet: the press itself,
     /// or the first repeat dispatched when the press was not.
     pub fn note_dispatched(&mut self, key: u32, scan_code: u32, sequence_id: u64) {
-        self.note_dispatched_with(key, scan_code, sequence_id, 0, 0);
+        self.note_dispatched_with(key, scan_code, sequence_id, 0, 0, false);
     }
 
     /// [`note_dispatched`](Self::note_dispatched), keeping the modifiers and
-    /// the Caps Lock state of the key-down, and the layout read at it, beside
-    /// it.
+    /// the Caps Lock state of the key-down, the layout read at it and whether
+    /// an input method was read as on at it, beside it.
     fn note_dispatched_with(
         &mut self,
         key: u32,
@@ -486,16 +496,27 @@ impl HeldKeys {
         sequence_id: u64,
         held: u8,
         layout: i64,
+        input_method_on: bool,
     ) {
         if tracked(key) && self.is_set(key) && self.dispatched[key as usize] == 0 {
             self.held_at_press[key as usize] = held;
             self.layouts[key as usize] = layout;
+            let bit = 1 << (key % 64);
+            if input_method_on {
+                self.input_method_on[(key / 64) as usize] |= bit;
+            } else {
+                self.input_method_on[(key / 64) as usize] &= !bit;
+            }
         }
         let noted = if key == VK_PACKET {
-            self.packets
+            let slot = self
+                .packets
                 .iter()
-                .position(|slot| *slot == Some(scan_code))
-                .map(|i| &mut self.packet_dispatched[i])
+                .position(|slot| *slot == Some(scan_code));
+            if let Some(i) = slot.filter(|i| self.packet_dispatched[*i] == 0) {
+                self.packet_input_method_on[i] = input_method_on;
+            }
+            slot.map(|i| &mut self.packet_dispatched[i])
         } else if tracked(key) && self.is_set(key) {
             Some(&mut self.dispatched[key as usize])
         } else {
@@ -521,22 +542,25 @@ impl HeldKeys {
                 key_value: 0,
                 layout: self.layouts[key as usize],
                 held: self.held_at_press[key as usize],
+                input_method_on: self.input_method_on[(key / 64) as usize] & (1 << (key % 64)) != 0,
             });
-        let packets =
-            self.packets
-                .iter()
-                .zip(self.packet_dispatched)
-                .filter_map(|(slot, press)| {
-                    let scan_code = (*slot)?;
-                    (own != Some((VK_PACKET, scan_code))).then_some(HeldPress {
-                        key_code: VK_PACKET,
-                        scan_code,
-                        press,
-                        key_value: 0,
-                        layout: 0,
-                        held: 0,
-                    })
-                });
+        let packets = self
+            .packets
+            .iter()
+            .zip(self.packet_dispatched)
+            .zip(self.packet_input_method_on)
+            .filter_map(|((slot, press), input_method_on)| {
+                let scan_code = (*slot)?;
+                (own != Some((VK_PACKET, scan_code))).then_some(HeldPress {
+                    key_code: VK_PACKET,
+                    scan_code,
+                    press,
+                    key_value: 0,
+                    layout: 0,
+                    held: 0,
+                    input_method_on,
+                })
+            });
         // No allocation while no dispatched key is down.
         let mut down: Vec<HeldPress> = keys.chain(packets).filter(|k| k.press != 0).collect();
         down.sort_by_key(|k| k.press);
@@ -570,6 +594,7 @@ impl HeldKeys {
                     event.sequence_id,
                     super::worker_pool::held_of(event).index() as u8,
                     event.keyboard_layout,
+                    input_method_of(params).is_some_and(|state| state.open),
                 );
             }
             RawEventType::Click | RawEventType::RightClick | RawEventType::Drop { .. } => {
@@ -1354,6 +1379,59 @@ mod tests {
         assert_eq!(down(&held, None), vec![(SPACE, 1), (TAB, 2)]);
     }
 
+    // Regression: #237 - a held key was named by its layout though an input
+    // method was on at its key-down.
+    // https://github.com/Arsarneq/docent/issues/237
+    #[test]
+    fn regression_237_a_held_key_carries_whether_an_input_method_was_on_at_its_key_down() {
+        let on = input_method_param(Some(InputMethodState {
+            open: true,
+            conversion_mode: Some(9),
+        }));
+        let off = input_method_param(Some(InputMethodState {
+            open: false,
+            conversion_mode: Some(0),
+        }));
+        let mut held = HeldKeys::new();
+        held.press(SPACE, 0x39);
+        let mut space = raw(RawEventType::Keyboard, 1, SPACE, 0x39);
+        space.callback_params[0] |= on;
+        held.stamp(&mut space);
+        held.press(TAB, 0x0F);
+        let mut tab = raw(RawEventType::Keyboard, 2, TAB, 0x0F);
+        tab.callback_params[0] |= off;
+        held.stamp(&mut tab);
+        // A repeat of Space with the input method off by then: the key is
+        // down by its first key-down, and what was read there stands.
+        held.press(SPACE, 0x39);
+        let mut repeat = raw(RawEventType::Keyboard, 3, SPACE, 0x39);
+        repeat.callback_params[0] |= off;
+        held.stamp(&mut repeat);
+
+        let mut click = raw(RawEventType::Click, 4, 0, 0);
+        held.stamp(&mut click);
+        let read: Vec<(u32, bool)> = click
+            .held
+            .iter()
+            .map(|k| (k.key_code, k.input_method_on))
+            .collect();
+        assert_eq!(read, vec![(SPACE, true), (TAB, false)]);
+
+        // Released and pressed again with the input method off: off.
+        held.release(SPACE, 0x39);
+        held.press(SPACE, 0x39);
+        let mut again = raw(RawEventType::Keyboard, 5, SPACE, 0x39);
+        again.callback_params[0] |= off;
+        held.stamp(&mut again);
+        let mut click = raw(RawEventType::Click, 6, 0, 0);
+        held.stamp(&mut click);
+        assert!(
+            click.held.iter().all(|k| !k.input_method_on),
+            "{:?}",
+            click.held
+        );
+    }
+
     #[test]
     fn a_click_a_right_click_and_a_drop_are_stamped_with_every_key_down() {
         let mut held = HeldKeys::new();
@@ -1392,6 +1470,7 @@ mod tests {
             key_value: 0,
             layout: 0,
             held: 0,
+            input_method_on: false,
         }];
         assert_eq!(stamped(&mut held, drag), vec![(ENTER, 9)]);
         for event_type in [
@@ -1811,6 +1890,7 @@ mod tests {
             key_value: 0,
             layout: 0,
             held: 0,
+            input_method_on: false,
         };
         (
             ((false, shift, false, false), CtrlAltRead::default()),

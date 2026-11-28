@@ -38,6 +38,8 @@ Desktop capture uses the Windows UI Automation accessibility API for rich elemen
 
 By default, Docent excludes its own process from capture. A recording then stays about the application you are demonstrating, instead of filling up with the clicks and typing you do in the Docent window. The **Exclude Docent from capture** checkbox below the target-application selector controls this, and a change takes effect immediately. The same [capture rules](../architecture/application/desktop/windows/capture-principles.md) say which windows the exclusion covers (the file dialogs and other windows Docent itself puts on screen).
 
+Docent watches the applications it records from outside and never runs its own code inside them. One thing cannot be read that way: with an input method on (the way Japanese, Chinese and Korean text is typed), Windows does not say from outside which key presses the input method took to compose text and which reached the application. Docent does not guess. While an input method is on, each key press is recorded as a key that was pressed, without its name; the text you typed is still recorded where the field reports it. The Chrome extension is not affected, because the browser tells it which keys the input method took.
+
 ## Send
 
 Dispatch works exactly as in the extension: configure an endpoint in Settings, then click **Send** on a project. The extension guide's [Send section](extension.md#send) has the step-by-step flow.

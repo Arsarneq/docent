@@ -924,6 +924,11 @@
       ]
     },
     {
+      "path": "packages/desktop/src-tauri/tests/passive_observer_test.rs",
+      "reason": "The guard that the desktop observes a program from outside: it reads the application's own source and fails on a call into another process, a hook that runs in one, or a call that sends input or changes a window. The cross-platform capture doctrine states the rule and its row names this binary (CP-20), and the suite orientation lists it.",
+      "governed-by": ["docs/architecture/system/capture-principles.md", "docs/test/desktop-rust.md"]
+    },
+    {
       "path": "packages/desktop/src-tauri/tests/control_look_test.rs",
       "reason": "The Windows backend's look at a control by its window handle, against real windows of the test process: a field as a control of its own, a password field, a window that holds fields, the value read from the control, and a handle of no window. The Windows capture doctrine states the element of a keystroke and what a control of its own is (DCP-16), and the suite orientation lists the binary.",
       "governed-by": [
@@ -1081,6 +1086,15 @@
       "path": "packages/extension/tests/unit/{frame-trust,service-worker-static-import}.test.js",
       "reason": "Extension capture guards: the per-frame trust predicate deciding whether an appended action may enter a recording, and the static-source guard keeping the background entry module free of dynamic import. The extension capture doctrine states both rules and its rows name both suites (ECP-1, ECP-3); the unit-suite orientation lists them.",
       "governed-by": [
+        "docs/architecture/application/extension/capture-principles.md",
+        "docs/test/unit.md"
+      ]
+    },
+    {
+      "path": "packages/extension/tests/unit/passive-observer.test.js",
+      "reason": "The guard that the recorder takes no part in the page: it reads the extension's own source and fails on a script placed in a page other than the recorder, and on a call in the recorder that cancels or stops a page's event or writes to the page, beyond the one defect the extension capture doctrine lists. The cross-platform capture doctrine states the rule and its row names this suite (CP-20), and the unit-suite orientation lists it.",
+      "governed-by": [
+        "docs/architecture/system/capture-principles.md",
         "docs/architecture/application/extension/capture-principles.md",
         "docs/test/unit.md"
       ]
