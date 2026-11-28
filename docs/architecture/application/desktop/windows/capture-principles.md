@@ -320,7 +320,7 @@ A typing key pressed with no shortcut modifier is a printable keystroke. A key n
 
 **A password field.** Every keystroke enters text there except these two kinds, which are `key` actions as anywhere:
 
-- a key that enters no character: Shift, Control and Alt, the function keys, and every key with a name of its own other than `Process`, a closed list;
+- a key that enters no character: the function keys, and every key with a name of its own other than `Process`, a closed list (a press of Shift, Ctrl or Alt is no `key` here either);
 - a shortcut.
 
 Every other key counts as text there: a character, `Space`, `Dead`, `Unidentified`, and `Process` (the name of a key an input method took, which stands for a typing key).
