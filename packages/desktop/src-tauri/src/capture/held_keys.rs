@@ -1753,8 +1753,35 @@ mod tests {
             read.held(Some(true)),
             held(SEEDED_LEFT_CTRL_WITH_ALT_GR, false, true)
         );
+        // The value the format document states for this case: no `ctrl`.
+        assert_eq!(read.held(Some(true)), held(false, false, true));
         // On a layout with no AltGr the keyboard's state is written.
         assert_eq!(read.held(Some(false)), held(true, true, false));
+    }
+
+    #[test]
+    fn regression_825_altgr_let_go_first_after_the_record_starts_is_the_keyboard_s_state() {
+        // A left Ctrl and AltGr held as the record starts, whose the Ctrl is
+        // not known. AltGr is let go first, the person still holding the
+        // Ctrl: no AltGr, and the keyboard's state is written.
+        let mut keyboard = Keyboard::on(true);
+        keyboard.state.extend([VK_LCONTROL, VK_RMENU]);
+        let state: Vec<u32> = keyboard.state.iter().copied().collect();
+        keyboard.record = CtrlAltKeys::seeded(windows_state(&state));
+        keyboard.right_alt_up();
+        assert_eq!(keyboard.read().person_left_ctrl, PersonLeftCtrl::NotKnown);
+        assert_eq!(keyboard.held(), held(true, false, false));
+        // AltGr pressed again with the Ctrl still held: Windows sends no Ctrl
+        // of its own, the Ctrl down is the person's, and it is written.
+        keyboard.right_alt_down();
+        assert_eq!(
+            keyboard.read().person_left_ctrl,
+            PersonLeftCtrl::Known(true)
+        );
+        assert_eq!(keyboard.held(), held(true, false, true));
+        // The Ctrl let go, then AltGr again: Windows' own Ctrl, no `ctrl`.
+        keyboard.right_alt_up().ctrl_up().right_alt_down();
+        assert_eq!(keyboard.held(), held(false, false, true));
     }
 
     #[test]
