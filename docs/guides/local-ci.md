@@ -86,6 +86,20 @@ What the answer means depends on the file:
 - **A file that is not itself a governing doc:** the docs the mode names are the ones your `## Docs disposition` lines are held to ([CONTRIBUTING § Docs Disposition and Change Record](../../.github/CONTRIBUTING.md#docs-disposition-and-change-record)).
 - **A governing doc** (one in an area's doc set, or a repo-wide doc): an edit to it owes that doc's own line alone, as the mode's output says. The docs the mode names for it are what code of its areas owes.
 
+### The base-branch modes
+
+The `lint` gates below read the pull request's base branch in CI and take it locally as an argument. Each also runs without it, and then holds its tabled checks only.
+
+```bash
+git fetch --no-tags origin main
+
+# also reds on a baseline entry the base branch's list does not hold
+npm run lint:clause-form -- origin/main
+
+# also lists, without failing, each Covers cell that grew in place
+npm run lint:test-inventory -- origin/main
+```
+
 ### PR title
 
 [`pr-title.yml`](../../.github/workflows/pr-title.yml) runs [`check-pr-title.js`](../../scripts/check-pr-title.js) with the title in `PR_TITLE`. Locally the script also accepts the title as an argument:
