@@ -1,11 +1,10 @@
 # Capture Pipeline — Desktop Application
 
-How a Windows input event becomes a committed action: the delivery pipeline behind the desktop capture layer. The binding contracts are the clauses in [capture principles](capture-principles.md): the thread roles (DCP-1), ordered insertion and the commit flush barrier (DCP-2), the worker delivery guarantees (DCP-12) and typing (DCP-9, DCP-17, DCP-18, DCP-19). This document orients (the stages) and holds:
+How a Windows input event becomes a committed action: the delivery pipeline behind the desktop capture layer. The binding contracts are the clauses in [capture principles](capture-principles.md): the thread roles (DCP-1), ordered insertion and the commit flush barrier (DCP-2), and the worker delivery guarantees (DCP-12). This document orients (the stages) and holds:
 
 - how the pre-capture budget is computed, what it buys and the cap on describers (DCP-1);
 - why the commit's flush barrier waits as it does (DCP-2);
-- what a recording holds where capture start is slow or fails;
-- until its own cut, what the keyboard hook reads at a key press and how a value read in time is told (DCP-17, DCP-18, DCP-19).
+- what a recording holds where capture start is slow or fails.
 
 [The capture seam](../capture-seam.md) documents the cross-platform boundary the pipeline sits behind.
 
@@ -25,14 +24,13 @@ pre-capture describers
 (capped at 5)
 ```
 
-1. **Input_Thread.** The low-level hooks and WinEvent callbacks classify each OS event into a raw event, stamp it with a monotonic sequence id, and send it to the bridge. This thread performs no accessibility queries. The click pre-capture runs on a pre-capture describer, and the mouse hook waits on it within a budget ([pre-capture at a click](#pre-capture-at-a-click)). It stamps each foreground event with its window's process id and title, the title read from the window system without a message to the program, so a switch whose window has closed, or whose process has exited, before a worker gets to it is still named and titled (session format, `context_switch`). It notes, for each top-level window, the number of the event that introduced its context, which the focus worker reads to tell whether a focus it records in another window than its event's needs a switch before it (DCP-7).
+1. **Input_Thread.** Takes each event from the system and gives it its place in the order. It makes no accessibility query (DCP-1).
+2. **Bridge_Thread.** Hands each event to a worker, and runs the [flush barrier](#the-commit-flush-barrier) at a commit.
+3. **Describe workers.** Describe the element and build the action (DCP-12).
+4. **Emission.** Sends the actions to the frontend.
+5. **Frontend.** Puts each action in its place in the pending list (DCP-2).
 
-   The keyboard hook also keeps the record of which keys are down. [What the keyboard hook reads at a key press](#what-the-keyboard-hook-reads-at-a-key-press) holds that record, the hook's other reads and what is stamped from them.
-
-2. **Bridge_Thread.** Receives raw events on a single FIFO channel and dispatches each to a worker. It also executes the pool-wide [flush barrier](#the-commit-flush-barrier) when a commit requests one.
-3. **Describe workers.** Each worker owns a FIFO queue and performs the accessibility queries. It builds the element description, stamping `described_after_ms` (the observed input→describe gap); a coordinate-mode downgrade instead drops locators and provider facts, making no element-identity claims. It sends the completed action into the shared action channel. DCP-12 states what a panic while processing one event loses.
-4. **Emission.** One forwarder thread drains the shared action channel. It emits each action to the frontend on the `capture:action` stream, in the order the channel received them.
-5. **Frontend.** The adapter inserts each arriving action into the pending list by sequence id (DCP-2's ordered insertion). It strips the internal id before anything is stored or exported.
+The pre-capture describers describe a clicked element while the mouse hook still holds the click ([pre-capture at a click](#pre-capture-at-a-click)).
 
 ## Pre-capture at a click
 
@@ -53,76 +51,6 @@ budget = hook timeout − HOOK_WORK_MARGIN_MS
 **What the budget buys.** Windows passes input on without a low-level hook that does not return within the system's hook timeout. It is understood, though not verified here, that Windows can remove the hook after that, after which nothing the mouse does would be recorded. With the budget the hook is never held past the system's hook timeout, so Windows does not pass the clicks after a slow one on unrecorded, and probably does not remove the hook.
 
 **The cap on describers.** At most `MAX_DESCRIBERS` (5) describer threads are alive in the process at a time. A describer is held while the application it asked has not answered. One still held when a capture session stops counts against the cap of the next session until that application answers, and stop waits on no describer. DCP-13 states what a click gets where no describer could be started.
-
-## Typing
-
-DCP-9, DCP-17, DCP-18 and DCP-19 hold what typing is recorded as. This section holds how the input thread and the typing worker get the facts those rules turn on.
-
-### What the keyboard hook reads at a key press
-
-**The keys that are down.** The keyboard hook keeps a record of which keys are down. It builds the record from every key-down and key-up it is handed, and seeds it from the keyboard's state when the hook is installed. The record serves two stamps:
-
-- **The repeat mark.** Each key-down is stamped with whether its key was already down, the mark a `key` action's `repeat` is written from. The keyboard's own state, read before it takes the key-down in, has to agree that the key was down. An injected character is told apart by the code unit it carries. The keyboard's state at the hook's install names a virtual-key code, and not which of two keys that share the code is down (DCP-19 holds what follows from that).
-- **The held keys.** For each key that is down, the record notes the key-down that was dispatched for recording, with the modifiers, the Caps Lock state and the layout read at that key-down, so a held key is named as its own `key` is. That key-down is the press, or the first repeat dispatched when the press was not (in an excluded window, or before the capture started). Each keystroke, click, right-click and drop is stamped at dispatch with the keys so noted. A drag start is stamped with those the mouse hook read when the pointer first passed the drag threshold. An action's `held_keys` is written from these stamps.
-
-The mouse hook reads the modifier keys for the pointer actions as the keyboard hook does for a key.
-
-**The key's name and physical key.** The scan code and extended mark the hook is handed travel with the key-down, and a `key` action's `code` is named from them, by the scan-code table Chromium publishes.
-
-At each key-down the hook also reads the keyboard layout of the foreground window's thread and whether Caps Lock is on, two reads that leave the keyboard state alone, and does no more for the key's name. The worker that processes the key-down looks the press up in the table kept for that layout, and a `key` action's `key` is named from what it finds (the session format's [Key names](../../../../technical/session-format.md#key-names) holds the lookup). The table holds what the layout gives each key with each combination of Shift, Ctrl, Alt and Caps Lock. The layout is asked with the system's read that leaves the keyboard state as it is. It is never built on the hook, which must return at once: building one takes some thousand reads of the layout. It is built on a thread of its own when the first capture starts, for the layouts loaded then, and by the worker at the first key of a layout loaded later. In both cases it is kept only if no accent was pending before the first key code was asked about and after each one, since the person can type a dead key meanwhile; otherwise it is built again at a later key. The worker asks only after it has settled the element of the key or of the pointer action whose held keys it names, so the wait at a layout's first key does not change which element the action is written on.
-
-Two kinds of key carry a character of their own:
-
-- For a keystroke injected as Unicode (`VK_PACKET`), the hook passes on its scan code, which is the injected UTF-16 code unit, which is what the worker has to name the key from.
-- For a punctuation key, the hook reads the character the key enters with no modifier on the keyboard layout of the foreground window's thread: the accent a dead key carries. The read leaves the keyboard state alone.
-
-The session format's [Key names](../../../../technical/session-format.md#key-names) holds the names and its `key` row what each field states; DCP-19 holds this platform's own rules beside it.
-
-**The input method.** At each key-down the hook reads whether the focused control's input method is on, and its conversion mode. It asks that control's input-method window (`ImmGetDefaultIMEWnd`) with two `WM_IME_CONTROL` messages (`IMC_GETOPENSTATUS`, then `IMC_GETCONVERSIONMODE`), which the program's own thread answers. The session format's `key` row holds what is written from each outcome, and DCP-19 the order of the asks. The time limit of each ask, in whole milliseconds (`src/capture/timing.rs`):
-
-```text
-limit = min(INPUT_METHOD_READ_TIMEOUT_MS, hook timeout / 8)        INPUT_METHOD_READ_TIMEOUT_MS = 20
-```
-
-So the two asks take at most a quarter of the system's low-level hook timeout, and with a hook timeout under 8 ms the limit is 0 and the hook asks nothing. Within its limit an ask:
-
-- gives up at once on a thread Windows knows to be hung;
-- dispatches no message to the hook's own thread while it waits.
-
-Windows hands a program a message another thread sent it ahead of the key presses waiting in its queue. That is why the read can show the state before an earlier key took effect.
-
-### The key behind a dead key
-
-The [session format](../../../../technical/session-format.md#key-names) states what the key pressed behind a dead key is named. The typing worker names it, since the key-downs go to it in the order pressed:
-
-- Each key-down is taken in by what the layout's table gives the key with the modifiers as held, and what it does to the accent is the session format's table.
-- Where the worker cannot know which accent waits, it says so and guesses none: the next key an accent would rename is `Unidentified` (DCP-13 lists the cases).
-- A key-down in a window that is not recorded counts like any other. The keyboard hook sends the worker its layout, key code and modifiers, the worker takes it into what waits, and nothing is written, logged or kept of it.
-- What an accent and a character make together is the layout's own list. The registry names the layout's file (`HKLM\SYSTEM\CurrentControlSet\Control\Keyboard Layouts`, by the layout handle's device half or its `Layout Id`), and the desktop reads that file from the system folder as bytes. The file is never loaded or run. A name that is no plain file name is not followed, at most 8 MiB are read, and every place the file names is checked against its bytes.
-- Only a file in the 64-bit x64 form is read, with its tables found the one way the layout files of Windows state them. Any other file gives no list: the key behind a dead key is `Unidentified` (DCP-13), and the log says why once for the layout.
-
-The keys held at a pointer action are named by another worker. It reads what each held key's own key-down was named from a record the workers share. The pool notes there each key-down it sends to be named, so a key-down sent and not named yet has no name, whatever was named after it. The action waits for the names of its held keys for at most 5 s in all (DCP-13).
-
-### Whether a key is a dead key
-
-DCP-17 holds which answer decides whether a key is a dead key: the layout's table, or the hook's own question. The table is the one the key's name comes from ([above](#what-the-keyboard-hook-reads-at-a-key-press)). For its own question the keyboard hook asks the keyboard layout of the foreground window whether the key, as pressed, is a dead key. It asks with the system's read that leaves the keyboard state as it is.
-
-| The key is pressed           | How it is known                                                                                                                                                           |
-| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| With neither Shift nor AltGr | By the layout's own mark                                                                                                                                                  |
-| With Shift or AltGr          | By asking the layout, only while no accent is pending, since the layout's answer depends on an accent already pending. The answer is kept for that key and modifier state |
-
-DCP-17 holds what is written where the layout was not asked.
-
-### A value read in time
-
-A value is taken for a `type` only when no later key of its window had been dispatched by the time the read finished (DCP-18). The input thread and the typing worker tell it in three steps:
-
-1. The input thread numbers each key press where it dispatches it and notes the number as its window's latest. The numbers come from one count for every window, so a number never comes back for a window that was let go and noted again. A Shift, Control or Alt key is not counted: it carries its window's latest number.
-2. The typing worker reads the field's value.
-3. When the read has finished, the worker asks for the number of the window's latest key. The read is in time when that number equals the number of the last keystroke the worker holds for the window.
-
-Numbers are kept per window because a key goes to the focus of the window it was pressed in: a key pressed in another window cannot reach the field, and makes no read of it late. The input thread keeps the latest number for a bounded count of windows (DCP-18 holds the count) and lets go of the window whose latest key is the oldest.
 
 ## The commit flush barrier
 

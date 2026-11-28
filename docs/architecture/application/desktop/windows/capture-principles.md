@@ -377,7 +377,7 @@ The panel joins the masked typing of a sensitive field by the same place, read f
 
 ## Dead keys
 
-**DCP-17.** A dead key enters nothing by itself. A dead key is a key the keyboard layout of the foreground window says is one as pressed. Where the layout's table answered for the press, the answer is the table's, with the modifiers and the Caps Lock state of the press: the read the key's name comes from, so the name and the dead key agree. Otherwise it is the hook's own question, with Shift or AltGr where held, in which Caps Lock is no part. Asking the layout does not touch an accent pending in the application, and what a key is does not depend on how far the application has got with the keys before it ([how the layout is asked](capture-pipeline.md#whether-a-key-is-a-dead-key)). In a field the file holds one of these, and no other; where two rows fit, the upper one decides:
+**DCP-17.** A dead key enters nothing by itself. A dead key is a key the keyboard layout of the foreground window says is one as pressed: with the modifiers and the Caps Lock state of the press where the key's name was read from the layout's table, so the name and the dead key agree, and otherwise with Shift or AltGr where held, Caps Lock playing no part. Asking the layout does not touch an accent pending in the application, and what a key is does not depend on how far the application has got with the keys before it. In a field the file holds one of these, and no other; where two rows fit, the upper one decides:
 
 | After the dead key                                                                                                                             | What the file holds                                                                |
 | ---------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
@@ -417,7 +417,7 @@ Otherwise the dead keys are written as keys beside the text. So are dead keys in
 **Where the layout is not known.** A key pressed with Shift or AltGr is then taken for an ordinary key, and one that is dead with them is written as a `key` after DCP-9's 500 ms; a departure (core CP-18). That holds in these four cases, a closed list:
 
 - on a Windows before version 10.0.14393, which has no read that leaves the keyboard state as it is;
-- for the first press of a key while an accent is pending, in the recording or since the foreground window's layout last changed;
+- for the first press of a key with that Shift and AltGr state while an accent is pending, where the layout's table could not be built yet (session format, Key names), in the recording or since the foreground window's layout last changed;
 - where the foreground window has no thread to read a layout from;
 - where that thread reports no layout.
 
@@ -425,7 +425,7 @@ Otherwise the dead keys are written as keys beside the text. So are dead keys in
 
 ## A value read after later keys
 
-**DCP-18.** A field's value is the `type` only where no later key of its window had been dispatched when the value was read: the program had then received no later key, so the value holds nothing a later key did ([how the key presses are numbered](capture-pipeline.md#a-value-read-in-time)). A Shift, Ctrl or Alt press is no later key, since it changes no text. Nor is a value taken whose window is not among the last 16 typed into, since nothing then tells whether a later key came.
+**DCP-18.** A field's value is the `type` only where no later key of its window had been dispatched when the value was read: the program had then received no later key, so the value holds nothing a later key did. Two presses are no later key: one in another window, which cannot reach the field, and a Shift, Ctrl or Alt press, which changes no text. Nor is a value taken whose window is not among the last 16 typed into, since nothing then tells whether a later key came.
 
 | The typing                                                        | What the file holds                                                                                                      |
 | ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
@@ -454,7 +454,7 @@ For example, the person pastes into the field with Ctrl+V and presses Enter, and
 
 ## What a `key` action carries
 
-**DCP-19.** The [session format](../../../../technical/session-format.md#shared-both-platforms)'s `key` row is the home of what a `key` action's `repeat`, `code`, input-method fields and `held_keys` state, on both platforms, and its [Key names](../../../../technical/session-format.md#key-names) section the home of how a key is named. This clause holds only what they do not: five rules of this platform's own. The capture pipeline holds [what the keyboard hook reads and how](capture-pipeline.md#what-the-keyboard-hook-reads-at-a-key-press).
+**DCP-19.** The [session format](../../../../technical/session-format.md#shared-both-platforms)'s `key` row is the home of what a `key` action's `repeat`, `code`, input-method fields and `held_keys` state, on both platforms, and its [Key names](../../../../technical/session-format.md#key-names) section the home of how a key is named. This clause holds only what they do not: five rules of this platform's own.
 
 - **Injected keys and punctuation keys are typing keys (DCP-9).** A keystroke injected as Unicode (`VK_PACKET`, the path of IME results, remote-desktop stacks, software keyboards and automation) is printable input whatever it carries. Since it is named by its character and buffered as a typing key, the same text is never recorded twice. A punctuation key is a typing key whether or not a character was read for its name.
 - **A release the hook was never handed.** A key whose release the hook was never handed is a press again at its next key-down, not a repeat. The hook is handed key-downs and key-ups in an excluded window and outside an active capture too, so a key pressed there and still held counts as down for `repeat`.
@@ -705,8 +705,8 @@ After a typing worker gives its role up at a commit, two things hold for deliver
       Escape): the system takes it or hands it to the program, the desktop
       cannot tell which, and that key is `Unidentified` too where the accent
       would rename it;
-  - a layout whose list could not be read (a layout file built for another
-    processor, as on Windows on ARM, or in another form than the one read):
+  - a layout whose list could not be read (among them a layout file not in the x64
+    form, as on Windows on ARM, one over 8 MiB, or one in another form than the one read):
     the key behind a dead key is `Unidentified`, and where the desktop does
     not know which accent waits so is every key that gives a character,
     until a key that gives something that is no character (Enter, Tab) was
