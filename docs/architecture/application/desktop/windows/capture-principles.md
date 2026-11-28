@@ -659,7 +659,7 @@ After a typing worker gives its role up at a commit, two things hold for deliver
 
 **DCP-13.** This platform's exceptions within the surface (core [CP-15](../../../../architecture/system/capture-principles.md#capture-surface)):
 
-- A press of Shift, Ctrl or Alt is not written, as [the `key` action](../../../../technical/session-format.md#the-key-action) states; a press of Win is recorded, as `Meta`.
+- A press of Shift, Ctrl or Alt is not written, as [the `key` action](../../../../technical/session-format.md#the-key-action) states; a press of Win is recorded, as `Meta` (the entry on input methods below holds for it as for every key).
 - A key press whose keyboard layout could not be asked is written with `key`
   `Unidentified` where the key has no name of its own (a letter, a digit, a
   punctuation key), where the extension writes the character; a departure
@@ -767,16 +767,24 @@ After a typing worker gives its role up at a commit, two things hold for deliver
 - A focus on the element of the last focus written (its selector within its window; DCP-21) is not written. A departure (core CP-18; [docent#856](https://github.com/Arsarneq/docent/issues/856)).
 - Where the focus moves again before the first focus is described, only the later focus is written (DCP-21), save in the open cases DCP-21 states. A departure (core CP-18; [docent#856](https://github.com/Arsarneq/docent/issues/856)).
 - A focus whose element is in a window of a process the scope filters did not judge (DCP-21's table) is not written. A departure (core CP-18; [docent#856](https://github.com/Arsarneq/docent/issues/856)).
-- A key pressed while an input method composes text (the letters of a romanized reading, Space, the Enter that confirms, Escape, an arrow in the candidate list, Backspace) is written as a `key`. A typing key is written so too, unless the field reports a value change for it: a field that reports the composing text as its value has those keys in its `type` instead. The composed text is the field's `type` when it is confirmed. A composition given up leaves its keys, and no `type` where the field reported no value for it.
+- A key pressed where the input method was read as on (`input_method_open` true) is written as a `key` named `Unidentified`: every key, the letters of a romanized reading, Space, Enter, Escape, an arrow, Backspace and the shortcuts among them. Its `code` names the physical key where the press has one. Which presses are text in a password field (DCP-9) is decided by the name the key has without this entry. A typing key for which the field reports a value change is in the field's `type` instead, as where a field reports the composing text as its value. The composed text is the field's `type` when it is confirmed. A composition given up leaves its keys, and no `type` where the field reported no value for it.
 
-  The keyboard hook is handed each key ahead of the input method, and nothing a program outside the application can read says that a composition is open. Three things were measured on Windows 11 with the Japanese Microsoft IME in Notepad and in a WebView2 field:
-  - the input method's accessibility events (`EVENT_OBJECT_IME_SHOW`, `_HIDE`, `_CHANGE`, `EVENT_OBJECT_TEXTEDIT_CONVERSIONTARGETCHANGED`) never fired;
-  - neither field supported UI Automation's text-edit pattern;
-  - the layout, the input method's open status and its conversion mode changed only when the input method was switched.
+  What is not read is whether the input method took a key or the program got it. The keyboard hook is handed each key ahead of the input method, and nothing readable from outside the program says it for every key. Measured with the Japanese Microsoft IME:
 
-  Windows shows the composition state (IMM's input context, TSF) only to code inside the application, and the desktop runs no code inside other applications.
+  | Program                     | From outside, while composing                                                                                                          | From outside, at the Enter that confirms                                                           | In the program's own messages                                                     |
+  | --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+  | Notepad, Windows 11         | No input-method accessibility event, no text-edit pattern; layout, open status and conversion mode as before the keys                  | Not measured                                                                                       | Not measured                                                                      |
+  | WebView2 field, Windows 11  | The same                                                                                                                               | Not measured                                                                                       | Not measured                                                                      |
+  | Notepad, Windows 10         | No event and no change of value                                                                                                        | A plain Enter at the hook, then the value changes to the composed text                             | Each key the input method took arrives under the number Windows gives a taken key |
+  | Edge and Chrome, Windows 10 | The value changes with each letter and stays as it was at the Space that converts; a text-edit event marks each of them as composition | A plain Enter at the hook, no text-edit event, and a value change that carries the value as it was | No key-down arrives for a key the input method took, only its key-up              |
 
-  The extension, which the browser tells, writes no typing key of a composition as a `key`, its text being in the `type`; the difference comes from the platforms themselves (core CP-19; [docent#237](https://github.com/Arsarneq/docent/issues/237)). That it writes none of the keys that enter no text is the extension's departure (ECP-12).
+  The Escape that gives a composition up is marked in neither browser by a text-edit event; the value loses the composing text. So in a browser field the keys that change the composing text can be told from outside, and the keys that end it cannot: neither the confirming Enter nor the Escape is marked, and naming a key from what the field reports after it is a conclusion drawn, not a fact read.
+
+  The program itself is told, of every key, though not in the same way in each program. Only code inside the program reads its messages, and the desktop runs none there (core CP-20): that is the reason behind this entry.
+
+  Where the read of the input method gave no state (the session-format document lists where), the key keeps its name, and an input method that was on there can have taken it.
+
+  The extension, which the browser tells, writes no typing key of a composition as a `key`, its text being in the `type`, and names the keys the input method leaves to the page (ECP-12); the differences come from the platforms themselves (core CP-19; [docent#237](https://github.com/Arsarneq/docent/issues/237)). That it writes none of the keys of a composition that enter no text is the extension's departure (ECP-12).
 
 - A focus or value change on an element the accessibility layer cannot describe is not written; the keys typed for the value change are written as keys (DCP-16). A departure (core CP-18; [docent#856](https://github.com/Arsarneq/docent/issues/856)).
 - A title-bar close of a window the recording did not see open (a window open before the recording started, the target window itself, introduced by a `context_switch`, among them) records no `context_close` (DCP-7). A departure (core CP-18; [docent#857](https://github.com/Arsarneq/docent/issues/857)).

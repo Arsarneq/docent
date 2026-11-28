@@ -198,6 +198,10 @@ function _redactSensitive(action) {
 // as text and is masked: a character, `Space`, `Dead`, `Unidentified`, and
 // `Process`, the key an input method took, which stands for a typing key. The native layer's password rule
 // keeps the same list (NON_TEXT_KEY_NAMES in src-tauri/src/capture/worker_pool.rs).
+// A key written `Unidentified` because an input method was on does not say
+// by its name what it is; the native layer, which knows the key, marks the
+// one that enters no character (`key_enters_no_text`, internal to this
+// stream and dropped in _insertOrdered), and that key stays a key.
 const _NON_TEXT_KEY_NAMES = new Set([
   'Backspace',
   'Tab',
@@ -290,7 +294,8 @@ const _NON_TEXT_CONTROL_TAGS = new Set([
 // and a held Ctrl or Alt is no shortcut (docent#825). The native layer's
 // typing rule reads the same verdict from the keys as Windows holds them,
 // AltGr counted as Ctrl and Alt together.
-function _keyEntersText(action) {
+function _keyEntersText(action, entersNoText = false) {
+  if (entersNoText) return false;
   const { ctrl = false, alt = false, meta = false, alt_graph = false } = action.modifiers || {};
   if (meta || (!alt_graph && ctrl !== alt)) return false;
   const key = action.key;
@@ -374,8 +379,14 @@ function _insertOrdered(action) {
   const seqId = action.sequence_id;
 
   // Strip sequence_id before adding to pending actions, and with it the
-  // key-downs the held keys are down by: both are internal to this stream.
-  const { sequence_id: _seq, held_presses: heldPresses, ...received } = action;
+  // key-downs the held keys are down by and the mark of an unnamed key that
+  // enters no text: all three are internal to this stream.
+  const {
+    sequence_id: _seq,
+    held_presses: heldPresses,
+    key_enters_no_text: entersNoText,
+    ...received
+  } = action;
   _redactSensitive(received);
   const typedOnSensitiveField =
     received.type === 'key' &&
@@ -385,7 +396,7 @@ function _insertOrdered(action) {
     // as its name; a title is no field name, so it decides nothing here.
     !(received.element.tag === 'Unknown' && received.element.selector === '') &&
     !_NON_TEXT_CONTROL_TAGS.has(received.element.tag) &&
-    _keyEntersText(received);
+    _keyEntersText(received, entersNoText === true);
   const cleanAction = typedOnSensitiveField ? _maskedTypeFromKey(received) : received;
   // Which of the keys that were down are held keys of the recording is known
   // only when the step's actions are complete (see _nameHeldKeys). Until then

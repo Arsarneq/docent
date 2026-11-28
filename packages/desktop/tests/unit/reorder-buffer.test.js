@@ -352,6 +352,37 @@ describe('_insertOrdered redacts sensitive field values', () => {
     assert.equal('code' in adapter.getPendingActions()[0], false);
   });
 
+  it('regression_237_a_key_unnamed_for_the_input_method_stays_a_key_where_it_enters_no_text', () => {
+    // A key pressed with an input method on is written `Unidentified`
+    // (docent#237). The native layer knows the key and says where it enters
+    // no character (`key_enters_no_text`, internal to this stream): that key
+    // stays a key on a sensitive field, and the mark is not stored. One
+    // without the mark counts as text, as every `Unidentified` does.
+    const unnamed = (seq, mark) => ({
+      ...keyOn(cardField(), 'Unidentified', seq),
+      input_method_open: true,
+      ...mark,
+    });
+    insertOrdered(unnamed(1, {}));
+    insertOrdered({ ...unnamed(2, { key_enters_no_text: true }), code: 'Enter' });
+
+    assert.deepEqual(shape(), [`type ${SENSITIVE_MASK}`, 'key Unidentified']);
+    const enter = adapter.getPendingActions()[1];
+    assert.equal(enter.code, 'Enter');
+    assert.equal(enter.input_method_open, true);
+    assert.equal('key_enters_no_text' in enter, false);
+    // Off a sensitive field the mark is dropped all the same.
+    adapter.clearPendingActions();
+    resetReorderState();
+    insertOrdered({
+      ...keyOn({ tag: 'Edit', name: 'Notes', selector: 'notes', text: null }, 'Unidentified', 1),
+      input_method_open: true,
+      key_enters_no_text: true,
+    });
+    stripSeqFields();
+    assert.equal('key_enters_no_text' in adapter.getPendingActions()[0], false);
+  });
+
   it('regression_237_a_key_recorded_as_the_masked_type_carries_no_input_method_fields', () => {
     // The fields belong to a `key` action; the masked `type` is none.
     insertOrdered({

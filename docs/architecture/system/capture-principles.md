@@ -86,7 +86,7 @@ A difference between platforms is one of two kinds. One comes from the platforms
 - an input the platform's own events never deliver to its capture layer,
   whatever the layer listens for;
 - a fact about an input that the platform's events do not carry and that no
-  interface of the platform lets the capture layer read at any moment from
+  interface open to the capture layer under CP-20 lets it read at any moment from
   the input until its action is written; the field's documentation also
   names the interface that is missing and what the layer tried. A fact the
   layer could have read at an earlier moment than the one it reads at is not
@@ -100,6 +100,16 @@ departure in the field's documentation or on the platform's exception list
 (CP-15), beside the issue that tracks its removal. A change MUST NOT add a
 departure: a change to what one platform records for an input the other
 platform's events also deliver MUST change the other with it.
+
+---
+
+## Observing From Outside
+
+**CP-20.** The capture layer observes a program and takes no part in it. What it does to a program it records is a closed list: it reads the events the platform delivers to a program that watches from outside, and it asks the questions the platform defines for such a watcher (the accessibility interface, a window message that reads a state). It MUST NOT do anything else to another program: loading code into one, starting a thread in one, writing into its memory, sending it input and sending it a message that changes it are all outside the list. On the desktop it therefore runs in Docent's own process alone. On the extension it runs where the browser places an extension's scripts, and there it MUST NOT change what the page does. Where a platform does more than the list today, that is a defect, stated on the platform's exception list with its tracking issue. A change MUST NOT add another.
+
+A fact that only code inside the program is told is therefore not read. The recording says it is not known, in the value the format has for that (a key whose meaning is not known is `Unidentified`), and the field's documentation states both what is not read and this clause as the reason.
+
+Two reasons hold the rule. What a program tells code inside it differs with how the program is built, so reading there is work that grows with every kind of program. And a tool that puts its code into other programs can break them and is what security software is set to stop, which costs the trust of the people and organizations that would install it.
 
 ---
 

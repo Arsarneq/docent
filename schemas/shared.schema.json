@@ -271,7 +271,7 @@
         },
         "key": {
           "type": "string",
-          "description": "What the press means on the active keyboard layout, named by the W3C UI Events `key` values (a, A, ?, Enter, ArrowUp), a space written as Space. The session-format document states the whole rule under Key names."
+          "description": "What the press means on the active keyboard layout, named by the W3C UI Events `key` values (a, A, ?, Enter, ArrowUp), a space written as Space, and Unidentified where that is not known. The session-format document states the whole rule under Key names."
         },
         "modifiers": {
           "$ref": "#/$defs/modifiers"
@@ -286,7 +286,7 @@
         },
         "input_method_open": {
           "type": "boolean",
-          "description": "Whether an input method (the system's own entry of composed text, as for Japanese, Chinese or Korean) was on for the control that held the keyboard focus, as read at the press, before the key took effect. Absent where the capture layer did not read it; the session-format document states which do, and when."
+          "description": "Whether an input method (the system's own entry of composed text, as for Japanese, Chinese or Korean) was on for the control that held the keyboard focus, as read at the press, before the key took effect. A capture layer that cannot read of every key whether the input method took it writes `key` as `Unidentified` where this is true. Absent where the capture layer did not read it; the session-format document states which do, and when."
         },
         "input_method_conversion_mode": {
           "type": "integer",

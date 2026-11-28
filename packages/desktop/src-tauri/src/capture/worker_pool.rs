@@ -1880,6 +1880,35 @@ fn key_name(raw: &RawEvent) -> String {
     )
 }
 
+/// Whether an input method was read as on at the key-down `raw`. A key
+/// pressed then is written `Unidentified`, as a `key` action and in
+/// `held_keys`: whether the input method took it cannot be read from outside
+/// the program (desktop capture DCP-13).
+fn input_method_read_on(raw: &RawEvent) -> bool {
+    input_method_at(raw).input_method_open == Some(true)
+}
+
+/// The name written for a key whose own name is `name`, pressed with an
+/// input method read as on or not (`input_method_on`).
+fn key_name_as_written(input_method_on: bool, name: String) -> String {
+    if input_method_on {
+        UNIDENTIFIED_KEY.to_string()
+    } else {
+        name
+    }
+}
+
+/// What a `key` action states of the input method at the key-down `raw`,
+/// whose key is `name`. Where the action does not state `name`, it carries
+/// for the frontend whether the key enters no character, which the name
+/// would have said.
+fn input_method_as_written(raw: &RawEvent, name: &str) -> super::InputMethodAtKey {
+    let mut written = input_method_at(raw);
+    written.key_enters_no_text = input_method_read_on(raw)
+        && (NON_TEXT_KEY_NAMES.contains(&name) || is_function_key_name(name));
+    written
+}
+
 /// The `key` value of the space bar, and of any key that gives a space.
 const SPACE_KEY: &str = "Space";
 
@@ -1978,8 +2007,10 @@ fn modifiers_of<B: AccessibilityBackend>(raw: &RawEvent, backend: &B) -> Modifie
 ///
 /// Each key is named as its own `key` action names it: by what the layout
 /// gave it as it was pressed, and where it was pressed behind an accent that
-/// waited, by what that key-down was named ([`held_key_value`]). The hook's
-/// record lists no modifier key, so every key here has such a name.
+/// waited, by what that key-down was named ([`held_key_value`]). A key
+/// pressed with an input method read as on is `Unidentified`, as its own
+/// action is ([`key_name_as_written`]). The hook's record lists no modifier
+/// key, so every key here has such a name.
 fn held_at<B: AccessibilityBackend>(
     raw: &RawEvent,
     backend: &B,
@@ -1991,6 +2022,9 @@ fn held_at<B: AccessibilityBackend>(
         .held
         .iter()
         .map(|k| {
+            if k.input_method_on {
+                return (key_name_as_written(true, String::new()), k.press);
+            }
             let as_pressed = if k.key_value != 0 {
                 k.key_value
             } else {
@@ -2000,15 +2034,13 @@ fn held_at<B: AccessibilityBackend>(
                     super::key_value::Held::from_index(usize::from(k.held)),
                 )
             };
-            (
-                key_name_of(
-                    k.key_code,
-                    i64::from(k.scan_code),
-                    held_key_value(k, as_pressed, presses, wait_ends),
-                    super::key_value::primary_language(k.layout),
-                ),
-                k.press,
-            )
+            let name = key_name_of(
+                k.key_code,
+                i64::from(k.scan_code),
+                held_key_value(k, as_pressed, presses, wait_ends),
+                super::key_value::primary_language(k.layout),
+            );
+            (name, k.press)
         })
         .unzip();
     HeldKeysAtAction {
@@ -4782,10 +4814,10 @@ fn handle_keyboard<B: AccessibilityBackend>(
             preferred_languages: languages,
             sequence_id: Some(raw.sequence_id),
             payload: ActionPayload::Key {
-                key,
+                input_method: input_method_as_written(raw, &key),
+                key: key_name_as_written(input_method_read_on(raw), key),
                 modifiers,
                 code: physical_key_of(raw),
-                input_method: input_method_at(raw),
                 repeat: is_repeat(raw),
                 held,
                 element,
@@ -4982,11 +5014,11 @@ fn handle_keyboard<B: AccessibilityBackend>(
         preferred_languages: languages,
         sequence_id: Some(raw.sequence_id),
         payload: ActionPayload::Key {
-            key: key.clone(),
+            key: key_name_as_written(input_method_read_on(raw), key.clone()),
             modifiers,
             repeat: is_repeat(raw),
             code: physical_key_of(raw),
-            input_method: input_method_at(raw),
+            input_method: input_method_as_written(raw, &key),
             held,
             element,
         },
@@ -6849,6 +6881,7 @@ mod tests {
                 key_value: answer_param(answer),
                 layout,
                 held: 0,
+                input_method_on: false,
             };
         raw.held = vec![
             held(0x41, Some(LayoutAnswer::Char('A')), 0x0406_0406, 1),
@@ -6913,6 +6946,7 @@ mod tests {
             key_value: 0,
             layout,
             held: with.index() as u8,
+            input_method_on: false,
         };
         let mut click = control_key_raw_event(0, 3);
         click.event_type = RawEventType::Click;
@@ -7313,6 +7347,7 @@ mod tests {
             key_value: 0,
             layout: PROBE_LAYOUT,
             held: 0,
+            input_method_on: false,
         };
         // A click on another worker, with the keys of the three key-downs
         // held: each is named as its `key` action was.

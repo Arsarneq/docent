@@ -384,7 +384,8 @@ pub struct HeldKeysAtAction {
 
 /// What was read of the input method at a key press (see
 /// [`held_keys::InputMethodState`]), as a `key` action states it: two fields
-/// of the action itself, each left out of the file where it was not read.
+/// of the action itself, each left out of the file where it was not read,
+/// and one mark internal to the stream to the frontend (the last field).
 /// The conversion mode is never there without the open status.
 #[derive(Debug, Serialize, Clone, Copy, Default, PartialEq, Eq)]
 pub struct InputMethodAtKey {
@@ -395,6 +396,13 @@ pub struct InputMethodAtKey {
     /// The input method's conversion mode, the value the system gave.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub input_method_conversion_mode: Option<u32>,
+    /// Set where the key is written `Unidentified` for the input method and
+    /// is a key that enters no character. Like `sequence_id`, internal to
+    /// Rust↔frontend communication: the frontend's sensitive-field rule goes
+    /// by a key's name, which this action no longer states, and it drops the
+    /// field. It has no schema counterpart.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub key_enters_no_text: bool,
 }
 
 impl From<Option<held_keys::InputMethodState>> for InputMethodAtKey {
@@ -402,6 +410,7 @@ impl From<Option<held_keys::InputMethodState>> for InputMethodAtKey {
         Self {
             input_method_open: state.map(|s| s.open),
             input_method_conversion_mode: state.and_then(|s| s.conversion_mode),
+            key_enters_no_text: false,
         }
     }
 }
