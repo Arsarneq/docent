@@ -10562,7 +10562,6 @@ const TIMING_WORDS: &[&str] = &[
     "key",
     "value-change",
     "look-ahead",
-    "queue",
     "window",
     "settle",
     "describe",
@@ -10836,12 +10835,12 @@ fn with_the_timing_switch_on_one_block_is_written_when_the_capture_stops() {
 #[test]
 fn a_timing_line_with_a_count_fails_the_block_checks() {
     let lines = [
-        "capture-timings key queue 0.0 3",
-        "capture-timings key queue 3 0.0",
+        "capture-timings key settle 0.0 3",
+        "capture-timings key settle 3 0.0",
         "capture-timings look-ahead described 1 2",
         "capture-timings look-ahead skipped gone 1 2",
         "capture-timings key described 1",
-        "capture-timings key queue",
+        "capture-timings key settle",
     ];
     for line in lines {
         let closed = std::panic::catch_unwind(|| assert_block_closed(line));
@@ -10849,14 +10848,16 @@ fn a_timing_line_with_a_count_fails_the_block_checks() {
         let shaped = std::panic::catch_unwind(|| shape_of(line));
         assert!(shaped.is_err(), "{line:?} has a shape");
     }
-    assert_block_closed("capture-timings key queue 0.0\ncapture-timings look-ahead skipped gone 1");
+    assert_block_closed(
+        "capture-timings key settle 0.0\ncapture-timings look-ahead skipped gone 1",
+    );
 }
 
-/// Typing into a field gives blocks of one shape for one character or four,
-/// with or without Shift and a dead key, in a normal edit field, a masked
-/// field and a field that cannot be described, and whether the field is
-/// found by its control or by the focus: a step shows only whether it was
-/// taken at all, never how many times or for what.
+/// Typing one character or four, with or without Shift and a dead key, gives
+/// the same block for each field and each path: a normal edit field, a
+/// masked field and a field that cannot be described, each found by its
+/// control and by the focus. A step shows only whether it was taken at all,
+/// never how many times or for what.
 #[test]
 fn the_timing_block_has_one_shape_whatever_was_typed_into_any_field() {
     let typings = [
@@ -10979,6 +10980,24 @@ fn a_value_change_read_too_late_in_an_edit_field_is_measured() {
             "{step} measured: {block:?}"
         );
     }
+}
+
+/// A capture whose value reads were all overtaken by a later key gives the
+/// block of one whose reads all came in time: a late read shows nowhere.
+#[test]
+fn late_reads_and_reads_in_time_give_one_shape() {
+    let block = |latest_key: u64| {
+        let (backend, _scene, _queries, _controls) = MovingFocusBackend::with_controls(
+            save_button_focused(),
+            field_with_reads(&[("a", latest_key)]),
+        );
+        block_of(backend, |harness| {
+            let t = now_ms();
+            harness.send_event(numbered_in_field(packet_key(1, t, u16::from(b'a')), 1));
+            harness.send_event(control_value_change(2, t + 1, FIELD));
+        })
+    };
+    assert_eq!(shape_of(&block(2)), shape_of(&block(1)));
 }
 
 /// A value change whose description gives no element (its window was left

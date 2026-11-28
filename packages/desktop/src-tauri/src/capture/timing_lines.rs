@@ -393,3 +393,25 @@ impl Timing {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A step keeps its largest duration, not the sum of its durations.
+    #[test]
+    fn a_step_keeps_its_largest_duration() {
+        let mut kept = Kept::default();
+        kept.note(Subject::Key, Step::Settle, Duration::from_millis(30));
+        for _ in 0..3 {
+            kept.note(Subject::Key, Step::Settle, Duration::from_millis(10));
+        }
+        let block = kept.block();
+        assert!(
+            block
+                .lines()
+                .any(|l| l == "capture-timings key settle 30.0"),
+            "{block}"
+        );
+    }
+}

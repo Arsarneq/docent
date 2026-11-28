@@ -224,20 +224,30 @@ fn rapid_restart_cycles_are_bounded_and_consistent() {
     }
 }
 
+/// Puts the capture timings switch back as it was when dropped, also when
+/// a test's assertion fails.
+struct SwitchRestored(Option<std::ffi::OsString>);
+
+impl Drop for SwitchRestored {
+    fn drop(&mut self) {
+        use docent_desktop_lib::capture::timing_lines::SWITCH_VARIABLE;
+        match self.0.take() {
+            Some(before) => std::env::set_var(SWITCH_VARIABLE, before),
+            None => std::env::remove_var(SWITCH_VARIABLE),
+        }
+    }
+}
+
 /// Runs `drive` with the capture timings switch set to `value` (unset with
-/// `None`), and restores it after.
+/// `None`), and puts it back after.
 fn with_timings_switch(value: Option<&str>, drive: impl FnOnce()) {
     use docent_desktop_lib::capture::timing_lines::SWITCH_VARIABLE;
-    let before = std::env::var_os(SWITCH_VARIABLE);
+    let _restored = SwitchRestored(std::env::var_os(SWITCH_VARIABLE));
     match value {
         Some(value) => std::env::set_var(SWITCH_VARIABLE, value),
         None => std::env::remove_var(SWITCH_VARIABLE),
     }
     drive();
-    match before {
-        Some(before) => std::env::set_var(SWITCH_VARIABLE, before),
-        None => std::env::remove_var(SWITCH_VARIABLE),
-    }
 }
 
 /// With the capture timings switch on, a capture writes nothing while it
