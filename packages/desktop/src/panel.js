@@ -872,7 +872,7 @@ btnNewRecordingCreate.addEventListener('click', async () => {
   activeSteps = [];
   isRecording = true;
   adapter.clearPendingActions();
-  await invoke('start_capture', { pid: null });
+  await startPlainCapture();
   enterRecordingView();
 });
 
@@ -1088,8 +1088,11 @@ btnToggleRecording.addEventListener('click', async () => {
   if (isRecording) {
     await invoke('stop_capture');
     isRecording = false;
-  } else {
+  } else if (rerecordLogicalId !== null) {
     await invoke('start_capture', { pid: null });
+    isRecording = true;
+  } else {
+    await startPlainCapture();
     isRecording = true;
   }
   updateRecordingUI();
@@ -1187,10 +1190,10 @@ async function commitStepSimple(logicalId) {
     renderStepList();
 
     // The commit replaced the re-recorded step: the re-record is over.
-    if (endRerecord()) await measureCaptureTimings();
+    endRerecord();
 
     if (wasRecording) {
-      await invoke('start_capture', { pid: null });
+      await startPlainCapture();
       isRecording = true;
     }
     updateRecordingUI();
@@ -1272,10 +1275,10 @@ async function commitStep(inputEl, source, logicalId) {
     renderStepList();
 
     // The commit replaced the re-recorded step: the re-record is over.
-    if (endRerecord()) await measureCaptureTimings();
+    endRerecord();
 
     if (wasRecording) {
-      await invoke('start_capture', { pid: null });
+      await startPlainCapture();
       isRecording = true;
     }
     updateRecordingUI();
@@ -1346,23 +1349,25 @@ async function openRerecord(step) {
 }
 
 /**
+ * Start a capture that is not a re-record's. No capture timings are measured
+ * while a re-record is open, so the capture is told to measure first: the hold
+ * a re-record set never outlasts the next such start.
+ */
+async function startPlainCapture() {
+  await invoke('set_capture_timings_measuring', { measuring: true });
+  await invoke('start_capture', { pid: null });
+}
+
+/**
  * End a re-record without committing it: forget the step it targets, hide its
  * banner and clear the narration it pre-filled. A no-op when none is active.
- * Returns whether a re-record ended, for the caller to have the capture
- * measure its timings again once the take's capture has stopped.
  */
 function endRerecord() {
-  if (rerecordLogicalId === null) return false;
+  if (rerecordLogicalId === null) return;
   rerecordLogicalId = null;
   previousRecordingView = null;
   rerecordBanner.classList.add('hidden');
   narrationInput.value = '';
-  return true;
-}
-
-/** Have the capture measure its timings again, as a re-record has ended. */
-function measureCaptureTimings() {
-  return invoke('set_capture_timings_measuring', { measuring: true });
 }
 
 /**
@@ -1370,16 +1375,16 @@ function measureCaptureTimings() {
  * captured, which belongs to the step it targeted. A no-op when none is active.
  */
 function discardRerecord() {
-  if (!endRerecord()) return;
+  if (rerecordLogicalId === null) return;
+  endRerecord();
   clearLiveActionList();
   adapter.clearPendingActions();
   pendingCount = 0;
-  return measureCaptureTimings();
 }
 
 btnRerecordCancel.addEventListener('click', async () => {
   const wasRecordingBefore = previousRecordingView;
-  const ended = endRerecord();
+  endRerecord();
   clearLiveActionList();
   adapter.clearPendingActions();
   pendingCount = 0;
@@ -1387,8 +1392,10 @@ btnRerecordCancel.addEventListener('click', async () => {
   if (!wasRecordingBefore) {
     await invoke('stop_capture');
     isRecording = false;
+  } else {
+    // The capture keeps running as the recording's own: it measures again.
+    await invoke('set_capture_timings_measuring', { measuring: true });
   }
-  if (ended) await measureCaptureTimings();
   updateRecordingUI();
   updateCommitButton();
 });
