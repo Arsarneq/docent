@@ -4404,7 +4404,9 @@ mod alt_graph {
 // code. A press of Shift, Ctrl or Alt is written as no `key` (DCP-9, DCP-13),
 // and a key pressed while one is held states it in its `modifiers`. These
 // tests send that input with `SendInput` itself, since enigo fills in a scan
-// code, and report what a low-level keyboard hook of their own was handed.
+// code. A low-level keyboard hook of their own must be handed a key-down for
+// each press, by one of its key's codes, and the codes it was handed are
+// reported.
 // ═══════════════════════════════════════════════════════════════════════════════
 
 mod generic_modifier_codes {
@@ -4413,8 +4415,8 @@ mod generic_modifier_codes {
     use docent_desktop_lib::capture::win32_bindings::{
         CallNextHookEx, GetCurrentThreadId, GetMessageW, PeekMessageW, PostThreadMessageW,
         SendInput, SetWindowsHookExW, UnhookWindowsHookEx, INPUT, INPUT_0, INPUT_KEYBOARD,
-        KBDLLHOOKSTRUCT, KEYBDINPUT, KEYEVENTF_KEYUP, LPARAM, LRESULT, MSG, PM_NOREMOVE,
-        WH_KEYBOARD_LL, WM_QUIT, WPARAM,
+        KBDLLHOOKSTRUCT, KEYBDINPUT, KEYEVENTF_KEYUP, LLKHF_INJECTED, LPARAM, LRESULT, MSG,
+        PM_NOREMOVE, WH_KEYBOARD_LL, WM_KEYDOWN, WM_QUIT, WM_SYSKEYDOWN, WPARAM,
     };
     use std::sync::Mutex;
 
@@ -4431,22 +4433,32 @@ mod generic_modifier_codes {
         flags: u32,
     }
 
-    /// What the observing hook was handed, in order.
+    /// What the observing hook kept, in order.
     static HANDED: Mutex<Vec<Handed>> = Mutex::new(Vec::new());
 
-    /// The observing hook: it notes the message and passes it on.
+    /// Whether the observing hook keeps a message: an injected one, of a key
+    /// the test sends or a code the system may hand for it (Shift, Ctrl or Alt
+    /// by their generic, left or right codes, and E).
+    fn kept(vk: u32, flags: u32) -> bool {
+        flags & LLKHF_INJECTED as u32 != 0 && matches!(vk, 0x10..=0x12 | 0xA0..=0xA5 | VK_E)
+    }
+
+    /// The observing hook: it keeps the messages [`kept`] admits and passes
+    /// every message on.
     unsafe extern "system" fn observe(code: i32, w_param: WPARAM, l_param: LPARAM) -> LRESULT {
         if code >= 0 {
             // SAFETY: a low-level keyboard hook's `lParam` points at the
             // message's `KBDLLHOOKSTRUCT` for the length of the call.
             let k = unsafe { &*(l_param.0 as *const KBDLLHOOKSTRUCT) };
-            if let Ok(mut handed) = HANDED.lock() {
-                handed.push(Handed {
-                    message: w_param.0 as u32,
-                    vk: k.vkCode,
-                    scan: k.scanCode,
-                    flags: k.flags,
-                });
+            if kept(k.vkCode, k.flags) {
+                if let Ok(mut handed) = HANDED.lock() {
+                    handed.push(Handed {
+                        message: w_param.0 as u32,
+                        vk: k.vkCode,
+                        scan: k.scanCode,
+                        flags: k.flags,
+                    });
+                }
             }
         }
         // SAFETY: the arguments the hook was called with.
@@ -4454,8 +4466,8 @@ mod generic_modifier_codes {
     }
 
     /// A low-level keyboard hook of the test's own, on a thread that pumps
-    /// messages, which notes every keyboard message the system hands it until
-    /// it is dropped.
+    /// messages, which keeps the injected messages of the test's keys the
+    /// system hands it until it is dropped.
     struct Observer {
         thread_id: u32,
         handle: Option<thread::JoinHandle<()>>,
@@ -4491,7 +4503,7 @@ mod generic_modifier_codes {
             }
         }
 
-        /// Stops the hook and returns what it was handed.
+        /// Stops the hook and returns what it kept.
         fn stop(mut self) -> Vec<Handed> {
             self.quit();
             HANDED.lock().unwrap().clone()
@@ -4561,21 +4573,23 @@ mod generic_modifier_codes {
     }
 
     /// Shift, Ctrl and Alt, each sent by its generic code with no scan code,
-    /// held while E is pressed and released: the file holds no `key` for the
-    /// modifier, and the E's `key` states it. The failure message gives, per
-    /// modifier, what the observing hook was handed and the `key` actions
-    /// captured.
+    /// held while E is pressed and released: the observing hook is handed a
+    /// key-down of the modifier by one of its codes, generic, left or right,
+    /// the file holds no `key` for the modifier, and the E's `key` states it.
+    /// Which of its codes the hook is handed is not held to. The failure
+    /// message gives, per modifier, the codes the observing hook was handed
+    /// and the `key` actions captured.
     #[test]
     #[serial]
     fn a_generic_shift_ctrl_or_alt_code_is_no_key_and_the_letter_states_it() {
-        let cases: [(&str, u16, serde_json::Value); 3] = [
-            ("Shift", 0x10, only(false, true, false)),
-            ("Ctrl", 0x11, only(true, false, false)),
-            ("Alt", 0x12, only(false, false, true)),
+        let cases: [(&str, u16, [u32; 3], serde_json::Value); 3] = [
+            ("Shift", 0x10, [0x10, 0xA0, 0xA1], only(false, true, false)),
+            ("Ctrl", 0x11, [0x11, 0xA2, 0xA3], only(true, false, false)),
+            ("Alt", 0x12, [0x12, 0xA4, 0xA5], only(false, false, true)),
         ];
         let mut report = Vec::new();
         let mut held_to = true;
-        for (name, vk, want) in cases {
+        for (name, vk, codes, want) in cases {
             let observer = Observer::start();
             let events = capture_with_layout(
                 US.0,
@@ -4596,6 +4610,13 @@ mod generic_modifier_codes {
                 },
             );
             let handed = observer.stop();
+            let pressed = handed.iter().any(|h| {
+                (h.message == WM_KEYDOWN as u32 || h.message == WM_SYSKEYDOWN as u32)
+                    && codes.contains(&h.vk)
+            });
+            if !pressed {
+                held_to = false;
+            }
             let keys = keys_of(&events);
             // The E's name is the layout's for the key with the modifier held,
             // so only its `code` and its `modifiers` are held to.
@@ -4616,15 +4637,16 @@ mod generic_modifier_codes {
                 })
                 .collect();
             report.push(format!(
-                "{name} (sent as vk {vk:#04x}, scan 0):\n  hook handed: {handed:#?}\n  key actions: {keys:?}"
+                "{name} (sent as vk {vk:#04x}, scan 0):\n  hook handed a key-down of the key: {pressed}\n  hook handed: {handed:#?}\n  key actions: {keys:?}"
             ));
         }
         let report = report.join("\n");
         println!("{report}");
         assert!(
             held_to,
-            "a press of Shift, Ctrl or Alt by its generic code is written as no `key`, and \
-             the E pressed while it is held is one `key` stating it in `modifiers`:\n{report}"
+            "a press of Shift, Ctrl or Alt by its generic code reaches a low-level keyboard \
+             hook as a key-down by one of its key's codes, is written as no `key`, and the E \
+             pressed while it is held is one `key` stating it in `modifiers`:\n{report}"
         );
     }
 }

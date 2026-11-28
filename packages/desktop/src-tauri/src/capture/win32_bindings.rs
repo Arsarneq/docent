@@ -4620,6 +4620,7 @@ pub const LBS_NOTIFY: i32 = 1;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub struct LCID(pub u32);
 pub const LLKHF_EXTENDED: i32 = 1;
+pub const LLKHF_INJECTED: i32 = 16;
 pub const LOCALE_ALLOW_NEUTRAL_NAMES: i32 = 134217728;
 pub const LOCALE_NAME_MAX_LENGTH: i32 = 85;
 #[repr(transparent)]
