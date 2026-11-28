@@ -659,9 +659,7 @@ After a typing worker gives its role up at a commit, two things hold for deliver
 
 **DCP-13.** This platform's exceptions within the surface (core [CP-15](../../../../architecture/system/capture-principles.md#capture-surface)):
 
-- A lone Shift, Ctrl or Alt press — a keypress, but the worker drops it; these
-  keys are recorded only within a combination (a lone Win press is recorded, as
-  `Meta`)
+- A lone Shift, Ctrl or Alt press is not written; these keys are recorded only within a combination (a lone Win press is recorded, as `Meta`).
 - A key press whose keyboard layout could not be asked is written with `key`
   `Unidentified` where the key has no name of its own (a letter, a digit, a
   punctuation key), where the extension writes the character; a departure
@@ -710,8 +708,7 @@ After a typing worker gives its role up at a commit, two things hold for deliver
     the key behind a dead key is `Unidentified`, and where the desktop does
     not know which accent waits so is every key that gives a character,
     until a key that gives something that is no character (Enter, Tab) was
-    pressed in the thread. The
-    log says so once for the layout;
+    pressed in the thread;
   - a key named among the `held_keys` of a pointer action before its own
     key-down was named: the action waits for the names of its held keys for
     at most 5 s in all, and names a key `Unidentified` where none came.
@@ -733,143 +730,63 @@ After a typing worker gives its role up at a commit, two things hold for deliver
   which is what the browser's published source does on Windows; that side
   was read from the source and not measured. A departure (core CP-19;
   [docent#829](https://github.com/Arsarneq/docent/issues/829)).
-- Win+D (show desktop) — a keypress, but the system intercepts it before the
-  hooks
-- Win+L (lock screen) — a keypress, but the system intercepts it before the
-  hooks
-- Ctrl+Shift+Esc (Task Manager) — a keypress, but the system intercepts it
-  before the hooks
-- Assistive-technology-driven actions that call UI Automation patterns
-  directly (voice control, screen readers invoking `SelectionItem.Select`)
-  — they produce correlated-looking WinEvents but no low-level input, so the
-  input-correlation gates above classify their effects as programmatic. A
-  known limitation of the correlation doctrine, affecting every correlated
-  event class equally.
-- A scroll follows [core CP-16](../../../../architecture/system/capture-principles.md#capture-surface). The quantity here is the sum of the native wheel deltas the input layer feeds (120 per detent), and the floor is `SCROLL_MIN_DISTANCE_PX` in `src/capture/timing.rs`, a name that says pixels for a quantity that is wheel delta
-- A file dialog confirmed from the keyboard (Enter on the filename field)
-  produces no `file_dialog` action — the proxy triggers only on a left click
-  of the dialog's Save/Open button and on a left double-click on a file in its
-  item view (DCP-6); a middle press on either confirms nothing in the proxy
-  (DCP-10); the extension records its `file_upload` whatever confirmed the
-  chooser, so this is a departure (core CP-19;
-  [docent#710](https://github.com/Arsarneq/docent/issues/710))
-- A file dialog whose confirm button is named other than "Save" or "Open", or
-  whose window title contains none of "save as", "save" or "open" — both tests
-  English-only, so a localized dialog — produces no `file_dialog` action; the
-  title test applies to the double-click as well, the button-name test to the
-  button only; a departure (core CP-19;
-  [docent#710](https://github.com/Arsarneq/docent/issues/710))
-- A file confirmed by a double-click in a file dialog's item view — captured with a caveat. The second press closes the dialog, so the dialog is read at the double-click's first click, which selected the file. The `file_dialog` is written beside the second click only where the first click landed on a list item and that read found the dialog's File name equal to the item's name, which selecting a file puts there. So, for example:
-  - a double-click on a folder, whose selection leaves the File name as it was, navigates the dialog and records none, save in the next case;
-  - where the File name already held that folder's name (typed there earlier, for example), a `file_dialog` naming the folder is written though the dialog navigated; a departure (core CP-18);
-  - none is recorded when the read fails as the dialog closes, or finds the File name not yet filled.
-- A `file_dialog` whose `file_path` is the File name text as the dialog shows it, joined to the dialog's folder, rather than a file on disk; a departure (core CP-18). The text lacks a file's extension wherever the shell hides it (for known file types where the system hides extensions, and for some types, such as shortcuts, whatever the setting). What `file_path` holds, a closed list:
+- A key the system takes before the hooks are handed it is not written. Win+D (show desktop), Win+L (lock screen) and Ctrl+Shift+Esc (Task Manager) are three such keys; Windows decides the set, and the three do not close it.
+- An action an assistive technology makes by calling UI Automation patterns directly (voice control, a screen reader invoking `SelectionItem.Select`) is not written: it comes with no low-level input, so its effects are classified as programmatic. A known limit of input correlation, the same for every correlated event class.
+- A scroll follows [core CP-16](../../../../architecture/system/capture-principles.md#capture-surface). The quantity here is the sum of the native wheel deltas the input layer feeds (120 per detent), and the floor is 200 (`SCROLL_MIN_DISTANCE_PX` in `src/capture/timing.rs`).
+- A file dialog confirmed from the keyboard (Enter on the filename field) produces no `file_dialog`: one is written only at a left click of the dialog's Save/Open button and at a left double-click on a file in its item view (DCP-6), and a middle press on either confirms nothing (DCP-10). The extension records its `file_upload` whatever confirmed the chooser. A departure (core CP-19; [docent#710](https://github.com/Arsarneq/docent/issues/710)).
+- A file dialog whose confirm button is named other than "Save" or "Open", or whose window title names no dialog type (the `file_dialog` row of the [session format](../../../../technical/session-format.md#desktop-windows-only)), produces no `file_dialog`: both tests are English-only, so a localized dialog records none. The title test applies to the double-click as well, the button-name test to the button only. A departure (core CP-19; [docent#710](https://github.com/Arsarneq/docent/issues/710)).
+- A file confirmed by a double-click in a file dialog's item view is written as a `file_dialog` beside the second click only where the first click landed on a list item and, after it, the dialog's File name equals the item's name, which selecting a file puts there: the second press closes the dialog, so the dialog is read at the first. So, for example:
+  - A double-click on a folder, whose selection leaves the File name as it was, navigates the dialog and records none, save in the next case.
+  - Where the File name already held that folder's name (typed there earlier, for example), a `file_dialog` naming the folder is written though the dialog navigated. A departure (core CP-18; [docent#855](https://github.com/Arsarneq/docent/issues/855)).
+  - None is recorded when the read fails as the dialog closes, or finds the File name not yet filled.
+- A `file_dialog`'s `file_path` is the File name text as the dialog shows it, joined to the dialog's folder, rather than a file on disk (the `file_dialog` row of the [session format](../../../../technical/session-format.md#desktop-windows-only) states the field). A departure (core CP-18; [docent#855](https://github.com/Arsarneq/docent/issues/855)). The shell hides a file's extension in that text for known file types where the system hides extensions, and for some types, such as shortcuts, whatever the setting. What `file_path` holds, a closed list:
   - For an Open dialog, `file_path` names the file the text names when exactly one file is either of these two: among the files in the dialog's folder named as the text followed by an extension, the one whose name as the shell displays it is the text (case aside); or the text's own path, where that is a file. The lookup is made when the click is processed and lists at most 64 of the folder's entries.
   - For an Open dialog in every other case, the text as shown is recorded: where the text names no file or several, where more than 64 entries are listed, and where the path is not a full one (no folder was read, or the text is relative).
   - The text as shown is recorded for every Save and Save As too. Their text names the file to be written, which need not exist yet and need not be a file already displayed under the same text (report.pdf, displayed as "report" where extensions are hidden, while a report is saved as a .docx). So the extension the dialog adds for the chosen file type is not recorded.
 
-  A dialog whose File name box is empty records no `file_dialog`.
-
-- A click whose element the pre-capture did not describe (DCP-1) — a left click (at its mouse-up), a right or middle press, or either click of a double-click, that got no element for one of these five reasons:
-  - its pre-capture's answer did not come within [the budget](capture-pipeline.md#pre-capture-at-a-click);
-  - its application held a describer with an earlier click's pre-capture and did not answer within the budget;
-  - no describer came free within the budget (each one on another click, held, or still building its accessibility client; start waits at most `PRE_CAPTURE_READY_TIMEOUT` for the first one before it registers the hooks);
-  - the answer described nothing (`ElementFromPoint` or the description failed, or the describer's accessibility client could not be built, which start reports);
-  - no pre-capture was running (none could be started, the process's describers being at the cap, which start reports; a later click tries again, at most once a second).
-
-  Such a click is described by its worker after the click has taken effect, from the element then at the click's point: a different element, or none, where the click changed what is there (a dialog's Save, OK or Open button that closes the dialog, a menu item that closes its menu). Two things follow for the file-dialog proxy (DCP-6):
-  - a left click on a file dialog's Save or Open button described so records no `file_dialog`, since the proxy tests the clicked element;
+- A click whose element the pre-capture did not describe (DCP-1; a left click at its mouse-up, a right or middle press, or either click of a double-click) is described after it has taken effect, from the element then at the click's point: a different element, or none, where the click changed what is there (a dialog's Save, OK or Open button that closes the dialog, a menu item that closes its menu). A click gets no element in three cases, a closed list: no answer came within [the budget](capture-pipeline.md#pre-capture-at-a-click) (the clicked application is slow to answer, or earlier clicks are still being described, for example); the answer described nothing; no pre-capture was running, which start reports. Two things follow for the file-dialog proxy (DCP-6):
+  - a left click on a file dialog's Save or Open button described so records no `file_dialog`;
   - a double-click on a file in its item view records none when the dialog has closed before its first click is described.
 
-  The budget is what keeps the hook from being held past the system's hook timeout ([what the budget buys](capture-pipeline.md#pre-capture-at-a-click)). The extension records the element the click event names as its target, whatever the page does after the click, so this is a departure (core CP-18, CP-19; [docent#745](https://github.com/Arsarneq/docent/issues/745))
+  The extension records the element the click event names as its target, whatever the page does after the click. A departure (core CP-18, CP-19; [docent#745](https://github.com/Arsarneq/docent/issues/745)).
 
-- A value change that repeats the value just taken for the field typed into last, with no typing key pressed for it (a program that reports one change twice) — not written. Two things the person enters again are written, a closed list:
+- A value change that repeats the value just taken for the field typed into last, with no typing key pressed for it (a program that reports one change twice) is not written (the `type` row of the [session format](../../../../technical/session-format.md#shared-both-platforms)). Two things the person enters again are written, a closed list:
   - a value the person types is written each time it is typed, also where it equals the one written before (the same text typed over itself, a value undone and typed again);
   - so is the first value change of a field after a paste key pressed in it (Ctrl+V, Ctrl+Shift+V or Shift+Insert: the same text pasted over itself), also where other keys were pressed before the program reported it. A paste key that pasted nothing leaves the field's next value change taken for its text.
 
-  A click on a menu item counts as a paste key pressed in the field typed into last (the same text pasted over itself from the field's context menu or the window's menu). A click on a menu item is a left click whose element was described as a menu item at the release, in any window, whichever item it is: the item's name is in the application's language and is not read.
+  A click on a menu item counts as a paste key pressed in the field typed into last (the same text pasted over itself from a menu). It is a left click whose element was described as a menu item at the release, in any window, whichever item it is: the item's name is in the application's language and is not read.
 
   Two departures follow:
-  - After a click on an item that pastes nothing (Save, Copy, an item of another application), a report that repeats that field's value is written as one more `type` the person did not make; a departure (core CP-18), and one from the extension (ECP-12's item on a value set again; core CP-19; [docent#751](https://github.com/Arsarneq/docent/issues/751)).
-  - A value set twice to the same text with neither a key nor such a click (a menu that is not exposed as menu items, an item chosen by pressing on the menu bar and releasing on the item, an item that could not be described at the release, a drop) is one value change the worker cannot tell from a repeated report. For a password field, whose value is the mask, so is every value change after the first that neither a text-entering keystroke, a paste key nor a menu item accompanies. A departure (core CP-18), and for such a paste one from the extension, which writes it (core CP-19; [docent#751](https://github.com/Arsarneq/docent/issues/751)).
+  - After a click on an item that pastes nothing (Save, Copy, an item of another application), a report that repeats that field's value is written as one more `type` the person did not make. A departure (core CP-18), and one from the extension (ECP-12's item on a value set again; core CP-19; [docent#751](https://github.com/Arsarneq/docent/issues/751)).
+  - A value set twice to the same text with neither a key nor such a click (a menu that is not exposed as menu items, an item chosen by pressing on the menu bar and releasing on the item, an item that could not be described at the release, a drop) is not written the second time: it cannot be told from a repeated report. For a password field, whose value is the mask, so is every value change after the first that neither a text-entering keystroke, a paste key nor a menu item accompanies. A departure (core CP-18), and for such a paste one from the extension, which writes it (core CP-19; [docent#751](https://github.com/Arsarneq/docent/issues/751)).
 
-- Keys typed into a field whose value was not taken — written as `key` actions, not as the field's text; a departure DCP-18 states, with where those keys went in the field, which is missing data
-- A key, or text no key carries, that a value read leaves in no action — held facts left unwritten, a departure (core CP-18, CP-19); the two open cases DCP-18 states
-- A focus on the element the focus worker wrote last (its selector within its window; DCP-21) — not written; a departure (core CP-18)
-- A focus that a worker describes after the input thread dispatched a later focus event (DCP-21) — not written, save in the open cases DCP-21 states; a departure (core CP-18)
-- A focus whose element is in a window of a process the scope filters did not judge (DCP-21's table) — not written; a departure (core CP-18)
-- A key pressed while an input method composes text (the letters of a romanized reading, Space, the Enter that confirms, Escape, an arrow in the candidate list, Backspace) — written as a `key`. A typing key is written so too, unless the field reports a value change for it: a field that reports the composing text as its value has those keys in its `type` instead. The composed text is the field's `type` when it is confirmed. A composition given up leaves its keys, and no `type` where the field reported no value for it.
+- Keys typed into a field whose value was not taken are written as `key` actions, not as the field's text, and where those keys went in the field is missing data: a departure DCP-18 states.
+- A key, or text no key carries, that a value read leaves in no action is not written: the two open cases DCP-18 states.
+- A focus on the element of the last focus written (its selector within its window; DCP-21) is not written. A departure (core CP-18; [docent#856](https://github.com/Arsarneq/docent/issues/856)).
+- Where the focus moves again before the first focus is described, only the later focus is written (DCP-21), save in the open cases DCP-21 states. A departure (core CP-18; [docent#856](https://github.com/Arsarneq/docent/issues/856)).
+- A focus whose element is in a window of a process the scope filters did not judge (DCP-21's table) is not written. A departure (core CP-18; [docent#856](https://github.com/Arsarneq/docent/issues/856)).
+- A key pressed while an input method composes text (the letters of a romanized reading, Space, the Enter that confirms, Escape, an arrow in the candidate list, Backspace) is written as a `key`. A typing key is written so too, unless the field reports a value change for it: a field that reports the composing text as its value has those keys in its `type` instead. The composed text is the field's `type` when it is confirmed. A composition given up leaves its keys, and no `type` where the field reported no value for it.
 
   The keyboard hook is handed each key ahead of the input method, and nothing a program outside the application can read says that a composition is open. Three things were measured on Windows 11 with the Japanese Microsoft IME in Notepad and in a WebView2 field:
   - the input method's accessibility events (`EVENT_OBJECT_IME_SHOW`, `_HIDE`, `_CHANGE`, `EVENT_OBJECT_TEXTEDIT_CONVERSIONTARGETCHANGED`) never fired;
   - neither field supported UI Automation's text-edit pattern;
   - the layout, the input method's open status and its conversion mode changed only when the input method was switched.
 
-  The extension, which the browser tells, writes none of these keys; a departure (core CP-18) that comes from the platforms themselves (core CP-19; [docent#744](https://github.com/Arsarneq/docent/issues/744), [docent#237](https://github.com/Arsarneq/docent/issues/237))
+  Windows shows the composition state (IMM's input context, TSF) only to code inside the application, and the desktop runs no code inside other applications.
 
-- A focus or value change on an element the accessibility layer cannot
-  describe — not written; the keys buffered for the value change are
-  superseded by nothing and are written as keys (DCP-16); a departure (core
-  CP-18)
-- A title-bar close of a window the recording did not see open (a window open
-  before the recording started — the target window itself, introduced by a
-  `context_switch`, among them) — records no `context_close`:
-  `EVENT_OBJECT_DESTROY` is dispatched only for a window previously opened
-  within the recording (DCP-7); a departure (core CP-18)
-- An owned popup window (a dialog such as Find, for example) — its creation
-  records no `context_open` (DCP-7's `EVENT_OBJECT_CREATE` test), a
-  `context_switch` introduces it when its activation correlates, and otherwise
-  before the first action taken in it (DCP-20), and its title-bar close records
-  no `context_close` (DCP-7); a departure (core CP-18)
-- An owned top-level window without the popup style — `GetParent` returns
-  nothing for it, so its creation, when DCP-7's create test passes, records a
-  `context_open`, and its close, which the destroy test's owner check drops,
-  records no `context_close`; a departure (core CP-18)
-- A window whose title is empty when it closes — its creation, when DCP-7's
-  create test passes, records a `context_open` (the create test reads no
-  title), its close none (the destroy test requires one); a departure (core
-  CP-18)
-- A selection the application changes within `SELECTION_CORRELATION_MS`
-  (`src/capture/timing.rs`) of an input is recorded as a `select` — UI Automation carries no per-event trust
-  flag, so a correlated application-fired selection cannot be told from the
-  user's (the inverse of the assistive-technology limitation above)
-- Typing, focus and selection in the web content of a WebView2-based
-  application other than Docent — its content windows belong to the webview
-  runtime's process, which never equals the host's foreground process, so the
-  accessibility events they raise (focus, value change, selection) are dropped
-  in every filter setting — by the target filter when a target is selected, by
-  the exclusion's executable-name ground when none is and the exclusion is on,
-  and otherwise by the foreground gate (DCP-14); the key presses, attributed to
-  the host's foreground window, are written as `key` actions one by one, with
-  no value change to correlate them into a `type`; a departure (core CP-18)
-- Clicks, wheel and drags over that web content, while the self-capture
-  exclusion is on (its default, DCP-5) or the application is the selected
-  target — the mouse hook attributes them to the content window under the
-  pointer, whose process the exclusion's executable-name ground excludes and
-  which never equals a selected target's process — not written; a departure
-  (core CP-18): the content lies within the default or the selected scope, and
-  a filter's process test drops it
-- A window activation, opening or close that follows its causing input by more
-  than its correlation window (an Alt+Tab whose Alt is released late, a
-  slow-starting application, a window closed late after its click, for
-  example) — classified as programmatic: the `key` or `click` is written, the
-  `context_switch`, `context_open` or `context_close` is not; a window that
-  came in front this way and has no context the session introduced takes a
-  `context_switch` before the first action taken in it (DCP-20); a departure
-  (core CP-18)
-- A window activation, opening or close whose causing input fell outside the
-  scope filters (a taskbar or Start-menu switch into a selected target, for
-  example) — classified as programmatic: no `context_switch`, `context_open`
-  or `context_close`; a window that came in front this way and has no context
-  the session introduced takes a `context_switch` before the first action
-  taken in it (DCP-20)
-- An extra mouse button press (the back and forward buttons) — it reaches the
-  mouse hook but is not written, the format having no action type for it
-- A drag that starts inside the captured scope and is released outside it —
-  the release is filtered, and the pair is dispatched only at release
-  (DCP-10), so nothing is written; a departure (core CP-18)
-- A drag that starts outside the captured scope and is released inside it —
-  captured with a caveat: a `click` at the release point, with no
-  `drag_start`/`drop` pair
-- A file chosen in a picker the application draws itself rather than the
-  system's common file dialog — no `file_dialog` action
+  The extension, which the browser tells, writes no typing key of a composition as a `key`, its text being in the `type`; the difference comes from the platforms themselves (core CP-19; [docent#237](https://github.com/Arsarneq/docent/issues/237)). That it writes none of the keys that enter no text is the extension's departure (ECP-12).
+
+- A focus or value change on an element the accessibility layer cannot describe is not written; the keys typed for the value change are written as keys (DCP-16). A departure (core CP-18; [docent#856](https://github.com/Arsarneq/docent/issues/856)).
+- A title-bar close of a window the recording did not see open (a window open before the recording started, the target window itself, introduced by a `context_switch`, among them) records no `context_close` (DCP-7). A departure (core CP-18; [docent#857](https://github.com/Arsarneq/docent/issues/857)).
+- An owned popup window (a dialog such as Find, for example): its creation records no `context_open` and its title-bar close no `context_close` (DCP-7); a `context_switch` introduces it when its activation correlates, and otherwise before the first action taken in it (DCP-20). A departure (core CP-18; [docent#857](https://github.com/Arsarneq/docent/issues/857)).
+- An owned top-level window without the popup style: its creation, when DCP-7's create test passes, records a `context_open`, and its close records no `context_close`: an owned window does not pass DCP-7's destroy test. A departure (core CP-18; [docent#857](https://github.com/Arsarneq/docent/issues/857)).
+- A window whose title is empty when it closes: its creation, when DCP-7's create test passes, records a `context_open`, and its close none (the destroy test requires a title). A departure (core CP-18; [docent#857](https://github.com/Arsarneq/docent/issues/857)).
+- A selection the application changes within 1000 ms (`SELECTION_CORRELATION_MS` in `src/capture/timing.rs`) of an input is recorded as a `select`: UI Automation carries no per-event trust flag, so a correlated application-fired selection cannot be told from the user's (the inverse of the assistive-technology limit above).
+- Typing, focus and selection in the web content of a WebView2-based application other than Docent: no `focus`, `type` or `select` is written in any filter setting, since the content windows belong to the webview runtime's process and not to the host's (DCP-14). The key presses, attributed to the host's foreground window, are written as `key` actions one by one, with no `type`. A departure (core CP-18; [docent#858](https://github.com/Arsarneq/docent/issues/858)).
+- Clicks, wheel and drags over that web content are not written while the self-capture exclusion is on (its default, DCP-5) or the application is the selected target: the content window under the pointer belongs to the webview runtime's process, though the content lies within the default or the selected scope. A departure (core CP-18; [docent#858](https://github.com/Arsarneq/docent/issues/858)).
+- A window activation, opening or close that follows its causing input by more than its correlation window, 100 ms for an activation (`FOREGROUND_CORRELATION_MS`) and 200 ms for an opening or a close (`WINDOW_LIFECYCLE_CORRELATION_MS`) (an Alt+Tab whose Alt is released late, a slow-starting application, a window closed late after its click, for example) is classified as programmatic: the `key` or `click` is written, the `context_switch`, `context_open` or `context_close` is not. A window that came in front this way and has no context the session introduced takes a `context_switch` before the first action taken in it (DCP-20). A departure (core CP-18; [docent#857](https://github.com/Arsarneq/docent/issues/857)).
+- A window activation, opening or close whose causing input fell outside the scope filters (a taskbar or Start-menu switch into a selected target, for example) is classified as programmatic: no `context_switch`, `context_open` or `context_close`. A window that came in front this way and has no context the session introduced takes a `context_switch` before the first action taken in it (DCP-20).
+- An extra mouse button press (the back and forward buttons) is not written, the format having no action type for it; the extension writes none either (ECP-12).
+- A drag that starts inside the captured scope and is released outside it writes nothing: the scope is judged where the button is released (DCP-10). A departure (core CP-18; [docent#859](https://github.com/Arsarneq/docent/issues/859)).
+- A drag that starts outside the captured scope and is released inside it is captured with a caveat: a `click` at the release point, with no `drag_start`/`drop` pair.
+- A file chosen in a picker the application draws itself rather than the system's common file dialog produces no `file_dialog`.
